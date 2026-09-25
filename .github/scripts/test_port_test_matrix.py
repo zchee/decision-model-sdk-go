@@ -1,6 +1,8 @@
 """Tests for port-test-matrix.py.
 
-Run from the repository root with ``uvx pytest -q .github/scripts``.
+Run from the repository root with ``uvx pytest -q .github/scripts``. Type-check
+the scripts and these tests with ``uvx --with pytest mypy --strict
+.github/scripts``: mypy needs pytest installed next to it to see its types.
 """
 
 from __future__ import annotations
@@ -352,20 +354,131 @@ class TestParseMatrix:
         assert matrix.failures[0].startswith("m.md:5: ")
         assert want in matrix.failures[0]
 
-    def test_a_row_above_a_stray_separator_is_still_a_row(self) -> None:
-        text = _matrix(PLANNED_A[0], "| --- | --- | --- | --- |", PLANNED_A[1], count=2)
-        assert [row.row_id for row in _rows(text)] == ["A1", "A2"]
+    def test_a_stray_separator_among_the_rows_is_a_malformed_row(self) -> None:
+        # GitHub renders it as a row of dashes, so it is not skipped.
+        text = _matrix(PLANNED_A[0], "| --- | --- | --- | --- |", PLANNED_A[1])
+        matrix = ptm.parse_matrix(text, "m.md")
+        assert [row.row_id for row in matrix.rows] == ["A1", "A2"]
+        assert matrix.failures == ["m.md:6: ID cell '---' is blank or only '-' and ':'"]
 
-    def test_header_and_separator_need_four_cells(self) -> None:
+    HEADER_FAILURE = (
+        "the tests/test_a.py table must start with "
+        "| ID | Upstream | Go test / deviation | status |"
+    )
+
+    @pytest.mark.parametrize(
+        "header",
+        [
+            "| ID | Upstream | Go test | status |",
+            "| ID | Upstream | Go test / deviation |",
+            "| id | upstream | go test / deviation | status |",
+            "| A0 | `test_one` | `TestOne` | planned |",
+        ],
+        ids=["old column name", "three cells", "case differs", "a data row"],
+    )
+    def test_the_header_row_is_fixed(self, header: str) -> None:
         text = (
             "### `tests/test_a.py` (1)\n\n"
-            "| ID | Upstream | Go test |\n"
+            f"{header}\n| --- | --- | --- | --- |\n{PLANNED_A[0]}\n"
+        )
+        matrix = ptm.parse_matrix(text, "m.md")
+        assert matrix.failures == [f"m.md:3: {self.HEADER_FAILURE}"]
+        assert [row.row_id for row in matrix.rows] == ["A1"]
+
+    def test_the_separator_needs_four_cells(self) -> None:
+        text = (
+            "### `tests/test_a.py` (1)\n\n"
+            "| ID | Upstream | Go test / deviation | status |\n"
             "| --- | --- | --- |\n"
             "| A1 | `test_one` | `TestOne` | planned |\n"
         )
         assert ptm.parse_matrix(text, "m.md").failures == [
-            "m.md:3: expected 4 cells, found 3",
-            "m.md:4: expected 4 cells, found 3",
+            "m.md:4: expected 4 cells, found 3"
+        ]
+
+    def test_a_table_without_header_and_separator_fails(self) -> None:
+        # P7: GitHub renders these lines as a paragraph, not a table.
+        text = "### `tests/test_a.py` (2)\n\n" + "\n".join(PLANNED_A) + "\n"
+        matrix = ptm.parse_matrix(text, "m.md")
+        assert matrix.failures == [
+            f"m.md:3: {self.HEADER_FAILURE}",
+            (
+                "m.md:4: the header row of the tests/test_a.py table is not "
+                "followed by a separator row"
+            ),
+            "m.md:1: heading says 2 rows, the group has 1",
+        ]
+        assert [row.row_id for row in matrix.rows] == ["A2"]
+
+    def test_a_header_without_a_separator_fails(self) -> None:
+        text = (
+            "### `tests/test_a.py` (1)\n\n"
+            "| ID | Upstream | Go test / deviation | status |\n"
+            f"{PLANNED_A[0]}\n"
+        )
+        matrix = ptm.parse_matrix(text, "m.md")
+        assert matrix.failures == [
+            (
+                "m.md:4: the header row of the tests/test_a.py table is not "
+                "followed by a separator row"
+            )
+        ]
+        assert [row.row_id for row in matrix.rows] == ["A1"]
+
+    @pytest.mark.parametrize(
+        "second_header",
+        [
+            f"{HEADER}\n",
+            "| A9 | `test_two` | `TestNope` | ported |\n| --- | --- | --- | --- |\n",
+        ],
+        ids=["P8 second table with a header", "P9 data row heading a table"],
+    )
+    def test_a_second_table_in_a_group_fails_and_is_not_read(
+        self, second_header: str
+    ) -> None:
+        text = (
+            _matrix(PLANNED_A[0], count=1)
+            + "\n"
+            + second_header
+            + "| A2 | `test_two` | `TestTwo` | planned |\n"
+        )
+        matrix = ptm.parse_matrix(text, "m.md")
+        assert matrix.failures == [
+            (
+                "m.md:7: a second table in the tests/test_a.py group; a group "
+                "holds exactly one"
+            )
+        ]
+        assert [row.row_id for row in matrix.rows] == ["A1"]
+
+    def test_a_group_without_a_table_fails(self) -> None:
+        text = "### `tests/test_a.py` (0)\n\nNo tests.\n"
+        assert ptm.parse_matrix(text, "m.md").failures == [
+            "m.md:1: the tests/test_a.py group has no table"
+        ]
+
+    @pytest.mark.parametrize("spaces", [1, 2, 3])
+    def test_rows_indented_up_to_three_spaces_are_rows(self, spaces: int) -> None:
+        # P6: GitHub renders them as table rows, so they are checked.
+        indented = " " * spaces + "| A9 | `test_two` | `TestNope` | ported |"
+        text = _matrix(PLANNED_A[0], indented)
+        assert [row.row_id for row in _rows(text)] == ["A1", "A9"]
+
+    def test_a_line_indented_four_spaces_is_a_code_block(self) -> None:
+        text = _matrix(PLANNED_A[0], "    | A2 | `test_two` | `TestTwo` | planned |")
+        matrix = ptm.parse_matrix(text, "m.md")
+        assert [row.row_id for row in matrix.rows] == ["A1"]
+        assert matrix.failures == ["m.md:1: heading says 2 rows, the group has 1"]
+
+    @pytest.mark.parametrize("level", ["#", "##", "####", "######"])
+    def test_file_headings_must_be_level_three(self, level: str) -> None:
+        # P11: a group heading at another level would leave its rows outside
+        # any group, or before the first one.
+        text = f"{level} `tests/test_a.py` (1)\n\n{HEADER}\n{PLANNED_A[0]}\n"
+        matrix = ptm.parse_matrix(text, "m.md")
+        assert matrix.rows == []
+        assert matrix.failures == [
+            "m.md:1: a group heading is level 3: ### `tests/<file>` (<count>)"
         ]
 
     def test_heading_count_must_match_the_rows(self) -> None:
@@ -670,6 +783,45 @@ class TestCheckRows:
             f"| B1 | `test_three` | {b1_cell} | planned |",
         )
         assert self._check(text) == want
+
+    @pytest.mark.parametrize(
+        ("cell", "want"),
+        [
+            ("`TestTwo` and `internal/codec.TestTwo`", ["`internal/codec.TestTwo`"]),
+            ("`TestTwo`, `./internal/codec/TestTwo`", ["`./internal/codec/TestTwo`"]),
+            ("`TestTwo` (`go vet ./examples/...`, `docs/*.md`, `internal/`)", []),
+        ],
+        ids=[
+            "P15 path-qualified next to a valid name",
+            "directory path",
+            "paths that name no test",
+        ],
+    )
+    def test_path_qualified_test_names_fail(self, cell: str, want: list[str]) -> None:
+        for status in ("planned", "ported"):
+            text = _full(
+                (PLANNED_A[0], f"| A2 | `test_two` | {cell} | {status} |"), PLANNED_B
+            )
+            assert self._check(text) == [
+                (
+                    f"row A2 (tests/test_a.py::test_two): {span} names a test by "
+                    "a path; write pkg.TestName or TestName"
+                )
+                for span in want
+            ]
+
+    def test_same_deviation_skips_rows_without_a_citation(self) -> None:
+        upstream = [*UPSTREAM, "tests/test_a.py::test_zero"]
+        text = _full(
+            (
+                '| A1 | `test_one` | deviation "not ported" | deviation |',
+                PLANNED_A[1],
+                "| A0 | `test_zero` | same deviation | deviation |",
+            ),
+            PLANNED_B,
+        )
+        got = ptm.check_rows(_rows(text), upstream, LISTED, no_planned=False)
+        assert got == []
 
     def test_same_deviation_inherits_within_its_group_only(self) -> None:
         inherits = _full(

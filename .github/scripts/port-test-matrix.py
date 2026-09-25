@@ -47,17 +47,22 @@ status is 0 only when every check passes.
    Without it, the ``--names`` file (default ``docs/upstream-tests.txt``) must
    equal the derived list line by line.
 4. Matrix rows. The ``--matrix`` file (default ``docs/port-test-matrix.md``)
-   groups rows under one heading per upstream file, of the form
-   ``### `tests/<file>` (<count>)`` or ``### `tests/<file>` (<count>, <note>)``.
-   <count> must equal the number of rows in the group, and a file heads at
-   most one group. Each group holds one table: a header row, a separator row
-   (every cell matches ``:?-{3,}:?``) and rows of four cells: ID, upstream
-   name (backtick-quoted; ``Class::name`` for a method), Go test or deviation,
-   status. ``\\|`` is a literal pipe inside a cell. Tables before the first
-   group heading are ignored; after it, a table row outside a group fails.
-   An ID cell that is blank or holds only ``-`` and ``:`` fails. Every
-   upstream test needs exactly one row; a row naming an unknown test, a
-   repeated ID and a malformed row are failures.
+   groups rows under one level-3 heading per upstream file, of the form
+   ``### `tests/<file>` (<count>)`` or ``### `tests/<file>` (<count>, <note>)``;
+   a heading of another level naming a ``tests/`` file fails. <count> must
+   equal the number of rows in the group, and a file heads at most one group.
+   A table is a run of consecutive lines that start with ``|`` after at most
+   three spaces (four spaces make a code block). Each group holds exactly one
+   table: the header row ``| ID | Upstream | Go test / deviation | status |``,
+   a separator row of four cells (each matches ``:?-{3,}:?``), then rows of
+   four cells: ID, upstream name (backtick-quoted; ``Class::name`` for a
+   method), Go test or deviation, status. A group without a table, a table
+   without that header or separator, and a second table in a group fail; the
+   rows of a second table are not read. ``\\|`` is a literal pipe inside a
+   cell. Tables before the first group heading are ignored; after it, a table
+   row outside a group fails. An ID cell that is blank or holds only ``-`` and
+   ``:`` fails. Every upstream test needs exactly one row; a row naming an
+   unknown test, a repeated ID and a malformed row are failures.
 5. Status rules.
 
    - ``planned``: passes, unless ``--no-planned`` is given (then it fails).
@@ -76,10 +81,15 @@ status is 0 only when every check passes.
      ``deviation "one deadline per attempt"``. Appendix B rows carry no
      numbers, and ``B<n>`` would read as one of the plan's benchmark IDs
      B1-B6, so there is no numeric form. A cell containing ``same deviation``
-     takes the citation of the nearest row above it in the same group.
+     takes the citation of the nearest row above it in the same group that
+     carries one; rows without a citation in between are skipped.
      Backtick-quoted ``Test…`` identifiers in a deviation cell (partial
      deviations such as ``deviation "…" + `TestX```) must exist, as for
      ``ported``.
+   - Every status: a backtick-quoted test name qualified by a path
+     (``internal/codec.TestX``, ``./internal/codec/TestX``) fails, since
+     ``go test -list`` knows packages by import path, not by directory; write
+     ``codec.TestX`` or ``TestX``.
 
 ``go test -list`` runs even when no row needs it, so a module that stops
 compiling under ``-tags live`` fails this check from the first wave on.
@@ -121,7 +131,10 @@ NORECURSE_DIRS = (
 
 _LOG = logging.getLogger("port-test-matrix")
 
-_HEADING = re.compile(r"^#{1,6}\s+`(tests/[^`]+\.py)`")
+HEADER_CELLS = ("ID", "Upstream", "Go test / deviation", "status")
+
+_HEADING = re.compile(r"^###[ \t]+`(tests/[^`]+\.py)`")
+_FILE_HEADING = re.compile(r"^#{1,6}[ \t]+`tests/[^`]+\.py`")
 _HEADING_COUNT = re.compile(r"\((\d+)(?:,[^)]*)?\)")
 _CELL_SPLIT = re.compile(r"(?<!\\)\|")
 _SEPARATOR_CELL = re.compile(r":?-{3,}:?")
@@ -129,6 +142,7 @@ _BLANK_ID = re.compile(r"[-:\s]*")
 _BACKTICK = re.compile(r"`([^`]+)`")
 _UPSTREAM_NAME = re.compile(r"`((?:Test\w*::)*test\w*)`")
 _TEST_IDENT = re.compile(r"(?:([A-Za-z_]\w*)\.)?(Test\w*)")
+_PATH_TEST = re.compile(r"(?:[\w.-]*/)+(?:[A-Za-z_]\w*\.)?Test\w*")
 _GO_IDENT = re.compile(r"(?:Test|Benchmark|Fuzz|Example)\w*")
 _QUOTED_DEVIATION = re.compile(r'\bdeviation\s+"([^"]*)"')
 _SAME_DEVIATION = re.compile(r"\bsame deviation\b")
@@ -336,6 +350,18 @@ def check_names_file(path: Path, derived: list[str]) -> list[str]:
     return [*failures, f"{path}: regenerate it with --write {path}"]
 
 
+def _table_line(line: str) -> str | None:
+    """Return ``line`` without its indentation when it is a table line.
+
+    A table line starts with ``|`` after at most three spaces; four spaces
+    would make it an indented code block.
+    """
+    stripped = line.lstrip(" ")
+    if len(line) - len(stripped) <= 3 and stripped.startswith("|"):
+        return stripped
+    return None
+
+
 def _cells(line: str) -> list[str]:
     """Split a ``| a | b |`` table line into stripped, unescaped cells.
 
@@ -354,24 +380,51 @@ def _is_separator(cells: list[str]) -> bool:
 
 @dataclass
 class _Group:
-    """The file group being parsed: its heading and how many rows it holds."""
+    """The file group being parsed: its heading, tables and row total."""
 
     file: str
     line: int
     count: int | None
     rows: int = 0
+    tables: int = 0
+    table_lines: int = 0  # lines read so far of the current table
 
 
 def _close_group(group: _Group | None, source: str) -> list[str]:
-    """Compare a finished group's row total with the count in its heading."""
-    if group is None or group.count is None or group.rows == group.count:
+    """Check a finished group: it has a table, and its count matches."""
+    if group is None:
         return []
-    return [
-        (
-            f"{source}:{group.line}: heading says {group.count} rows, the group "
-            f"has {group.rows}"
-        )
-    ]
+    where = f"{source}:{group.line}"
+    if group.tables == 0:
+        return [f"{where}: the {group.file} group has no table"]
+    if group.count is None or group.rows == group.count:
+        return []
+    return [f"{where}: heading says {group.count} rows, the group has {group.rows}"]
+
+
+def _table_structure(cells: list[str], group: _Group, where: str) -> list[str] | None:
+    """Check the header and separator lines of a group's table.
+
+    Args:
+        cells: the cells of the current table line.
+        group: the group, whose ``table_lines`` counts this line already.
+        where: ``source:line`` for failure messages.
+
+    Returns:
+        The failures of a header or separator line, possibly none; ``None``
+        when the line is a body row to parse (the third line on, or a second
+        line that is no separator).
+    """
+    if group.table_lines == 1:
+        if tuple(cells) == HEADER_CELLS:
+            return []
+        header = " | ".join(HEADER_CELLS)
+        return [f"{where}: the {group.file} table must start with | {header} |"]
+    if group.table_lines == 2 and _is_separator(cells):
+        if len(cells) != 4:
+            return [f"{where}: expected 4 cells, found {len(cells)}"]
+        return []
+    return None
 
 
 def _parse_row(cells: list[str], group: str, lineno: int, where: str) -> Row | str:
@@ -399,19 +452,19 @@ def parse_matrix(text: str, source: str = "matrix") -> Matrix:
 
     Returns:
         The rows of every file group, in document order, and one failure per
-        malformed heading, separator, row or group count (the format is in
-        check 4 of the module docstring).
+        malformed heading, table, row or group count (the format is in check
+        4 of the module docstring).
     """
     matrix = Matrix()
-    lines = text.splitlines()
     group: _Group | None = None
     heads: dict[str, int] = {}
-    for index, line in enumerate(lines):
-        lineno = index + 1
+    in_table = False
+    for lineno, line in enumerate(text.splitlines(), start=1):
         where = f"{source}:{lineno}"
         if line.startswith("#"):
             matrix.failures += _close_group(group, source)
             group = None
+            in_table = False
             if heading := _HEADING.match(line):
                 file = heading.group(1)
                 if first := heads.get(file):
@@ -425,21 +478,41 @@ def parse_matrix(text: str, source: str = "matrix") -> Matrix:
                         f"{where}: group heading does not end in (<count>)"
                     )
                 group = _Group(file, lineno, int(count.group(1)) if count else None)
+            elif _FILE_HEADING.match(line):
+                matrix.failures.append(
+                    f"{where}: a group heading is level 3: ### `tests/<file>` (<count>)"
+                )
             continue
-        if not line.startswith("|"):
+        row_line = _table_line(line)
+        starts_table = row_line is not None and not in_table
+        in_table = row_line is not None
+        if row_line is None:
             continue
         if group is None:
             if heads:
                 matrix.failures.append(f"{where}: table row outside a file group")
             continue
-        cells = _cells(line)
-        first = index == 0 or not lines[index - 1].startswith("|")
-        next_line = lines[index + 1] if index + 1 < len(lines) else ""
-        if _is_separator(cells) or (first and _is_separator(_cells(next_line))):
-            # A separator row, or a table's first row when a separator follows it.
-            if len(cells) != 4:
-                matrix.failures.append(f"{where}: expected 4 cells, found {len(cells)}")
+        if starts_table:
+            group.tables += 1
+            group.table_lines = 0
+            if group.tables == 2:
+                matrix.failures.append(
+                    f"{where}: a second table in the {group.file} group; "
+                    "a group holds exactly one"
+                )
+        if group.tables > 1:
             continue
+        group.table_lines += 1
+        cells = _cells(row_line)
+        structure = _table_structure(cells, group, where)
+        if structure is not None:
+            matrix.failures += structure
+            continue
+        if group.table_lines == 2:
+            matrix.failures.append(
+                f"{where}: the header row of the {group.file} table is not "
+                "followed by a separator row"
+            )
         group.rows += 1
         row = _parse_row(cells, group.file, lineno, where)
         if isinstance(row, Row):
@@ -544,6 +617,18 @@ def _citation(cell: str) -> str | None:
     return None
 
 
+def _path_qualified(row: Row) -> list[str]:
+    """Return one failure per test name the Go cell qualifies by a path."""
+    return [
+        (
+            f"row {row.row_id} ({row.key}): `{span}` names a test by a path; "
+            "write pkg.TestName or TestName"
+        )
+        for span in _BACKTICK.findall(row.go_cell)
+        if _PATH_TEST.fullmatch(span)
+    ]
+
+
 def _status_failures(
     row: Row, cited: str | None, listed: dict[str, set[str]], *, no_planned: bool
 ) -> list[str]:
@@ -625,11 +710,14 @@ def check_rows(
                 "test at the pinned commit"
             )
 
+        # "same deviation" inherits from the nearest row above that cites;
+        # rows without a citation leave the remembered one in place.
         cited = _citation(row.go_cell)
         if cited is not None:
             citation_above[row.file] = cited
         elif _SAME_DEVIATION.search(row.go_cell):
             cited = citation_above.get(row.file)
+        failures += _path_qualified(row)
         failures += _status_failures(row, cited, listed, no_planned=no_planned)
     failures += [
         f"upstream test {name} has no matrix row"

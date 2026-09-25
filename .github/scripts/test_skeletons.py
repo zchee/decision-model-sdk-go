@@ -69,6 +69,22 @@ def test_missing_flags_exit_2(name: str) -> None:
 
 
 @pytest.mark.parametrize("name", sorted(SKELETONS))
+def test_help_works_without_docstrings(name: str) -> None:
+    # python -OO strips docstrings: the description must not come from one.
+    module = _load(name)
+    proc = subprocess.run(
+        [sys.executable, "-OO", str(HERE / name), "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert module.DESCRIPTION in " ".join(proc.stdout.split())
+    assert module.__doc__ is not None
+    assert module.__doc__.splitlines()[0] == module.DESCRIPTION
+
+
+@pytest.mark.parametrize("name", sorted(SKELETONS))
 def test_script_exits_2_and_writes_only_stderr(name: str) -> None:
     proc = subprocess.run(
         [sys.executable, str(HERE / name), *SKELETONS[name]],

@@ -15,21 +15,27 @@ IDs that the plan's waves cite.
 | --- | --- | --- |
 | `planned` | not ported yet | passes; with `--no-planned` (CI from W6.3) it fails |
 | `ported` | the Go test exists | the Go cell names at least one backtick-quoted `Test…` identifier, and every one of them is listed by `go test -list '.*' -tags live ./...`; `pkg.TestName` must be listed by a package whose import path ends in `/pkg`, so tests of the root package are written unqualified (`TestX`, never `typesafe.TestX`: the root import path ends in `/typesafe-sdk-go`) |
-| `deviation` | replaced by a documented behaviour difference | the Go cell cites an Appendix B row as the word `deviation` followed by a double-quoted, non-blank reference (`deviation "one deadline per attempt"`); Appendix B rows are unnumbered and `B<n>` would read as a benchmark ID, so there is no numeric form; `same deviation` takes the citation of the nearest row above it in the same group; any backtick-quoted `Test…` identifier in the cell must exist, as for `ported` |
+| `deviation` | replaced by a documented behaviour difference | the Go cell cites an Appendix B row as the word `deviation` followed by a double-quoted, non-blank reference (`deviation "one deadline per attempt"`); Appendix B rows are unnumbered and `B<n>` would read as a benchmark ID, so there is no numeric form; `same deviation` takes the citation of the nearest row above it in the same group that carries one (rows without a citation in between are skipped); any backtick-quoted `Test…` identifier in the cell must exist, as for `ported` |
 
 ## Format
 
-- One `` ### `tests/<file>` (<count>) `` or
+- One level-3 `` ### `tests/<file>` (<count>) `` or
   `` ### `tests/<file>` (<count>, <note>) `` heading per upstream file, and
-  only one per file; `<count>` must equal the number of rows in that group.
-  The checker keys every row by that file and the upstream function name.
-- Each group holds one table: a header row, a separator row (every cell is
-  three or more `-`, optionally with a `:` at either end) and one row per
-  upstream test. After the first group heading, every table row must sit in
-  a group.
+  only one per file; a heading of another level naming a `tests/` file
+  fails. `<count>` must equal the number of rows in that group. The checker
+  keys every row by that file and the upstream function name.
+- Each group holds exactly one table: the header row
+  `| ID | Upstream | Go test / deviation | status |`, a separator row of four
+  cells (each three or more `-`, optionally with a `:` at either end), and
+  one row per upstream test. A table line starts with `|` after at most
+  three spaces (four make a code block). A group without a table, a table
+  without that header or separator, and a second table in a group fail.
+  After the first group heading, every table row must sit in a group.
 - Columns: ID, upstream function name (backtick-quoted; `Class::test_x` for a
   test method), Go test or deviation, status. The ID cell may not be blank or
-  hold only `-` and `:`. A literal `|` inside a cell is written `\|`.
+  hold only `-` and `:`. A literal `|` inside a cell is written `\|`. A test
+  name qualified by a path (`internal/codec.TestX`) fails in every status:
+  write `codec.TestX` or `TestX`.
 - Changing a row's status is the only edit a porting wave makes here, plus the
   Go test name or deviation citation when it differs from the seed.
 
@@ -90,7 +96,7 @@ IDs that the plan's waves cite.
 
 ### `tests/test_integration.py` (3)
 
-| ID | Upstream | Go test | status |
+| ID | Upstream | Go test / deviation | status |
 | --- | --- | --- | --- |
 | I1 | `test_live_models` | `livetests.TestLiveModels` | planned |
 | I2 | `test_live_questions` | `livetests.TestLiveQuestions` | planned |
@@ -111,7 +117,7 @@ IDs that the plan's waves cite.
 
 ### `tests/test_pydantic_response_models.py` (5)
 
-| ID | Upstream | Go test | status |
+| ID | Upstream | Go test / deviation | status |
 | --- | --- | --- | --- |
 | P1 | `test_standalone_pydantic_response_model` | `TestDecodeAsWithSeparateQuestions` (questions built separately; `DecodeAs[KnownResponse]`; extra answer members ignored) | planned |
 | P2 | `test_explicit_default_response_model` | `TestSystemOneDefaultResponse` | planned |

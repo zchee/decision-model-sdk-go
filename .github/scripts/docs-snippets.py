@@ -24,6 +24,12 @@ from pathlib import Path
 
 NOT_IMPLEMENTED = "docs-snippets: not implemented until W6.3"
 
+# The docstring's first line, kept apart from __doc__, which python -OO
+# strips.
+DESCRIPTION = (
+    "Prove every Go block in README.md and docs/ equals its examples/ source (XD1)."
+)
+
 _LOG = logging.getLogger("docs-snippets")
 
 
@@ -40,9 +46,7 @@ def main(argv: list[str] | None = None) -> int:
     Raises:
         SystemExit: the flags are invalid (status 2), or ``--help`` (status 0).
     """
-    parser = argparse.ArgumentParser(
-        description=__doc__.splitlines()[0], epilog=NOT_IMPLEMENTED
-    )
+    parser = argparse.ArgumentParser(description=DESCRIPTION, epilog=NOT_IMPLEMENTED)
     parser.add_argument(
         "--readme", required=True, type=Path, help="README to scan for Go blocks"
     )

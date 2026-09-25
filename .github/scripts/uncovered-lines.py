@@ -24,6 +24,12 @@ from pathlib import Path
 
 NOT_IMPLEMENTED = "uncovered-lines: not implemented until W6.3"
 
+# The docstring's first line, kept apart from __doc__, which python -OO
+# strips.
+DESCRIPTION = (
+    "List every zero-count coverage block and require a reason for it (AC-Q2)."
+)
+
 _LOG = logging.getLogger("uncovered-lines")
 
 
@@ -40,9 +46,7 @@ def main(argv: list[str] | None = None) -> int:
     Raises:
         SystemExit: the flags are invalid (status 2), or ``--help`` (status 0).
     """
-    parser = argparse.ArgumentParser(
-        description=__doc__.splitlines()[0], epilog=NOT_IMPLEMENTED
-    )
+    parser = argparse.ArgumentParser(description=DESCRIPTION, epilog=NOT_IMPLEMENTED)
     parser.add_argument(
         "--profile",
         required=True,
