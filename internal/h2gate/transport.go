@@ -293,8 +293,22 @@ func (t *Transport) release(ctx context.Context, gen *generation) {
 // lead sends the leader's request and resolves gen when it ends before
 // GotConn (the failure table of section 6.3).
 func (t *Transport) lead(req *http.Request, gen *generation) (*http.Response, error) {
-	resp, err := t.send(req, gen)
 	ctx := req.Context()
+	// A panic unwinding through the stock RoundTrip (a caller's trace hook
+	// or Proxy func, GetBody on a retry) leaves gen pending: it is resolved
+	// as a leader that left, and the panic goes on to the caller, since
+	// nothing here recovers it. Every other return has resolved gen.
+	defer func() {
+		t.mu.Lock()
+		if gen.outcome != pending {
+			t.mu.Unlock()
+			return
+		}
+		waiters := t.abandonLocked(gen)
+		t.mu.Unlock()
+		t.log.DebugContext(ctx, "h2: gate error", "reason", "leader-gone", "waiters", waiters)
+	}()
+	resp, err := t.send(req, gen)
 	if err == nil {
 		// A response follows GotConn, so this is a no-op; it keeps a
 		// generation from staying pending should the stock transport ever
@@ -314,17 +328,7 @@ func (t *Transport) lead(req *http.Request, gen *generation) (*http.Response, er
 		// transport looked for a connection: no verdict on the dial. The
 		// stock dial is detached from the request (transport.go:1596), so a
 		// dial in flight usually completes for the next leader.
-		gen.outcome = leaderGone
-		waiters := gen.waiters
-		if waiters == 0 {
-			t.state = stateCold
-			t.coldResets.Add(1)
-		} else {
-			t.handover = true
-			t.handovers.Add(1)
-			t.gen = &generation{done: make(chan struct{})}
-		}
-		close(gen.done)
+		waiters := t.abandonLocked(gen)
 		t.mu.Unlock()
 		t.log.DebugContext(ctx, "h2: gate error", "reason", "leader-gone", "waiters", waiters)
 		return nil, err
@@ -339,6 +343,25 @@ func (t *Transport) lead(req *http.Request, gen *generation) (*http.Response, er
 	t.coldResets.Add(1)
 	t.log.DebugContext(ctx, "h2: gate error", "reason", reason(de), "waiters", waiters, "error", de.Err)
 	return nil, de.clone()
+}
+
+// abandonLocked resolves gen as a leader that left without a verdict on the
+// dial: the first of its waiters to run leads a new generation, or, with
+// none, the gate turns cold and the next caller leads. It returns the
+// number of waiters. t.mu must be held and gen must be pending.
+func (t *Transport) abandonLocked(gen *generation) int {
+	gen.outcome = leaderGone
+	waiters := gen.waiters
+	if waiters == 0 {
+		t.state = stateCold
+		t.coldResets.Add(1)
+	} else {
+		t.handover = true
+		t.handovers.Add(1)
+		t.gen = &generation{done: make(chan struct{})}
+	}
+	close(gen.done)
+	return waiters
 }
 
 // reason names a DialError's class for the log.
@@ -374,12 +397,12 @@ func (t *Transport) send(req *http.Request, gen *generation) (*http.Response, er
 		return nil, context.Cause(ctx)
 	}
 	c := &call{t: t, ctx: ctx, gen: gen}
+	// The token goes back on every exit, a panic unwinding through the stock
+	// RoundTrip included; the call below returns it as early as before.
+	defer c.finish()
 	c.trace = httptrace.ClientTrace{GetConn: c.getConn, GotConn: c.gotConn, WroteHeaders: c.wroteHeaders}
 	resp, err := t.base.RoundTrip(req.WithContext(httptrace.WithClientTrace(ctx, &c.trace)))
-	c.giveBack(false)
-	if tm := c.hold.Load(); tm != nil {
-		tm.Stop()
-	}
+	c.finish()
 	if err != nil {
 		if c.lookedUp.Load() && !c.connected.Load() && ctx.Err() == nil {
 			de := classify(err)
@@ -415,6 +438,15 @@ type call struct {
 	connected atomic.Bool // the transport handed over a connection (GotConn)
 	first     atomic.Bool // FirstHold engaged
 	hold      atomic.Pointer[time.Timer]
+}
+
+// finish ends the call's hold on the token: it gives the token back, if it
+// has not gone back already, and stops the hold bound's timer.
+func (c *call) finish() {
+	c.giveBack(false)
+	if tm := c.hold.Load(); tm != nil {
+		tm.Stop()
+	}
 }
 
 // giveBack returns the token, once; expired reports a FirstHold bound.
