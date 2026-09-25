@@ -65,7 +65,14 @@
 // the defaults), after which the token is given back anyway. A request on an
 // HTTP/1.1 connection ([HTTPAuto]) gives it back at GotConn. The stock
 // transport's own replays (GOAWAY, REFUSED_STREAM) write their headers
-// without the token (risk K21b).
+// without the token (risk K21b); when a replay opens a new connection, the
+// first request that takes the token on it holds as the first request on a
+// new connection would (K21c, R69). Until the client has read a
+// connection's SETTINGS it assumes 100 streams, so without the hold the
+// callers queued behind a GOAWAY could exceed the server's limit on the
+// re-dialed connection and be refused into the stock retry backoff. The
+// cost is one response time on each re-dial after a GOAWAY, as K22 is on a
+// cold burst.
 //
 // # Goroutines
 //

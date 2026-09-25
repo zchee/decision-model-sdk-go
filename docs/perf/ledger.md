@@ -2059,6 +2059,10 @@ the whole host, and no other lane's timing run may overlap them.
 | W2.2-11 | 2026-09-26 01:02:33 JST | W2.2 R67 fix: `internal/testsupport` ×30 under contention | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 126.61 → 217.20 (noisy) | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $C '(M)' $MO $SP/bench.lock m-fix-testsupport 16 -count=30 ./internal/testsupport/` | PASS, 19.9 s | the host was loaded by other lanes before the loops started; `results/m-fix-testsupport.txt` |
 | W2.2-12 | 2026-09-26 01:02:58 JST | W2.2 R67 fix: `internal/h2gate` ×20 under contention | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 217.20 → 458.54 (noisy) | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $C '(M)' $MO $SP/bench.lock m-fix-h2gate 16 -count=20 -v ./internal/h2gate/` | PASS, 209.0 s, 2300 test and subtest passes, no failure; 200 vs 8 refused 0 in all 20 runs (wall max 372 ms); K21b late 0 in 60 runs; GOAWAY runs with refusals 10 of 20 | `results/m-fix-h2gate.txt` |
 | W2.2-13 | 2026-09-26 01:07:38 JST | W2.2 K21b GOAWAY scenario, instrumented copy | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 227.89 → 257.31 (noisy) | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $C '(M)' <lane scratchpad> $SP/bench.lock instr-out 16 -count=12 -run 'TestTokenResidualK21/success:_GOAWAY' -v ./internal/h2gate/` in a copy whose test logs the refused requests per connection | 12 runs: 8 without a refusal; 4 with 1, 27, 56 and 63 refusals, all on connection 1 (the re-dial), the first at the 9th request on it | throwaway test change, not committed; `results/m-k21-goaway-instr.txt` |
+| W2.2-14 | 2026-09-26 01:11:18 JST | W2.2 R69, before: K21b GOAWAY scenario under contention | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 20.32 → 55.67 (noisy) | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $C '(M)' <lane scratchpad> $SP/bench.lock m-k21c-before 16 -count=20 -run 'TestTokenResidualK21/success:_GOAWAY' -v ./internal/h2gate/` (tree `6d3f451`, a detached worktree) | PASS, 32.5 s: 72/72 in 7 of 20 runs; refused streams 526 in 13 runs (10-63 each), the other calls timed out in the retry backoff | `results/m-k21c-before.txt` |
+| W2.2-15 | 2026-09-25 16:13:48 UTC | W2.2 R69, before | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 1.06 → 13.25 (noisy) | `sh $C '(L)' $LO /tmp/ts-spike/bench.lock l-k21c-before 44 -count=20 -run 'TestTokenResidualK21/success:_GOAWAY' -v ./internal/h2gate/` (tree `6d3f451`) | PASS, 11.5 s: 72/72 in 17 of 20 runs; refused streams 102 in 3 runs (11, 28, 63) | `results/l-k21c-before.txt` |
+| W2.2-16 | 2026-09-26 01:14:31 JST | W2.2 R69, after | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 67.54 → 64.38 (noisy) | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $C '(M)' <lane scratchpad> $SP/bench.lock m-k21c-after 16 -count=20 -run 'TestTokenResidualK21/success:_GOAWAY' -v ./internal/h2gate/` (the R69 commit's tree) | PASS, 6.4 s: 72/72 in 20 of 20 runs, refused streams 0; SettleHolds 1 in 19 runs, 0 in 1 | `results/m-k21c-after.txt` |
+| W2.2-17 | 2026-09-25 16:14:31 UTC | W2.2 R69, after | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 8.72 → 14.15 (noisy) | `sh $C '(L)' $LO /tmp/ts-spike/bench.lock l-k21c-after 44 -count=20 -run 'TestTokenResidualK21/success:_GOAWAY' -v ./internal/h2gate/` (the R69 commit's tree) | PASS, 5.5 s: 72/72 in 20 of 20 runs, refused streams 0; SettleHolds 1 in 18 runs, 0 in 2 | `results/l-k21c-after.txt` |
 
 ### W2.2 results
 
@@ -2141,5 +2145,30 @@ assumes 100 streams (`internal/http2/transport.go:57,624`) and the queued
 callers' HEADERS, each written as soon as it takes the token, can exceed
 the server's 8. The refused ones end in the retry backoff. K21b's
 assertions hold throughout (no late call, the token free, fresh bursts
-200/200). A mitigation is proposed to the lead; nothing in `internal/h2gate`
-changed.
+200/200). A mitigation was proposed to the lead; R69 took it (below).
+
+### W2.2 K21c: the settle hold (R69)
+
+Ruling R69 records W2.2-13's finding as K21c and takes the mitigation. When
+GotConn reports a new connection (`Reused` false) to a request that has
+already given the token back (a stock replay: the transport retries inside
+RoundTrip after GOAWAY or REFUSED_STREAM), the transport marks that
+connection unsettled; the next request that holds the token and lands on it
+keeps the token until its response headers, under the same hold bound as
+FirstHold, and clears the mark (`Stats.SettleHolds`). At most 8 marks are
+kept, oldest dropped first; a connection type that is not comparable is not
+marked. The fake-GotConn unit test `TestSettleHold` pins the sequences
+(replay then holder, two replays, a holder on a settled connection, a hold
+expiry, HTTP/1.1, the bound).
+
+The same run before and after (W2.2-14 to -17), `TestTokenResidualK21`'s
+GOAWAY scenario ×20 under contention: refused streams 526 in 13 of 20 runs
+(M) and 102 in 3 of 20 (L) before, none in 40 of 40 after, every run 72/72.
+The run also got shorter (32.5 → 6.4 s (M), 11.5 → 5.5 s (L)), since no call
+waits in the retry backoff any more. Every run shows two FirstHolds, one per
+connection; in the 3 runs without a settle hold the first request on the
+re-dialed connection still held the token itself (a plain FirstHold).
+
+The cost is K22's, once per re-dial after a GOAWAY: the callers queued
+behind the settle hold wait for one response on the new connection before
+their HEADERS go out.

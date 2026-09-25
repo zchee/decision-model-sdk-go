@@ -20,6 +20,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptrace"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -84,8 +85,11 @@ type Stats struct {
 	// FallThroughs counts waiters whose wait bound expired.
 	FallThroughs uint64
 	// FirstHolds counts first requests on a new HTTP/2 connection that kept
-	// the token until their response headers.
+	// the token until their response headers, SettleHolds included.
 	FirstHolds uint64
+	// SettleHolds counts FirstHolds by the first token holder on a
+	// connection that a stock replay opened without the token (K21c).
+	SettleHolds uint64
 	// HoldExpiries counts FirstHolds that the hold bound ended.
 	HoldExpiries uint64
 }
@@ -126,9 +130,22 @@ type Transport struct {
 
 	parked atomic.Int64 // waiters parked now, for tests
 
+	// unsettled holds the HTTP/2 connections a stock replay opened after
+	// giving the token back (K21c, R69), oldest first, at most maxUnsettled;
+	// nUnsettled is its length, read without the lock.
+	settleMu   sync.Mutex
+	unsettled  []net.Conn
+	nUnsettled atomic.Int64
+
 	dials, leaders, releases, failures, handovers, coldResets atomic.Uint64
-	fallThroughs, firstHolds, holdExpiries                    atomic.Uint64
+	fallThroughs, firstHolds, holdExpiries, settleHolds       atomic.Uint64
 }
+
+// maxUnsettled bounds the connections remembered as unsettled. A mark is
+// taken by the next token holder on its connection; one whose connection
+// died first would otherwise stay, so the oldest mark goes when a new one
+// does not fit. Under HTTP2Only one connection per host is live at a time.
+const maxUnsettled = 8
 
 var _ http.RoundTripper = (*Transport)(nil)
 
@@ -170,6 +187,7 @@ func (t *Transport) Stats() Stats {
 		ColdResets:   t.coldResets.Load(),
 		FallThroughs: t.fallThroughs.Load(),
 		FirstHolds:   t.firstHolds.Load(),
+		SettleHolds:  t.settleHolds.Load(),
 		HoldExpiries: t.holdExpiries.Load(),
 	}
 }
@@ -415,7 +433,17 @@ func (c *call) getConn(string) { c.lookedUp.Store(true) }
 
 // gotConn is the httptrace GotConn hook: it counts a new connection, gives
 // the token back at once on an HTTP/1.1 connection, engages FirstHold on a
-// new HTTP/2 one, and releases the gate's waiters when this request leads.
+// new HTTP/2 one or on one a replay left unsettled, and releases the gate's
+// waiters when this request leads.
+//
+// A request that reaches GotConn after it gave the token back is a stock
+// replay (GOAWAY, REFUSED_STREAM: the transport retries inside RoundTrip,
+// internal/http2/transport.go:417-446). On a new connection it cannot hold,
+// and until the client reads that connection's SETTINGS it assumes 100
+// streams (:57, :624), so the callers queued for the token could exceed
+// the server's limit (K21c). The connection is marked unsettled, and the
+// next token holder there keeps the token until its response headers,
+// under the same bound (R69).
 func (c *call) gotConn(info httptrace.GotConnInfo) {
 	t := c.t
 	h2 := t.isH2(info.Conn)
@@ -426,9 +454,18 @@ func (c *call) gotConn(info httptrace.GotConnInfo) {
 	switch {
 	case !h2:
 		c.giveBack(false)
-	case !info.Reused && t.firstHold && !c.given.Load():
+	case c.given.Load():
+		if !info.Reused {
+			t.markUnsettled(info.Conn)
+		}
+	case !t.firstHold:
+	case !info.Reused:
 		c.first.Store(true)
 		t.firstHolds.Add(1)
+	case t.takeUnsettled(info.Conn):
+		c.first.Store(true)
+		t.firstHolds.Add(1)
+		t.settleHolds.Add(1)
 	}
 	c.connected.Store(true)
 	if c.gen != nil {
@@ -446,6 +483,40 @@ func (c *call) wroteHeaders() {
 	if !c.given.Load() {
 		c.hold.Store(time.AfterFunc(c.t.holdBound, func() { c.giveBack(true) }))
 	}
+}
+
+// markUnsettled remembers conn as a connection a replay opened without the
+// token. A connection whose type is not comparable cannot be looked up and
+// is not remembered (the stock types and their wrappers are pointers).
+func (t *Transport) markUnsettled(conn net.Conn) {
+	if conn == nil || !reflect.ValueOf(conn).Comparable() {
+		return
+	}
+	t.settleMu.Lock()
+	defer t.settleMu.Unlock()
+	if len(t.unsettled) == maxUnsettled {
+		t.unsettled = append(t.unsettled[:0], t.unsettled[1:]...)
+	}
+	t.unsettled = append(t.unsettled, conn)
+	t.nUnsettled.Store(int64(len(t.unsettled)))
+}
+
+// takeUnsettled reports whether conn was marked unsettled, and clears the
+// mark. Only comparable values are stored, so the comparison cannot panic.
+func (t *Transport) takeUnsettled(conn net.Conn) bool {
+	if t.nUnsettled.Load() == 0 {
+		return false
+	}
+	t.settleMu.Lock()
+	defer t.settleMu.Unlock()
+	for i, u := range t.unsettled {
+		if u == conn {
+			t.unsettled = append(t.unsettled[:i], t.unsettled[i+1:]...)
+			t.nUnsettled.Store(int64(len(t.unsettled)))
+			return true
+		}
+	}
+	return false
 }
 
 // isH2 reports whether conn, from httptrace.GotConnInfo, carries HTTP/2: its
