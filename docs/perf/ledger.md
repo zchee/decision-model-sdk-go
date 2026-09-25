@@ -53,7 +53,7 @@ experiment set are in [`../support.md`](../support.md#measurement-rule).
 | W0.3-03 | 2026-09-25 16:28:52 JST | W0.3 S-E1 encode allocations, growth, AC-P1 sequence | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 40.23 → 36.54, noisy | `env GOEXPERIMENT=nosimd,noruntimesecret go test -count=1 -run ^(TestAllocEncode\|TestGrowth\|TestSequence)$ -v ./_spikes/s-e1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-e1/results/alloc-M-base76ffd03.txt` | base 76ffd03; before the drop-path fix; AC-P1 before/after; util-linux flock on scratchpad bench.lock |
 | W0.3-04 | 2026-09-25 16:34:27 JST | W0.3 S-E1 encode allocations, growth, AC-P1 sequence | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 22.91 → 21.46, noisy | `env GOEXPERIMENT=nosimd,noruntimesecret go test -count=1 -run ^(TestAllocEncode\|TestGrowth\|TestSequence)$ -v ./_spikes/s-e1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-e1/results/alloc-M.txt` | base 2305d02; util-linux flock on scratchpad bench.lock |
 | W0.3-05 | 2026-09-25 07:44:54 UTC | W0.3 S-E1 encode ns/op | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.64 → 3.35 | `go test -run ^$ -bench . -benchmem -count=5 ./_spikes/s-e1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-e1/results/bench-L.txt` | base 2305d02; flock /tmp/ts-spike/bench.lock |
-| W0.3-06 | 2026-09-25 16:49:47 JST | W0.3 S-E1 encode ns/op | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc goexperiment.simd goexperiment.runtimesecret arm64.v8.0]` | 7.57 → 8.71 | `env GOEXPERIMENT=nosimd,noruntimesecret go test -run ^$ -bench . -benchmem -count=5 ./_spikes/s-e1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-e1/results/bench-M.txt` | base 2305d02; util-linux flock on scratchpad bench.lock |
+| W0.3-06 | 2026-09-25 17:22:11 JST | W0.3 S-E1 encode ns/op | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 8.03 → 9.96 | `env GOEXPERIMENT=nosimd,noruntimesecret go test -run ^$ -bench . -benchmem -count=5 ./_spikes/s-e1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-e1/results/bench-M.txt` | base cc1524a: the spike and `internal/codec` are unchanged since 2305d02 except codec tests (P0-fix-2); re-measured after the raw file was lost to the global `bench*.txt` ignore; original run of record 16:49:47 JST at base 2305d02 (load 7.57 → 8.71; its ToolTags were printed outside the override); util-linux flock on scratchpad bench.lock, quiet rule (MAXLOAD 16, waited 0 × 60 s) |
 | W0.3-07 | 2026-09-25 07:44:40 UTC | W0.3 S-E1 first call (JIT, Pretouch) | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.54 → 0.54 | `go test -count=1 -run ^TestFirstCall$ -v ./_spikes/s-e1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-e1/results/firstcall-L.txt` | base 2305d02; flock /tmp/ts-spike/bench.lock |
 | W0.3-08 | 2026-09-25 16:34:26 JST | W0.3 S-E1 first call (JIT, Pretouch) | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 22.91 → 22.91, noisy | `env GOEXPERIMENT=nosimd,noruntimesecret go test -count=1 -run ^TestFirstCall$ -v ./_spikes/s-e1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-e1/results/firstcall-M.txt` | base 2305d02; util-linux flock on scratchpad bench.lock |
 | W0.3-09 | 2026-09-25 07:30:29 UTC | W0.3 S-E1 AC-P1 sequence, lazy-buffer experiment | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.28 → 0.34 | `go test -count=1 -run ^TestSequence$ -v ./_spikes/s-e1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-e1/results/sequence-lazybuf-L-base76ffd03.txt` | base 76ffd03; with `lazybuf-experiment.diff` applied to internal/codec for the run only; flock /tmp/ts-spike/bench.lock |
@@ -61,7 +61,7 @@ experiment set are in [`../support.md`](../support.md#measurement-rule).
 | W0.3-11 | 2026-09-25 07:44:39 UTC | W0.3 S-D1 decode allocations | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.54 → 0.54 | `go test -count=1 -run ^TestAllocDecode$ -v ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/alloc-L.txt` | base 2305d02; flock /tmp/ts-spike/bench.lock |
 | W0.3-12 | 2026-09-25 16:34:40 JST | W0.3 S-D1 decode allocations | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 21.46 → 20.86, noisy | `env GOEXPERIMENT=nosimd,noruntimesecret go test -count=1 -run ^TestAllocDecode$ -v ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/alloc-M.txt` | base 2305d02; util-linux flock on scratchpad bench.lock |
 | W0.3-13 | 2026-09-25 07:30:33 UTC | W0.3 S-D1 decode ns/op, primitives, scans, string checks | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.34 → 1.35 | `go test -run ^$ -bench . -benchmem -count=5 ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/bench-L.txt` | base 76ffd03; decoder, codec helpers and fixtures identical at 2305d02; flock /tmp/ts-spike/bench.lock |
-| W0.3-14 | 2026-09-25 16:39:10 JST | W0.3 S-D1 decode ns/op, primitives, scans, string checks | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 11.96 → 9.76 | `env GOEXPERIMENT=nosimd,noruntimesecret go test -run ^$ -bench . -benchmem -count=5 ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/bench-M.txt` | base 2305d02; util-linux flock on scratchpad bench.lock |
+| W0.3-14 | 2026-09-25 17:12:23 JST | W0.3 S-D1 decode ns/op, primitives, scans, string checks | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.19 → 8.03 | `env GOEXPERIMENT=nosimd,noruntimesecret go test -run ^$ -bench . -benchmem -count=5 ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/bench-M.txt` | base cc1524a: the spike and `internal/codec` are unchanged since 2305d02 except codec tests (P0-fix-2); re-measured after the raw file was lost to the global `bench*.txt` ignore; original run of record 16:39:10 JST at base 2305d02 (load 11.96 → 9.76); against the first 267 of its 490 benchmark lines, which survived on (L) (not committed), the new medians are 2.7 % lower (geomean; 33 of 54 benchmarks differ at p < 0.05, none slower); util-linux flock on scratchpad bench.lock, quiet rule (MAXLOAD 16, waited 0 × 60 s) |
 | W0.3-15 | 2026-09-25 07:44:38 UTC | W0.3 S-D1 validity gate and correctness | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.54 → 0.54 | `go test -count=1 -run ^(TestValidityGate\|TestDecodedValues\|TestLastWins\|TestControlRule\|TestFastCheckParity\|TestDuplicatesFixture\|TestModuleDuplicates\|TestStringLengthMix)$ -v ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/gate-L.txt` | base 2305d02; flock /tmp/ts-spike/bench.lock |
 | W0.3-16 | 2026-09-25 16:34:39 JST | W0.3 S-D1 validity gate and correctness | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 21.46 → 21.46, noisy | `env GOEXPERIMENT=nosimd,noruntimesecret go test -count=1 -run ^(TestValidityGate\|TestDecodedValues\|TestLastWins\|TestControlRule\|TestFastCheckParity\|TestDuplicatesFixture\|TestModuleDuplicates\|TestStringLengthMix)$ -v ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/gate-M.txt` | base 2305d02; util-linux flock on scratchpad bench.lock |
 | W0.3-17 | 2026-09-25 07:30:12 UTC | W0.3 S-D1 linearity (AC-P8) | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.08 → 0.08 | `go test -count=5 -run ^TestLinearity$ -v ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/linearity-L.txt` | base 76ffd03; decoder, codec helpers and fixtures identical at 2305d02; flock /tmp/ts-spike/bench.lock |
@@ -846,41 +846,41 @@ Sources: `s-e1/results/alloc-M.txt` = W0.3-04; `s-e1/results/bench-M.txt` = W0.3
 
 | kind | size | encoded B | (M) allocs/B | (M) ns/op | (M) cap after / pooled | (L) allocs/B | (L) ns/op | (L) cap after / pooled |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| string | 1KiB | 1024 | 2/32 | 155.9 ns (±1 %) | 4096 / true | 2/32 | 128.7 ns (±0 %) | 4096 / true |
-| string | 64KiB | 65536 | 2/32 | 3.79 µs (±1 %) | 67584 / true | 2/32 | 2.56 µs (±0 %) | 65536 / true |
-| string | 1MiB | 1048576 | 2/32 | 59.22 µs (±1 %) | 1050624 / true | 2/32 | 47.08 µs (±3 %) | 1048576 / true |
-| string | 6MiB | 6291456 | 2/32 | 355.39 µs (±1 %) | 6293504 / true | 2/32 | 1.341 ms (±0 %) | 6291456 / true |
-| string | 9MiB | 9437184 | 4/9449504 | 644.24 µs (±1 %) | 9439232 / false | 4/9441312 | 2.459 ms (±3 %) | 9437184 / false |
-| boxed | 1KiB | 1024 | 1/16 | 145.9 ns (±0 %) | 4096 / true | 1/16 | 109.9 ns (±0 %) | 4096 / true |
-| boxed | 64KiB | 65536 | 1/16 | 3.79 µs (±1 %) | 67584 / true | 1/16 | 2.55 µs (±0 %) | 65536 / true |
-| boxed | 1MiB | 1048576 | 1/16 | 59.59 µs (±1 %) | 1050624 / true | 1/16 | 45.79 µs (±1 %) | 1048576 / true |
-| boxed | 6MiB | 6291456 | 1/16 | 358.55 µs (±2 %) | 6293504 / true | 1/16 | 858.43 µs (±1 %) | 6291456 / true |
-| boxed | 9MiB | 9437184 | 3/9449488 | 719.38 µs (±3 %) | 9439232 / false | 3/9441296 | 2.043 ms (±3 %) | 9437184 / false |
-| map | 1KiB | 1024 | 9-9/784-784 | 5.62 µs (±0 %) | 4096 / true | 9-9/784-784 | 3.29 µs (±1 %) | 4096 / true |
-| map | 64KiB | 66018 | 471-471/45136-45136 | 368.57 µs (±1 %) | 70921 / true | 471-471/45136-45136 | 223.81 µs (±1 %) | 73728 / true |
-| map | 1MiB | 1074672 | 7503-7503/720208-720208 | 6.360 ms (±1 %) | 1540268 / true | 7503-7503/720208-720208 | 4.028 ms (±0 %) | 1114112 / true |
-| map | 6MiB | 6515697 | 45010-45010/4320880-4320880 | 46.911 ms (±1 %) | 8054798 / true | 45010-45010/4320880-4320880 | 25.663 ms (±1 %) | 6750208 / true |
-| map | 9MiB | 9801281 | 67535-67536/36970736-47980784 | 74.616 ms (±2 %) | 13812905 / false | 67546-67546/58736496-58736496 | 57.036 ms (±1 %) | 10559488 / false |
-| map-flat | 1KiB | 1055 | 2/112 | 1.84 µs (±0 %) | 4096 / true | 2/112 | 815.8 ns (±0 %) | 4096 / true |
-| map-flat | 64KiB | 65535 | 2/112 | 103.93 µs (±0 %) | 70752 / true | 2/112 | 39.06 µs (±0 %) | 73728 / true |
-| map-flat | 1MiB | 1048545 | 2/112 | 1.675 ms (±1 %) | 1209077 / true | 2/112 | 630.00 µs (±0 %) | 1114112 / true |
-| map-flat | 6MiB | 6291327 | 22/27597808 | 12.168 ms (±5 %) | 9181884 / false | 2/112 | 4.248 ms (±1 %) | 6750208 / true |
-| map-flat | 9MiB | 9437021 | 23/41376752 | 18.464 ms (±6 %) | 13772832 / false | 34/52255344 | 14.691 ms (±2 %) | 10559488 / false |
-| struct-ptr | 1KiB | 1066 | 1/16 | 2.85 µs (±1 %) | 4096 / true | 1/16 | 767.1 ns (±0 %) | 4096 / true |
-| struct-ptr | 64KiB | 65520 | 1/16 | 165.52 µs (±1 %) | 83304 / true | 1/16 | 40.94 µs (±0 %) | 73728 / true |
-| struct-ptr | 1MiB | 1056133 | 1/16 | 2.686 ms (±2 %) | 1187840 / true | 1/16 | 653.44 µs (±0 %) | 1114112 / true |
-| struct-ptr | 6MiB | 6379778 | 22/27601168 | 17.050 ms (±0 %) | 9020409 / false | 1/16 | 3.988 ms (±0 %) | 6750208 / true |
-| struct-ptr | 9MiB | 9575142 | 23/41134352 | 25.155 ms (±4 %) | 13530646 / false | 33/52255248 | 12.693 ms (±1 %) | 10559488 / false |
-| raw-verbatim | 1KiB | 1024 | 0/0 | 22.9 ns (±1 %) | 4096 / true | 0/0 | 35.8 ns (±1 %) | 4096 / true |
-| raw-verbatim | 64KiB | 66018 | 0/0 | 915.8 ns (±4 %) | 73728 / true | 0/0 | 1.68 µs (±0 %) | 73728 / true |
-| raw-verbatim | 1MiB | 1074672 | 0/0 | 13.82 µs (±3 %) | 1081344 / true | 0/0 | 33.06 µs (±4 %) | 1081344 / true |
-| raw-verbatim | 6MiB | 6515697 | 0/0 | 86.40 µs (±4 %) | 6520832 / true | 0/0 | 450.95 µs (±1 %) | 6520832 / true |
-| raw-verbatim | 9MiB | 9801281 | 2/9809920 | 504.48 µs (±3 %) | 9805824 / false | 2/9809920 | 1.063 ms (±1 %) | 9805824 / false |
-| raw-encodeinto | 1KiB | 1024 | 1/16 | 977.4 ns (±1 %) | 4096 / true | 1/16 | 1.02 µs (±1 %) | 4096 / true |
-| raw-encodeinto | 64KiB | 66018 | 1/16 | 67.59 µs (±1 %) | 73728 / true | 1/16 | 83.96 µs (±0 %) | 73728 / true |
-| raw-encodeinto | 1MiB | 1074672 | 1/16 | 1.100 ms (±0 %) | 1081344 / true | 1/16 | 1.369 ms (±0 %) | 1081344 / true |
-| raw-encodeinto | 6MiB | 6515697 | 1/16 | 6.640 ms (±1 %) | 6520832 / true | 1/16 | 8.421 ms (±0 %) | 6520832 / true |
-| raw-encodeinto | 9MiB | 9801281 | 3/9809936 | 10.151 ms (±1 %) | 9805824 / false | 3/9809936 | 13.335 ms (±1 %) | 9805824 / false |
+| string | 1KiB | 1024 | 2/32 | 155.6 ns (±1 %) | 4096 / true | 2/32 | 128.7 ns (±0 %) | 4096 / true |
+| string | 64KiB | 65536 | 2/32 | 3.75 µs (±1 %) | 67584 / true | 2/32 | 2.56 µs (±0 %) | 65536 / true |
+| string | 1MiB | 1048576 | 2/32 | 58.03 µs (±1 %) | 1050624 / true | 2/32 | 47.08 µs (±3 %) | 1048576 / true |
+| string | 6MiB | 6291456 | 2/32 | 354.86 µs (±1 %) | 6293504 / true | 2/32 | 1.341 ms (±0 %) | 6291456 / true |
+| string | 9MiB | 9437184 | 4/9449504 | 732.38 µs (±1 %) | 9439232 / false | 4/9441312 | 2.459 ms (±3 %) | 9437184 / false |
+| boxed | 1KiB | 1024 | 1/16 | 146.0 ns (±2 %) | 4096 / true | 1/16 | 109.9 ns (±0 %) | 4096 / true |
+| boxed | 64KiB | 65536 | 1/16 | 3.77 µs (±1 %) | 67584 / true | 1/16 | 2.55 µs (±0 %) | 65536 / true |
+| boxed | 1MiB | 1048576 | 1/16 | 57.63 µs (±2 %) | 1050624 / true | 1/16 | 45.79 µs (±1 %) | 1048576 / true |
+| boxed | 6MiB | 6291456 | 1/16 | 345.04 µs (±1 %) | 6293504 / true | 1/16 | 858.43 µs (±1 %) | 6291456 / true |
+| boxed | 9MiB | 9437184 | 3/9449488 | 664.08 µs (±1 %) | 9439232 / false | 3/9441296 | 2.043 ms (±3 %) | 9437184 / false |
+| map | 1KiB | 1024 | 9-9/784-784 | 5.46 µs (±5 %) | 4096 / true | 9-9/784-784 | 3.29 µs (±1 %) | 4096 / true |
+| map | 64KiB | 66018 | 471-471/45136-45136 | 356.35 µs (±1 %) | 70921 / true | 471-471/45136-45136 | 223.81 µs (±1 %) | 73728 / true |
+| map | 1MiB | 1074672 | 7503-7503/720208-720208 | 5.704 ms (±4 %) | 1540268 / true | 7503-7503/720208-720208 | 4.028 ms (±0 %) | 1114112 / true |
+| map | 6MiB | 6515697 | 45010-45010/4320880-4320880 | 40.429 ms (±4 %) | 8054798 / true | 45010-45010/4320880-4320880 | 25.663 ms (±1 %) | 6750208 / true |
+| map | 9MiB | 9801281 | 67535-67536/36970736-47980784 | 65.706 ms (±3 %) | 13812905 / false | 67546-67546/58736496-58736496 | 57.036 ms (±1 %) | 10559488 / false |
+| map-flat | 1KiB | 1055 | 2/112 | 1.82 µs (±1 %) | 4096 / true | 2/112 | 815.8 ns (±0 %) | 4096 / true |
+| map-flat | 64KiB | 65535 | 2/112 | 104.26 µs (±1 %) | 70752 / true | 2/112 | 39.06 µs (±0 %) | 73728 / true |
+| map-flat | 1MiB | 1048545 | 2/112 | 1.628 ms (±1 %) | 1209077 / true | 2/112 | 630.00 µs (±0 %) | 1114112 / true |
+| map-flat | 6MiB | 6291327 | 22/27597808 | 10.843 ms (±1 %) | 9181884 / false | 2/112 | 4.248 ms (±1 %) | 6750208 / true |
+| map-flat | 9MiB | 9437021 | 23/41376752 | 17.019 ms (±3 %) | 13772832 / false | 34/52255344 | 14.691 ms (±2 %) | 10559488 / false |
+| struct-ptr | 1KiB | 1066 | 1/16 | 2.78 µs (±2 %) | 4096 / true | 1/16 | 767.1 ns (±0 %) | 4096 / true |
+| struct-ptr | 64KiB | 65520 | 1/16 | 159.74 µs (±1 %) | 83304 / true | 1/16 | 40.94 µs (±0 %) | 73728 / true |
+| struct-ptr | 1MiB | 1056133 | 1/16 | 2.575 ms (±1 %) | 1187840 / true | 1/16 | 653.44 µs (±0 %) | 1114112 / true |
+| struct-ptr | 6MiB | 6379778 | 22/27601168 | 16.464 ms (±1 %) | 9020409 / false | 1/16 | 3.988 ms (±0 %) | 6750208 / true |
+| struct-ptr | 9MiB | 9575142 | 23/41134352 | 24.595 ms (±3 %) | 13530646 / false | 33/52255248 | 12.693 ms (±1 %) | 10559488 / false |
+| raw-verbatim | 1KiB | 1024 | 0/0 | 22.7 ns (±1 %) | 4096 / true | 0/0 | 35.8 ns (±1 %) | 4096 / true |
+| raw-verbatim | 64KiB | 66018 | 0/0 | 831.5 ns (±11 %) | 73728 / true | 0/0 | 1.68 µs (±0 %) | 73728 / true |
+| raw-verbatim | 1MiB | 1074672 | 0/0 | 13.69 µs (±1 %) | 1081344 / true | 0/0 | 33.06 µs (±4 %) | 1081344 / true |
+| raw-verbatim | 6MiB | 6515697 | 0/0 | 84.74 µs (±5 %) | 6520832 / true | 0/0 | 450.95 µs (±1 %) | 6520832 / true |
+| raw-verbatim | 9MiB | 9801281 | 2/9809920 | 490.15 µs (±2 %) | 9805824 / false | 2/9809920 | 1.063 ms (±1 %) | 9805824 / false |
+| raw-encodeinto | 1KiB | 1024 | 1/16 | 927.1 ns (±1 %) | 4096 / true | 1/16 | 1.02 µs (±1 %) | 4096 / true |
+| raw-encodeinto | 64KiB | 66018 | 1/16 | 65.25 µs (±1 %) | 73728 / true | 1/16 | 83.96 µs (±0 %) | 73728 / true |
+| raw-encodeinto | 1MiB | 1074672 | 1/16 | 1.069 ms (±1 %) | 1081344 / true | 1/16 | 1.369 ms (±0 %) | 1081344 / true |
+| raw-encodeinto | 6MiB | 6515697 | 1/16 | 6.430 ms (±1 %) | 6520832 / true | 1/16 | 8.421 ms (±0 %) | 6520832 / true |
+| raw-encodeinto | 9MiB | 9801281 | 3/9809936 | 9.953 ms (±1 %) | 9805824 / false | 3/9809936 | 13.335 ms (±1 %) | 9805824 / false |
 
 #### S-E1 growth from a 4 KiB scratch (g, incl. E_sonic and B)
 
@@ -1000,48 +1000,48 @@ Sources: `s-d1/results/alloc-M.txt` = W0.3-12; `s-d1/results/bench-M.txt` = W0.3
 
 | variant | fixture | body B | (M) allocs/B | (M) ns/op median (±half-spread) | (L) allocs/B | (L) ns/op median (±half-spread) | lazy allocs | members | notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| a1 | deviation-lone-surrogate | 219 | 14/4568 | 4.54 µs (±1 %) | 14/4568 | 4.73 µs (±0 %) | 8 | 11 | per-level copy: 14/4568 |
+| a1 | deviation-lone-surrogate | 219 | 14/4568 | 4.46 µs (±3 %) | 14/4568 | 4.73 µs (±0 %) | 8 | 11 | per-level copy: 14/4568 |
 | a1 | duplicates | 693 | 4/768 | – | 4/768 | – | 0 | 0 |  |
-| a1 | escaped-member-names | 425 | 30/5144 | 6.91 µs (±3 %) | 30/5144 | 6.86 µs (±0 %) | 13 | 12 | per-level copy: 30/5144 |
-| a1 | escaped-names | 481 | 10/1224 | 5.33 µs (±1 %) | 10/1224 | 5.33 µs (±0 %) | 0 | 0 | body scan ran |
-| a1 | no-answers | 67 | 0/0 | 515.0 ns (±2 %) | 0/0 | 404.3 ns (±0 %) | 0 | 0 |  |
-| a1 | parity-big-exp-unknown | 135 | 1/144 | 1.23 µs (±2 %) | 1/144 | 1.09 µs (±0 %) | 0 | 0 |  |
-| a1 | result | 364 | 4/688 | 3.30 µs (±1 %) | 4/688 | 3.09 µs (±0 %) | 0 | 0 |  |
-| a1 | result-20 | 2253 | 24/6008 | 20.98 µs (±0 %) | 24/6008 | 20.03 µs (±0 %) | 0 | 0 |  |
-| a1 | score-flood-mini | 1495 | 21/4184 | 13.96 µs (±1 %) | 21/4184 | 13.21 µs (±0 %) | 0 | 0 |  |
-| a1 | structured-legend | 217 | 12/4528 | 4.11 µs (±4 %) | 12/4528 | 4.33 µs (±0 %) | 8 | 10 | per-level copy: 12/4528 |
-| a1 | structured-legend-flood-10k | 616421 | 686/2005944 | 6.719 ms (±1 %) | 686/2005944 | 5.945 ms (±0 %) | 681 | 10011 | per-level copy: 10685/2083736 |
-| a1 | structured-legend-flood-1k | 57418 | 91/213896 | 678.44 µs (±1 %) | 91/213896 | 609.55 µs (±0 %) | 86 | 1011 | per-level copy: 1090/220136 |
-| a1 | type-last | 364 | 4/688 | 3.33 µs (±1 %) | 4/688 | 3.11 µs (±0 %) | 0 | 0 |  |
-| a1 | unknown-answer-type | 145 | 1/144 | 1.35 µs (±8 %) | 1/144 | 1.17 µs (±0 %) | 0 | 0 |  |
-| a2 | deviation-lone-surrogate | 219 | 14/4568 | 4.70 µs (±1 %) | 14/4568 | 4.73 µs (±0 %) | 8 | 11 | per-level copy: 14/4568 |
+| a1 | escaped-member-names | 425 | 30/5144 | 6.51 µs (±1 %) | 30/5144 | 6.86 µs (±0 %) | 13 | 12 | per-level copy: 30/5144 |
+| a1 | escaped-names | 481 | 10/1224 | 5.24 µs (±1 %) | 10/1224 | 5.33 µs (±0 %) | 0 | 0 | body scan ran |
+| a1 | no-answers | 67 | 0/0 | 497.5 ns (±1 %) | 0/0 | 404.3 ns (±0 %) | 0 | 0 |  |
+| a1 | parity-big-exp-unknown | 135 | 1/144 | 1.18 µs (±1 %) | 1/144 | 1.09 µs (±0 %) | 0 | 0 |  |
+| a1 | result | 364 | 4/688 | 3.22 µs (±2 %) | 4/688 | 3.09 µs (±0 %) | 0 | 0 |  |
+| a1 | result-20 | 2253 | 24/6008 | 20.54 µs (±1 %) | 24/6008 | 20.03 µs (±0 %) | 0 | 0 |  |
+| a1 | score-flood-mini | 1495 | 21/4184 | 13.92 µs (±1 %) | 21/4184 | 13.21 µs (±0 %) | 0 | 0 |  |
+| a1 | structured-legend | 217 | 12/4528 | 3.83 µs (±1 %) | 12/4528 | 4.33 µs (±0 %) | 8 | 10 | per-level copy: 12/4528 |
+| a1 | structured-legend-flood-10k | 616421 | 686/2005944 | 6.748 ms (±2 %) | 686/2005944 | 5.945 ms (±0 %) | 681 | 10011 | per-level copy: 10685/2083736 |
+| a1 | structured-legend-flood-1k | 57418 | 91/213896 | 668.98 µs (±1 %) | 91/213896 | 609.55 µs (±0 %) | 86 | 1011 | per-level copy: 1090/220136 |
+| a1 | type-last | 364 | 4/688 | 3.22 µs (±2 %) | 4/688 | 3.11 µs (±0 %) | 0 | 0 |  |
+| a1 | unknown-answer-type | 145 | 1/144 | 1.33 µs (±1 %) | 1/144 | 1.17 µs (±0 %) | 0 | 0 |  |
+| a2 | deviation-lone-surrogate | 219 | 14/4568 | 4.33 µs (±2 %) | 14/4568 | 4.73 µs (±0 %) | 8 | 11 | per-level copy: 14/4568 |
 | a2 | duplicates | 693 | 4/768 | – | 4/768 | – | 0 | 0 |  |
-| a2 | escaped-member-names | 425 | 30/5144 | 6.79 µs (±2 %) | 30/5144 | 6.90 µs (±0 %) | 13 | 12 | per-level copy: 30/5144 |
-| a2 | escaped-names | 481 | 10/1224 | 5.44 µs (±23 %) | 10/1224 | 5.28 µs (±0 %) | 0 | 0 | body scan ran |
-| a2 | no-answers | 67 | 0/0 | 526.5 ns (±1 %) | 0/0 | 395.7 ns (±0 %) | 0 | 0 |  |
-| a2 | parity-big-exp-unknown | 135 | 1/144 | 1.22 µs (±0 %) | 1/144 | 1.12 µs (±0 %) | 0 | 0 |  |
-| a2 | result | 364 | 4/688 | 3.32 µs (±0 %) | 4/688 | 3.11 µs (±0 %) | 0 | 0 |  |
-| a2 | result-20 | 2253 | 24/6008 | 21.28 µs (±1 %) | 24/6008 | 19.88 µs (±0 %) | 0 | 0 |  |
-| a2 | score-flood-mini | 1495 | 21/4184 | 14.01 µs (±1 %) | 21/4184 | 12.99 µs (±0 %) | 0 | 0 |  |
-| a2 | structured-legend | 217 | 12/4528 | 4.08 µs (±2 %) | 12/4528 | 4.33 µs (±0 %) | 8 | 10 | per-level copy: 12/4528 |
-| a2 | structured-legend-flood-10k | 616421 | 686/2005944 | 6.749 ms (±1 %) | 686/2005944 | 5.932 ms (±0 %) | 681 | 10011 | per-level copy: 10685/2083736 |
-| a2 | structured-legend-flood-1k | 57418 | 91/213896 | 691.03 µs (±5 %) | 91/213896 | 596.06 µs (±0 %) | 86 | 1011 | per-level copy: 1090/220136 |
-| a2 | type-last | 364 | 4/688 | 3.33 µs (±1 %) | 4/688 | 3.12 µs (±0 %) | 0 | 0 |  |
-| a2 | unknown-answer-type | 145 | 1/144 | 1.35 µs (±5 %) | 1/144 | 1.21 µs (±0 %) | 0 | 0 |  |
-| b | deviation-lone-surrogate | 219 | 18/3848 | 4.05 µs (±2 %) | 14/3576 | 4.26 µs (±0 %) | 7 | 8 | per-level copy: 18/3848 |
+| a2 | escaped-member-names | 425 | 30/5144 | 6.65 µs (±2 %) | 30/5144 | 6.90 µs (±0 %) | 13 | 12 | per-level copy: 30/5144 |
+| a2 | escaped-names | 481 | 10/1224 | 5.21 µs (±1 %) | 10/1224 | 5.28 µs (±0 %) | 0 | 0 | body scan ran |
+| a2 | no-answers | 67 | 0/0 | 503.1 ns (±2 %) | 0/0 | 395.7 ns (±0 %) | 0 | 0 |  |
+| a2 | parity-big-exp-unknown | 135 | 1/144 | 1.20 µs (±1 %) | 1/144 | 1.12 µs (±0 %) | 0 | 0 |  |
+| a2 | result | 364 | 4/688 | 3.20 µs (±0 %) | 4/688 | 3.11 µs (±0 %) | 0 | 0 |  |
+| a2 | result-20 | 2253 | 24/6008 | 20.42 µs (±1 %) | 24/6008 | 19.88 µs (±0 %) | 0 | 0 |  |
+| a2 | score-flood-mini | 1495 | 21/4184 | 13.40 µs (±0 %) | 21/4184 | 12.99 µs (±0 %) | 0 | 0 |  |
+| a2 | structured-legend | 217 | 12/4528 | 3.88 µs (±2 %) | 12/4528 | 4.33 µs (±0 %) | 8 | 10 | per-level copy: 12/4528 |
+| a2 | structured-legend-flood-10k | 616421 | 686/2005944 | 6.562 ms (±1 %) | 686/2005944 | 5.932 ms (±0 %) | 681 | 10011 | per-level copy: 10685/2083736 |
+| a2 | structured-legend-flood-1k | 57418 | 91/213896 | 670.29 µs (±1 %) | 91/213896 | 596.06 µs (±0 %) | 86 | 1011 | per-level copy: 1090/220136 |
+| a2 | type-last | 364 | 4/688 | 3.25 µs (±2 %) | 4/688 | 3.12 µs (±0 %) | 0 | 0 |  |
+| a2 | unknown-answer-type | 145 | 1/144 | 1.29 µs (±1 %) | 1/144 | 1.21 µs (±0 %) | 0 | 0 |  |
+| b | deviation-lone-surrogate | 219 | 18/3848 | 3.76 µs (±2 %) | 14/3576 | 4.26 µs (±0 %) | 7 | 8 | per-level copy: 18/3848 |
 | b | duplicates | 693 | 12/1544 | – | 5/800 | – | 0 | 0 |  |
-| b | escaped-member-names | 425 | 31/4568 | 5.96 µs (±1 %) | 27/4120 | 6.32 µs (±0 %) | 9 | 9 | per-level copy: 31/4568 |
-| b | escaped-names | 481 | 15/1800 | 5.40 µs (±1 %) | 11/1256 | 5.51 µs (±0 %) | 0 | 0 | body scan ran |
-| b | no-answers | 67 | 4/160 | 648.8 ns (±2 %) | 1/32 | 550.0 ns (±0 %) | 0 | 0 |  |
+| b | escaped-member-names | 425 | 31/4568 | 6.12 µs (±7 %) | 27/4120 | 6.32 µs (±0 %) | 9 | 9 | per-level copy: 31/4568 |
+| b | escaped-names | 481 | 15/1800 | 5.38 µs (±3 %) | 11/1256 | 5.51 µs (±0 %) | 0 | 0 | body scan ran |
+| b | no-answers | 67 | 4/160 | 649.8 ns (±3 %) | 1/32 | 550.0 ns (±0 %) | 0 | 0 |  |
 | b | parity-big-exp-unknown | 135 | – | – | 2/176 | 1.27 µs (±0 %) | 0 | 0 |  |
-| b | result | 364 | 9/1136 | 3.52 µs (±1 %) | 5/720 | 3.31 µs (±0 %) | 0 | 0 |  |
-| b | result-20 | 2253 | 29/8472 | 21.41 µs (±1 %) | 25/6040 | 20.09 µs (±0 %) | 0 | 0 |  |
-| b | score-flood-mini | 1495 | 26/5880 | 14.24 µs (±1 %) | 22/4216 | 13.37 µs (±0 %) | 0 | 0 |  |
-| b | structured-legend | 217 | 16/3808 | 3.77 µs (±3 %) | 12/3536 | 3.89 µs (±0 %) | 7 | 7 | per-level copy: 16/3808 |
-| b | structured-legend-flood-10k | 616421 | 691/4765784 | 6.688 ms (±0 %) | 686/2004952 | 5.898 ms (±0 %) | 680 | 10008 | per-level copy: 10690/4843576 |
-| b | structured-legend-flood-1k | 57418 | 95/270376 | 676.85 µs (±1 %) | 91/212904 | 595.33 µs (±0 %) | 85 | 1008 | per-level copy: 1094/276616 |
-| b | type-last | 364 | 9/1136 | 3.42 µs (±2 %) | 5/720 | 3.31 µs (±0 %) | 0 | 0 |  |
-| b | unknown-answer-type | 145 | 6/384 | 1.51 µs (±1 %) | 2/176 | 1.38 µs (±0 %) | 0 | 0 |  |
+| b | result | 364 | 9/1136 | 3.35 µs (±2 %) | 5/720 | 3.31 µs (±0 %) | 0 | 0 |  |
+| b | result-20 | 2253 | 29/8472 | 20.50 µs (±2 %) | 25/6040 | 20.09 µs (±0 %) | 0 | 0 |  |
+| b | score-flood-mini | 1495 | 26/5880 | 13.68 µs (±1 %) | 22/4216 | 13.37 µs (±0 %) | 0 | 0 |  |
+| b | structured-legend | 217 | 16/3808 | 3.51 µs (±2 %) | 12/3536 | 3.89 µs (±0 %) | 7 | 7 | per-level copy: 16/3808 |
+| b | structured-legend-flood-10k | 616421 | 691/4765784 | 6.532 ms (±1 %) | 686/2004952 | 5.898 ms (±0 %) | 680 | 10008 | per-level copy: 10690/4843576 |
+| b | structured-legend-flood-1k | 57418 | 95/270376 | 655.43 µs (±3 %) | 91/212904 | 595.33 µs (±0 %) | 85 | 1008 | per-level copy: 1094/276616 |
+| b | type-last | 364 | 9/1136 | 3.33 µs (±1 %) | 5/720 | 3.31 µs (±0 %) | 0 | 0 |  |
+| b | unknown-answer-type | 145 | 6/384 | 1.49 µs (±2 %) | 2/176 | 1.38 µs (±0 %) | 0 | 0 |  |
 
 #### S-D1 primitives, control scans and per-string checks (ns/op, median of 5)
 
@@ -1050,66 +1050,66 @@ Sources: `s-d1/results/bench-M.txt` = W0.3-14; `s-d1/results/bench-L.txt` = W0.3
 
 | benchmark | (M) ns/op | (L) ns/op | (M) allocs | (L) allocs |
 | --- | --- | --- | --- | --- |
-| ControlScan/escaped-names/rule | 35.9 ns (±1 %) | 56.6 ns (±0 %) | 0 | 0 |
-| ControlScan/escaped-names/swar | 35.3 ns (±0 %) | 54.3 ns (±0 %) | 0 | 0 |
-| ControlScan/escaped-names/tracked | 479.3 ns (±0 %) | 694.5 ns (±3 %) | 0 | 0 |
-| ControlScan/escaped-names/utf8 | 13.8 ns (±2 %) | 28.3 ns (±1 %) | 0 | 0 |
-| ControlScan/result-20/rule | 167.9 ns (±1 %) | 252.2 ns (±0 %) | 0 | 0 |
-| ControlScan/result-20/swar | 166.4 ns (±1 %) | 250.8 ns (±0 %) | 0 | 0 |
-| ControlScan/result-20/tracked | 2.27 µs (±0 %) | 3.14 µs (±2 %) | 0 | 0 |
-| ControlScan/result-20/utf8 | 34.7 ns (±1 %) | 61.5 ns (±0 %) | 0 | 0 |
-| ControlScan/result/rule | 28.6 ns (±0 %) | 46.9 ns (±3 %) | 0 | 0 |
-| ControlScan/result/swar | 28.3 ns (±1 %) | 44.5 ns (±0 %) | 0 | 0 |
-| ControlScan/result/tracked | 365.0 ns (±0 %) | 521.0 ns (±4 %) | 0 | 0 |
-| ControlScan/result/utf8 | 12.4 ns (±0 %) | 20.3 ns (±0 %) | 0 | 0 |
-| ControlScan/structured-legend-flood-10k/rule | 43.37 µs (±0 %) | 64.78 µs (±0 %) | 0 | 0 |
-| ControlScan/structured-legend-flood-10k/swar | 43.21 µs (±0 %) | 64.97 µs (±0 %) | 0 | 0 |
-| ControlScan/structured-legend-flood-10k/tracked | 601.84 µs (±0 %) | 833.83 µs (±3 %) | 0 | 0 |
-| ControlScan/structured-legend-flood-10k/utf8 | 7.98 µs (±1 %) | 17.76 µs (±0 %) | 0 | 0 |
-| ControlScan/structured-legend-flood-1k/rule | 4.01 µs (±1 %) | 6.03 µs (±0 %) | 0 | 0 |
-| ControlScan/structured-legend-flood-1k/swar | 4.02 µs (±1 %) | 6.04 µs (±0 %) | 0 | 0 |
-| ControlScan/structured-legend-flood-1k/tracked | 55.27 µs (±0 %) | 74.69 µs (±2 %) | 0 | 0 |
-| ControlScan/structured-legend-flood-1k/utf8 | 736.2 ns (±1 %) | 1.68 µs (±0 %) | 0 | 0 |
-| DecodeCheck/codec/escaped-member-names | 7.01 µs (±2 %) | 6.83 µs (±0 %) | 30 | 30 |
-| DecodeCheck/codec/result | 3.30 µs (±2 %) | 3.06 µs (±0 %) | 4 | 4 |
-| DecodeCheck/codec/result-20 | 21.28 µs (±0 %) | 19.74 µs (±0 %) | 24 | 24 |
-| DecodeCheck/codec/structured-legend-flood-10k | 6.711 ms (±1 %) | 5.946 ms (±0 %) | 687 | 687 |
-| DecodeCheck/codec/structured-legend-flood-1k | 690.37 µs (±0 %) | 600.19 µs (±0 %) | 91 | 91 |
-| DecodeCheck/utf8+swar/escaped-member-names | 7.12 µs (±2 %) | 7.11 µs (±0 %) | 30 | 30 |
-| DecodeCheck/utf8+swar/result | 3.43 µs (±0 %) | 3.33 µs (±0 %) | 4 | 4 |
-| DecodeCheck/utf8+swar/result-20 | 22.14 µs (±1 %) | 21.34 µs (±0 %) | 24 | 24 |
-| DecodeCheck/utf8+swar/structured-legend-flood-10k | 7.005 ms (±1 %) | 6.320 ms (±0 %) | 687 | 687 |
-| DecodeCheck/utf8+swar/structured-legend-flood-1k | 707.27 µs (±1 %) | 640.62 µs (±0 %) | 91 | 91 |
-| Primitive/escaped-names/preorder-noop | 2.86 µs (±0 %) | 1.41 µs (±0 %) | 6 | 6 |
-| Primitive/escaped-names/skip | 722.7 ns (±0 %) | 807.8 ns (±0 %) | 0 | 0 |
-| Primitive/escaped-names/unmarshal-rawmap | 900.6 ns (±3 %) | 1.04 µs (±0 %) | 8 | 4 |
-| Primitive/escaped-names/validstring | 744.3 ns (±1 %) | 799.2 ns (±0 %) | 0 | 0 |
-| Primitive/result-20/preorder-noop | 11.75 µs (±1 %) | 5.45 µs (±1 %) | 0 | 0 |
-| Primitive/result-20/skip | 2.94 µs (±0 %) | 3.32 µs (±0 %) | 0 | 0 |
-| Primitive/result-20/unmarshal-rawmap | 2.79 µs (±0 %) | 3.58 µs (±1 %) | 8 | 4 |
-| Primitive/result-20/validstring | 2.98 µs (±1 %) | 3.27 µs (±0 %) | 0 | 0 |
-| Primitive/result/preorder-noop | 1.97 µs (±1 %) | 896.2 ns (±0 %) | 0 | 0 |
-| Primitive/result/skip | 466.0 ns (±1 %) | 516.1 ns (±0 %) | 0 | 0 |
-| Primitive/result/unmarshal-rawmap | 775.1 ns (±1 %) | 766.5 ns (±0 %) | 8 | 4 |
-| Primitive/result/validstring | 480.5 ns (±0 %) | 504.4 ns (±0 %) | 0 | 0 |
-| Primitive/structured-legend-flood-10k/preorder-noop | 3.026 ms (±4 %) | 1.332 ms (±0 %) | 0 | 0 |
-| Primitive/structured-legend-flood-10k/skip | 575.50 µs (±1 %) | 720.02 µs (±1 %) | 0 | 0 |
-| Primitive/structured-legend-flood-10k/unmarshal-rawmap | 636.23 µs (±2 %) | 721.10 µs (±0 %) | 9 | 4 |
-| Primitive/structured-legend-flood-10k/validstring | 577.21 µs (±1 %) | 677.58 µs (±0 %) | 0 | 0 |
-| Primitive/structured-legend-flood-1k/preorder-noop | 298.38 µs (±0 %) | 130.95 µs (±0 %) | 0 | 0 |
-| Primitive/structured-legend-flood-1k/skip | 55.98 µs (±0 %) | 71.19 µs (±1 %) | 0 | 0 |
-| Primitive/structured-legend-flood-1k/unmarshal-rawmap | 60.36 µs (±2 %) | 73.31 µs (±1 %) | 8 | 4 |
-| Primitive/structured-legend-flood-1k/validstring | 56.92 µs (±1 %) | 68.58 µs (±0 %) | 0 | 0 |
-| StringCheck/escaped-member-names/codec | 153.3 ns (±0 %) | 265.4 ns (±0 %) | 0 | 0 |
-| StringCheck/escaped-member-names/utf8+swar | 335.6 ns (±0 %) | 531.7 ns (±2 %) | 0 | 0 |
-| StringCheck/result-20/codec | 911.3 ns (±0 %) | 1.43 µs (±0 %) | 0 | 0 |
-| StringCheck/result-20/utf8+swar | 2.09 µs (±1 %) | 3.00 µs (±1 %) | 0 | 0 |
-| StringCheck/result/codec | 153.2 ns (±0 %) | 253.5 ns (±0 %) | 0 | 0 |
-| StringCheck/result/utf8+swar | 345.5 ns (±1 %) | 527.0 ns (±1 %) | 0 | 0 |
-| StringCheck/structured-legend-flood-10k/codec | 241.66 µs (±1 %) | 386.62 µs (±0 %) | 0 | 0 |
-| StringCheck/structured-legend-flood-10k/utf8+swar | 491.12 µs (±1 %) | 752.70 µs (±2 %) | 0 | 0 |
-| StringCheck/structured-legend-flood-1k/codec | 22.53 µs (±3 %) | 35.08 µs (±0 %) | 0 | 0 |
-| StringCheck/structured-legend-flood-1k/utf8+swar | 50.09 µs (±4 %) | 74.16 µs (±1 %) | 0 | 0 |
+| ControlScan/escaped-names/rule | 35.4 ns (±0 %) | 56.6 ns (±0 %) | 0 | 0 |
+| ControlScan/escaped-names/swar | 34.7 ns (±1 %) | 54.3 ns (±0 %) | 0 | 0 |
+| ControlScan/escaped-names/tracked | 470.0 ns (±1 %) | 694.5 ns (±3 %) | 0 | 0 |
+| ControlScan/escaped-names/utf8 | 13.4 ns (±1 %) | 28.3 ns (±1 %) | 0 | 0 |
+| ControlScan/result-20/rule | 164.5 ns (±1 %) | 252.2 ns (±0 %) | 0 | 0 |
+| ControlScan/result-20/swar | 161.5 ns (±0 %) | 250.8 ns (±0 %) | 0 | 0 |
+| ControlScan/result-20/tracked | 2.21 µs (±1 %) | 3.14 µs (±2 %) | 0 | 0 |
+| ControlScan/result-20/utf8 | 34.0 ns (±0 %) | 61.5 ns (±0 %) | 0 | 0 |
+| ControlScan/result/rule | 27.7 ns (±0 %) | 46.9 ns (±3 %) | 0 | 0 |
+| ControlScan/result/swar | 27.6 ns (±1 %) | 44.5 ns (±0 %) | 0 | 0 |
+| ControlScan/result/tracked | 352.6 ns (±0 %) | 521.0 ns (±4 %) | 0 | 0 |
+| ControlScan/result/utf8 | 12.0 ns (±0 %) | 20.3 ns (±0 %) | 0 | 0 |
+| ControlScan/structured-legend-flood-10k/rule | 42.08 µs (±1 %) | 64.78 µs (±0 %) | 0 | 0 |
+| ControlScan/structured-legend-flood-10k/swar | 41.94 µs (±1 %) | 64.97 µs (±0 %) | 0 | 0 |
+| ControlScan/structured-legend-flood-10k/tracked | 588.52 µs (±1 %) | 833.83 µs (±3 %) | 0 | 0 |
+| ControlScan/structured-legend-flood-10k/utf8 | 7.66 µs (±2 %) | 17.76 µs (±0 %) | 0 | 0 |
+| ControlScan/structured-legend-flood-1k/rule | 3.98 µs (±1 %) | 6.03 µs (±0 %) | 0 | 0 |
+| ControlScan/structured-legend-flood-1k/swar | 3.98 µs (±0 %) | 6.04 µs (±0 %) | 0 | 0 |
+| ControlScan/structured-legend-flood-1k/tracked | 53.98 µs (±1 %) | 74.69 µs (±2 %) | 0 | 0 |
+| ControlScan/structured-legend-flood-1k/utf8 | 724.1 ns (±2 %) | 1.68 µs (±0 %) | 0 | 0 |
+| DecodeCheck/codec/escaped-member-names | 6.60 µs (±3 %) | 6.83 µs (±0 %) | 30 | 30 |
+| DecodeCheck/codec/result | 3.22 µs (±1 %) | 3.06 µs (±0 %) | 4 | 4 |
+| DecodeCheck/codec/result-20 | 20.33 µs (±1 %) | 19.74 µs (±0 %) | 24 | 24 |
+| DecodeCheck/codec/structured-legend-flood-10k | 6.437 ms (±1 %) | 5.946 ms (±0 %) | 687 | 687 |
+| DecodeCheck/codec/structured-legend-flood-1k | 648.79 µs (±1 %) | 600.19 µs (±0 %) | 91 | 91 |
+| DecodeCheck/utf8+swar/escaped-member-names | 7.02 µs (±4 %) | 7.11 µs (±0 %) | 30 | 30 |
+| DecodeCheck/utf8+swar/result | 3.31 µs (±2 %) | 3.33 µs (±0 %) | 4 | 4 |
+| DecodeCheck/utf8+swar/result-20 | 21.07 µs (±1 %) | 21.34 µs (±0 %) | 24 | 24 |
+| DecodeCheck/utf8+swar/structured-legend-flood-10k | 6.745 ms (±1 %) | 6.320 ms (±0 %) | 687 | 687 |
+| DecodeCheck/utf8+swar/structured-legend-flood-1k | 713.75 µs (±4 %) | 640.62 µs (±0 %) | 91 | 91 |
+| Primitive/escaped-names/preorder-noop | 2.82 µs (±1 %) | 1.41 µs (±0 %) | 6 | 6 |
+| Primitive/escaped-names/skip | 703.8 ns (±1 %) | 807.8 ns (±0 %) | 0 | 0 |
+| Primitive/escaped-names/unmarshal-rawmap | 853.8 ns (±2 %) | 1.04 µs (±0 %) | 8 | 4 |
+| Primitive/escaped-names/validstring | 722.1 ns (±1 %) | 799.2 ns (±0 %) | 0 | 0 |
+| Primitive/result-20/preorder-noop | 11.65 µs (±1 %) | 5.45 µs (±1 %) | 0 | 0 |
+| Primitive/result-20/skip | 2.93 µs (±1 %) | 3.32 µs (±0 %) | 0 | 0 |
+| Primitive/result-20/unmarshal-rawmap | 2.81 µs (±2 %) | 3.58 µs (±1 %) | 8 | 4 |
+| Primitive/result-20/validstring | 2.96 µs (±2 %) | 3.27 µs (±0 %) | 0 | 0 |
+| Primitive/result/preorder-noop | 1.95 µs (±1 %) | 896.2 ns (±0 %) | 0 | 0 |
+| Primitive/result/skip | 457.9 ns (±1 %) | 516.1 ns (±0 %) | 0 | 0 |
+| Primitive/result/unmarshal-rawmap | 763.7 ns (±2 %) | 766.5 ns (±0 %) | 8 | 4 |
+| Primitive/result/validstring | 482.0 ns (±1 %) | 504.4 ns (±0 %) | 0 | 0 |
+| Primitive/structured-legend-flood-10k/preorder-noop | 2.863 ms (±0 %) | 1.332 ms (±0 %) | 0 | 0 |
+| Primitive/structured-legend-flood-10k/skip | 551.59 µs (±2 %) | 720.02 µs (±1 %) | 0 | 0 |
+| Primitive/structured-legend-flood-10k/unmarshal-rawmap | 615.28 µs (±1 %) | 721.10 µs (±0 %) | 9 | 4 |
+| Primitive/structured-legend-flood-10k/validstring | 543.10 µs (±1 %) | 677.58 µs (±0 %) | 0 | 0 |
+| Primitive/structured-legend-flood-1k/preorder-noop | 289.44 µs (±0 %) | 130.95 µs (±0 %) | 0 | 0 |
+| Primitive/structured-legend-flood-1k/skip | 54.16 µs (±2 %) | 71.19 µs (±1 %) | 0 | 0 |
+| Primitive/structured-legend-flood-1k/unmarshal-rawmap | 58.00 µs (±1 %) | 73.31 µs (±1 %) | 8 | 4 |
+| Primitive/structured-legend-flood-1k/validstring | 56.96 µs (±1 %) | 68.58 µs (±0 %) | 0 | 0 |
+| StringCheck/escaped-member-names/codec | 152.9 ns (±1 %) | 265.4 ns (±0 %) | 0 | 0 |
+| StringCheck/escaped-member-names/utf8+swar | 330.9 ns (±1 %) | 531.7 ns (±2 %) | 0 | 0 |
+| StringCheck/result-20/codec | 892.2 ns (±2 %) | 1.43 µs (±0 %) | 0 | 0 |
+| StringCheck/result-20/utf8+swar | 2.03 µs (±2 %) | 3.00 µs (±1 %) | 0 | 0 |
+| StringCheck/result/codec | 147.7 ns (±0 %) | 253.5 ns (±0 %) | 0 | 0 |
+| StringCheck/result/utf8+swar | 343.4 ns (±1 %) | 527.0 ns (±1 %) | 0 | 0 |
+| StringCheck/structured-legend-flood-10k/codec | 237.31 µs (±0 %) | 386.62 µs (±0 %) | 0 | 0 |
+| StringCheck/structured-legend-flood-10k/utf8+swar | 474.17 µs (±1 %) | 752.70 µs (±2 %) | 0 | 0 |
+| StringCheck/structured-legend-flood-1k/codec | 22.23 µs (±1 %) | 35.08 µs (±0 %) | 0 | 0 |
+| StringCheck/structured-legend-flood-1k/utf8+swar | 49.24 µs (±1 %) | 74.16 µs (±1 %) | 0 | 0 |
 
 #### S-D1 linearity (AC-P8): structured-legend floods, 10³ vs 10⁴ levels
 
@@ -1118,9 +1118,9 @@ Sources: `s-d1/results/alloc-M.txt` = W0.3-12; `s-d1/results/bench-M.txt` = W0.3
 
 | host | variant | allocs 1k → 10k (ratio) | lazy-pass allocs 1k → 10k | members 1k → 10k | bench median 1k → 10k (ratio) | TestLinearity ratios, 5 runs (min of 21 each) |
 | --- | --- | --- | --- | --- | --- | --- |
-| (M) | a1 | 91 → 686 (7.54) | 86 → 681 | 1011 → 10011 | 678.44 µs → 6.719 ms (9.90) | 9.70, 10.07, 10.00, 9.79, 10.02 |
-| (M) | a2 | 91 → 686 (7.54) | 86 → 681 | 1011 → 10011 | 691.03 µs → 6.749 ms (9.77) | 9.96, 10.15, 10.08, 9.82, 10.05 |
-| (M) | b | 95 → 691 (7.27) | 85 → 680 | 1008 → 10008 | 676.85 µs → 6.688 ms (9.88) | 10.02, 10.23, 10.33, 10.27, 10.57 |
+| (M) | a1 | 91 → 686 (7.54) | 86 → 681 | 1011 → 10011 | 668.98 µs → 6.748 ms (10.09) | 9.70, 10.07, 10.00, 9.79, 10.02 |
+| (M) | a2 | 91 → 686 (7.54) | 86 → 681 | 1011 → 10011 | 670.29 µs → 6.562 ms (9.79) | 9.96, 10.15, 10.08, 9.82, 10.05 |
+| (M) | b | 95 → 691 (7.27) | 85 → 680 | 1008 → 10008 | 655.43 µs → 6.532 ms (9.97) | 10.02, 10.23, 10.33, 10.27, 10.57 |
 | (L) | a1 | 91 → 686 (7.54) | 86 → 681 | 1011 → 10011 | 609.55 µs → 5.945 ms (9.75) | 9.98, 10.26, 10.17, 9.99, 10.11 |
 | (L) | a2 | 91 → 686 (7.54) | 86 → 681 | 1011 → 10011 | 596.06 µs → 5.932 ms (9.95) | 10.19, 10.31, 9.92, 10.11, 10.17 |
 | (L) | b | 91 → 686 (7.54) | 85 → 680 | 1008 → 10008 | 595.33 µs → 5.898 ms (9.91) | 9.83, 9.89, 10.20, 10.11, 10.03 |
