@@ -29,7 +29,8 @@
 // [EncodeValue], [AppendRawState], [AppendRawValue]), the response decoder
 // ([DecodeSystemOne], [DecodeModels]: one ast.Preorder traversal that
 // validates every token, a trailing-data check, and a lazy second pass for
-// structured legends), the per-string check the decoder runs
+// structured legends), the lenient reader of unsuccessful responses'
+// bodies ([ReadErrorBody]), the per-string check the decoder runs
 // ([ValidString]) and the encoder's [Pretouch] hook. Decoded values are the
 // std-only types of internal/wire, which the root package wraps.
 package codec
