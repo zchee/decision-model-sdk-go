@@ -41,7 +41,12 @@ const (
 	HTTP2Only Mode = iota
 	// HTTPAuto lets ALPN choose between HTTP/2 and HTTP/1.1 (plain HTTP/1.1 on
 	// http), with no connection cap and no refusal. The gate and the token
-	// stay; the token is given back at GotConn on an HTTP/1.1 connection.
+	// stay. The token is taken before the protocol is known and given back
+	// at GotConn on an HTTP/1.1 connection, so it spans each new HTTP/1.1
+	// dial and handshake: new HTTP/1.1 connections are dialled one at a
+	// time, and a burst that needs n of them pays about n dial-and-handshake
+	// latencies (8 calls at a 50 ms dial: 366 ms against 160 ms for the
+	// stock transport, review W2.2A; on loopback the cost is a few ms).
 	HTTPAuto
 )
 
@@ -96,7 +101,10 @@ type Config struct {
 	// Mode is the HTTP version policy.
 	Mode Mode
 	// ConnectTimeout bounds the TCP dial and, as TLSHandshakeTimeout, every
-	// TLS handshake. Zero or less means DefaultConnectTimeout.
+	// TLS handshake of the transport NewTransport builds; zero or less means
+	// DefaultConnectTimeout. Wrap keeps a caller transport's own dial bound
+	// and uses ConnectTimeout for the TLSHandshakeTimeout it fills in, the
+	// thin check's bound and the gate's bounds.
 	ConnectTimeout time.Duration
 	// Logger receives the transport's events; nil discards them.
 	Logger Logger
@@ -401,7 +409,7 @@ func NewTransport(cfg Config) (*Transport, error) {
 //     after Clone (an x/net ConfigureTransports install): the stock h2
 //     selection would then require a *tls.Conn and skip the checks below.
 //     The stub entry the stock transport writes on first use is not copied
-//     by Clone (transport.go:378-381, :440), so a used transport is accepted;
+//     by Clone (transport.go:380-386, :440), so a used transport is accepted;
 //   - adds the ALPN check to the clone's VerifyConnection, after base's own;
 //   - wraps base's DialTLSContext (or DialTLS) thinly: for the API address
 //     it bounds the dial and the handshake by ConnectTimeout +
@@ -478,8 +486,9 @@ func Wrap(base *http.Transport, cfg Config) (*Transport, error) {
 	if cfg.Mode == HTTP2Only && tg.scheme == "https" {
 		dialTLS := tr.DialTLSContext
 		// A caller may still set the deprecated DialTLS, which the stock
-		// transport uses when DialTLSContext is nil (transport.go:431-433),
-		// so the check covers it too.
+		// transport treats as a TLS dialer (hasCustomTLSDialer,
+		// transport.go:431-433) and calls when DialTLSContext is nil
+		// (customDialTLS, :1567-1572), so the check covers it too.
 		//lint:ignore SA1019 the check must cover the deprecated field
 		if legacy := tr.DialTLS; dialTLS == nil && legacy != nil { //nolint:staticcheck // SA1019: see above
 			dialTLS = func(_ context.Context, network, addr string) (net.Conn, error) { return legacy(network, addr) }
@@ -500,13 +509,13 @@ func Wrap(base *http.Transport, cfg Config) (*Transport, error) {
 }
 
 // connectionStater is the interface the stock transport reads a caller TLS
-// dialer's connection state through (transport.go:1893-1895).
+// dialer's connection state through (transport.go:1892-1894).
 type connectionStater interface {
 	ConnectionState() tls.ConnectionState
 }
 
 // handshaker is the interface the stock transport completes a caller TLS
-// dialer's handshake through (transport.go:1896-1898).
+// dialer's handshake through (transport.go:1895-1897).
 type handshaker interface {
 	HandshakeContext(ctx context.Context) error
 }

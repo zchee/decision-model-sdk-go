@@ -38,10 +38,12 @@ const alertNoApplicationProtocol = "tls: no application protocol"
 // leader's Err (R19).
 //
 // The flags classify Err by walking its whole chain. Both can be set, as for
-// a TLS handshake with a proxy that timed out; the root package maps Proxy
-// first (R20). A failure to negotiate HTTP/2 on the API hop is reported
-// through errors.Is(err, [ErrNotNegotiated]), never together with Proxy: a
-// proxy that refused h2 with alert 120 is a proxy failure.
+// a TLS handshake with a proxy that timed out; the root package maps that
+// case to a timeout on the proxy hop (R67 Q3). A failure to negotiate
+// HTTP/2 on the API hop is reported through errors.Is(err,
+// [ErrNotNegotiated]), never together with Proxy: Proxy wins over
+// not-negotiated (R20), so a proxy that refused h2 with alert 120 is a proxy
+// failure.
 type DialError struct {
 	// Proxy is set when a *net.OpError with Op "proxyconnect" is in the
 	// chain: the dial to the proxy or its TLS handshake failed

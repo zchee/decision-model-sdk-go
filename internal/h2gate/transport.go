@@ -57,7 +57,9 @@ const (
 )
 
 // generation is one leader's dial as its waiters see it. Its fields are
-// guarded by Transport.mu until done is closed, and read-only after.
+// guarded by Transport.mu; outcome and cause do not change once done is
+// closed, and waiters stays under mu (a waiter that leaves decrements it
+// whenever it leaves).
 type generation struct {
 	done    chan struct{}
 	outcome outcome

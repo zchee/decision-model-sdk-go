@@ -63,7 +63,8 @@
 // by which time the client has read the server's SETTINGS; the hold is
 // bounded by the hold bound (connect timeout + TLS handshake timeout, 20 s at
 // the defaults), after which the token is given back anyway. A request on an
-// HTTP/1.1 connection ([HTTPAuto]) gives it back at GotConn. The stock
+// HTTP/1.1 connection ([HTTPAuto]) gives it back at GotConn, so under
+// HTTPAuto new HTTP/1.1 connections are dialled one at a time. The stock
 // transport's own replays (GOAWAY, REFUSED_STREAM) write their headers
 // without the token (risk K21b); when a replay opens a new connection, the
 // first request that takes the token on it holds as the first request on a
