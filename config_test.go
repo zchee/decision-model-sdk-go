@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1016,6 +1017,74 @@ func TestInvalidHeader(t *testing.T) {
 				t.Errorf("Error() = %q, want %q", got, tt.want)
 			}
 			assertNotPrinted(t, err, secret)
+		})
+	}
+}
+
+// TestHeaderNameHoldingKey pins the refusal of a WithHeader name that
+// contains the API key, compared without regard to case (review W2.1
+// NIT 3): with the arguments swapped, WithHeader(key, "Bearer") would send
+// and log a header named after the key, since names are neither redacted
+// nor hidden. The error shows neither the name nor the key, whichever source
+// the key came from, and wins over the name's and the value's own checks.
+func TestHeaderNameHoldingKey(t *testing.T) {
+	const key = "ts_live_zzprivate"
+	refused := func(call int) string {
+		return "The name given to WithHeader call " + strconv.Itoa(call) + " contains the API key, so it is not shown; pass the key with WithAPIKey only."
+	}
+	tests := map[string]struct {
+		env  map[string]string
+		opts []ClientOption
+		want string // "" when the headers are accepted
+	}{
+		"error: arguments swapped": {
+			opts: []ClientOption{WithAPIKey(key), WithHeader(key, "Bearer")},
+			want: refused(1),
+		},
+		"error: key in upper case": {
+			opts: []ClientOption{WithAPIKey(key), WithHeader(strings.ToUpper(key), "v")},
+			want: refused(1),
+		},
+		"error: key inside a longer name": {
+			opts: []ClientOption{WithAPIKey(key), WithHeader("X-"+key+"-Id", "v")},
+			want: refused(1),
+		},
+		"error: key from the environment": {
+			env:  map[string]string{APIKeyEnv: key},
+			opts: []ClientOption{WithHeader(key, "v")},
+			want: refused(1),
+		},
+		"error: second call": {
+			opts: []ClientOption{WithAPIKey(key), WithHeader("X-Ok", "v"), WithHeader(key, "v")},
+			want: refused(2),
+		},
+		"error: wins over an invalid value": {
+			opts: []ClientOption{WithAPIKey(key), WithHeader(key, "Bearer\n")},
+			want: refused(1),
+		},
+		"error: wins over an invalid name": {
+			opts: []ClientOption{WithAPIKey(key), WithHeader(key+" x", "v")},
+			want: refused(1),
+		},
+		"success: part of the key is not the key": {
+			opts: []ClientOption{WithAPIKey(key), WithHeader("Ts_live_zz", "v"), WithHeader("X-Private", "v")},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if tt.want == "" {
+				mustResolve(t, mapEnv(tt.env), tt.opts...)
+				return
+			}
+			err := resolveError(t, mapEnv(tt.env), tt.opts...)
+			if got := err.Error(); got != tt.want {
+				t.Errorf("Error() = %q, want %q", got, tt.want)
+			}
+			for _, text := range errorTexts(err) {
+				if strings.Contains(strings.ToLower(text), key) {
+					t.Errorf("error text %q contains the key", text)
+				}
+			}
 		})
 	}
 }
