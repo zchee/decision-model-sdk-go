@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	gocmp "github.com/google/go-cmp/cmp"
 
@@ -883,7 +884,7 @@ func TestNestedContentEncodesAsContent(t *testing.T) {
 		},
 		"error: invalid JSON content nested in the state": {
 			state: map[string]any{"c": JSON([]byte(`{"a":}`))},
-			want:  "state: invalid Marshaler output json syntax",
+			want:  "state: a MarshalJSON method returned invalid JSON (syntax error at position 5)",
 		},
 		"error: JSON content that is not an object or an array": {
 			state: []any{JSON([]byte(`3`))},
@@ -1030,6 +1031,129 @@ func TestNestedRawJSONEncodesAsJSON(t *testing.T) {
 			}
 			if _, ok := errors.AsType[*codec.EncodeError](err); ok != tt.sonic {
 				t.Errorf("errors.As *codec.EncodeError = %t, want %t (err %v)", ok, tt.sonic, err)
+			}
+		})
+	}
+}
+
+// TestAppendSafeText pins the escape and cut of text the SDK did not write
+// (NF7, ruling R58), the rules of the Rust port's src/text.rs in Go escapes.
+func TestAppendSafeText(t *testing.T) {
+	tests := map[string]struct {
+		s      string
+		limit  int
+		double bool
+		want   string
+	}{
+		"success: printable text, non-ASCII and U+FFFD as they are": {s: "h\u00e9llo \u4e16\u754c \ufffd <>&\"'", limit: 200, want: "h\u00e9llo \u4e16\u754c \ufffd <>&\"'"},
+		"success: line feed, carriage return and tab":               {s: "a\nb\rc\td", limit: 200, want: `a\nb\rc\td`},
+		"success: other controls, DEL and C1 as Go escapes":         {s: "\x00\a\x1b\x7f\u0085\u009f", limit: 200, want: `\x00\a\x1b\x7f\u0085\u009f`},
+		"success: bytes that are not UTF-8":                         {s: "a\xffb\xed\xa0\x80", limit: 200, want: `a\xffb\xed\xa0\x80`},
+		"success: format characters that hide or reorder text": {
+			s:     "\u00ad\u061c\u180e\u200b\u200f\u2028\u2029\u202e\u2060\u2066\ufeff\ufff9\U000e0041",
+			limit: 200,
+			want:  `\u00ad\u061c\u180e\u200b\u200f\u2028\u2029\u202e\u2060\u2066\ufeff\ufff9\U000e0041`,
+		},
+		"success: a sentence keeps its backslashes":   {s: `say \"hi\" \x1b`, limit: 200, want: `say \"hi\" \x1b`},
+		"success: a name doubles its backslashes":     {s: `k\x1b`, limit: 200, double: true, want: `k\\x1b`},
+		"success: exactly at the limit, no ellipsis":  {s: "abcde", limit: 5, want: "abcde"},
+		"success: past the limit, cut with U+2026":    {s: "abcdef", limit: 5, want: "abcde\u2026"},
+		"success: an escape is never split":           {s: "abcd\n", limit: 5, want: "abcd\u2026"},
+		"success: an invalid byte's escape is whole":  {s: "ab\xff", limit: 5, want: "ab\u2026"},
+		"success: a multi-byte character counts once": {s: "\u4e16\u754c\u4eba\u6c11", limit: 3, want: "\u4e16\u754c\u4eba\u2026"},
+		"success: empty text":                         {s: "", limit: 5, want: ""},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := string(appendSafeText([]byte("<"), tt.s, tt.limit, tt.double))
+			if diff := gocmp.Diff("<"+tt.want, got); diff != "" {
+				t.Errorf("appendSafeText (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// rawMessage is json.RawMessage, which root tests cannot import (the seam
+// keeps encoding/json out of the root package): a byte slice whose
+// MarshalJSON returns it, so sonic validates it as it does a RawMessage.
+type rawMessage []byte
+
+func (m rawMessage) MarshalJSON() ([]byte, error) { return m, nil }
+
+// failingMarshaler is a json.Marshaler that fails with its message.
+type failingMarshaler struct{ msg string }
+
+func (f failingMarshaler) MarshalJSON() ([]byte, error) { return nil, errors.New(f.msg) }
+
+// TestEncodeErrorMessageIsBounded checks ruling R58: however large or
+// unprintable the caller's data, an *InvalidRequestError's message stays
+// short and printable, and carries no state for a json.Marshaler's invalid
+// output, while the whole cause stays behind Unwrap.
+func TestEncodeErrorMessageIsBounded(t *testing.T) {
+	const secret = "SECRET"
+	payload := strings.Repeat(secret, (1<<20)/len(secret)) // 1 MiB
+	tests := map[string]struct {
+		state    any
+		extra    []bodyMember
+		want     string // a substring of the message
+		noSecret bool   // the message must not quote the state at all
+		cut      bool   // the message ends with the cut's U+2026
+		inCause  bool   // the payload is in the cause, which Unwrap keeps whole
+	}{
+		"error: 1 MiB of invalid JSON content nested in the state": {
+			state:    map[string]any{"c": JSON([]byte(`{"k":"` + payload + `"`))},
+			want:     "state: a MarshalJSON method returned invalid JSON (syntax error at position ",
+			noSecret: true,
+			inCause:  true,
+		},
+		"error: 1 MiB of invalid RawJSON nested in the state": {
+			state:    []any{RawJSON(`["` + payload + `",]`)},
+			want:     "state: a MarshalJSON method returned invalid JSON (syntax error at position ",
+			noSecret: true,
+			inCause:  true,
+		},
+		"error: a 1 MiB invalid RawMessage-like state": {
+			state:    rawMessage(`{"k":"` + payload + `"`),
+			want:     "state: a MarshalJSON method returned invalid JSON (syntax error at position ",
+			noSecret: true,
+			inCause:  true,
+		},
+		"error: a 1 MiB cause with control characters, escaped and cut": {
+			state:   map[string]any{"m": failingMarshaler{msg: "bad\x1b[31m\n" + payload}},
+			want:    `state: bad\x1b[31m\n` + secret,
+			cut:     true,
+			inCause: true,
+		},
+		"error: a 1 MiB member name with control characters, escaped and cut": {
+			state: "x",
+			extra: []bodyMember{{"k\n\x1b\u2028" + payload, make(chan int)}},
+			want:  `extra body member "k\n\x1b\u2028` + secret,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := bodyOf(t, tt.state, "jev-latest", probeSet(t), tt.extra...)
+			ire := invalidRequest(t, err, tt.want)
+			msg := ire.Error()
+			t.Logf("message (%d bytes): %s", len(msg), msg)
+			if len(msg) >= 400 {
+				t.Errorf("message is %d bytes, want fewer than 400", len(msg))
+			}
+			if !utf8.ValidString(msg) || strings.ContainsFunc(msg, func(r rune) bool { return r < 0x20 || r == 0x7f || hidesText(r) }) {
+				t.Errorf("message holds an unprintable character: %q", msg)
+			}
+			if tt.noSecret && strings.Contains(msg, secret) {
+				t.Errorf("message quotes the state")
+			}
+			if tt.cut && !strings.HasSuffix(msg, "\u2026") {
+				t.Errorf("message does not end with the cut's U+2026")
+			}
+			ee, ok := errors.AsType[*codec.EncodeError](err)
+			if !ok {
+				t.Fatalf("err = %T, want a chain through *codec.EncodeError", err)
+			}
+			if cause := ee.Unwrap().Error(); tt.inCause && len(cause) < len(payload) {
+				t.Errorf("the cause behind Unwrap is %d bytes, want the whole cause (at least %d)", len(cause), len(payload))
 			}
 		})
 	}

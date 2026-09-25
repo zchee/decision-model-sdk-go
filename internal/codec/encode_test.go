@@ -121,7 +121,7 @@ func checkErr(t *testing.T, err error, want errKind, wantText string) {
 		if !ok {
 			t.Fatalf("err = %T %v, want an *EncodeError", err, err)
 		}
-		if ee.Unwrap() == nil || ee.Error() != ee.Unwrap().Error() {
+		if ee.Unwrap() == nil || ee.Error() == "" {
 			t.Errorf("EncodeError %q does not carry sonic's error %v", ee.Error(), ee.Unwrap())
 		}
 	default:
@@ -202,7 +202,7 @@ func TestEncodeState(t *testing.T) {
 		"error: cyclic map":               {state: cyclicMap(), err: errEncode, wantText: "too deep"},
 		"error: cyclic pointer":           {state: cyclicPointer(), err: errEncode, wantText: "too deep"},
 		"error: cyclic slice":             {state: cyclicSlice(), err: errEncode, wantText: "too deep"},
-		"error: invalid marshaler output": {state: json.RawMessage(`{"a":`), err: errEncode, wantText: "Marshaler"},
+		"error: invalid marshaler output": {state: json.RawMessage(`{"a":`), err: errEncode, wantText: "a MarshalJSON method returned invalid JSON (syntax error at position 8)"},
 		"error: invalid UTF-8 string":     {state: "a\xffb", err: errUTF8},
 		"error: surrogate bytes (WTF-8)":  {state: "a\xed\xa0\x80b", err: errUTF8},
 		"error: invalid UTF-8 map key":    {state: map[string]any{"k\xff": 1}, err: errUTF8},
@@ -453,6 +453,46 @@ func TestEncodeStateAllocations(t *testing.T) {
 			}
 			if got.Bytes > 112 {
 				t.Errorf("bytes = %d, want at most 112 per warm-pool call (AC-P1)", got.Bytes)
+			}
+		})
+	}
+}
+
+// TestEncodeErrorHidesMarshalerOutput checks that the message of a
+// json.Marshaler's invalid output keeps only the offset (ruling R58): sonic
+// quotes the whole output, the caller's data, in its own message, which
+// Unwrap still gives. It also pins the shape of sonic's message, so that a
+// sonic upgrade that rewords it fails here instead of letting the output
+// through. Any other sonic message is kept as it is.
+func TestEncodeErrorHidesMarshalerOutput(t *testing.T) {
+	tests := map[string]struct {
+		state     any
+		want      string // EncodeError's message
+		wantSonic string // a substring of sonic's own message
+	}{
+		"success: invalid json.Marshaler output keeps only its position": {
+			state:     json.RawMessage(`{"secret":`),
+			want:      "a MarshalJSON method returned invalid JSON (syntax error at position 13)",
+			wantSonic: sonicMarshalerSyntax + `13: "{\"secret\":"`,
+		},
+		"success: another sonic message is kept": {
+			state:     []any{make(chan int)},
+			want:      "json: unsupported type: chan int",
+			wantSonic: "json: unsupported type: chan int",
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			buf := []byte(prefix)
+			ee, ok := errors.AsType[*EncodeError](EncodeState(&buf, tt.state))
+			if !ok {
+				t.Fatal("EncodeState did not fail with an *EncodeError")
+			}
+			if diff := gocmp.Diff(tt.want, ee.Error()); diff != "" {
+				t.Errorf("Error (-want +got):\n%s", diff)
+			}
+			if !strings.Contains(ee.Unwrap().Error(), tt.wantSonic) {
+				t.Errorf("sonic's message %q does not contain %q", ee.Unwrap().Error(), tt.wantSonic)
 			}
 		})
 	}

@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/bytedance/sonic/encoder"
@@ -57,8 +58,26 @@ type EncodeError struct {
 	Err error
 }
 
-// Error returns sonic's message.
-func (e *EncodeError) Error() string { return e.Err.Error() }
+// sonicMarshalerSyntax starts sonic's error for a json.Marshaler whose output
+// is not valid JSON (internal/encoder/vars/errors.go, Error_marshaler:
+// "invalid Marshaler output json syntax at %d: %q"), which quotes the whole
+// output: the caller's data.
+const sonicMarshalerSyntax = "invalid Marshaler output json syntax at "
+
+// Error returns sonic's message, except for a json.Marshaler whose output is
+// not valid JSON, such as a nested RawJSON or JSON Content: sonic's message
+// quotes that output, which is the caller's data, so only the position sonic
+// reports is kept (it can lie past the end of a truncated output). Unwrap
+// still gives sonic's error.
+func (e *EncodeError) Error() string {
+	msg := e.Err.Error()
+	if rest, ok := strings.CutPrefix(msg, sonicMarshalerSyntax); ok {
+		if pos, _, ok := strings.Cut(rest, ":"); ok && pos != "" && strings.Trim(pos, "0123456789") == "" {
+			return "a MarshalJSON method returned invalid JSON (syntax error at position " + pos + ")"
+		}
+	}
+	return msg
+}
 
 // Unwrap returns sonic's error.
 func (e *EncodeError) Unwrap() error { return e.Err }
