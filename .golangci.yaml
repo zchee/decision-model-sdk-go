@@ -22,6 +22,10 @@ linters:
     - revive
     - unconvert
     - usestdlibvars
+    # Tests use the testing package's replacements (t.Context() for
+    # context.Background/TODO, t.TempDir, t.Setenv, t.Chdir); the house rule
+    # asks for t.Context().
+    - usetesting
     - whitespace
   settings:
     godot:
