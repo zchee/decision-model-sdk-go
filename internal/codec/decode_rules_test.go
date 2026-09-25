@@ -18,6 +18,7 @@ package codec
 
 import (
 	"errors"
+	"math"
 	"runtime"
 	"strings"
 	"testing"
@@ -158,6 +159,8 @@ func TestDecodeFieldPaths(t *testing.T) {
 
 		// Deviations (Appendix B).
 		"error: deviation, a negative token count":         {body: `{"model":"m","usage":{"input_tokens":-1}}`, want: "usage.input_tokens"},
+		"success: a token count -0 is 0":                   {body: `{"model":"m","usage":{"input_tokens":-0}}`},
+		"error: a token count -0.0":                        {body: `{"model":"m","usage":{"input_tokens":-0.0}}`, want: "usage.input_tokens"},
 		"error: deviation, a token count past 2^64-1":      {body: `{"model":"m","usage":{"input_tokens":18446744073709551616}}`, want: "usage.input_tokens"},
 		"error: deviation, a level value that is a number": {body: body(`{"s":{"type":"score","score":1,"confidence":1,"legend":{"0":5},"probabilities":{}}}`), want: "answers.s.legend.0"},
 		"error: deviation, level key -1":                   {body: body(`{"s":{"type":"score","score":1,"confidence":1,"legend":{"-1":"a"},"probabilities":{}}}`), want: "answers.s.legend.-1"},
@@ -622,4 +625,42 @@ func stackGrowth(f func()) (uint64, time.Duration) {
 		return 0, elapsed
 	}
 	return after.StackInuse - before.StackInuse, elapsed
+}
+
+// TestNegativeZero checks how a zero with a sign is read (review W2.0 MINOR
+// 3 and NIT 4, ruling R73): a -0 token count is the count 0, as the Python
+// SDK reads it, and every float member reads -0 and -0.0 as a positive 0,
+// so the sign cannot reach sonic's encoder, which spells a negative zero by
+// architecture (K27). The Python SDK keeps -0.0 negative; that is the W7
+// deviation.
+func TestNegativeZero(t *testing.T) {
+	for _, zero := range []string{"-0", "-0.0", "-0e5", "-0.0E-3"} {
+		t.Run(zero, func(t *testing.T) {
+			body := `{"model":"m","usage":{"output_tokens":1},"answers":{` +
+				`"n":{"type":"noul","noul":` + zero + `},` +
+				`"c":{"type":"choice","choice":"a","confidence":` + zero + `,"probabilities":{"a":` + zero + `}},` +
+				`"s":{"type":"score","score":` + zero + `,"confidence":1,"legend":{"0":"x"},"probabilities":{"0":` + zero + `}}}}`
+			res := mustDecode(t, body)
+			var floats []float64
+			for _, e := range res.Answers.Entries() {
+				a := e.Answer
+				floats = append(floats, a.Noul.Noul, a.Choice.Confidence, a.Score.Score)
+				for _, p := range a.Choice.Probabilities {
+					floats = append(floats, p.Probability)
+				}
+				for _, p := range a.Score.Probabilities {
+					floats = append(floats, p.Probability)
+				}
+			}
+			for i, f := range floats {
+				if f != 0 && f != 1 || math.Signbit(f) {
+					t.Errorf("float %d = %v (sign bit %t), want a positive 0 or 1", i, f, math.Signbit(f))
+				}
+			}
+		})
+	}
+	res := mustDecode(t, `{"model":"m","usage":{"input_tokens":-0}}`)
+	if want := (wire.Usage{InputTokens: 0, HasInputTokens: true}); res.Usage != want {
+		t.Errorf("usage = %+v, want %+v", res.Usage, want)
+	}
 }

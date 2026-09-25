@@ -587,14 +587,18 @@ func (v *visitor) assign(isStr bool, s string, num json.Number) {
 	v.wrongKind(sl, false)
 }
 
-// parseCount parses a token count: a JSON integer from 0 to 2^64-1. A
-// negative or larger integer, a number with a fraction or an exponent, a
-// string and a boolean fail (the Python SDK's Usage is strict; a negative
-// count and one past uint64 are Appendix B deviations). null never reaches
-// it: OnNull takes null as an absent count.
+// parseCount parses a token count: a JSON integer from 0 to 2^64-1, -0
+// included, which is the integer 0 (review W2.0 MINOR 3). A negative or
+// larger integer, a number with a fraction or an exponent, a string and a
+// boolean fail (the Python SDK's Usage is strict; a negative count and one
+// past uint64 are Appendix B deviations). null never reaches it: OnNull
+// takes null as an absent count.
 func parseCount(num json.Number) (uint64, bool) {
 	if num == "" {
 		return 0, false
+	}
+	if num == "-0" {
+		return 0, true
 	}
 	n, err := strconv.ParseUint(string(num), 10, 64)
 	return n, err == nil
@@ -602,13 +606,24 @@ func parseCount(num json.Number) (uint64, bool) {
 
 // parseFloat parses a JSON number that the traversal delivered as text
 // (OnlyNumber). A value out of float64's range (1e400) fails: the Go port
-// rejects it where the Python SDK takes infinity (Appendix B).
+// rejects it where the Python SDK takes infinity (Appendix B). A zero is
+// always positive: -0 is the integer 0, as the Python SDK reads it, and
+// -0.0, which the Python SDK keeps negative, is read as 0 too (a W7
+// deviation row), so that the sign of a zero cannot reach sonic's encoder,
+// which writes a negative zero differently on arm64 and amd64 (K27; review
+// W2.0 NIT 4).
 func parseFloat(num json.Number) (float64, bool) {
 	if num == "" {
 		return 0, false
 	}
 	f, err := strconv.ParseFloat(string(num), 64)
-	return f, err == nil
+	if err != nil {
+		return 0, false
+	}
+	if f == 0 {
+		f = 0 // clears the sign of -0 and -0.0
+	}
+	return f, true
 }
 
 func (v *visitor) OnNull() error {
