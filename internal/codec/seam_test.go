@@ -19,6 +19,18 @@ package codec
 // The seam tests hold the package boundaries of the port plan (section 4,
 // NF6, D1, PM1, PM5) over the whole module. CI runs them on their own with
 // go test -run Seam ./internal/codec/, and with every other test.
+//
+// Mutation checks: each change below, planted in a copy of the tree, makes
+// the named test fail. Re-run them when a rule changes.
+//   - TestSeamImports: encoding/json imported by internal/wire, by
+//     internal/h2gate or by a root test file; encoding/json/v2 imported by an
+//     internal/codec file. (internal/testsupport importing encoding/json
+//     passes by design.)
+//   - TestSeamSonicJITPath, with sonic replaced by an edited copy: spec.go and
+//     spec_compat.go of internal/encoder/alg cut at go1.27, so the fallback is
+//     compiled on the host; encoder_native.go cut at go1.26 on amd64 only, so
+//     only the build-line comparison sees it; every encoding/json fallback
+//     file renamed, so the guard would have nothing to look for.
 
 import (
 	"bytes"
@@ -229,9 +241,26 @@ func TestSeamImports(t *testing.T) {
 			applies: func(f goFile) bool { return !under(f.dir, "internal/testsupport") },
 			forbids: func(_ goFile, p string) bool { return under(p, "golang.org/x/net") },
 		},
-		"the root package imports no JSON library": {
-			applies: func(f goFile) bool { return f.dir == "." },
-			forbids: func(_ goFile, p string) bool { return isJSONLibrary(p) },
+		"no JSON library outside internal/codec, which adds encoding/json only (section 4)": {
+			// internal/testsupport, naive included, is test tooling: fixture
+			// loaders and the benchmark comparator may decode JSON with any
+			// library. _spikes/ holds throwaway probes; the walk skips it as
+			// the go command does, and the exemption states the intent should
+			// a spike ever be walked.
+			applies: func(f goFile) bool {
+				return !under(f.dir, "internal/testsupport") && !under(f.dir, "_spikes")
+			},
+			forbids: func(f goFile, p string) bool {
+				if !isJSONLibrary(p) {
+					return false
+				}
+				if under(f.dir, "internal/codec") {
+					// sonic is the codec; encoding/json only for the
+					// json.Number type of sonic's ast.Visitor (W2.0).
+					return !under(p, sonicPath) && p != "encoding/json"
+				}
+				return true
+			},
 		},
 		"internal/h2gate and internal/testsupport import neither root nor internal/codec (PM1)": {
 			applies: func(f goFile) bool {
@@ -478,36 +507,107 @@ func TestSeamBuildConstraints(t *testing.T) {
 	})
 }
 
-// TestSeamSonicJITPath checks that sonic compiles its JIT path, not its
-// encoding/json fallback, wherever this package compiles: on the host now,
-// and for every GOARCH and Go release from the go directive up to the cutoff
-// by comparing the two build constraints (PM1).
-func TestSeamSonicJITPath(t *testing.T) {
-	mod := findModule(t)
-	out := strings.TrimSpace(goList(t, mod.root, "-f", "{{.Dir}}\t{{join .GoFiles \" \"}}", sonicPath))
-	dir, list, ok := strings.Cut(out, "\t")
-	if !ok {
-		t.Fatalf("unexpected go list output %q", out)
-	}
-	files := strings.Fields(list)
-	if !slices.Contains(files, "sonic.go") || slices.Contains(files, "compat.go") {
-		t.Fatalf("sonic compiles %v on this host; want sonic.go (the JIT path) and not compat.go", files)
-	}
+// sonicFile is one Go source file of a sonic package, with its build
+// constraint.
+type sonicFile struct {
+	pkg, name string
+	line      string              // the //go:build line, or ""
+	expr      constraint.Expr     // nil without a //go:build line
+	compiled  bool                // selected on this host
+	imports   map[string]struct{} // direct imports
+}
 
-	data, err := os.ReadFile(filepath.Join(dir, "sonic.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var jitLine string
-	for line := range strings.Lines(string(data)) {
-		if line = strings.TrimRight(line, "\r\n"); constraint.IsGoBuild(line) {
-			jitLine = line
-			break
+// sonicFiles returns the non-test Go files of every sonic package that
+// internal/codec compiles on this host, whichever build configuration
+// selects them.
+func sonicFiles(t *testing.T, root string) []sonicFile {
+	t.Helper()
+	out := goList(t, root, "-deps", "-f", "{{.ImportPath}}\t{{.Dir}}\t{{join .GoFiles \" \"}}\t{{join .IgnoredGoFiles \" \"}}", "./internal/codec")
+	var files []sonicFile
+	for line := range strings.Lines(out) {
+		fields := strings.Split(strings.TrimRight(line, "\r\n"), "\t")
+		if len(fields) != 4 {
+			t.Fatalf("unexpected go list line %q", line)
+		}
+		pkg, dir := fields[0], fields[1]
+		if !under(pkg, sonicPath) {
+			continue
+		}
+		compiled := strings.Fields(fields[2])
+		for _, name := range append(slices.Clone(compiled), strings.Fields(fields[3])...) {
+			if strings.HasSuffix(name, "_test.go") {
+				continue
+			}
+			path := filepath.Join(dir, name)
+			f, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly|parser.ParseComments)
+			if err != nil {
+				t.Fatalf("parsing %s: %v", path, err)
+			}
+			sf := sonicFile{pkg: pkg, name: name, compiled: slices.Contains(compiled, name), imports: map[string]struct{}{}}
+			for _, spec := range f.Imports {
+				if p, err := strconv.Unquote(spec.Path.Value); err == nil {
+					sf.imports[p] = struct{}{}
+				}
+			}
+			for _, group := range f.Comments {
+				if group.Pos() > f.Package {
+					break
+				}
+				for _, c := range group.List {
+					if constraint.IsGoBuild(c.Text) {
+						sf.line = c.Text
+						if sf.expr, err = constraint.Parse(c.Text); err != nil {
+							t.Fatalf("%s: build line %q: %v", path, c.Text, err)
+						}
+					}
+				}
+			}
+			files = append(files, sf)
 		}
 	}
-	jit, err := constraint.Parse(jitLine)
-	if err != nil {
-		t.Fatalf("sonic.go build line %q: %v", jitLine, err)
+	return files
+}
+
+// isSonicFallback reports whether f is one of sonic's encoding/json fallback
+// files: compat.go or *_compat.go importing encoding/json. The other compat
+// files (internal/rt's base64_compat.go, which arm64 compiles by design)
+// are portable replacements, not the fallback.
+func isSonicFallback(f sonicFile) bool {
+	_, json := f.imports["encoding/json"]
+	return json && (f.name == "compat.go" || strings.HasSuffix(f.name, "_compat.go"))
+}
+
+// namesRelease reports whether the constraint mentions a go1.N release tag.
+func namesRelease(x constraint.Expr) bool {
+	switch x := x.(type) {
+	case *constraint.TagExpr:
+		return goMinor(x.Tag) >= 0
+	case *constraint.NotExpr:
+		return namesRelease(x.X)
+	case *constraint.AndExpr:
+		return namesRelease(x.X) || namesRelease(x.Y)
+	case *constraint.OrExpr:
+		return namesRelease(x.X) || namesRelease(x.Y)
+	}
+	return false
+}
+
+// TestSeamSonicJITPath checks that sonic compiles its JIT path, not its
+// encoding/json fallback, wherever this package compiles (PM1). sonic keeps
+// the fallback in pairs of files per package: the root package (sonic.go and
+// compat.go), ast (api.go, api_compat.go), decoder and encoder
+// (*_native.go, *_compat.go) and internal/encoder/alg (spec.go,
+// spec_compat.go). For every sonic package that internal/codec compiles and
+// that has a fallback file, the test requires, on this host, that no
+// fallback file is compiled and every file with a Go-release constraint (the
+// JIT side) is; and for every GOARCH and Go release from the go directive up
+// to the cutoff, comparing the build lines, that wherever internal/codec
+// compiles no fallback file would and every JIT-side file would.
+func TestSeamSonicJITPath(t *testing.T) {
+	mod := findModule(t)
+	files := sonicFiles(t, mod.root)
+	if len(files) == 0 {
+		t.Fatal("go list -deps ./internal/codec lists no sonic package; the guard would pass vacuously")
 	}
 	supported, err := constraint.Parse(supportedLine)
 	if err != nil {
@@ -519,17 +619,58 @@ func TestSeamSonicJITPath(t *testing.T) {
 		major, _, _ := strings.Cut(strings.TrimPrefix(mod.goVersion, "1."), ".")
 		from, _ = strconv.Atoi(major)
 	}
-	for minor := from; minor <= goMinor(d1Cutoff)+3; minor++ {
-		for _, arch := range []string{"amd64", "arm64", "386", "riscv64", "wasm"} {
-			tags := func(tag string) bool {
-				if n := goMinor(tag); n >= 0 {
-					return n <= minor
+
+	withFallback := map[string]bool{}
+	for _, f := range files {
+		if isSonicFallback(f) {
+			withFallback[f.pkg] = true
+		}
+	}
+	if len(withFallback) == 0 {
+		t.Fatal("no sonic package that internal/codec compiles has an encoding/json fallback file; sonic renamed them and the guard would pass vacuously")
+	}
+	jitSide := map[string]int{}
+	for _, f := range files {
+		if !withFallback[f.pkg] {
+			continue
+		}
+		fallback := isSonicFallback(f)
+		if !fallback && (f.expr == nil || !namesRelease(f.expr)) {
+			continue // a file every configuration of the package compiles
+		}
+		if !fallback {
+			jitSide[f.pkg]++
+		}
+		switch {
+		case fallback && f.compiled:
+			t.Errorf("%s: compiles %s, the encoding/json fallback, on this host", f.pkg, f.name)
+		case !fallback && !f.compiled:
+			t.Errorf("%s: does not compile %s, the JIT side, on this host", f.pkg, f.name)
+		}
+		if f.expr == nil {
+			t.Errorf("%s/%s: the fallback file carries no build line", f.pkg, f.name)
+			continue
+		}
+		for minor := from; minor <= goMinor(d1Cutoff)+3; minor++ {
+			for _, arch := range []string{"amd64", "arm64", "386", "riscv64", "wasm"} {
+				tags := func(tag string) bool {
+					if n := goMinor(tag); n >= 0 {
+						return n <= minor
+					}
+					return tag == arch
 				}
-				return tag == arch
+				if !supported.Eval(tags) {
+					continue
+				}
+				if got := f.expr.Eval(tags); got == fallback {
+					t.Errorf("go1.%d %s: internal/codec compiles, and sonic %s/%s %q would be compiled: %t", minor, arch, f.pkg, f.name, f.line, got)
+				}
 			}
-			if supported.Eval(tags) && !jit.Eval(tags) {
-				t.Errorf("go1.%d %s: internal/codec compiles but sonic %q would take its fallback", minor, arch, jitLine)
-			}
+		}
+	}
+	for pkg := range withFallback {
+		if jitSide[pkg] == 0 {
+			t.Errorf("%s: has an encoding/json fallback file but no file with a Go-release constraint on the JIT side", pkg)
 		}
 	}
 }
