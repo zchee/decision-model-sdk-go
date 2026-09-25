@@ -199,7 +199,11 @@ func (c *Client) WarmUp(ctx context.Context) error {
 // response whose body is not the answer the SDK expects is a
 // [*ResponseValidationError], and one over the size limit a
 // [*ResponseTooLargeError]; an attempt that produced no response is a
-// [*ConnectionError], or a [*TimeoutError] when its deadline passed.
+// [*ConnectionError], or a [*TimeoutError] when its deadline or ctx's
+// passed. A call whose ctx is cancelled stops its request and returns
+// ctx.Err(), [context.Canceled], itself, which is not an SDK [Error], as
+// typesafe-sdk-python lets a cancellation through unwrapped;
+// [context.Cause] gives a cause the canceller set.
 func (c *Client) SystemOne(ctx context.Context, state any, qs *Prepared, opts ...CallOption) (*SystemOneResponse, error) {
 	if err := c.usable(); err != nil {
 		return nil, err
@@ -381,7 +385,7 @@ func (c *Client) attempt(ctx context.Context, rq *request, attempt int) (wire.Re
 	c.attempts.Add(1)
 	resp, err := c.cfg.transport.roundTrip(req, rq.timeout)
 	if err != nil {
-		err = c.attemptError(ctx, rq.timeout, h, err)
+		err = c.attemptError(ctx, actx, rq.timeout, h, err)
 		c.logFailure(ctx, rq, attempt, start, err)
 		return wire.ResponseMeta{}, err
 	}
@@ -399,7 +403,7 @@ func (c *Client) attempt(ctx context.Context, rq *request, attempt int) (wire.Re
 		}
 		return meta, newAPIError(&meta, rq.endpoint)
 	case err != nil:
-		err = c.attemptError(ctx, rq.timeout, h, err)
+		err = c.attemptError(ctx, actx, rq.timeout, h, err)
 		c.logFailure(ctx, rq, attempt, start, err)
 		return wire.ResponseMeta{}, err
 	}
@@ -411,27 +415,44 @@ func (c *Client) attempt(ctx context.Context, rq *request, attempt int) (wire.Re
 	return meta, nil
 }
 
-// attemptError turns the error that ended an attempt without a response
-// into the SDK's. An error the transport already mapped (transportError: a
-// dial, TLS or proxy failure, HTTP/2 not negotiated) is returned as it is;
-// any other is a *TimeoutError when the attempt's deadline or the caller's
-// (ctx) passed or the network reports a timeout, and a *ConnectionError
-// otherwise. h is the header the attempt sent: a *ConnectionError's text
-// shows none of its credentials and no URL's userinfo
-// ([credentials.redact]), and both types wrap err, or a stand-in for it
-// when its chain printed one ([credentials.cause]).
-func (c *Client) attemptError(ctx context.Context, timeout time.Duration, h http.Header, err error) error {
+// attemptError turns the error that ended an attempt without a response,
+// from the transport or from reading the body, into what the call returns
+// (section 6.3). ctx is the call's context, actx the attempt's under its
+// timeout, and h the header the attempt sent. In this order:
+//
+//   - A call whose context was cancelled returns ctx.Err(), context.Canceled,
+//     itself: typesafe-sdk-python maps only httpx's RequestError
+//     (py:_core/transport.py:79-86), so asyncio.CancelledError reaches its
+//     caller as it is (tests/test_clients.py:559-596, C20 and C21).
+//   - An error the transport already mapped ([transportError]) is returned
+//     as it is.
+//   - The call's own deadline is a *TimeoutError without a timeout.
+//   - The attempt's deadline, or an error that is a timeout itself
+//     (context.DeadlineExceeded in its chain, or a net.Error whose Timeout
+//     is true), is a *TimeoutError with the attempt's timeout, as the
+//     Python SDK maps every httpx TimeoutException
+//     (py:_core/transport.py:83-84).
+//   - Anything else, a refused or reset connection, a stream reset, a
+//     GOAWAY after the request was written, a body cut short, is a
+//     *ConnectionError.
+//
+// A *ConnectionError's text is the transport error's, with every credential
+// of h and every URL userinfo replaced by "***" ([credentials.redact]);
+// both types wrap the transport's error, or a stand-in for it when its
+// chain printed a credential ([credentials.cause]).
+func (c *Client) attemptError(ctx, actx context.Context, timeout time.Duration, h http.Header, err error) error {
+	if cerr := ctx.Err(); errors.Is(cerr, context.Canceled) {
+		return cerr
+	}
 	if _, ok := err.(Error); ok { //nolint:errorlint // only an error the transport returned as the SDK's own is kept.
 		return err
 	}
 	creds := requestCredentials(h)
 	var ne net.Error
-	if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout()) {
-		if ctx.Err() != nil {
-			// The caller's own deadline: the attempt had no timeout of its
-			// own to report.
-			timeout = 0
-		}
+	switch {
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+		return newTimeoutError(0, creds.cause(err))
+	case errors.Is(actx.Err(), context.DeadlineExceeded), errors.Is(err, context.DeadlineExceeded), errors.As(err, &ne) && ne.Timeout():
 		return newTimeoutError(timeout, creds.cause(err))
 	}
 	text, _ := creds.redact(err.Error())

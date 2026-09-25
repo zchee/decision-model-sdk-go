@@ -18,6 +18,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -25,6 +26,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	gocmp "github.com/google/go-cmp/cmp"
@@ -318,64 +320,165 @@ func TestCloseAfterFailedCall(t *testing.T) {
 	}
 }
 
+// assertCancelled checks that err is the cancelled context's own error,
+// context.Canceled, and not an SDK error: typesafe-sdk-python maps only
+// httpx's RequestError (py:_core/transport.py:79), so a cancellation reaches
+// its caller as asyncio.CancelledError itself (tests/test_clients.py:559-596).
+func assertCancelled(t *testing.T, err error) {
+	t.Helper()
+	if err != context.Canceled { //nolint:errorlint // the context's own error, not one wrapping it
+		t.Errorf("error = %T %v, want context.Canceled itself", err, err)
+	}
+	if _, ok := errors.AsType[Error](err); ok {
+		t.Errorf("error = %T %v, an SDK error; a cancellation is not one", err, err)
+	}
+}
+
+// waitFor polls cond until it holds, failing the test when it does not
+// within d.
+func waitFor(t *testing.T, d time.Duration, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(d)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("%s: not within %v", what, d)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// ctxBody is a response body whose Read reports started once, then blocks
+// until ctx is done and fails with its error.
+type ctxBody struct {
+	ctx     context.Context
+	started func()
+}
+
+func (b ctxBody) Read([]byte) (int, error) {
+	b.started()
+	<-b.ctx.Done()
+	return 0, b.ctx.Err()
+}
+
+func (ctxBody) Close() error { return nil }
+
 // TestCancelInFlightRequest ports test_task_cancellation_closes_context
-// (C20)'s client half: cancelling the context of a call whose request is in
-// flight ends it after one attempt with an error that wraps
-// context.Canceled, and Close then closes the transport once. The error's
-// type is W2.5's classification.
+// (C20): cancelling the context of a call whose request is in flight ends it
+// promptly after one attempt with context.Canceled itself, not an SDK error
+// (assertCancelled); over the SDK's own transport the loopback server sees
+// the stream reset, and Close then closes a supplied transport once. The
+// cancellation lands while the request waits for its response and while its
+// body is read.
 func TestCancelInFlightRequest(t *testing.T) {
-	started := make(chan struct{})
-	rt := &closingRT{rt: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		close(started)
-		<-req.Context().Done()
-		return nil, req.Context().Err()
-	})}
-	c := newTestClient(t, rt)
-	ctx, cancel := context.WithCancel(t.Context())
-	errc := make(chan error, 1)
-	go func() {
-		_, err := c.SystemOne(ctx, "x", noulQuestion(t))
-		errc <- err
-	}()
-	select {
-	case <-started:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the request did not reach the transport within 5 s")
+	type setup struct {
+		c     *Client
+		after func(t *testing.T) // checks what the transport saw
 	}
-	cancel()
-	var err error
-	select {
-	case err = <-errc:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the call did not return within 5 s of the cancellation")
+	tests := map[string]struct {
+		setup func(t *testing.T, started func()) setup
+	}{
+		"success: the loopback server sees the stream reset": {
+			setup: func(t *testing.T, started func()) setup {
+				release := make(chan struct{})
+				t.Cleanup(func() { close(release) })
+				srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+					started()
+					select {
+					case <-r.Context().Done():
+					case <-release:
+					}
+				})})
+				clearEnv(t)
+				c, err := NewClient(WithAPIKey(testKey), WithBaseURL(srv.URL()), WithRootCAs(testsupport.RootCAs(t)), WithProxy(nil))
+				if err != nil {
+					t.Fatalf("NewClient: %v", err)
+				}
+				t.Cleanup(func() { _ = c.Close() })
+				return setup{c: c, after: func(t *testing.T) {
+					waitFor(t, 5*time.Second, "the server sees the stream dropped", func() bool {
+						reqs := srv.Requests()
+						return len(reqs) == 1 && reqs[0].Dropped
+					})
+					if n := srv.Accepts(); n != 1 {
+						t.Errorf("the server accepted %d connections, want 1", n)
+					}
+				}}
+			},
+		},
+		"success: Close then closes a supplied transport once": {
+			setup: func(t *testing.T, started func()) setup {
+				rt := &closingRT{rt: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+					started()
+					<-req.Context().Done()
+					return nil, req.Context().Err()
+				})}
+				c := newTestClient(t, rt)
+				return setup{c: c, after: func(t *testing.T) {
+					if err := c.Close(); err != nil {
+						t.Fatalf("Close: %v", err)
+					}
+					if n := rt.closes.Load(); n != 1 {
+						t.Errorf("the transport was closed %d times, want 1", n)
+					}
+				}}
+			},
+		},
+		"success: a cancellation while the body is read": {
+			setup: func(t *testing.T, started func()) setup {
+				rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+					return &http.Response{
+						StatusCode: http.StatusOK, Header: http.Header{}, ContentLength: -1, Request: req,
+						Body: ctxBody{ctx: req.Context(), started: started},
+					}, nil
+				})
+				return setup{c: newTestClient(t, rt), after: func(*testing.T) {}}
+			},
+		},
 	}
-	if !errors.Is(err, context.Canceled) {
-		t.Errorf("SystemOne error = %v, want one wrapping context.Canceled", err)
-	}
-	if n := c.Stats().Attempts; n != 1 {
-		t.Errorf("Stats().Attempts = %d, want 1", n)
-	}
-	if err := c.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-	if n := rt.closes.Load(); n != 1 {
-		t.Errorf("the transport was closed %d times, want 1", n)
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			startedc := make(chan struct{})
+			var once sync.Once
+			s := tt.setup(t, func() { once.Do(func() { close(startedc) }) })
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			errc := make(chan error, 1)
+			go func() {
+				_, err := s.c.SystemOne(ctx, "x", noulQuestion(t))
+				errc <- err
+			}()
+			select {
+			case <-startedc:
+			case <-time.After(5 * time.Second):
+				t.Fatal("the request did not reach the transport within 5 s")
+			}
+			cancel()
+			select {
+			case err := <-errc:
+				assertCancelled(t, err)
+			case <-time.After(5 * time.Second):
+				t.Fatal("the call did not return within 5 s of the cancellation")
+			}
+			if n := s.c.Stats().Attempts; n != 1 {
+				t.Errorf("Stats().Attempts = %d, want 1", n)
+			}
+			s.after(t)
+		})
 	}
 }
 
 // TestCancelledContextMakesOneAttempt ports test_cancellation_propagates
-// (C21)'s client half: a call under a cancelled context makes one attempt,
-// which the transport ends at once, and returns an error that wraps
-// context.Canceled. The error's type is W2.5's classification.
+// (C21): a call under a cancelled context makes one attempt, which the
+// transport ends at once, and returns context.Canceled itself, not an SDK
+// error (assertCancelled). No policy retries yet, so no retry sleep waits on
+// the context (W3 adds one).
 func TestCancelledContextMakesOneAttempt(t *testing.T) {
 	rec := replying(http.StatusOK, []byte(`{"models":[]}`))
 	c := newTestClient(t, rec)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	_, err := c.Models().List(ctx)
-	if !errors.Is(err, context.Canceled) {
-		t.Errorf("List error = %v, want one wrapping context.Canceled", err)
-	}
+	assertCancelled(t, err)
 	if rec.Count() != 1 || c.Stats().Attempts != 1 {
 		t.Errorf("the transport saw %d requests and Stats counts %d attempts, want 1 and 1", rec.Count(), c.Stats().Attempts)
 	}
@@ -439,10 +542,12 @@ func (netTimeout) Timeout() bool   { return true }
 func (netTimeout) Temporary() bool { return true }
 
 // TestAttemptErrorClassification pins the attempt's classification of an
-// error that ended it without a response, which W2.5 refines (C13): the
-// attempt's own deadline is a *TimeoutError naming the attempt's timeout,
-// the caller's deadline one without it, a network timeout one too, and
-// anything else a *ConnectionError. Each wraps the transport's error, except
+// error that ended it without a response (C13, section 6.3): the attempt's
+// own deadline is a *TimeoutError naming the attempt's timeout, whether it
+// passes before the response or while its body is read and whatever error
+// the transport reports for it; the caller's deadline is one without a
+// timeout; a network timeout is one too; anything else, a body cut short
+// included, is a *ConnectionError. Each wraps the transport's error, except
 // that a text holding a credential of the request is shown with "***" and
 // the error unwraps to a stand-in: the whole Authorization value is
 // replaced, as typesafe-sdk-python collects it (py:_core/logging.py:43).
@@ -482,6 +587,20 @@ func TestAttemptErrorClassification(t *testing.T) {
 				}
 			},
 		},
+		"error: the caller's deadline before the attempt's": {
+			rt: blockUntilDone,
+			ctx: func(t *testing.T) context.Context {
+				ctx, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
+				t.Cleanup(cancel)
+				return ctx
+			},
+			check: func(t *testing.T, err error) {
+				te, ok := errors.AsType[*TimeoutError](err)
+				if !ok || te.Timeout != 0 || !errors.Is(err, context.DeadlineExceeded) || te.Error() != "Request timed out." {
+					t.Errorf("error = %v (%T), want a *TimeoutError without a timeout: the client's 10s did not pass", err, err)
+				}
+			},
+		},
 		"error: a network timeout": {
 			rt: &testsupport.Recorder{Replies: []testsupport.Reply{{Err: netTimeout{}}}},
 			check: func(t *testing.T, err error) {
@@ -499,6 +618,48 @@ func TestAttemptErrorClassification(t *testing.T) {
 					t.Errorf("error = %v (%T), want a *ConnectionError with the credentials replaced, wrapping a stand-in", err, err)
 				}
 				assertNotPrinted(t, err, longKey)
+			},
+		},
+		"error: the attempt's deadline, whatever error the transport reports": {
+			rt: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				<-req.Context().Done()
+				return nil, errString("net/http: request canceled")
+			}),
+			call: []CallOption{Timeout(30 * time.Millisecond)},
+			check: func(t *testing.T, err error) {
+				te, ok := errors.AsType[*TimeoutError](err)
+				if !ok || te.Timeout != 30*time.Millisecond || !errors.Is(err, errString("net/http: request canceled")) {
+					t.Errorf("error = %v (%T), want a *TimeoutError of 30ms wrapping the transport's error", err, err)
+				}
+			},
+		},
+		"error: the attempt's deadline while the body is read": {
+			rt: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusOK, Header: http.Header{}, ContentLength: -1, Request: req,
+					Body: ctxBody{ctx: req.Context(), started: func() {}},
+				}, nil
+			}),
+			call: []CallOption{Timeout(30 * time.Millisecond)},
+			check: func(t *testing.T, err error) {
+				te, ok := errors.AsType[*TimeoutError](err)
+				if !ok || te.Timeout != 30*time.Millisecond || !errors.Is(err, context.DeadlineExceeded) {
+					t.Errorf("error = %v (%T), want a *TimeoutError of 30ms wrapping context.DeadlineExceeded", err, err)
+				}
+			},
+		},
+		"error: a body cut short": {
+			rt: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusOK, Header: http.Header{}, ContentLength: 64, Request: req,
+					Body: io.NopCloser(io.MultiReader(strings.NewReader(`{"models":`), iotest.ErrReader(io.ErrUnexpectedEOF))),
+				}, nil
+			}),
+			check: func(t *testing.T, err error) {
+				ce, ok := errors.AsType[*ConnectionError](err)
+				if !ok || ce.Proxy() || !errors.Is(err, io.ErrUnexpectedEOF) || ce.Error() != "Connection error: unexpected EOF" {
+					t.Errorf("error = %v (%T), want a *ConnectionError wrapping io.ErrUnexpectedEOF", err, err)
+				}
 			},
 		},
 	}

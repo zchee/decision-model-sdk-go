@@ -32,7 +32,10 @@ import (
 // [*ResponseValidationError], [*ResponseTooLargeError], [*ConfigError] and
 // [*InvalidRequestError]. Each is a distinct type that [errors.As] matches,
 // and errors.As with a *typesafe.Error target matches any of them, as the
-// Python SDK's TypeSafeError base class does.
+// Python SDK's TypeSafeError base class does. The one exception is a
+// cancellation: a call whose context is cancelled returns ctx.Err()
+// ([context.Canceled]) itself, as the Python SDK lets
+// asyncio.CancelledError through.
 //
 // No error's text holds the API key, a request's state or a response body
 // unescaped: text the SDK did not write is escaped and cut (the server's
