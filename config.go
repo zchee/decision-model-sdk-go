@@ -60,6 +60,8 @@ type options struct {
 	noRuntimeHeader  bool
 	logger           *slog.Logger
 	hideEndpointHost bool
+	// transport is what the transport options (transport.go) recorded.
+	transport transportOptions
 }
 
 // headerOption is one [WithHeader] call.
@@ -250,13 +252,18 @@ type config struct {
 	// its template and never writes to it.
 	systemOneHeader http.Header
 	modelsHeader    http.Header
+
+	// transport carries every request of the client.
+	transport *transport
 }
 
 // resolve checks what o recorded, fills every setting o left unset from the
 // environment that getenv reads (NewClient passes [os.Getenv]) and then from
 // the defaults, and returns the resulting configuration. The first setting
 // that cannot be used is reported as a *ConfigError, in the order key, base
-// URL, model, timeouts, response limit, User-Agent product, headers.
+// URL, model, timeouts, response limit, User-Agent product, headers,
+// transport. The transport is built last, once every other setting is known
+// to be usable.
 func (o *options) resolve(getenv func(string) string) (*config, error) {
 	key, err := resolveAPIKey(o.apiKey, getenv)
 	if err != nil {
@@ -308,6 +315,10 @@ func (o *options) resolve(getenv func(string) string) (*config, error) {
 	}
 	systemOneHeader := modelsHeader.Clone()
 	systemOneHeader.Set(headerContentType, jsonContentType)
+	tr, err := o.transport.build(systemOne, connectTimeout, o.connectTimeout != nil, logger)
+	if err != nil {
+		return nil, err
+	}
 
 	c := &config{
 		apiKey:           key,
@@ -322,6 +333,7 @@ func (o *options) resolve(getenv func(string) string) (*config, error) {
 		logger:           logger,
 		systemOneHeader:  systemOneHeader,
 		modelsHeader:     modelsHeader,
+		transport:        tr,
 	}
 	if o.hideEndpointHost {
 		c.systemOneLog, c.modelsLog = systemOnePath, modelsPath

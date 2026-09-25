@@ -71,7 +71,7 @@ IDs that the plan's waves cite.
 
 | ID | Upstream | Go test / deviation | status |
 | --- | --- | --- | --- |
-| F1 | `test_transport_and_http_client_mutually_exclusive` | deviation "one transport option, two kinds" + `TestTransportOptionsAreExclusive` | planned |
+| F1 | `test_transport_and_http_client_mutually_exclusive` | deviation "one transport option, two kinds" + `TestTransportOptionsAreExclusive` | deviation |
 | F2 | `test_model_override` | `TestModelOverridePerCall` | planned |
 | F3 | `test_resolution` | `TestConfigResolutionOrder` (default/env/explicit) | planned |
 | F4 | `test_missing_key` | `TestMissingAPIKey` | ported |
