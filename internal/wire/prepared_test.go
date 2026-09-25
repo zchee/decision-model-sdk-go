@@ -210,7 +210,7 @@ func TestBuilderErrors(t *testing.T) {
 		"error: an option label that is not UTF-8": {
 			build:      func(b *Builder) error { return b.Choice("q", nil, []string{"ok", "\xff"}, never) },
 			wantMember: "criteria.\xff", wantErr: ErrInvalidUTF8,
-			wantMsg: "criteria.\xff: string is not valid UTF-8",
+			wantMsg: `"criteria.\xff": string is not valid UTF-8`,
 		},
 		"error: an option description": {
 			build: func(b *Builder) error {
@@ -237,7 +237,7 @@ func TestBuilderErrors(t *testing.T) {
 		"error: a raw field name that is not UTF-8": {
 			build:      func(b *Builder) error { return b.Raw("r", "noul", map[string]any{"\xff": 1}, nil) },
 			wantMember: "\xff", wantErr: ErrInvalidUTF8,
-			wantMsg: "\xff: string is not valid UTF-8",
+			wantMsg: `"\xff": string is not valid UTF-8`,
 		},
 		"error: a string value that is not UTF-8": {
 			build:      func(b *Builder) error { return b.Raw("r", "noul", map[string]any{"s": "\xff"}, nil) },
@@ -279,7 +279,7 @@ func TestBuilderErrors(t *testing.T) {
 		"error: a nested map key that is not UTF-8": {
 			build:      func(b *Builder) error { return b.Raw("r", "noul", map[string]any{"m": map[string]any{"\xff": 1}}, nil) },
 			wantMember: "m.\xff", wantErr: ErrInvalidUTF8,
-			wantMsg: "m.\xff: string is not valid UTF-8",
+			wantMsg: `"m.\xff": string is not valid UTF-8`,
 		},
 		"error: a []string element": {
 			build:      func(b *Builder) error { return b.Raw("r", "noul", map[string]any{"l": []string{"a", "\xff"}}, nil) },
@@ -291,7 +291,7 @@ func TestBuilderErrors(t *testing.T) {
 				return b.Raw("r", "noul", map[string]any{"m": map[string]string{"\xff": "v"}}, nil)
 			},
 			wantMember: "m.\xff", wantErr: ErrInvalidUTF8,
-			wantMsg: "m.\xff: string is not valid UTF-8",
+			wantMsg: `"m.\xff": string is not valid UTF-8`,
 		},
 		"error: a map[string]string value": {
 			build: func(b *Builder) error {

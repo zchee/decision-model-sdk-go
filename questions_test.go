@@ -823,6 +823,15 @@ func TestPrepareRejects(t *testing.T) {
 			qs:      NewQuestions().Choice("tone", Choice{Options: manyOptions}),
 			wantMsg: `Choice question "tone" has option "o1" more than once; option labels must be unique.`,
 		},
+		"error: a repeated option label that is not UTF-8 is quoted": {
+			qs:      NewQuestions().Choice("tone", Choice{Options: Options{{Label: "\xff"}, {Label: "\xff"}}}),
+			wantMsg: `Choice question "tone" has option "\xff" more than once; option labels must be unique.`,
+		},
+		"error: an option label that is not UTF-8 is quoted in the path": {
+			qs:        NewQuestions().Choice("q", Choice{Options: Options{{Label: "ok"}, {Label: "a\xff"}}}),
+			wantMsg:   `Question "q": "criteria.a\xff": string is not valid UTF-8`,
+			wantCause: wire.ErrInvalidUTF8,
+		},
 		"error: an unset level": {
 			qs:      NewQuestions().Score("rating", Score{Levels: []Content{Text("low"), {}, Text("high")}}),
 			wantMsg: `Score question "rating" level 1 is unset; every level needs text or JSON content.`,

@@ -271,6 +271,16 @@ func (qs *Questions) checkName(i int, seen map[string]struct{}) error {
 	return nil
 }
 
+// quote puts s in double quotes as the Python SDK's messages do, or, when s
+// is not valid UTF-8, spells it with Go escapes so that the message stays
+// printable.
+func quote(s string) string {
+	if !utf8.ValidString(s) {
+		return strconv.Quote(s)
+	}
+	return `"` + s + `"`
+}
+
 // firstRepeat returns the index of the first string of s that equals an
 // earlier one, or -1 when all are distinct.
 func firstRepeat(s []string) int {
@@ -301,7 +311,7 @@ func prepareChoice(b *wire.Builder, name string, q *Choice) error {
 		labels[i] = q.Options[i].Label
 	}
 	if i := firstRepeat(labels); i >= 0 {
-		return newConfigError(`Choice question "` + name + `" has option "` + labels[i] + `" more than once; option labels must be unique.`)
+		return newConfigError(`Choice question "` + name + `" has option ` + quote(labels[i]) + ` more than once; option labels must be unique.`)
 	}
 	return b.Choice(name, q.Instructions.orNil(), labels, func(i int) *wire.Content { return q.Options[i].Description.orNil() })
 }

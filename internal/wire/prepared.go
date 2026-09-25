@@ -20,6 +20,7 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"unicode/utf8"
 )
 
 // ErrDuplicateQuestion is returned by [NewPrepared] for a question set that
@@ -150,8 +151,16 @@ type MemberError struct {
 	Err error
 }
 
-// Error returns the member path and the reason.
-func (e *MemberError) Error() string { return e.Member + ": " + e.Err.Error() }
+// Error returns the member path and the reason. A path that is not valid
+// UTF-8, such as one naming an option label with a stray byte, is quoted with
+// Go escapes so that the text stays printable.
+func (e *MemberError) Error() string {
+	member := e.Member
+	if !utf8.ValidString(member) {
+		member = strconv.Quote(member)
+	}
+	return member + ": " + e.Err.Error()
+}
 
 // Unwrap returns the reason.
 func (e *MemberError) Unwrap() error { return e.Err }
