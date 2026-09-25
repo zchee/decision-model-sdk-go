@@ -16,6 +16,7 @@
 package codec
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 
@@ -73,10 +74,19 @@ func BenchmarkDecode(b *testing.B) {
 // BenchmarkDecodeNaiveSonic is the naive comparator of owner decision G3:
 // sonic.Unmarshal of the same bodies into a map[string]any, which validates
 // the JSON (less strictly: it takes raw control characters and invalid
-// UTF-8) and builds a generic tree without the SDK's checks or types.
+// UTF-8) and builds a generic tree without the SDK's checks or types. A body
+// sonic refuses has no row: on arm64 sonic refuses 1e400 anywhere ("float
+// infinity"), so parity-big-exp-unknown is left out there and measured on
+// amd64 (the architecture-dependent verdict that disqualified S-D1's
+// variant b).
 func BenchmarkDecodeNaiveSonic(b *testing.B) {
 	for _, name := range decodeBenchFixtures {
 		body := testsupport.Fixture(b, name)
+		var probe map[string]any
+		if err := sonic.Unmarshal(body, &probe); err != nil {
+			b.Logf("%s: sonic.Unmarshal refuses it on %s, no row: %v", name, runtime.GOARCH, err)
+			continue
+		}
 		b.Run(strings.TrimSuffix(name, ".json"), func(b *testing.B) {
 			b.ReportAllocs()
 			b.SetBytes(int64(len(body)))
