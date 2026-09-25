@@ -29,8 +29,11 @@ import (
 // A structured legend level is spliced as the bytes the response carried
 // (ruling R73): the Python SDK writes the value it parsed, so a level whose
 // received bytes hold an escape or a number spelling other than its own
-// (\u0061 for a, 1E2 for 100.0) or whitespace differs from Python's output
-// in those bytes only. Every other byte is Python's.
+// (\u0061 for a, 1E2 for 100.0), whitespace or a repeated member name
+// (Python keeps the last) differs from Python's output in those bytes only.
+// A float member that arrived as -0.0 holds 0 (the decoder reads every zero
+// as 0, R73) and is written 0.0, where Python writes -0.0. Every other byte
+// is Python's.
 //
 // Each exported appender grows dst once, to a capacity that fits the
 // payload unless its strings need escapes, and on failure returns dst

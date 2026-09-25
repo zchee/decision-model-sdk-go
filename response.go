@@ -75,8 +75,13 @@ func (m ResponseMeta) RequestID() (string, bool) { return m.m.RequestID() }
 
 // SystemOneResponse is the response to a System One call: the model that
 // answered, the token usage and the answers, with the HTTP response they
-// came in. It is immutable. See System One
-// (https://docs.typesafe.ai/concepts/system-one).
+// came in. See System One (https://docs.typesafe.ai/concepts/system-one).
+//
+// It is immutable, except that [SystemOneResponse.UnmarshalJSON] replaces
+// the whole response in place: an Answers view taken before the call shows
+// the new answers, a copy of the response made before the call keeps the
+// old ones, and no other goroutine may read the response during the
+// call.
 type SystemOneResponse struct {
 	res  wire.SystemOneResult
 	meta wire.ResponseMeta
@@ -88,8 +93,9 @@ func (r *SystemOneResponse) Model() string { return r.res.Model }
 // Usage returns the token usage of the request.
 func (r *SystemOneResponse) Usage() Usage { return Usage{r.res.Usage} }
 
-// Answers returns the answers, keyed by question name. The view is valid as
-// long as r is.
+// Answers returns the answers, keyed by question name. The view reads r: it
+// is valid as long as r is, and after [SystemOneResponse.UnmarshalJSON] it
+// shows the answers r then holds.
 func (r *SystemOneResponse) Answers() Answers { return Answers{&r.res.Answers} }
 
 // Meta returns the HTTP response the answers came in.
@@ -103,8 +109,15 @@ func (r *SystemOneResponse) Meta() ResponseMeta { return ResponseMeta{r.meta} }
 // answers come in the order of [Answers.All]. A structured legend level is
 // written as the bytes the response carried ([ScoreAnswer.Description]),
 // where the Python SDK writes the value it parsed; the two differ only when
-// those bytes hold an escape, whitespace or a number spelled otherwise than
-// Python spells it. Every other byte is the Python SDK's.
+// those bytes hold an escape, whitespace, a repeated member name (Python
+// keeps the last) or a number spelled otherwise than Python spells it. A
+// float member that arrived as -0.0 is written 0.0, where Python writes
+// -0.0: the response reads every zero as 0. Every other byte is the Python
+// SDK's.
+//
+// A caller's encoding/json escapes <, >, &, U+2028 and U+2029 in this
+// output, as it does in every MarshalJSON's; call MarshalJSON directly for
+// the exact bytes.
 //
 // The receiver is a value, so a SystemOneResponse marshals the same whether
 // it is held by pointer or by value. [SystemOneResponse.UnmarshalJSON] reads
@@ -118,13 +131,15 @@ func (r SystemOneResponse) MarshalJSON() ([]byte, error) {
 // System One response is, with the same checks and the same rules for a
 // repeated member; an answer of a type this version does not model is left
 // out without a log line. The response did not come from a request, so its
-// Meta is empty, and it keeps no reference to data.
+// Meta is empty, and it keeps no reference to data. It overwrites *r in
+// place; [SystemOneResponse] says what that means to views and copies taken
+// before the call.
 //
-// A payload the decoder refuses leaves *r unchanged and fails with a
-// [*ResponseValidationError] whose FieldPath names the first failure, whose
-// StatusCode is zero, and whose Header, Body and Endpoint are empty. As
-// json.Unmarshaler implementations do by convention, the JSON literal null
-// leaves *r unchanged.
+// A payload the decoder refuses leaves *r unchanged, its Meta included, and
+// fails with a [*ResponseValidationError] whose FieldPath names the first
+// failure, whose StatusCode is zero, and whose Header, Body and Endpoint are
+// empty. As json.Unmarshaler implementations do by convention, the JSON
+// literal null leaves *r unchanged.
 func (r *SystemOneResponse) UnmarshalJSON(data []byte) error {
 	if string(data) == "null" {
 		return nil
@@ -155,7 +170,12 @@ func (m ModelCard) ReleaseDate() string { return m.w.ReleaseDate }
 func (m ModelCard) MarshalJSON() ([]byte, error) { return wire.AppendModelCard(nil, &m.w) }
 
 // ModelsResponse is the response to a list-models call: the models the
-// account can use, with the HTTP response they came in. It is immutable.
+// account can use, with the HTTP response they came in.
+//
+// It is immutable, except that [ModelsResponse.UnmarshalJSON] replaces the
+// whole response in place: no other goroutine may read the response during
+// the call, and a slice Models returned before it, or a copy of the
+// response made before it, keeps the old cards.
 type ModelsResponse struct {
 	list wire.ModelList
 	meta wire.ResponseMeta
@@ -179,6 +199,10 @@ func (r *ModelsResponse) Meta() ResponseMeta { return ResponseMeta{r.meta} }
 // Python SDK's model_dump_json writes it, byte for byte: the cards in the
 // order of Models, without the HTTP response (Meta).
 //
+// A caller's encoding/json escapes <, >, &, U+2028 and U+2029 in this
+// output, as it does in every MarshalJSON's; call MarshalJSON directly for
+// the exact bytes.
+//
 // The receiver is a value, so a ModelsResponse marshals the same whether it
 // is held by pointer or by value. [ModelsResponse.UnmarshalJSON] reads the
 // payload back.
@@ -190,10 +214,12 @@ func (r ModelsResponse) MarshalJSON() ([]byte, error) {
 // [ModelsResponse.MarshalJSON] returned. data is read as the body of a
 // list-models response is, with the same checks. The response did not come
 // from a request, so its Meta is empty, and it keeps no reference to data.
+// It overwrites *r in place (see [ModelsResponse]).
 //
-// A payload the decoder refuses leaves *r unchanged and fails with a
-// [*ResponseValidationError], as [SystemOneResponse.UnmarshalJSON] does. The
-// JSON literal null leaves *r unchanged.
+// A payload the decoder refuses leaves *r unchanged, its Meta included, and
+// fails with a [*ResponseValidationError], as
+// [SystemOneResponse.UnmarshalJSON] does. The JSON literal null leaves *r
+// unchanged.
 func (r *ModelsResponse) UnmarshalJSON(data []byte) error {
 	if string(data) == "null" {
 		return nil

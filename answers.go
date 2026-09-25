@@ -49,7 +49,9 @@ type NoulAnswer struct {
 func (a NoulAnswer) Noul() float64 { return a.w.Noul }
 
 // MarshalJSON returns the answer as the Python SDK's model_dump_json writes
-// it, such as {"type":"noul","noul":0.98}.
+// it, such as {"type":"noul","noul":0.98}. A noul that arrived as -0.0 is
+// written 0.0, where Python writes -0.0: the response reads every zero as
+// 0.
 func (a NoulAnswer) MarshalJSON() ([]byte, error) { return wire.AppendNoulAnswer(nil, &a.w) }
 
 // ChoiceAnswer is the answer to a choice question: the option picked and the
@@ -86,7 +88,9 @@ func (a ChoiceAnswer) Probabilities() iter.Seq2[string, float64] {
 // MarshalJSON returns the answer as the Python SDK's model_dump_json writes
 // it, such as
 // {"type":"choice","choice":"billing","confidence":0.9,"probabilities":{"billing":0.9,"support":0.1}},
-// the probabilities in the order of Probabilities.
+// the probabilities in the order of Probabilities. A float that arrived as
+// -0.0 is written 0.0, where Python writes -0.0: the response reads every
+// zero as 0.
 func (a ChoiceAnswer) MarshalJSON() ([]byte, error) { return wire.AppendChoiceAnswer(nil, &a.w) }
 
 // ScoreAnswer is the answer to a score question: the expected score, the
@@ -151,7 +155,11 @@ func (a ScoreAnswer) Probabilities() iter.Seq2[uint32, float64] {
 // the legend and the probabilities in the order of Legend and
 // Probabilities, each level a decimal member name. A structured level is
 // written as the bytes the response carried ([ScoreAnswer.Description]),
-// where the Python SDK writes the value it parsed.
+// where the Python SDK writes the value it parsed: the two differ when those
+// bytes hold an escape, whitespace, a repeated member name (Python keeps
+// the last) or a number spelled otherwise than Python spells it. A float
+// that arrived as -0.0 is written 0.0, where Python writes -0.0: the
+// response reads every zero as 0.
 func (a ScoreAnswer) MarshalJSON() ([]byte, error) { return wire.AppendScoreAnswer(nil, &a.w) }
 
 // Answer is one answer of any kind: Kind says which of Noul, Choice and
@@ -191,8 +199,9 @@ func (a Answer) MarshalJSON() ([]byte, error) { return wire.AppendAnswer(nil, &a
 // iterators.
 //
 // An Answers is a view of its response: it is valid as long as the response
-// is, and every value it yields is a copy that shares the response's slices
-// and bytes, which must not be modified. The zero Answers is empty.
+// is, it shows the new answers after the response's UnmarshalJSON, and every
+// value it yields is a copy that shares the response's slices and bytes,
+// which must not be modified. The zero Answers is empty.
 type Answers struct {
 	s *wire.Answers
 }
