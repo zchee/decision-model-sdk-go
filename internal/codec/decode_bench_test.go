@@ -75,10 +75,10 @@ func BenchmarkDecode(b *testing.B) {
 // sonic.Unmarshal of the same bodies into a map[string]any, which validates
 // the JSON (less strictly: it takes raw control characters and invalid
 // UTF-8) and builds a generic tree without the SDK's checks or types. A body
-// sonic refuses has no row: on arm64 sonic refuses 1e400 anywhere ("float
-// infinity"), so parity-big-exp-unknown is left out there and measured on
-// amd64 (the architecture-dependent verdict that disqualified S-D1's
-// variant b).
+// sonic refuses has no row: decoding into a map[string]any, sonic refuses
+// 1e400 anywhere on both architectures ("float infinity" on arm64, "float
+// number is infinity" on amd64), so parity-big-exp-unknown, which the SDK
+// and the Python SDK accept, has no naive row (ledger W2.0).
 func BenchmarkDecodeNaiveSonic(b *testing.B) {
 	for _, name := range decodeBenchFixtures {
 		body := testsupport.Fixture(b, name)
