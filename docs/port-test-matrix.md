@@ -129,17 +129,17 @@ IDs that the plan's waves cite.
 
 | ID | Upstream | Go test / deviation | status |
 | --- | --- | --- | --- |
-| Q1 | `test_normalization_preserves_objects` | `TestTypedQuestionsWireForm` | planned |
-| Q2 | `test_normalization_preserves_raw_questions` | `TestRawQuestionsPassThrough` | planned |
-| Q3 | `test_raw_questions_require_structural_keys` | `TestRawQuestionStructuralChecks` (10 cases) | planned |
-| Q4 | `test_direct_encoding_omits_only_default_fields` | `TestUnsetMembersLeftOffWire` (5) | planned |
-| Q5 | `test_discriminators_are_automatic` | `TestEachKindWritesItsTypeTag` | planned |
-| Q6 | `test_invalid_typed_question_is_rejected_on_construction` | deviation "not representable" | planned |
-| Q7 | `test_typed_questions_reject_unknown_fields` | deviation "not representable" | planned |
-| Q8 | `test_optional_noul_criteria` | `TestNoulCriteriaShapes` (12) | planned |
-| Q9 | `test_typed_noul_criteria_reject_unknown_fields` | deviation "not representable" | planned |
-| Q10 | `test_empty_score_criteria_is_rejected` | `TestScoreWithoutLevelsRejected` | planned |
-| Q11 | `test_covariant_question_mappings` | `TestMixedQuestionMapsThroughOneBuilder` | planned |
+| Q1 | `test_normalization_preserves_objects` | `TestTypedQuestionsWireForm` | ported |
+| Q2 | `test_normalization_preserves_raw_questions` | `TestRawQuestionsPassThrough` | ported |
+| Q3 | `test_raw_questions_require_structural_keys` | `TestRawQuestionStructuralChecks` (10 cases) | ported |
+| Q4 | `test_direct_encoding_omits_only_default_fields` | `TestUnsetMembersLeftOffWire` (5; two cases per deviation "Typed noul sends `null` outcomes / empty criteria") | ported |
+| Q5 | `test_discriminators_are_automatic` | `TestEachKindWritesItsTypeTag` | ported |
+| Q6 | `test_invalid_typed_question_is_rejected_on_construction` | deviation "not representable" | deviation |
+| Q7 | `test_typed_questions_reject_unknown_fields` | deviation "not representable" | deviation |
+| Q8 | `test_optional_noul_criteria` | `TestNoulCriteriaShapes` (12; the typed empty-criteria case per deviation "Typed noul sends `null` outcomes / empty criteria") | ported |
+| Q9 | `test_typed_noul_criteria_reject_unknown_fields` | deviation "not representable" | deviation |
+| Q10 | `test_empty_score_criteria_is_rejected` | `TestScoreWithoutLevelsRejected` | ported |
+| Q11 | `test_covariant_question_mappings` | `TestMixedQuestionMapsThroughOneBuilder` | ported |
 
 ### `tests/test_responses.py` (15)
 
@@ -198,7 +198,7 @@ IDs that the plan's waves cite.
 | T1 | `test_str_subclasses_fallback_to_strings` | deviation "`any` state" | planned |
 | T2 | `test_json_value_and_state_exclude_top_level_none` | deviation + `TestScalarStatesRefused` (`nil`, number, bool) | planned |
 | T3 | `test_array_inputs` | `TestArrayContentEverywhere` (4 array positions: state, instructions, criteria description, score levels; upstream parametrises raw/typed) | planned |
-| T4 | `test_raw_optional_fields_preserve_explicit_null` | `TestRawQuestionKeepsExplicitNull` | planned |
+| T4 | `test_raw_optional_fields_preserve_explicit_null` | `TestRawQuestionKeepsExplicitNull` | ported |
 | T5 | `test_explicitly_nullable_json_values` | `TestNullInsideContentSurvives` | planned |
 | T6 | `test_abstract_input_containers_encode` | `TestMapSliceStructStates` | planned |
 
