@@ -111,7 +111,9 @@ func (a Action) String() string {
 // named here.
 type ErrCode uint32
 
-// The HTTP/2 error codes the server sends on its own.
+// The HTTP/2 error codes the server's own actions send. Besides these, the
+// server answers a frame that the framer rejects as a stream error with
+// RST_STREAM carrying the framer's code (for example PROTOCOL_ERROR).
 const (
 	// CodeNoError is the code of ActionGoAway's GOAWAY and of the RST_STREAM
 	// that stops an upload the handler answered without reading.
@@ -182,8 +184,10 @@ type SeenRequest struct {
 	// Dropped reports that the stream ended before the server finished its
 	// response: GOAWAY dropped it, the client reset it, or its connection
 	// closed. Action keeps what the server chose first, so a stream whose
-	// handler had started shows ActionServe and Dropped. Always false for
-	// HTTP/1.1.
+	// handler had started shows ActionServe and Dropped. The flag is decided
+	// when the frame that ends the server's side is cleared for writing: a
+	// stream whose final frame was cleared but whose write then failed shows
+	// neither Dropped nor a completed response. Always false for HTTP/1.1.
 	Dropped bool
 }
 

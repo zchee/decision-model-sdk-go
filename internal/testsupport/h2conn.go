@@ -393,7 +393,10 @@ func (c *H2Conn) onHeaders(f *http2.MetaHeadersFrame) {
 	}
 }
 
-// open registers a stream and, when serve is set, starts its handler.
+// open registers a stream and, when serve is set, starts its handler. A
+// stream that GOAWAY or a closed connection overtook after onHeaders recorded
+// it (from OnStream, or from another goroutine) never opens: nothing runs or
+// is written for it, and its SeenRequest shows Dropped.
 func (c *H2Conn) open(info *Stream, ended, serve bool) {
 	ctx, cancel := context.WithCancel(context.Background())
 	st := &h2stream{id: info.ID, seq: info.Seq, ctx: ctx, cancel: cancel, bodyless: ended, remoteDone: ended}
@@ -405,6 +408,7 @@ func (c *H2Conn) open(info *Stream, ended, serve bool) {
 	}
 	c.mu.Lock()
 	if c.closed || (c.goAway && info.ID > c.goAwayLast) {
+		c.srv.markDropped(info.Seq)
 		c.mu.Unlock()
 		cancel()
 		return

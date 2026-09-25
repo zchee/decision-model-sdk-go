@@ -23,10 +23,11 @@ Conventions:
   `SystemOneResponse.from_http_response` (`ListModelsResponse` for
   `models.json`) in the upstream checkout at `0ffd094`, run with that
   checkout's own `.venv`. Probed 2026-09-25 15:36:15 JST (time from `date`);
-  the two `-key` files, the value-only `malformed-invalid-utf8.json` and
-  `duplicates.json` were probed 2026-09-25 16:11:04 JST, and their single-fault
-  repairs were accepted. `''` is Python's root path, which Go spells `.`
-  (Appendix B).
+  the two `-key` files and the value-only `malformed-invalid-utf8.json` were
+  probed 2026-09-25 16:11:04 JST, and their single-fault repairs were
+  accepted; `duplicates.json` was probed again 2026-09-25 16:51:41 JST (time
+  from `date`), after it gained the escaped `answers` and the `risk` answer.
+  `''` is Python's root path, which Go spells `.` (Appendix B).
 
 ## Ported byte-exact
 
@@ -66,18 +67,19 @@ but that test returns `RESULT`; the body comes from `test_rich_descriptions`.
 | `structured-legend-flood-1k.json`, `structured-legend-flood-10k.json` | the output of `testsupport.StructuredLegendFlood(1000)` and `(10000)`, 57,418 and 616,421 bytes. Answers are `spam`, `tone` and `flood`, a score answer with 10³ or 10⁴ structured levels (even levels are objects, odd levels are arrays) and as many probabilities. Used for AC-P8. | accepted |
 | `no-answers.json` | no `answers` member, so the answer set is empty (plan 6.2.3). | accepted, no answers |
 | `parity-big-exp-unknown.json` | `1e400` in an unknown top-level member (plan 6.2.2). | accepted |
-| `duplicates.json` | every duplicate rule of plan 6.2.4 in one body, for W2.0 and AC-F12. Top level: `model`, `usage` and `answers` twice each; the first `answers` holds `gone`, an invalid `broken` (no `noul`) and `mystery` of the unknown kind `aurora`. Inside the last `answers`: `tone` twice (the first copy is invalid); in `spam`, `type` (`choice`, then `noul`) and `noul` twice; in the second `tone`, `confidence`, `probabilities` and the probability key `friendly` twice; in `quality`, `legend` twice (a structured level, then text levels) and the level key `1` twice. | accepted, last wins at every level: the result below, no WARN |
+| `duplicates.json` | every duplicate rule of plan 6.2.4 in one body, for W2.0 and AC-F12. Top level: `model`, `usage` and `answers` twice each, the last `answers` spelled with an escape (`"\u0061nswers"`), so a decoder that compares raw member names keeps the wrong one; the first `answers` holds `gone`, an invalid `broken` (no `noul`) and `mystery` of the unknown kind `aurora`. Inside the last `answers`: `tone` twice (the first copy is invalid); in `spam`, `type` (`choice`, then `noul`) and `noul` twice; in the second `tone`, `confidence`, `probabilities` and the probability key `friendly` twice; in `quality`, `legend` twice (a structured level, then text levels) and the level key `1` twice; in `risk`, `legend` twice (a text level, then a structured one, which the lazy pass must find inside the escaped `answers`). | accepted, last wins at every level: the result below, no WARN |
 
 Python's result for `duplicates.json`, as a body without repeats
 (`duplicatesLastWins` in `fixtures_test.go`). The answers come in the order
-`tone`, `spam`, `quality`: a repeated name keeps its first position and takes
-its last value, as a Python dict does. The last `usage` replaces the first
-whole, so `output_tokens` is absent (`None`), not 99. `gone`, `broken` and
-`mystery` are gone with the superseded `answers`, and Python logs no WARN for
-`mystery`.
+`tone`, `spam`, `quality`, `risk`: a repeated name keeps its first position
+and takes its last value, as a Python dict does. The escaped `answers` is the
+same member as the plain one, so it replaces it. The last `usage` replaces the
+first whole, so `output_tokens` is absent (`None`), not 99. `gone`, `broken`
+and `mystery` are gone with the superseded `answers`, and Python logs no WARN
+for `mystery`. `risk` keeps its structured level, `quality` its text levels.
 
 ```json
-{"model":"jev-latest","usage":{"input_tokens":12},"answers":{"tone":{"type":"choice","choice":"friendly","confidence":0.9,"probabilities":{"friendly":0.9,"hostile":0.1}},"spam":{"type":"noul","noul":0.98},"quality":{"type":"score","score":1.7,"confidence":0.8,"legend":{"0":"bad","1":"fine","2":"great"},"probabilities":{"0":0.1,"1":0.1,"2":0.8}}}}
+{"model":"jev-latest","usage":{"input_tokens":12},"answers":{"tone":{"type":"choice","choice":"friendly","confidence":0.9,"probabilities":{"friendly":0.9,"hostile":0.1}},"spam":{"type":"noul","noul":0.98},"quality":{"type":"score","score":1.7,"confidence":0.8,"legend":{"0":"bad","1":"fine","2":"great"},"probabilities":{"0":0.1,"1":0.1,"2":0.8}},"risk":{"type":"score","score":0,"confidence":1,"legend":{"0":{"summary":"low"}},"probabilities":{"0":1}}}}
 ```
 
 To regenerate the flood files after an intended generator change, run

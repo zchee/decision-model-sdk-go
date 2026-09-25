@@ -44,8 +44,9 @@ func NewGatedDialer(gate <-chan struct{}, dial func(ctx context.Context, network
 	return &GatedDialer{gate: gate, dial: dial}
 }
 
-// DialContext waits until the gate is closed and then dials addr; when ctx
-// ends first, it returns ctx's error without dialing. It has the signature of
+// DialContext waits until the gate is closed and then dials addr. When ctx
+// has ended by then, whether first or while the gate was already closed, it
+// returns ctx's error without dialing. It has the signature of
 // [net/http.Transport.DialContext].
 func (g *GatedDialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
 	g.waiting.Add(1)
@@ -55,6 +56,11 @@ func (g *GatedDialer) DialContext(ctx context.Context, network, addr string) (ne
 	case <-ctx.Done():
 		g.waiting.Add(-1)
 		return nil, ctx.Err()
+	}
+	// select picks at random among ready cases: a closed gate must not let a
+	// context that has already ended dial.
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	g.dials.Add(1)
 	return g.dial(ctx, network, addr)

@@ -26,6 +26,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -494,6 +495,39 @@ func TestLoopbackGoAway(t *testing.T) {
 		reqs := srv.Requests()
 		if len(reqs) != 1 || reqs[0].Action != ActionServe || !reqs[0].Dropped {
 			t.Errorf("requests %+v, want one with ActionServe and Dropped", reqs)
+		}
+	})
+
+	t.Run("success: a stream GOAWAY overtakes in OnStream never runs and shows Dropped", func(t *testing.T) {
+		const enhanceYourCalm = ErrCode(0xb)
+		var ran atomic.Int64
+		srv := NewLoopbackServer(t, ServerConfig{
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				ran.Add(1)
+				w.WriteHeader(http.StatusNoContent)
+			}),
+			OnStream: func(s *Stream) Action {
+				// GOAWAY below this stream after onHeaders recorded it, then
+				// ask for it to be served: open() finds it overtaken.
+				if err := s.Conn.GoAway(max(s.ID, 2)-2, enhanceYourCalm); err != nil {
+					t.Errorf("GoAway: %v", err)
+				}
+				return ActionServe
+			},
+		})
+		c := dialRaw(t, srv.Addr())
+		c.request(1, "/", true)
+		c.expect(frame{Type: "GOAWAY", LastID: 0, Code: enhanceYourCalm})
+		c.expectEOF()
+		// Close waits for the connection's reader goroutine, which runs
+		// OnStream and open(): every record is final after it.
+		srv.Close()
+		if n := ran.Load(); n != 0 {
+			t.Errorf("the handler ran %d times, want 0", n)
+		}
+		reqs := srv.Requests()
+		if len(reqs) != 1 || reqs[0].StreamID != 1 || reqs[0].Action != ActionServe || !reqs[0].Dropped {
+			t.Errorf("requests %+v, want stream 1 with ActionServe and Dropped", reqs)
 		}
 	})
 

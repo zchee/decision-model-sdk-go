@@ -22,6 +22,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -119,6 +120,30 @@ func TestGatedDialer(t *testing.T) {
 		}
 		if srv.Accepts() != 0 || g.Dials() != 0 || g.Waiting() != 0 {
 			t.Errorf("Accepts %d, Dials %d, Waiting %d; want 0, 0, 0", srv.Accepts(), g.Dials(), g.Waiting())
+		}
+	})
+
+	t.Run("error: a context that has ended never dials through an open gate", func(t *testing.T) {
+		// With both the gate and ctx.Done() ready, select alone would dial
+		// about half the time; 200 tries make a missed check all but certain
+		// to show.
+		const tries = 200
+		gate := make(chan struct{})
+		close(gate)
+		var called atomic.Int64
+		g := NewGatedDialer(gate, func(context.Context, string, string) (net.Conn, error) {
+			called.Add(1)
+			return nil, errors.New("dialed")
+		})
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		for i := range tries {
+			if _, err := g.DialContext(ctx, "tcp", "127.0.0.1:1"); !errors.Is(err, context.Canceled) {
+				t.Fatalf("try %d: DialContext error = %v, want context.Canceled", i, err)
+			}
+		}
+		if g.Dials() != 0 || called.Load() != 0 || g.Waiting() != 0 {
+			t.Errorf("after %d tries: Dials %d, dial calls %d, Waiting %d; want 0, 0, 0", tries, g.Dials(), called.Load(), g.Waiting())
 		}
 	})
 

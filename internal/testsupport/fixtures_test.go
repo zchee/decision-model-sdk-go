@@ -58,7 +58,7 @@ const resultJSON = `{"model":"jev-latest","usage":{"input_tokens":12,"output_tok
 // duplicatesLastWins is duplicates.json with every repeated member resolved
 // as Python 0.7.1 resolves it: the last one wins at every level, and a
 // repeated object replaces the earlier one whole (usage loses output_tokens).
-const duplicatesLastWins = `{"model":"jev-latest","usage":{"input_tokens":12},"answers":{"tone":{"type":"choice","choice":"friendly","confidence":0.9,"probabilities":{"friendly":0.9,"hostile":0.1}},"spam":{"type":"noul","noul":0.98},"quality":{"type":"score","score":1.7,"confidence":0.8,"legend":{"0":"bad","1":"fine","2":"great"},"probabilities":{"0":0.1,"1":0.1,"2":0.8}}}}`
+const duplicatesLastWins = `{"model":"jev-latest","usage":{"input_tokens":12},"answers":{"tone":{"type":"choice","choice":"friendly","confidence":0.9,"probabilities":{"friendly":0.9,"hostile":0.1}},"spam":{"type":"noul","noul":0.98},"quality":{"type":"score","score":1.7,"confidence":0.8,"legend":{"0":"bad","1":"fine","2":"great"},"probabilities":{"0":0.1,"1":0.1,"2":0.8}},"risk":{"type":"score","score":0,"confidence":1,"legend":{"0":{"summary":"low"}},"probabilities":{"0":1}}}}`
 
 // fixtureManifest lists every file under testdata. testdata/README.md
 // documents the same rows for people.
@@ -199,6 +199,7 @@ var fixtureManifest = map[string]fixtureSpec{
 			"answers.tone.confidence", "answers.tone.probabilities",
 			"answers.tone.probabilities.friendly",
 			"answers.quality.legend", "answers.quality.legend.1",
+			"answers.risk.legend",
 		}
 		if diff := gocmp.Diff(wantDups, dups); diff != "" {
 			return fmt.Errorf("repeated members (-want +got):\n%s", diff)
@@ -206,13 +207,35 @@ var fixtureManifest = map[string]fixtureSpec{
 		// The superseded answers object holds an answer that disappears, an
 		// invalid one and an unknown kind; the last one repeats tone, which
 		// keeps its first position.
-		wantAnswers := [][]string{{"gone", "broken", "mystery"}, {"tone", "spam", "tone", "quality"}}
+		wantAnswers := [][]string{{"gone", "broken", "mystery"}, {"tone", "spam", "tone", "quality", "risk"}}
 		if diff := gocmp.Diff(wantAnswers, answers); diff != "" {
 			return fmt.Errorf("answer names per answers object (-want +got):\n%s", diff)
 		}
-		// A first-wins decoder would read spam as a choice without its members.
-		if !bytes.Contains(raw, []byte(`"spam":{"type":"choice","noul":0.2,"type":"noul","noul":0.98}`)) {
-			return errors.New("answers.spam does not change its type from choice to noul")
+		// The walker unescapes member names, so the spelling of the two
+		// answers members is pinned on the bytes: the last one carries the
+		// escape, so a decoder comparing raw names keeps the wrong one.
+		plain, escaped := []byte(`"answers":{`), []byte(u(`"@U0061nswers":{`))
+		if bytes.Count(raw, plain) != 1 || bytes.Count(raw, escaped) != 1 || bytes.Index(raw, plain) > bytes.Index(raw, escaped) {
+			return fmt.Errorf("want one plain %s followed by one escaped %s", plain, escaped)
+		}
+		pinned := map[string]string{
+			// Each superseded member stays invalid or unknown, so a decoder
+			// that validates or warns before the last one wins shows it.
+			`"broken":{"type":"noul"}`:                    "the superseded broken is not a noul without its noul",
+			`"mystery":{"type":"aurora"}`:                 "the superseded mystery is not of the unknown kind aurora",
+			`"tone":{"type":"choice","choice":"hostile"}`: "the first tone is not a choice without confidence and probabilities",
+			// A first-wins decoder would read spam as a choice without its
+			// members.
+			`"spam":{"type":"choice","noul":0.2,"type":"noul","noul":0.98}`: "answers.spam does not change its type from choice to noul",
+			// Both directions of a legend change: structured to text in
+			// quality, text to structured in risk.
+			`"legend":{"0":{"summary":"stale"}},"legend":{"0":"bad",`: "answers.quality does not replace a structured legend with text levels",
+			`"legend":{"0":"low"},"legend":{"0":{"summary":"low"}}`:   "answers.risk does not replace a text legend with a structured one",
+		}
+		for text, fault := range pinned {
+			if n := bytes.Count(raw, []byte(text)); n != 1 {
+				return fmt.Errorf("%s: %s appears %d times, want once", fault, text, n)
+			}
 		}
 		if err := sameJSON(raw, []byte(duplicatesLastWins)); err != nil {
 			return err
