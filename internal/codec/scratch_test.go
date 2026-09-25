@@ -22,10 +22,13 @@ import (
 	"io"
 	rand "math/rand/v2"
 	"runtime"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
 // poison is the byte a recycled buffer is overwritten with in these tests.
@@ -70,7 +73,7 @@ func watchRecycle(t *testing.T) *recycleLog {
 }
 
 // newBodyWith returns a body holding payload.
-func newBodyWith(payload []byte) *Body {
+func newBodyWith(payload []byte) Body {
 	b := NewBody()
 	*b.Buffer() = append(*b.Buffer(), payload...)
 	return b
@@ -152,10 +155,10 @@ func readAll(t *testing.T, r io.Reader, chunk int) []byte {
 
 func TestBodyReferenceCounting(t *testing.T) {
 	tests := map[string]struct {
-		run func(t *testing.T, b *Body, log *recycleLog)
+		run func(t *testing.T, b Body, log *recycleLog)
 	}{
 		"success: a double Close drops one reference": {
-			run: func(t *testing.T, b *Body, log *recycleLog) {
+			run: func(t *testing.T, b Body, log *recycleLog) {
 				r := mustOpen(t, b)
 				for range 2 {
 					if err := r.Close(); err != nil {
@@ -170,7 +173,7 @@ func TestBodyReferenceCounting(t *testing.T) {
 			},
 		},
 		"success: a double Release drops one reference": {
-			run: func(t *testing.T, b *Body, log *recycleLog) {
+			run: func(t *testing.T, b Body, log *recycleLog) {
 				r := mustOpen(t, b)
 				b.Release()
 				b.Release()
@@ -182,7 +185,7 @@ func TestBodyReferenceCounting(t *testing.T) {
 			},
 		},
 		"success: the buffer outlives the call while a reader is open": {
-			run: func(t *testing.T, b *Body, log *recycleLog) {
+			run: func(t *testing.T, b Body, log *recycleLog) {
 				r := mustOpen(t, b)
 				b.Release()
 				wantRecycled(t, log, 0)
@@ -195,7 +198,7 @@ func TestBodyReferenceCounting(t *testing.T) {
 			},
 		},
 		"success: Open after Release succeeds while a reader holds the body": {
-			run: func(t *testing.T, b *Body, log *recycleLog) {
+			run: func(t *testing.T, b Body, log *recycleLog) {
 				r1 := mustOpen(t, b)
 				b.Release()
 				r2 := mustOpen(t, b)
@@ -209,7 +212,7 @@ func TestBodyReferenceCounting(t *testing.T) {
 			},
 		},
 		"error: Read after Close returns ErrBodyClosed": {
-			run: func(t *testing.T, b *Body, log *recycleLog) {
+			run: func(t *testing.T, b Body, log *recycleLog) {
 				r := mustOpen(t, b)
 				if _, err := r.Read(make([]byte, 8)); err != nil {
 					t.Fatalf("first Read: %v", err)
@@ -224,7 +227,7 @@ func TestBodyReferenceCounting(t *testing.T) {
 			},
 		},
 		"error: Open after the last reference returns ErrBodyReleased": {
-			run: func(t *testing.T, b *Body, log *recycleLog) {
+			run: func(t *testing.T, b Body, log *recycleLog) {
 				b.Release()
 				wantRecycled(t, log, 1)
 				r, err := b.Open()
@@ -242,7 +245,7 @@ func TestBodyReferenceCounting(t *testing.T) {
 	}
 }
 
-func mustOpen(t *testing.T, b *Body) *BodyReader {
+func mustOpen(t *testing.T, b Body) *BodyReader {
 	t.Helper()
 	r, err := b.Open()
 	if err != nil {
@@ -307,6 +310,171 @@ func TestNewBodyStartsEmpty(t *testing.T) {
 		}
 		_ = r2.Close()
 		fresh.Release()
+	}
+}
+
+// reusedBody releases a body and takes new ones from the pool until one
+// reuses its scratch, as the next SDK call would. It returns the released
+// body's now stale handle and the live one. Under -race sync.Pool drops one
+// Put in four, and a goroutine may change Ps between Put and Get, so a few
+// attempts may miss.
+func reusedBody(t *testing.T) (stale, live Body) {
+	t.Helper()
+	for range 100 {
+		stale = newBodyWith([]byte("first call"))
+		stale.Release()
+		live = NewBody()
+		if live.s == stale.s {
+			*live.Buffer() = append(*live.Buffer(), "second call"...)
+			return stale, live
+		}
+		live.Release()
+	}
+	t.Fatal("the pool never handed a released scratch out again in 100 attempts")
+	return Body{}, Body{}
+}
+
+// TestBodyStaleHandle checks that a handle kept past its call cannot reach
+// the body of the next call that reuses its scratch: the review W0.2 repro
+// (A.Release; B := NewBody on the same scratch; A.Open read B's bytes, and a
+// second A.Release dropped B's reference).
+func TestBodyStaleHandle(t *testing.T) {
+	tests := map[string]struct {
+		run func(t *testing.T, stale, live Body, log *recycleLog)
+	}{
+		"error: Open through a stale handle returns ErrBodyReleased": {
+			run: func(t *testing.T, stale, live Body, log *recycleLog) {
+				if r, err := stale.Open(); r != nil || !errors.Is(err, ErrBodyReleased) {
+					t.Fatalf("stale Open = %v, %v; want nil, ErrBodyReleased", r, err)
+				}
+				// The failed Open took no reference: the live Release is the
+				// last one.
+				wantRecycled(t, log, 0)
+				live.Release()
+				wantRecycled(t, log, 1)
+			},
+		},
+		"error: a stale handle cannot open the live body while it has readers": {
+			run: func(t *testing.T, stale, live Body, log *recycleLog) {
+				r := mustOpen(t, live)
+				live.Release() // the reader now holds the only reference
+				if sr, err := stale.Open(); sr != nil || !errors.Is(err, ErrBodyReleased) {
+					t.Fatalf("stale Open = %v, %v; want nil, ErrBodyReleased", sr, err)
+				}
+				if got := readAll(t, r, 0); string(got) != "second call" {
+					t.Fatalf("live reader read %q, want %q", got, "second call")
+				}
+				wantRecycled(t, log, 0)
+				_ = r.Close()
+				wantRecycled(t, log, 1)
+			},
+		},
+		"success: Release through a stale handle leaves the live body's reference": {
+			run: func(t *testing.T, stale, live Body, log *recycleLog) {
+				before := live.s.state.Load()
+				stale.Release()
+				if got := live.s.state.Load(); got != before {
+					t.Fatalf("stale Release changed the state from %#x to %#x", before, got)
+				}
+				wantRecycled(t, log, 0)
+				// The live call still holds its reference: its reader works,
+				// and the scratch is recycled only by the live Release.
+				r := mustOpen(t, live)
+				if got := readAll(t, r, 0); string(got) != "second call" {
+					t.Fatalf("live reader read %q, want %q", got, "second call")
+				}
+				_ = r.Close()
+				wantRecycled(t, log, 0)
+				live.Release()
+				wantRecycled(t, log, 1)
+			},
+		},
+		"error: the live handle turns stale after its own release": {
+			run: func(t *testing.T, stale, live Body, log *recycleLog) {
+				live.Release()
+				wantRecycled(t, log, 1)
+				live.Release()
+				stale.Release()
+				wantRecycled(t, log, 1)
+				if r, err := live.Open(); r != nil || !errors.Is(err, ErrBodyReleased) {
+					t.Fatalf("Open after the last reference = %v, %v; want nil, ErrBodyReleased", r, err)
+				}
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			stale, live := reusedBody(t)
+			if stale.gen == live.gen {
+				t.Fatalf("the reused scratch kept generation %d", live.gen)
+			}
+			log := watchRecycle(t) // counts only what the case itself recycles
+			tt.run(t, stale, live, log)
+		})
+	}
+}
+
+// raceEnabled reports whether the test binary was built with -race. Under the
+// race detector sync.Pool.Put drops one value in four, so allocation counts
+// that rely on a pool hit are meaningless. Files of this package cannot carry
+// //go:build !race: TestSeamBuildConstraints allows exactly one constraint
+// line per file, the D1 line.
+func raceEnabled() bool {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return false
+	}
+	for _, s := range info.Settings {
+		if s.Key == "-race" {
+			return s.Value == "true"
+		}
+	}
+	return false
+}
+
+// TestNewBodyAllocations pins what taking a body costs (section 6.1.6 of the
+// port plan): nothing on a warm pool hit, and one allocation, the fresh
+// buffer, for the first body after a buffer past the ceiling was dropped
+// (call 23 of the AC-P1 sequence). Every count is the stable minimum of
+// testsupport.AllocRuns runs.
+func TestNewBodyAllocations(t *testing.T) {
+	if raceEnabled() {
+		t.Skip("allocation counts need a normal build: under -race sync.Pool.Put drops one value in four")
+	}
+	testsupport.QuietRuntime(t)
+	tests := map[string]struct {
+		prepare func() // leaves the pool in the state the case measures
+		want    testsupport.Allocs
+	}{
+		"success: a warm pool hit allocates nothing": {
+			prepare: func() { NewBody().Release() },
+			want:    testsupport.Allocs{},
+		},
+		"success: the first body after an over-ceiling drop allocates only its buffer": {
+			prepare: func() {
+				b := NewBody()
+				*b.Buffer() = make([]byte, 0, ScratchCeiling+1)
+				b.Release()
+			},
+			want: testsupport.Allocs{Mallocs: 1, Bytes: scratchInitialCap},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			runs := make([]testsupport.Allocs, testsupport.AllocRuns)
+			for i := range runs {
+				tt.prepare()
+				var b Body
+				runs[i] = testsupport.Measure(func() { b = NewBody() })
+				if b.Len() != 0 || cap(*b.Buffer()) < scratchInitialCap {
+					t.Fatalf("run %d: NewBody() has len %d, cap %d; want 0, >= %d", i, b.Len(), cap(*b.Buffer()), scratchInitialCap)
+				}
+				b.Release()
+			}
+			if got := testsupport.StableMin(t, name, runs); got != tt.want {
+				t.Errorf("NewBody() allocated %s (mallocs/bytes), want %s", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -398,8 +566,8 @@ func TestBodyConcurrentReadersAndClosers(t *testing.T) {
 		if got := log.count.Load(); got != 1 {
 			t.Fatalf("iteration %d: recycled %d times, want exactly 1", iter, got)
 		}
-		if got := b.refs.Load(); got != 0 {
-			t.Fatalf("iteration %d: %d references left, want 0", iter, got)
+		if got := b.s.state.Load(); got&stateRefs != 0 || got&stateReleased == 0 || uint32(got>>stateGenShift) != b.gen {
+			t.Fatalf("iteration %d: state %#x, want generation %d released with 0 references", iter, got, b.gen)
 		}
 	}
 }
