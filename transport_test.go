@@ -623,41 +623,110 @@ func TestScrubUserinfo(t *testing.T) {
 	}
 }
 
-// closerFunc is an http.RoundTripper whose Close counts its calls and
-// returns err.
-type closerFunc struct {
-	http.RoundTripper
-	calls int
+// closeLog records the CloseIdleConnections and Close calls a round tripper
+// gets, in order; Close returns err.
+type closeLog struct {
+	calls []string
 	err   error
 }
 
-// Close implements io.Closer.
-func (c *closerFunc) Close() error {
-	c.calls++
-	return c.err
+// CloseIdleConnections records the call.
+func (l *closeLog) CloseIdleConnections() { l.calls = append(l.calls, "CloseIdleConnections") }
+
+// Close records the call and returns l.err.
+func (l *closeLog) Close() error {
+	l.calls = append(l.calls, "Close")
+	return l.err
 }
 
+// idleOnly exposes a closeLog's CloseIdleConnections alone.
+type idleOnly struct{ l *closeLog }
+
+// CloseIdleConnections records the call.
+func (i idleOnly) CloseIdleConnections() { i.l.CloseIdleConnections() }
+
+// closeOnly exposes a closeLog's Close alone.
+type closeOnly struct{ l *closeLog }
+
+// Close records the call.
+func (c closeOnly) Close() error { return c.l.Close() }
+
 // TestTransportClose pins close: the SDK's transport and a WithHTTPTransport
-// clone close their idle connections, a WithRoundTripper that is an
-// io.Closer is closed once, and every later call returns the first result.
+// clone close their idle connections; a WithRoundTripper closes its idle
+// connections when it has CloseIdleConnections and is then closed when it is
+// an io.Closer (AC-F9, R79), each once; every later call returns the first
+// result.
 func TestTransportClose(t *testing.T) {
-	t.Run("success: an io.Closer round tripper is closed once", func(t *testing.T) {
-		boom := errors.New("close failed")
-		rt := &closerFunc{RoundTripper: &testsupport.Recorder{}, err: boom}
-		c := mustResolve(t, noEnv, WithAPIKey(testKey), WithRoundTripper(rt))
-		for i := range 3 {
-			if err := c.transport.close(); err != boom { //nolint:errorlint // identity is the assertion
-				t.Errorf("close #%d = %v, want %v", i+1, err, boom)
+	boom := errors.New("close failed")
+	rec := &testsupport.Recorder{}
+	tests := map[string]struct {
+		rt      func(l *closeLog) http.RoundTripper
+		want    []string
+		wantErr error
+	}{
+		"success: CloseIdleConnections, then Close, each once": {
+			rt: func(l *closeLog) http.RoundTripper {
+				return struct {
+					http.RoundTripper
+					*closeLog
+				}{rec, l}
+			},
+			want:    []string{"CloseIdleConnections", "Close"},
+			wantErr: boom,
+		},
+		"success: CloseIdleConnections alone": {
+			rt: func(l *closeLog) http.RoundTripper {
+				return struct {
+					http.RoundTripper
+					idleOnly
+				}{rec, idleOnly{l}}
+			},
+			want: []string{"CloseIdleConnections"},
+		},
+		"success: Close alone": {
+			rt: func(l *closeLog) http.RoundTripper {
+				return struct {
+					http.RoundTripper
+					closeOnly
+				}{rec, closeOnly{l}}
+			},
+			want:    []string{"Close"},
+			wantErr: boom,
+		},
+		"success: neither": {
+			rt: func(*closeLog) http.RoundTripper { return struct{ http.RoundTripper }{rec} },
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			l := &closeLog{err: boom}
+			c := mustResolve(t, noEnv, WithAPIKey(testKey), WithRoundTripper(tt.rt(l)))
+			for i := range 3 {
+				if err := c.transport.close(); err != tt.wantErr { //nolint:errorlint // identity is the assertion
+					t.Errorf("close #%d = %v, want %v", i+1, err, tt.wantErr)
+				}
 			}
+			if diff := gocmp.Diff(tt.want, l.calls); diff != "" {
+				t.Errorf("calls after 3 closes (-want +got):\n%s", diff)
+			}
+		})
+	}
+	t.Run("success: a stock *http.Transport given as a round tripper closes its idle connection", func(t *testing.T) {
+		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{})
+		stock := &http.Transport{TLSClientConfig: testsupport.ClientTLSConfig(t), ForceAttemptHTTP2: true}
+		c := mustResolve(t, noEnv, WithAPIKey(testKey), WithBaseURL(srv.URL()), WithRoundTripper(stock))
+		if r := getWithin(t, c.transport, srv.URL()+"/v1/models", 0, 10*time.Second); r.err != nil || r.protoMajor != 2 {
+			t.Fatalf("GET = HTTP/%d %v", r.protoMajor, r.err)
 		}
-		if rt.calls != 1 {
-			t.Errorf("Close called %d times, want 1", rt.calls)
-		}
-	})
-	t.Run("success: a round tripper without Close", func(t *testing.T) {
-		c := mustResolve(t, noEnv, WithAPIKey(testKey), WithRoundTripper(struct{ http.RoundTripper }{&testsupport.Recorder{}}))
 		if err := c.transport.close(); err != nil {
 			t.Errorf("close = %v, want nil", err)
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		for len(srv.LiveH2Conns()) != 0 && time.Now().Before(deadline) {
+			time.Sleep(5 * time.Millisecond)
+		}
+		if n := len(srv.LiveH2Conns()); n != 0 {
+			t.Errorf("%d connections still open after close, want 0", n)
 		}
 	})
 	t.Run("success: the SDK's transport closes its idle connection", func(t *testing.T) {

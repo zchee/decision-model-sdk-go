@@ -163,11 +163,12 @@ func WithHTTPTransport(t *http.Transport) ClientOption {
 
 // WithRoundTripper makes the client send every request through rt as it is:
 // no connection policy, no ALPN check, no cold-start gate. The client's
-// per-attempt deadline and response size limit still apply, and closing the
-// client closes rt, once, when it is an [io.Closer]. rt owns its connection
-// timeouts, so it cannot be combined with [WithHTTPTransport],
-// [WithHTTPVersion], [WithRootCAs], [WithTLSConfig], [WithProxy] or
-// [WithConnectTimeout]. A nil rt is refused.
+// per-attempt deadline and response size limit still apply. Closing the
+// client closes rt's idle connections when rt has a CloseIdleConnections
+// method, as an [*http.Transport] has, and then closes rt when it is an
+// [io.Closer], each once. rt owns its connection timeouts, so it cannot be
+// combined with [WithHTTPTransport], [WithHTTPVersion], [WithRootCAs],
+// [WithTLSConfig], [WithProxy] or [WithConnectTimeout]. A nil rt is refused.
 //
 // rt must not modify a request, as the [net/http.RoundTripper] contract
 // already requires: the first attempt of every call hands it the client's
@@ -211,6 +212,9 @@ type transport struct {
 	// gate is the SDK's transport (the default one or WithHTTPTransport's
 	// clone), nil under WithRoundTripper.
 	gate *h2gate.Transport
+	// idler is WithRoundTripper's rt when it has CloseIdleConnections, as
+	// an *http.Transport has.
+	idler interface{ CloseIdleConnections() }
 	// closer is WithRoundTripper's rt when it is an io.Closer.
 	closer io.Closer
 	// trace is WithClientTrace's hooks, shielded per request.
@@ -287,6 +291,7 @@ func (t *transportOptions) build(api *url.URL, connectTimeout time.Duration, con
 			return nil, newConfigError("The round tripper passed to WithRoundTripper must not be nil.")
 		}
 		tr.rt = t.roundTripper
+		tr.idler, _ = t.roundTripper.(interface{ CloseIdleConnections() })
 		tr.closer, _ = t.roundTripper.(io.Closer)
 		return tr, nil
 	}
@@ -413,15 +418,20 @@ func (c untracedContext) Value(key any) any {
 }
 
 // close releases the transport, once: the SDK's transport and a caller's
-// WithHTTPTransport clone close their idle connections, and a
-// WithRoundTripper that is an io.Closer is closed. Later calls return the
-// first call's result.
+// WithHTTPTransport clone close their idle connections; a WithRoundTripper
+// closes its idle connections when it has CloseIdleConnections, as an
+// *http.Transport has, and is then closed when it is an io.Closer (AC-F9,
+// R79). Later calls return the first call's result.
 func (t *transport) close() error {
 	t.closeOnce.Do(func() {
-		switch {
-		case t.gate != nil:
+		if t.gate != nil {
 			t.gate.CloseIdleConnections()
-		case t.closer != nil:
+			return
+		}
+		if t.idler != nil {
+			t.idler.CloseIdleConnections()
+		}
+		if t.closer != nil {
 			t.closeErr = t.closer.Close()
 		}
 	})
