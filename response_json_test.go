@@ -621,9 +621,11 @@ func TestResponseUnmarshalJSON(t *testing.T) {
 // TestStdlibJSON checks the responses through a caller's encoding/json
 // (ruling R80): json.Marshal of a response by value and by pointer, and as
 // a struct field of either kind, gives the MarshalJSON bytes, as it does for
-// every other type that marshals; json.Unmarshal reaches UnmarshalJSON, and
-// null leaves a field as it was. ResponseMeta is HTTP metadata with no
-// payload of its own, and marshals as an empty object.
+// every other type that marshals, except that encoding/json escapes <, >
+// and & in any MarshalJSON output (its HTML escaping), where MarshalJSON
+// and the Python SDK write them as they are; json.Unmarshal reaches
+// UnmarshalJSON, and null leaves a field as it was. ResponseMeta is HTTP
+// metadata with no payload of its own, and marshals as an empty object.
 func TestStdlibJSON(t *testing.T) {
 	body := testsupport.Fixture(t, "result.json")
 	c := newTestClient(t, replying(http.StatusOK, body, "X-Typesafe-Request-Id", "req-std"))
@@ -704,6 +706,25 @@ func TestStdlibJSON(t *testing.T) {
 		}
 		if diff := gocmp.Diff(cardsOf(&models), cardsOf(&dst.Models)); diff != "" {
 			t.Errorf("models (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("success: json.Marshal escapes HTML characters that MarshalJSON keeps", func(t *testing.T) {
+		const payload = `{"model":"a<b>&c","usage":{"input_tokens":1,"output_tokens":1},"answers":{}}`
+		var r SystemOneResponse
+		if err := r.UnmarshalJSON([]byte(payload)); err != nil {
+			t.Fatal(err)
+		}
+		if got := marshal(t, r); got != payload {
+			t.Errorf("MarshalJSON = %s, want %s", got, payload)
+		}
+		got, err := testsupport.StdlibMarshal(r)
+		if err != nil {
+			t.Fatalf("json.Marshal: %v", err)
+		}
+		want := strings.NewReplacer("<", `\u003c`, ">", `\u003e`, "&", `\u0026`).Replace(payload)
+		if diff := gocmp.Diff(want, string(got)); diff != "" {
+			t.Errorf("json.Marshal (-want +got):\n%s", diff)
 		}
 	})
 
