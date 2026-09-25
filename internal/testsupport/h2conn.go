@@ -62,7 +62,7 @@ type H2Conn struct {
 	fr    *http2.Framer
 	state tls.ConnectionState
 
-	wmu  sync.Mutex // serialises frame writes and the HPACK encoder
+	wmu  sync.Mutex // serialises frame writes and the HPACK encoder; taken before mu
 	henc *hpack.Encoder
 	hbuf bytes.Buffer
 
@@ -144,9 +144,16 @@ func (c *H2Conn) ActiveStreams() []uint32 {
 // processed, but its handler may already have run, in part or up to its last
 // write: a test that counts side effects must not assume otherwise. A dropped
 // stream's [SeenRequest] shows Dropped. Once every stream at or below
-// lastStreamID has finished, the server closes the connection. A second call
-// can only lower lastStreamID.
+// lastStreamID has finished, the server closes the connection; the GOAWAY
+// frame always reaches the wire before that close. A second call can only
+// lower lastStreamID.
 func (c *H2Conn) GoAway(lastStreamID uint32, code ErrCode) error {
+	// Once c.mu is released, the goroutine that finishes the last stream at or
+	// below lastStreamID may run maybeFinish at once. Holding the write lock
+	// from before the state changes until the frame is written makes its
+	// close_notify wait for GOAWAY; without it, the frame write failed with
+	// "tls: protocol is shutdown" and the client read EOF with no GOAWAY.
+	c.wmu.Lock()
 	c.mu.Lock()
 	if c.goAway {
 		lastStreamID = min(lastStreamID, c.goAwayLast)
@@ -159,9 +166,14 @@ func (c *H2Conn) GoAway(lastStreamID uint32, code ErrCode) error {
 		}
 	}
 	c.mu.Unlock()
-	err := c.write(func() error { return c.fr.WriteGoAway(lastStreamID, http2.ErrCode(code), nil) })
+	err := c.fr.WriteGoAway(lastStreamID, http2.ErrCode(code), nil)
+	c.wmu.Unlock()
+	if err != nil {
+		c.Close()
+		return fmt.Errorf("%w: %w", errConnClosed, err)
+	}
 	c.maybeFinish()
-	return err
+	return nil
 }
 
 // Close closes the connection at once, without GOAWAY. Closing the TLS
