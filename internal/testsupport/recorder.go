@@ -15,10 +15,10 @@
 package testsupport
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"net/http"
-	"slices"
 	"strconv"
 	"sync"
 )
@@ -87,7 +87,8 @@ type Recorder struct {
 	// Replies are served in order; once they run out, the last one repeats.
 	Replies []Reply
 	// Respond, when set, chooses the reply for each request instead of
-	// Replies. It runs on the goroutine that called RoundTrip.
+	// Replies. It runs on the goroutine that called RoundTrip and gets its
+	// own copy of the record, which it may change.
 	Respond func(RecordedRequest) Reply
 	// Discard drains and closes each request body without keeping it, and
 	// keeps only the count of requests, so a steady-state allocation test
@@ -148,7 +149,7 @@ func (r *Recorder) RoundTrip(req *http.Request) (*http.Response, error) {
 	case readErr != nil:
 		return nil, readErr
 	case r.Respond != nil:
-		reply = r.Respond(rec)
+		reply = r.Respond(rec.clone())
 	case !ok:
 		return nil, errNoReplies
 	}
@@ -208,11 +209,24 @@ func (b *replyBody) Read(p []byte) (int, error) {
 // Close implements io.Closer.
 func (*replyBody) Close() error { return nil }
 
-// Requests returns copies of the requests recorded so far, in call order.
+// clone returns a copy of rec that shares no header map or body bytes with
+// it. A nil Header or Body stays nil, so a discarding Recorder pays nothing.
+func (rec RecordedRequest) clone() RecordedRequest {
+	rec.Header = rec.Header.Clone()
+	rec.Body = bytes.Clone(rec.Body)
+	return rec
+}
+
+// Requests returns copies of the requests recorded so far, in call order;
+// changing one changes neither the Recorder's record nor a later copy.
 func (r *Recorder) Requests() []RecordedRequest {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return slices.Clone(r.requests)
+	out := make([]RecordedRequest, len(r.requests))
+	for i, rec := range r.requests {
+		out[i] = rec.clone()
+	}
+	return out
 }
 
 // Count returns the number of RoundTrip calls so far, recorded or not.

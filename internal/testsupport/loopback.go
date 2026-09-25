@@ -72,11 +72,17 @@ const (
 	// minus 2), so this stream and any later one are unprocessed; streams
 	// already being served finish, then the connection closes.
 	ActionGoAway
-	// ActionClose closes the TCP connection at once, without GOAWAY.
+	// ActionClose closes the connection at once, without GOAWAY
+	// ([H2Conn.Close]): TLS close_notify, then TCP FIN, so the client reads
+	// io.EOF.
 	ActionClose
 	// ActionHold never answers: the stream stays open until the client resets
 	// it or the connection closes. It counts against MAX_CONCURRENT_STREAMS.
 	ActionHold
+	// ActionReset ends the connection with a TCP reset ([H2Conn.Reset]):
+	// no GOAWAY and no close_notify, so the client's read fails with
+	// ECONNRESET.
+	ActionReset
 )
 
 // String returns the action's name.
@@ -92,6 +98,8 @@ func (a Action) String() string {
 		return "close"
 	case ActionHold:
 		return "hold"
+	case ActionReset:
+		return "reset"
 	default:
 		return "action(" + strconv.Itoa(int(a)) + ")"
 	}
@@ -99,17 +107,20 @@ func (a Action) String() string {
 
 // ErrCode is an HTTP/2 error code (RFC 9113 section 7), as sent in GOAWAY and
 // RST_STREAM frames. It is this package's own type so a caller need not import
-// golang.org/x/net.
+// golang.org/x/net. [H2Conn.GoAway] takes any code: ErrCode(n) for one not
+// named here.
 type ErrCode uint32
 
-// The HTTP/2 error codes the knobs use.
+// The HTTP/2 error codes the server sends on its own.
 const (
-	CodeNoError         ErrCode = 0x0
-	CodeProtocolError   ErrCode = 0x1
-	CodeInternalError   ErrCode = 0x2
-	CodeRefusedStream   ErrCode = 0x7
-	CodeCancel          ErrCode = 0x8
-	CodeEnhanceYourCalm ErrCode = 0xb
+	// CodeNoError is the code of ActionGoAway's GOAWAY and of the RST_STREAM
+	// that stops an upload the handler answered without reading.
+	CodeNoError ErrCode = 0x0
+	// CodeInternalError is the code of the RST_STREAM after a handler panics.
+	CodeInternalError ErrCode = 0x2
+	// CodeRefusedStream is the code of the RST_STREAM of ActionRefuse and of
+	// a stream over MaxConcurrentStreams.
+	CodeRefusedStream ErrCode = 0x7
 )
 
 // ServerConfig configures a [LoopbackServer].
@@ -168,6 +179,12 @@ type SeenRequest struct {
 	// HTTP/1.1. A stream refused for exceeding MaxConcurrentStreams shows
 	// ActionRefuse.
 	Action Action
+	// Dropped reports that the stream ended before the server finished its
+	// response: GOAWAY dropped it, the client reset it, or its connection
+	// closed. Action keeps what the server chose first, so a stream whose
+	// handler had started shows ActionServe and Dropped. Always false for
+	// HTTP/1.1.
+	Dropped bool
 }
 
 // ConnInfo describes one accepted connection.
@@ -307,8 +324,9 @@ func (s *LoopbackServer) LiveH2Conns() []*H2Conn {
 	return out
 }
 
-// CloseConns closes every open connection at once, without GOAWAY (a TCP
-// close as the client sees it). The listener stays open.
+// CloseConns closes every open connection at once, without GOAWAY, as
+// [H2Conn.Close] does: TLS close_notify on a connection past its handshake,
+// then TCP FIN. The listener stays open.
 func (s *LoopbackServer) CloseConns() {
 	s.mu.Lock()
 	conns := make([]net.Conn, 0, len(s.raw))
@@ -442,6 +460,15 @@ func (s *LoopbackServer) setAction(seq int, a Action) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.requests[seq].Action = a
+}
+
+// markDropped records that request seq was dropped. It runs with an H2Conn's
+// mu held; that order cannot deadlock because no code acquires an H2Conn's mu
+// while it holds s.mu.
+func (s *LoopbackServer) markDropped(seq int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.requests[seq].Dropped = true
 }
 
 // noteActive raises the high-water mark of open streams.

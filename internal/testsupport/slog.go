@@ -17,7 +17,6 @@ package testsupport
 import (
 	"context"
 	"log/slog"
-	"math"
 	"slices"
 	"strings"
 	"sync"
@@ -67,10 +66,11 @@ func (r LogRecord) String() string {
 }
 
 // LogRecorder keeps every record logged through its handler (and through
-// handlers derived from it with WithAttrs and WithGroup). It is safe for
-// concurrent use.
+// handlers derived from it with WithAttrs and WithGroup). The zero value is
+// ready to use and keeps every record, as NewLogRecorder(nil) does. It is
+// safe for concurrent use.
 type LogRecorder struct {
-	level slog.Leveler
+	level slog.Leveler // nil keeps every record
 
 	mu      sync.Mutex
 	records []LogRecord
@@ -80,9 +80,6 @@ type LogRecorder struct {
 // level; a nil level keeps every record, including the SDK's trace level
 // below slog.LevelDebug.
 func NewLogRecorder(level slog.Leveler) *LogRecorder {
-	if level == nil {
-		level = slog.Level(math.MinInt)
-	}
 	return &LogRecorder{level: level}
 }
 
@@ -132,7 +129,7 @@ type recordingHandler struct {
 
 // Enabled implements slog.Handler.
 func (h *recordingHandler) Enabled(_ context.Context, level slog.Level) bool {
-	return level >= h.rec.level.Level()
+	return h.rec.level == nil || level >= h.rec.level.Level()
 }
 
 // Handle implements slog.Handler.

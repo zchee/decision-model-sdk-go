@@ -81,15 +81,23 @@ type H2Conn struct {
 // h2stream is the server's state of one stream.
 type h2stream struct {
 	id     uint32
+	seq    int // the request's SeenRequest.Seq
 	win    int64
 	body   *bodyPipe // nil for a held stream
 	ctx    context.Context
 	cancel context.CancelFunc
+	// bodyless is set when the request's HEADERS carried END_STREAM: the
+	// request has no body at all.
+	bodyless bool
 	// reset is set once the stream is over from the server's point of view
 	// (client RST_STREAM, GOAWAY drop, connection close): writers stop.
 	reset bool
 	// remoteDone is set when the client's side ended (END_STREAM).
 	remoteDone bool
+	// ended is set when the frame that ends the server's side (END_STREAM or
+	// RST_STREAM) was cleared for writing; a drop after that is not recorded
+	// as SeenRequest.Dropped.
+	ended bool
 }
 
 // newH2Conn prepares a connection whose TLS handshake negotiated h2.
@@ -129,11 +137,15 @@ func (c *H2Conn) ActiveStreams() []uint32 {
 }
 
 // GoAway sends GOAWAY with lastStreamID and code. From then on no stream
-// above lastStreamID is served: the ones already open are dropped
-// unprocessed (their handlers' contexts are cancelled and nothing more is
-// written for them) and new ones are ignored, as RFC 9113 section 6.8 has
-// it. Once every stream at or below lastStreamID has finished, the server
-// closes the connection. A second call can only lower lastStreamID.
+// above lastStreamID is served: the ones already open are dropped (their
+// handlers' contexts are cancelled, their ResponseWriters' writes fail, and
+// nothing more is written for them) and new ones are ignored, as RFC 9113
+// section 6.8 has it. GOAWAY tells the client that a dropped stream was not
+// processed, but its handler may already have run, in part or up to its last
+// write: a test that counts side effects must not assume otherwise. A dropped
+// stream's [SeenRequest] shows Dropped. Once every stream at or below
+// lastStreamID has finished, the server closes the connection. A second call
+// can only lower lastStreamID.
 func (c *H2Conn) GoAway(lastStreamID uint32, code ErrCode) error {
 	c.mu.Lock()
 	if c.goAway {
@@ -152,11 +164,26 @@ func (c *H2Conn) GoAway(lastStreamID uint32, code ErrCode) error {
 	return err
 }
 
-// Close closes the connection at once, without GOAWAY: a TCP close as the
-// client sees it.
+// Close closes the connection at once, without GOAWAY. Closing the TLS
+// connection sends a close_notify alert (unless a frame write is in flight)
+// before the TCP FIN, so the client reads io.EOF. [H2Conn.Reset] ends the
+// connection with a TCP reset instead.
 func (c *H2Conn) Close() {
 	c.shutdown()
 	_ = c.nc.Close()
+}
+
+// Reset ends the connection abruptly: it sets SO_LINGER to 0 on the TCP
+// socket and closes the socket under the TLS layer, without GOAWAY or
+// close_notify, so the kernel sends a TCP RST and the client's next read
+// fails with ECONNRESET (WSAECONNRESET on Windows) rather than io.EOF.
+func (c *H2Conn) Reset() {
+	c.shutdown()
+	raw := c.nc.NetConn()
+	if tc, ok := raw.(*net.TCPConn); ok {
+		_ = tc.SetLinger(0)
+	}
+	_ = raw.Close()
 }
 
 // shutdown marks the connection closed and releases every stream.
@@ -185,6 +212,9 @@ func (c *H2Conn) dropLocked(st *h2stream) {
 	st.cancel()
 	if st.body != nil {
 		st.body.closeWithError(errStreamReset)
+	}
+	if !st.ended {
+		c.srv.markDropped(st.seq)
 	}
 	c.cond.Broadcast()
 }
@@ -291,8 +321,19 @@ func (c *H2Conn) onHeaders(f *http2.MetaHeadersFrame) {
 	id := f.StreamID
 	c.mu.Lock()
 	if id <= c.lastID || id%2 == 0 {
+		// On an open stream this is the request's trailer block: its fields
+		// are ignored, but its END_STREAM ends the body. Anything else (a
+		// reused or even identifier) is ignored.
+		var body *bodyPipe
+		if st := c.streams[id]; st != nil && f.StreamEnded() && !st.remoteDone {
+			st.remoteDone = true
+			body = st.body
+		}
 		c.mu.Unlock()
-		return // a trailer or a reused identifier; neither is expected from the SDK
+		if body != nil {
+			body.closeWithError(io.EOF)
+		}
+		return
 	}
 	c.lastID = id
 	ignore := c.closed || (c.goAway && id > c.goAwayLast)
@@ -327,7 +368,7 @@ func (c *H2Conn) onHeaders(f *http2.MetaHeadersFrame) {
 	if full {
 		c.srv.overLimit.Add(1)
 		c.srv.setAction(st.Seq, ActionRefuse)
-		_ = c.write(func() error { return c.fr.WriteRSTStream(id, http2.ErrCodeRefusedStream) })
+		_ = c.write(func() error { return c.fr.WriteRSTStream(id, http2.ErrCode(CodeRefusedStream)) })
 		return
 	}
 
@@ -338,11 +379,13 @@ func (c *H2Conn) onHeaders(f *http2.MetaHeadersFrame) {
 	c.srv.setAction(st.Seq, action)
 	switch action {
 	case ActionRefuse:
-		_ = c.write(func() error { return c.fr.WriteRSTStream(id, http2.ErrCodeRefusedStream) })
+		_ = c.write(func() error { return c.fr.WriteRSTStream(id, http2.ErrCode(CodeRefusedStream)) })
 	case ActionGoAway:
 		_ = c.GoAway(max(id, 2)-2, CodeNoError)
 	case ActionClose:
 		c.Close()
+	case ActionReset:
+		c.Reset()
 	case ActionHold:
 		c.open(st, f.StreamEnded(), false)
 	default:
@@ -353,7 +396,7 @@ func (c *H2Conn) onHeaders(f *http2.MetaHeadersFrame) {
 // open registers a stream and, when serve is set, starts its handler.
 func (c *H2Conn) open(info *Stream, ended, serve bool) {
 	ctx, cancel := context.WithCancel(context.Background())
-	st := &h2stream{id: info.ID, ctx: ctx, cancel: cancel, remoteDone: ended}
+	st := &h2stream{id: info.ID, seq: info.Seq, ctx: ctx, cancel: cancel, bodyless: ended, remoteDone: ended}
 	if serve {
 		st.body = newBodyPipe()
 		if ended {
@@ -487,7 +530,7 @@ func (c *H2Conn) runHandler(st *h2stream, info *Stream) {
 				c.srv.tb.Errorf("testsupport: panic in LoopbackServer handler: %v\n%s", v, buf)
 			}
 			st.body.abandon()
-			_ = c.writeStream(st, func() error { return c.fr.WriteRSTStream(st.id, http2.ErrCodeInternal) })
+			_ = c.writeStream(st, true, func() error { return c.fr.WriteRSTStream(st.id, http2.ErrCode(CodeInternalError)) })
 			c.finishStream(st)
 		}
 	}()
@@ -500,7 +543,7 @@ func (c *H2Conn) runHandler(st *h2stream, info *Stream) {
 	if uploading {
 		// The handler answered before reading the whole body: tell the client
 		// to stop sending, as net/http's server does.
-		_ = c.writeStream(st, func() error { return c.fr.WriteRSTStream(st.id, http2.ErrCodeNo) })
+		_ = c.writeStream(st, true, func() error { return c.fr.WriteRSTStream(st.id, http2.ErrCode(CodeNoError)) })
 	}
 	c.finishStream(st)
 }
@@ -517,6 +560,15 @@ func (c *H2Conn) request(st *h2stream, info *Stream) *http.Request {
 			contentLength = n
 		}
 	}
+	var body io.ReadCloser = st.body
+	if st.bodyless {
+		// No body at all: net/http's servers report ContentLength 0 and the
+		// HTTP/1.1 one sets http.NoBody. A declared length stays as sent.
+		body = http.NoBody
+		if contentLength < 0 {
+			contentLength = 0
+		}
+	}
 	state := c.state
 	r := &http.Request{
 		Method:        info.Method,
@@ -524,7 +576,7 @@ func (c *H2Conn) request(st *h2stream, info *Stream) *http.Request {
 		Proto:         "HTTP/2.0",
 		ProtoMajor:    2,
 		Header:        info.Header,
-		Body:          st.body,
+		Body:          body,
 		ContentLength: contentLength,
 		Host:          info.Authority,
 		RemoteAddr:    c.nc.RemoteAddr().String(),
@@ -534,12 +586,24 @@ func (c *H2Conn) request(st *h2stream, info *Stream) *http.Request {
 	return r.WithContext(st.ctx)
 }
 
-// writeStream runs a frame write for st unless the stream is already over.
-func (c *H2Conn) writeStream(st *h2stream, fn func() error) error {
+// claim reports whether a frame for st may still be written. With end set,
+// the frame ends the server's side of the stream, and claim records that in
+// the same critical section, so a drop that comes later does not mark a
+// stream whose last frame is already on its way as SeenRequest.Dropped.
+func (c *H2Conn) claim(st *h2stream, end bool) bool {
 	c.mu.Lock()
-	over := st.reset || c.closed
-	c.mu.Unlock()
-	if over {
+	defer c.mu.Unlock()
+	if st.reset || c.closed {
+		return false
+	}
+	st.ended = st.ended || end
+	return true
+}
+
+// writeStream runs a frame write for st unless the stream is already over;
+// end says that the frame ends the server's side of the stream.
+func (c *H2Conn) writeStream(st *h2stream, end bool, fn func() error) error {
+	if !c.claim(st, end) {
 		return errStreamReset
 	}
 	return c.write(fn)
@@ -548,10 +612,7 @@ func (c *H2Conn) writeStream(st *h2stream, fn func() error) error {
 // writeHeaders encodes and writes a response header block, split into
 // CONTINUATION frames when it exceeds maxFrameSize.
 func (c *H2Conn) writeHeaders(st *h2stream, status int, h http.Header, endStream bool) error {
-	c.mu.Lock()
-	over := st.reset || c.closed
-	c.mu.Unlock()
-	if over {
+	if !c.claim(st, endStream) {
 		return errStreamReset
 	}
 	c.wmu.Lock()
@@ -624,7 +685,7 @@ func (w *h2ResponseWriter) Write(p []byte) (int, error) {
 			return written, err
 		}
 		chunk := p[:n]
-		if err := w.conn.writeStream(w.st, func() error { return w.conn.fr.WriteData(w.st.id, false, chunk) }); err != nil {
+		if err := w.conn.writeStream(w.st, false, func() error { return w.conn.fr.WriteData(w.st.id, false, chunk) }); err != nil {
 			return written, err
 		}
 		p = p[n:]
@@ -658,7 +719,7 @@ func (w *h2ResponseWriter) finish() {
 	}
 	if !w.ended {
 		w.ended = true
-		_ = w.conn.writeStream(w.st, func() error { return w.conn.fr.WriteData(w.st.id, true, nil) })
+		_ = w.conn.writeStream(w.st, true, func() error { return w.conn.fr.WriteData(w.st.id, true, nil) })
 	}
 }
 

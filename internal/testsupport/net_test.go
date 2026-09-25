@@ -69,6 +69,73 @@ func TestSilentListener(t *testing.T) {
 	})
 }
 
+// TestGatedDialer covers the dial gate that stands in for a handshake delay:
+// a dial held until the test opens the gate, as W0.4's cold-start tests need.
+func TestGatedDialer(t *testing.T) {
+	t.Run("success: a dial waits at the gate, then reaches the server", func(t *testing.T) {
+		srv := NewLoopbackServer(t, ServerConfig{})
+		gate := make(chan struct{})
+		g := NewGatedDialer(gate, nil)
+		tr := newTransport(t, false, true)
+		tr.DialContext = g.DialContext
+		type result struct {
+			status int
+			err    error
+		}
+		done := make(chan result, 1)
+		go func() {
+			status, _, _, err := get(t, tr, srv.URL())
+			done <- result{status, err}
+		}()
+		waitFor(t, "a dial at the gate", func() bool { return g.Waiting() == 1 })
+		if srv.Accepts() != 0 || g.Dials() != 0 {
+			t.Fatalf("before the gate opened: Accepts %d, Dials %d; want 0, 0", srv.Accepts(), g.Dials())
+		}
+		close(gate)
+		if r := recv(t, done, "the GET"); r.err != nil || r.status != http.StatusOK {
+			t.Fatalf("GET: %d %v", r.status, r.err)
+		}
+		if srv.Accepts() != 1 || g.Dials() != 1 || g.Waiting() != 0 {
+			t.Errorf("after: Accepts %d, Dials %d, Waiting %d; want 1, 1, 0", srv.Accepts(), g.Dials(), g.Waiting())
+		}
+	})
+
+	t.Run("error: a context that ends at the gate never dials", func(t *testing.T) {
+		srv := NewLoopbackServer(t, ServerConfig{})
+		g := NewGatedDialer(make(chan struct{}), nil)
+		ctx, cancel := context.WithCancel(t.Context())
+		errc := make(chan error, 1)
+		go func() {
+			conn, err := g.DialContext(ctx, "tcp", srv.Addr())
+			if conn != nil {
+				_ = conn.Close()
+			}
+			errc <- err
+		}()
+		waitFor(t, "a dial at the gate", func() bool { return g.Waiting() == 1 })
+		cancel()
+		if err := recv(t, errc, "the dial"); !errors.Is(err, context.Canceled) {
+			t.Fatalf("DialContext error = %v, want context.Canceled", err)
+		}
+		if srv.Accepts() != 0 || g.Dials() != 0 || g.Waiting() != 0 {
+			t.Errorf("Accepts %d, Dials %d, Waiting %d; want 0, 0, 0", srv.Accepts(), g.Dials(), g.Waiting())
+		}
+	})
+
+	t.Run("success: an open gate dials at once through the given dialer", func(t *testing.T) {
+		srv := NewLoopbackServer(t, ServerConfig{})
+		gate := make(chan struct{})
+		close(gate)
+		g := NewGatedDialer(gate, Routes{"example.com:443": srv.Addr()}.DialContext)
+		tr := newTransport(t, false, true)
+		tr.DialContext = g.DialContext
+		status, proto, _, err := get(t, tr, "https://example.com/")
+		if err != nil || status != http.StatusOK || proto != 2 || g.Dials() != 1 {
+			t.Fatalf("GET: %d HTTP/%d %v, Dials %d", status, proto, err, g.Dials())
+		}
+	})
+}
+
 // TestFakeH2CServer checks prior-knowledge h2c on the in-memory network,
 // inside a synctest bubble.
 func TestFakeH2CServer(t *testing.T) {

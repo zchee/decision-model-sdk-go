@@ -20,11 +20,16 @@
 //   - [LoopbackServer]: a TLS server on 127.0.0.1 that speaks HTTP/2 through
 //     its own frame writer (golang.org/x/net/http2's Framer and hpack), so a
 //     test can send GOAWAY with a LastStreamID below streams in flight, refuse
-//     a stream, close the connection, advertise a MAX_CONCURRENT_STREAMS limit
-//     and count accepted connections; its ALPN modes also give a server
-//     without ALPN and one that offers http/1.1 only.
+//     a stream, close the connection (close_notify) or reset it (TCP RST),
+//     advertise a MAX_CONCURRENT_STREAMS limit and count accepted
+//     connections; its ALPN modes also give a server without ALPN and one
+//     that offers http/1.1 only.
 //   - [SilentListener]: a TCP listener that accepts and never answers, for a
 //     peer that never finishes the TLS handshake.
+//   - [GatedDialer]: a client DialContext that holds each dial until the test
+//     closes a channel. The LoopbackServer has no knob that delays its
+//     handshake; a test that needs a dial to complete late gates the
+//     client's dial to [LoopbackServer.Addr] instead.
 //   - [FakeH2CServer]: an [net/http/httptest] server on the in-memory network
 //     that speaks HTTP/2 over cleartext with prior knowledge, usable inside a
 //     [testing/synctest] bubble.

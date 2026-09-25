@@ -112,6 +112,20 @@ func TestLogRecorder(t *testing.T) {
 		})
 	}
 
+	t.Run("success: the zero value keeps every record", func(t *testing.T) {
+		var rec LogRecorder
+		l := rec.Logger()
+		l.Log(t.Context(), levelTrace, "body", "bytes", 12)
+		l.Debug("h2: dial")
+		var got []string
+		for _, r := range rec.Records() {
+			got = append(got, r.String())
+		}
+		if diff := gocmp.Diff([]string{"DEBUG-4 body bytes=12", "DEBUG h2: dial"}, got); diff != "" {
+			t.Errorf("records (-want +got):\n%s", diff)
+		}
+	})
+
 	t.Run("success: At, Attr and Reset", func(t *testing.T) {
 		rec := NewLogRecorder(nil)
 		l := rec.Logger()

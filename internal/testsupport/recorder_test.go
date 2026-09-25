@@ -274,6 +274,32 @@ func TestRecorderContract(t *testing.T) {
 		}
 	})
 
+	t.Run("success: records are copies that nobody else can change", func(t *testing.T) {
+		rec := &Recorder{Respond: func(r RecordedRequest) Reply {
+			r.Header.Set("X-Changed", "by Respond")
+			r.Body[0] = 'X'
+			return Reply{}
+		}}
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "https://example.com/", strings.NewReader("payload"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("X-Sent", "1")
+		resp, err := rec.RoundTrip(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		first := rec.Requests()[0]
+		first.Header.Set("X-Changed", "by the caller")
+		first.Body[1] = 'Y'
+		got := rec.Requests()[0]
+		want := http.Header{"X-Sent": {"1"}}
+		if diff := gocmp.Diff(want, got.Header); diff != "" || string(got.Body) != "payload" {
+			t.Errorf("recorded body %q, header (-want +got):\n%s", got.Body, diff)
+		}
+	})
+
 	t.Run("success: Close is counted", func(t *testing.T) {
 		rec := &Recorder{}
 		var closer io.Closer = rec

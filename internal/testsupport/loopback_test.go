@@ -26,6 +26,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -93,6 +94,34 @@ func actions(s *LoopbackServer) []Action {
 	return out
 }
 
+// dropped returns the recorded Dropped flags of a server's requests.
+func dropped(s *LoopbackServer) []bool {
+	var out []bool
+	for _, r := range s.Requests() {
+		out = append(out, r.Dropped)
+	}
+	return out
+}
+
+// recv returns the next value from ch, failing the test after 5 s.
+func recv[T any](t *testing.T, ch <-chan T, what string) T {
+	t.Helper()
+	select {
+	case v := <-ch:
+		return v
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for %s", what)
+		panic("unreachable")
+	}
+}
+
+// isConnReset reports whether err is a TCP reset from the peer: ECONNRESET,
+// or WSAECONNRESET (10054), the code Windows reports for it. The message
+// differs by system, so the check compares codes, not text.
+func isConnReset(err error) bool {
+	return errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.Errno(10054))
+}
+
 // rawClient speaks HTTP/2 frame by frame, so a test can see exactly what
 // the server writes.
 type rawClient struct {
@@ -143,6 +172,16 @@ func (c *rawClient) request(id uint32, path string, endStream bool) {
 		_ = c.henc.WriteField(f)
 	}
 	if err := c.fr.WriteHeaders(http2.HeadersFrameParam{StreamID: id, BlockFragment: c.hbuf.Bytes(), EndStream: endStream, EndHeaders: true}); err != nil {
+		c.t.Fatal(err)
+	}
+}
+
+// trailers ends stream id's request with a trailer block.
+func (c *rawClient) trailers(id uint32) {
+	c.t.Helper()
+	c.hbuf.Reset()
+	_ = c.henc.WriteField(hpack.HeaderField{Name: "x-checksum", Value: "none"})
+	if err := c.fr.WriteHeaders(http2.HeadersFrameParam{StreamID: id, BlockFragment: c.hbuf.Bytes(), EndStream: true, EndHeaders: true}); err != nil {
 		c.t.Fatal(err)
 	}
 }
@@ -304,7 +343,7 @@ func TestLoopbackH2(t *testing.T) {
 	for _, r := range srv.Requests() {
 		ids = append(ids, r.StreamID)
 		paths = append(paths, r.Path)
-		if r.Proto != "HTTP/2.0" || r.Authority != srv.Addr() || r.Action != ActionServe {
+		if r.Proto != "HTTP/2.0" || r.Authority != srv.Addr() || r.Action != ActionServe || r.Dropped {
 			t.Errorf("request %+v", r)
 		}
 	}
@@ -425,6 +464,37 @@ func TestLoopbackGoAway(t *testing.T) {
 		if n := len(srv.Requests()); n != 3 {
 			t.Errorf("%d requests recorded, want 3 (stream 7 arrived after GOAWAY)", n)
 		}
+		if diff := gocmp.Diff([]bool{false, true, true}, dropped(srv)); diff != "" {
+			t.Errorf("Dropped flags of streams 1, 3, 5 (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("success: a stream dropped after its handler started shows Dropped", func(t *testing.T) {
+		started := make(chan struct{})
+		writeErr := make(chan error, 1)
+		srv := NewLoopbackServer(t, ServerConfig{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			close(started)
+			<-r.Context().Done()
+			_, err := io.WriteString(w, "too late")
+			writeErr <- err
+		})})
+		c := dialRaw(t, srv.Addr())
+		c.request(1, "/", true)
+		recv(t, started, "the handler to start")
+		// GoAway takes any code; ENHANCE_YOUR_CALM is not one of the named ones.
+		const enhanceYourCalm = ErrCode(0xb)
+		if err := srv.LiveH2Conns()[0].GoAway(0, enhanceYourCalm); err != nil {
+			t.Fatal(err)
+		}
+		c.expect(frame{Type: "GOAWAY", LastID: 0, Code: enhanceYourCalm})
+		if err := recv(t, writeErr, "the handler's write"); !errors.Is(err, errStreamReset) {
+			t.Errorf("the dropped handler's Write returned %v, want %v", err, errStreamReset)
+		}
+		c.expectEOF()
+		reqs := srv.Requests()
+		if len(reqs) != 1 || reqs[0].Action != ActionServe || !reqs[0].Dropped {
+			t.Errorf("requests %+v, want one with ActionServe and Dropped", reqs)
+		}
 	})
 
 	t.Run("success: ActionGoAway puts the stream itself above LastStreamID", func(t *testing.T) {
@@ -536,6 +606,141 @@ func TestLoopbackRefuseCloseHold(t *testing.T) {
 			t.Fatal(err)
 		}
 		waitFor(t, "the reset stream to close", func() bool { return len(srv.LiveH2Conns()[0].ActiveStreams()) == 0 })
+		if reqs := srv.Requests(); reqs[0].Action != ActionHold || !reqs[0].Dropped {
+			t.Errorf("request %+v, want ActionHold and Dropped", reqs[0])
+		}
+	})
+
+	t.Run("success: a handler panic resets the stream with INTERNAL_ERROR", func(t *testing.T) {
+		srv := NewLoopbackServer(t, ServerConfig{Handler: http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+			panic(http.ErrAbortHandler)
+		})})
+		c := dialRaw(t, srv.Addr())
+		c.request(1, "/", true)
+		c.expect(frame{Type: "RST_STREAM", StreamID: 1, Code: CodeInternalError})
+		if diff := gocmp.Diff([]bool{false}, dropped(srv)); diff != "" {
+			t.Errorf("Dropped flags (-want +got):\n%s", diff)
+		}
+	})
+}
+
+// TestLoopbackConnEnd checks how the client sees each way the server ends a
+// connection: Close and ActionClose send close_notify and FIN (io.EOF),
+// Reset and ActionReset a TCP reset.
+func TestLoopbackConnEnd(t *testing.T) {
+	tests := map[string]struct {
+		action    Action        // what OnStream chooses for stream 1
+		end       func(*H2Conn) // when set, ends the connection after stream 1 is served
+		wantReset bool
+	}{
+		"success: ActionClose ends with close_notify": {action: ActionClose},
+		"success: ActionReset ends with a TCP reset":  {action: ActionReset, wantReset: true},
+		"success: Close ends an idle connection":      {action: ActionServe, end: (*H2Conn).Close},
+		"success: Reset ends an idle connection":      {action: ActionServe, end: (*H2Conn).Reset, wantReset: true},
+		"success: CloseConns ends an idle connection": {action: ActionServe, end: func(c *H2Conn) { c.srv.CloseConns() }},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			srv := NewLoopbackServer(t, ServerConfig{OnStream: func(*Stream) Action { return tt.action }})
+			c := dialRaw(t, srv.Addr())
+			// Take and acknowledge the server's SETTINGS before the request, so
+			// the client writes nothing after it: data the server has not read
+			// when it closes would make the kernel send a reset instead of FIN.
+			c.serverSettings()
+			c.request(1, "/", true)
+			if tt.end != nil {
+				c.expect(frame{Type: "HEADERS", StreamID: 1, Status: "200", End: true})
+				tt.end(srv.LiveH2Conns()[0])
+			}
+			_, err := c.next()
+			if tt.wantReset {
+				if !isConnReset(err) {
+					t.Fatalf("read after the end: %v, want a connection reset", err)
+				}
+				return
+			}
+			if !errors.Is(err, io.EOF) || isConnReset(err) {
+				t.Fatalf("read after the end: %v, want io.EOF", err)
+			}
+		})
+	}
+}
+
+// TestLoopbackRequestBody checks what a handler sees of a request body over
+// HTTP/2: the length net/http's servers report, and the end of a body that
+// the client ends with trailers.
+func TestLoopbackRequestBody(t *testing.T) {
+	// requestView is what the handler saw; it goes to the test over a channel
+	// rather than back in the response.
+	type requestView struct {
+		ContentLength int64
+		NoBody        bool
+		Body          string
+	}
+	seen := make(chan requestView, 1)
+	srv := NewLoopbackServer(t, ServerConfig{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, err := io.ReadAll(r.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		seen <- requestView{ContentLength: r.ContentLength, NoBody: r.Body == http.NoBody, Body: string(b)}
+		w.WriteHeader(http.StatusNoContent)
+	})})
+	tests := map[string]struct {
+		h1, h2 bool
+		method string
+		body   io.Reader // nil sends http.NoBody
+		want   requestView
+	}{
+		"success: a GET over HTTP/2 has length 0 and no body": {
+			h2: true, method: http.MethodGet, want: requestView{ContentLength: 0, NoBody: true},
+		},
+		"success: a GET over HTTP/1.1 has length 0 and no body": {
+			h1: true, method: http.MethodGet, want: requestView{ContentLength: 0, NoBody: true},
+		},
+		"success: a POST of a known length over HTTP/2": {
+			h2: true, method: http.MethodPost, body: strings.NewReader("abc"), want: requestView{ContentLength: 3, Body: "abc"},
+		},
+		"success: a POST of an unknown length over HTTP/2": {
+			h2: true, method: http.MethodPost, body: io.MultiReader(strings.NewReader("abc")), want: requestView{ContentLength: -1, Body: "abc"},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			body := tt.body
+			if body == nil {
+				body = http.NoBody
+			}
+			req, err := http.NewRequestWithContext(t.Context(), tt.method, srv.URL(), body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, err := newTransport(t, tt.h1, tt.h2).RoundTrip(req)
+			if err != nil {
+				t.Fatalf("RoundTrip: %v", err)
+			}
+			_ = resp.Body.Close()
+			if resp.StatusCode != http.StatusNoContent {
+				t.Fatalf("status %d, want 204", resp.StatusCode)
+			}
+			if diff := gocmp.Diff(tt.want, recv(t, seen, "the handler's view")); diff != "" {
+				t.Errorf("the handler saw (-want +got):\n%s", diff)
+			}
+		})
+	}
+
+	t.Run("success: END_STREAM on the trailers ends the body", func(t *testing.T) {
+		c := dialRaw(t, srv.Addr())
+		c.request(1, "/", false)
+		if err := c.fr.WriteData(1, false, []byte("abc")); err != nil {
+			t.Fatal(err)
+		}
+		c.trailers(1)
+		c.expect(frame{Type: "HEADERS", StreamID: 1, Status: "204", End: true})
+		if diff := gocmp.Diff(requestView{ContentLength: -1, Body: "abc"}, recv(t, seen, "the handler's view")); diff != "" {
+			t.Errorf("the handler saw (-want +got):\n%s", diff)
+		}
 	})
 }
 
@@ -665,6 +870,7 @@ func TestActionString(t *testing.T) {
 		"success: goaway":  {a: ActionGoAway, want: "goaway"},
 		"success: close":   {a: ActionClose, want: "close"},
 		"success: hold":    {a: ActionHold, want: "hold"},
+		"success: reset":   {a: ActionReset, want: "reset"},
 		"success: unknown": {a: Action(42), want: "action(42)"},
 	}
 	for name, tt := range tests {
