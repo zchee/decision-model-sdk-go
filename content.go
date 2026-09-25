@@ -40,7 +40,9 @@ type RawJSON []byte
 // MarshalJSON returns r as it is, or null when r is nil, as
 // json.RawMessage does, so that RawJSON nested inside a state or a request
 // body member is sent as the JSON it holds, never as a base64 string. The
-// encoder validates the bytes and keeps their whitespace.
+// encoder validates the bytes and keeps their whitespace. r is returned, not
+// copied, so nested RawJSON costs no more than a string field of the same
+// size.
 func (r RawJSON) MarshalJSON() ([]byte, error) {
 	if r == nil {
 		return []byte("null"), nil
@@ -104,6 +106,13 @@ func (c Content) JSON() RawJSON { return c.w.JSON }
 // Content as null. It fails when the text is not valid UTF-8, or when the
 // JSON's first byte other than whitespace does not open an object or an
 // array.
+//
+// Nested text costs one copy of the text per call: the escaped text is built
+// in a new slice for the encoder, where a string field is written straight
+// into the body. JSON content is returned without a copy, and a Content that
+// is the state itself, or an extra body member's whole value, takes a path
+// that copies nothing. For large text, prefer a string field or a top-level
+// Content.
 func (c Content) MarshalJSON() ([]byte, error) {
 	switch {
 	case !c.set:
