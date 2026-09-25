@@ -20,6 +20,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -299,6 +300,12 @@ func TestWrap(t *testing.T) {
 		if c.MaxConnsPerHost != 4 || c.HTTP2.MaxReceiveBufferPerStream != 1<<20 || c.TLSHandshakeTimeout != 7*time.Second {
 			t.Errorf("clone: MaxConnsPerHost %d, HTTP2 %+v, TLSHandshakeTimeout %v; want the caller's", c.MaxConnsPerHost, c.HTTP2, c.TLSHandshakeTimeout)
 		}
+		if !c.HTTP2.StrictMaxConcurrentRequests || c.HTTP2.SendPingTimeout != sendPingTimeout || c.HTTP2.PingTimeout != pingTimeout {
+			t.Errorf("clone HTTP2 %+v, want strict with the default pings filled in (R71)", c.HTTP2)
+		}
+		if h2.StrictMaxConcurrentRequests || h2.PingTimeout != 0 {
+			t.Errorf("the caller's HTTP2Config changed: %+v", h2)
+		}
 		if tr.holdBound != 8*time.Second {
 			t.Errorf("hold bound %v, want connect + the caller's handshake timeout", tr.holdBound)
 		}
@@ -313,6 +320,37 @@ func TestWrap(t *testing.T) {
 		tr := wrapped(t, used, exampleURL, 0)
 		if !tr.base.HTTP2.StrictMaxConcurrentRequests {
 			t.Errorf("clone HTTP2 %+v, want the strict settings", tr.base.HTTP2)
+		}
+	})
+
+	t.Run("success: a caller HTTP2Config with a ping timeout still runs strict: 200 vs 8 on 1 connection", func(t *testing.T) {
+		// R71: a non-empty caller HTTP2Config without the strict flag would
+		// otherwise run non-strict, and a full connection would no longer
+		// bound the transport to one (F1-c).
+		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{MaxConcurrentStreams: f1Limit, Handler: serviceHandler(f1Service)})
+		const ping = 7 * time.Second
+		base := &http.Transport{TLSClientConfig: testsupport.ClientTLSConfig(t), HTTP2: &http.HTTP2Config{PingTimeout: ping}}
+		tr := wrapped(t, base, srv.URL(), 0)
+		if h := tr.base.HTTP2; !h.StrictMaxConcurrentRequests || h.PingTimeout != ping || h.SendPingTimeout != sendPingTimeout {
+			t.Errorf("clone HTTP2 %+v, want strict, the caller's %v ping timeout and the default ping interval", h, ping)
+		}
+		calls := fanOut(f1Calls, func(i int) result {
+			ctx, cancel := context.WithTimeout(t.Context(), f1Timeout)
+			defer cancel()
+			return get(ctx, tr, srv.URL()+"/"+strconv.Itoa(i))
+		})
+		if cl := classes(calls); cl["ok"] != f1Calls || srv.Accepts() != 1 {
+			t.Errorf("classes %v (first error %v), accepts %d; want %d ok on 1 connection", cl, firstErr(calls), srv.Accepts(), f1Calls)
+		}
+	})
+
+	t.Run("success: HTTPAuto keeps a caller HTTP2Config's strict flag as it is", func(t *testing.T) {
+		auto, err := Wrap(&http.Transport{HTTP2: &http.HTTP2Config{PingTimeout: time.Second}}, Config{APIURL: mustURL(t, exampleURL), Mode: HTTPAuto})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if h := auto.base.HTTP2; h.StrictMaxConcurrentRequests || h.PingTimeout != time.Second || h.SendPingTimeout != sendPingTimeout {
+			t.Errorf("HTTPAuto clone HTTP2 %+v, want the caller's non-strict setting with the pings filled in", h)
 		}
 	})
 

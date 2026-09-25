@@ -391,9 +391,11 @@ func NewTransport(cfg Config) (*Transport, error) {
 
 // Wrap builds the SDK's transport over a clone of base (the WithHTTPTransport
 // option). The clone keeps base's dialer, TLS configuration and proxy; Wrap
-// sets Protocols, MaxConnsPerHost (HTTP2Only only), HTTP2 (nil or empty) and
-// TLSHandshakeTimeout (to ConnectTimeout) where base leaves them zero, and,
-// under HTTP2Only on https:
+// sets Protocols, MaxConnsPerHost (HTTP2Only only), the HTTP2 ping timeouts
+// and TLSHandshakeTimeout (to ConnectTimeout) where base leaves them zero,
+// forces HTTP2.StrictMaxConcurrentRequests under HTTP2Only (under HTTPAuto
+// it is set only when base's HTTP2Config is empty) and keeps base's other
+// HTTP2 fields, and, under HTTP2Only on https:
 //
 //   - refuses a transport whose TLSNextProto carries its own "h2" entry right
 //     after Clone (an x/net ConfigureTransports install): the stock h2
@@ -437,12 +439,24 @@ func Wrap(base *http.Transport, cfg Config) (*Transport, error) {
 	if tr.MaxConnsPerHost == 0 && cfg.Mode == HTTP2Only {
 		tr.MaxConnsPerHost = 1
 	}
-	if h := tr.HTTP2; h == nil || reflect.ValueOf(*h).IsZero() {
-		// The stock first-use setup, which Clone runs on base, stores an
-		// empty HTTP2Config there (http2.go:289-291), so an empty one is as
-		// unset as nil. HTTP2Config holds a func field and is not comparable.
-		tr.HTTP2 = strictHTTP2()
+	// Clone gave the clone its own copy of base's HTTP2Config
+	// (transport.go:372-375), so these writes do not reach base.
+	if tr.HTTP2 == nil {
+		tr.HTTP2 = &http.HTTP2Config{}
 	}
+	h := tr.HTTP2
+	// Strict stream accounting keeps one connection per host (non-strict,
+	// a full connection leaves the per-host count and the transport dials
+	// more: 21 connections in F1-c) and is what the token serialises, so
+	// HTTP2Only forces it whatever base set (R71). Under HTTPAuto it is set
+	// only on an empty config: the stock first-use setup, which Clone runs
+	// on base, stores an empty one there (http2.go:288-290). HTTP2Config
+	// holds a func field and is not comparable.
+	if cfg.Mode == HTTP2Only || reflect.ValueOf(*h).IsZero() {
+		h.StrictMaxConcurrentRequests = true
+	}
+	h.SendPingTimeout = cmp.Or(h.SendPingTimeout, sendPingTimeout)
+	h.PingTimeout = cmp.Or(h.PingTimeout, pingTimeout)
 	if tr.TLSHandshakeTimeout == 0 {
 		tr.TLSHandshakeTimeout = connect
 	}
