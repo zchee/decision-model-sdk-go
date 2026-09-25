@@ -144,6 +144,18 @@ func TestDecodeFieldPaths(t *testing.T) {
 		"success: an integer noul":                              {body: body(`{"n":{"type":"noul","noul":1}}`)},
 		"success: legend members of other kinds are not needed": {body: body(`{"n":{"type":"noul","noul":1,"choice":5,"legend":[]}}`)},
 
+		// Mixed spellings of one level (review W2.0 MINOR 2): every spelling
+		// is validated with its own last value, as pydantic does, and the
+		// path names the failing spelling (legend values lack pydantic's
+		// ".str" suffix, as above).
+		"error: spelling, a bad 0 superseded by 00":            {body: body(`{"s":{"type":"score","score":1,"confidence":1,"legend":{"0":5,"1":"b","00":"a"},"probabilities":{}}}`), want: "answers.s.legend.0"},
+		"error: spelling, a bad 01 after 1":                    {body: body(`{"s":{"type":"score","score":1,"confidence":1,"legend":{"1":"a","01":5},"probabilities":{}}}`), want: "answers.s.legend.01"},
+		"error: spelling, a bad probability 0 superseded":      {body: body(`{"s":{"type":"score","score":1,"confidence":1,"legend":{},"probabilities":{"0":"x","00":1}}}`), want: "answers.s.probabilities.0"},
+		"error: spelling, a bad probability 01 after 1":        {body: body(`{"s":{"type":"score","score":1,"confidence":1,"legend":{},"probabilities":{"1":1,"01":"x"}}}`), want: "answers.s.probabilities.01"},
+		"error: spelling, a bad key among spellings":           {body: body(`{"s":{"type":"score","score":1,"confidence":1,"legend":{"1":"a","01":"b","x":"c"},"probabilities":{}}}`), want: "answers.s.legend.x"},
+		"success: spelling, the same spelling repairs a value": {body: body(`{"s":{"type":"score","score":1,"confidence":1,"legend":{"0":5,"00":"a","0":"b"},"probabilities":{}}}`)},
+		"success: the same spelling repairs a value":           {body: body(`{"s":{"type":"score","score":1,"confidence":1,"legend":{"0":5,"0":"a"},"probabilities":{}}}`)},
+
 		// Deviations (Appendix B).
 		"error: deviation, a negative token count":         {body: `{"model":"m","usage":{"input_tokens":-1}}`, want: "usage.input_tokens"},
 		"error: deviation, a token count past 2^64-1":      {body: `{"model":"m","usage":{"input_tokens":18446744073709551616}}`, want: "usage.input_tokens"},

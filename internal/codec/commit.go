@@ -112,13 +112,55 @@ func firstFailure(badKey int, folds []fold) (pos int, isKey bool) {
 	return pos, isKey
 }
 
+// spellingFailure returns the wire position of the first failure of a
+// folded legend or probability list whose keys spell some level in more
+// than one way, found as the Python SDK finds it: its parser keeps the last
+// value of each spelling at the spelling's first position, and pydantic
+// validates every spelling in that order, so the failure is the first
+// spelling whose key is not a level or whose last value is bad. isKey
+// reports a key that is not a level. The key at the returned position is the
+// failing spelling. n is the list's length; key and bad read its entries.
+// It runs only for such lists, which no API response holds, so its scratch
+// map costs nothing on the common path.
+func (v *visitor) spellingFailure(n int, key func(int) string, bad func(int) bool) (pos int, isKey bool) {
+	if v.strIdx == nil {
+		v.strIdx = make(map[string]int, n)
+	}
+	clear(v.strIdx)
+	defer clear(v.strIdx) // its keys are substrings of the body
+	for i := range n {
+		v.strIdx[key(i)] = i // the last position of each spelling
+	}
+	for i := range n {
+		k := key(i)
+		last, ok := v.strIdx[k]
+		if !ok {
+			continue // not the spelling's first position
+		}
+		delete(v.strIdx, k)
+		if _, ok := parseLevel(k); !ok {
+			return i, true
+		}
+		if bad(last) {
+			return i, false
+		}
+	}
+	return -1, false
+}
+
 // foldLegend builds a score answer's legend from the levels the traversal
 // met: one entry per level, at the position of its first occurrence, with
 // the value of its last (Python's dict, keyed by the parsed level). A
-// structured level holds structuredMark until the lazy pass. Keys that spell
-// the same level differently ("1" and "01") fold into one level in wire
-// order; the Python SDK folds equal spellings first, which differs only when
-// both kinds of repeat meet in one legend.
+// structured level holds structuredMark until the lazy pass.
+//
+// Keys that spell one level differently ("1" and "01") fold into one level
+// in wire order, while the Python SDK folds equal spellings first; the two
+// values differ only when both kinds of repeat meet in one legend (a W7
+// deviation row). The verdict and the path follow the Python SDK even then:
+// when a level has more than one spelling, spellingFailure validates each
+// spelling's last value, so a bad value under one spelling fails although
+// another spelling supersedes it, at the failing spelling (review W2.0
+// MINOR 2, ruling R73).
 func (v *visitor) foldLegend(e *entry) pend {
 	n := len(v.legend)
 	legend := make([]wire.LegendEntry, 0, n)
@@ -127,7 +169,7 @@ func (v *visitor) foldLegend(e *entry) pend {
 	if useMap {
 		v.levelMap(n)
 	}
-	badKey := -1
+	badKey, mixed := -1, false
 	for i, l := range v.legend {
 		lvl, ok := parseLevel(l.key)
 		if !ok {
@@ -154,6 +196,7 @@ func (v *visitor) foldLegend(e *entry) pend {
 			}
 		}
 		if j >= 0 {
+			mixed = mixed || v.legend[folds[j].first].key != l.key
 			legend[j].Description = desc
 			folds[j].bad = l.bad
 			continue
@@ -165,7 +208,11 @@ func (v *visitor) foldLegend(e *entry) pend {
 		folds = append(folds, fold{first: i, bad: l.bad})
 	}
 	v.folds = folds
-	if pos, isKey := firstFailure(badKey, folds); pos >= 0 {
+	pos, isKey := firstFailure(badKey, folds)
+	if mixed {
+		pos, isKey = v.spellingFailure(len(v.legend), func(i int) string { return v.legend[i].key }, func(i int) bool { return v.legend[i].bad })
+	}
+	if pos >= 0 {
 		if isKey {
 			return keyPend(e.name, "legend", v.legend[pos].key, errNotLevel)
 		}
@@ -190,7 +237,7 @@ func (v *visitor) foldLevels(e *entry) pend {
 	if useMap {
 		v.levelMap(n)
 	}
-	badKey := -1
+	badKey, mixed := -1, false
 	for i, p := range v.probs {
 		lvl, ok := parseLevel(p.key)
 		if !ok {
@@ -213,6 +260,7 @@ func (v *visitor) foldLevels(e *entry) pend {
 			}
 		}
 		if j >= 0 {
+			mixed = mixed || v.probs[folds[j].first].key != p.key
 			probs[j].Probability = p.p
 			folds[j].bad = p.bad
 			continue
@@ -224,7 +272,11 @@ func (v *visitor) foldLevels(e *entry) pend {
 		folds = append(folds, fold{first: i, bad: p.bad})
 	}
 	v.folds = folds
-	if pos, isKey := firstFailure(badKey, folds); pos >= 0 {
+	pos, isKey := firstFailure(badKey, folds)
+	if mixed {
+		pos, isKey = v.spellingFailure(len(v.probs), func(i int) string { return v.probs[i].key }, func(i int) bool { return v.probs[i].bad })
+	}
+	if pos >= 0 {
 		if isKey {
 			return keyPend(e.name, "probabilities", v.probs[pos].key, errNotLevel)
 		}
