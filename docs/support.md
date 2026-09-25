@@ -86,7 +86,9 @@ When a sonic tag without `!go1.28` exists:
      `.github/workflows/ci.yaml` and `.github/workflows/gotip.yaml`, and in
      this document;
    - the stand-in tag of the ci.yaml refusal check → `-tags=go1.29`;
-   - the `d1Cutoff` constant of `internal/codec/seam_test.go` → `"go1.29"`.
+   - the `d1Cutoff` constant of `internal/codec/seam_test.go` → `"go1.29"`;
+   - the support-window sentence of `README.md` (`Go 1.27.x` → the new
+     range); it names no identifier, so the seam tests cannot guard it.
 
    The seam tests are the guard for this edit: they derive both constraint
    lines and the identifier from `d1Cutoff`, check every file's line, and fail
