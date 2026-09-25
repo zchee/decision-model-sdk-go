@@ -735,3 +735,49 @@ func TestBaseURLDefaultPortDropped(t *testing.T) {
 		})
 	}
 }
+
+// TestWithPretouch checks WithPretouch: the types are prepared when the
+// client is built and a call with such a state sends the same bytes as
+// without; a nil type or one the encoder refuses fails NewClient with a
+// *ConfigError that names the type by position and name.
+func TestWithPretouch(t *testing.T) {
+	type ticket struct {
+		Subject string   `json:"subject"`
+		Tags    []string `json:"tags"`
+	}
+	tests := map[string]struct {
+		opts    []ClientOption
+		wantErr string
+	}{
+		"success: a struct and a pointer to it":      {opts: []ClientOption{WithPretouch(reflect.TypeFor[ticket](), reflect.TypeFor[*ticket]())}},
+		"success: types from two options":            {opts: []ClientOption{WithPretouch(reflect.TypeFor[ticket]()), WithPretouch(reflect.TypeFor[map[string]any]())}},
+		"success: no type at all":                    {opts: []ClientOption{WithPretouch()}},
+		"error: a nil type":                          {opts: []ClientOption{WithPretouch(reflect.TypeFor[ticket](), nil)}, wantErr: "The type 2 passed to WithPretouch, nil, cannot be prepared for the JSON encoder: pretouch: nil type."},
+		"error: a map the encoder cannot key":        {opts: []ClientOption{WithPretouch(reflect.TypeFor[map[complex64]int]())}, wantErr: "The type 1 passed to WithPretouch, map[complex64]int, cannot be prepared for the JSON encoder"},
+		"error: the other options are checked first": {opts: []ClientOption{WithPretouch(nil), WithTimeout(-1)}, wantErr: "The timeout passed to WithTimeout must be positive"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			clearEnv(t)
+			rec := replying(http.StatusOK, testsupport.Fixture(t, "result.json"))
+			c, err := NewClient(append([]ClientOption{WithAPIKey(testKey), WithRoundTripper(rec)}, tt.opts...)...)
+			if tt.wantErr != "" {
+				if _, ok := errors.AsType[*ConfigError](err); !ok || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("NewClient error = %v, want a *ConfigError with %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("NewClient: %v", err)
+			}
+			t.Cleanup(func() { _ = c.Close() })
+			if _, err := c.SystemOne(t.Context(), ticket{Subject: "s", Tags: []string{"a"}}, noulQuestion(t)); err != nil {
+				t.Fatalf("SystemOne: %v", err)
+			}
+			want := `{"state":{"subject":"s","tags":["a"]},"model":"jev-latest",` + noulBody + `}`
+			if diff := gocmp.Diff(want, string(onlyRequest(t, rec).Body)); diff != "" {
+				t.Errorf("body (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

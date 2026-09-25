@@ -19,6 +19,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -62,6 +63,8 @@ type options struct {
 	hideEndpointHost bool
 	// transport is what the transport options (transport.go) recorded.
 	transport transportOptions
+	// pretouch is every type WithPretouch gave, in order.
+	pretouch []reflect.Type
 }
 
 // headerOption is one [WithHeader] call.

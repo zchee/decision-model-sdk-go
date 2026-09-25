@@ -24,6 +24,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"reflect"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -69,6 +71,18 @@ type configRef struct {
 	*config
 }
 
+// WithPretouch prepares the JSON encoder for each type before the first
+// call that encodes a state or an extra body value of it, so that the call
+// does not pay the one-time compilation the encoder makes per type (which
+// grows with the type's size). It changes nothing on the wire. The types are
+// prepared when the client is built, after every other option is checked;
+// a nil type, or one the encoder refuses (a map whose keys cannot be JSON
+// object keys, for example), fails NewClient with a [*ConfigError]. Types
+// from several WithPretouch options are all prepared.
+func WithPretouch(types ...reflect.Type) ClientOption {
+	return func(o *options) { o.pretouch = append(o.pretouch, types...) }
+}
+
 // NewClient builds a client from opts. Unless an option supplies the
 // transport ([WithHTTPTransport], [WithRoundTripper]), the client builds its
 // own: HTTP/2 on one connection per client for an https base URL (HTTP/1.1
@@ -81,6 +95,16 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 	cfg, err := o.resolve(os.Getenv)
 	if err != nil {
 		return nil, err
+	}
+	for i, t := range o.pretouch {
+		if err := codec.Pretouch(t); err != nil {
+			name := "nil"
+			if t != nil {
+				name = t.String()
+			}
+			return nil, newConfigError("The type "+strconv.Itoa(i+1)+" passed to WithPretouch, "+safeName(name)+
+				", cannot be prepared for the JSON encoder: "+safeMessage(err.Error())+".", err)
+		}
 	}
 	return &Client{
 		cfg:               &configRef{cfg},
