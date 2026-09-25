@@ -19,15 +19,23 @@ jobs:
     name: gotip canary
     runs-on: ubuntu-26.04
     # A job that hits this limit is cancelled and skips its `if: failure()`
-    # steps, so every step below carries a tighter limit of its own: a hung
-    # step fails, and the tracking issue is still opened.
-    timeout-minutes: 60
+    # step, so every step carries a limit of its own and the job's limit
+    # covers their sum: 5 + 5 + 25 + 15 + 10 + 10 + 5 + 5 = 80 minutes up to
+    # the canary failure step (both PM5 issue steps counted, though at most
+    # one runs), 5 for that step, and 5 for job setup and the post steps.
+    timeout-minutes: 90
     permissions:
       contents: read
       issues: write # open or update the tracking issues
     env:
       # gotip must build with itself; never switch to the go.mod toolchain.
       GOTOOLCHAIN: local
+    # bash runs every script with -e and -o pipefail, so a failing command
+    # inside a pipeline or $(…) fails the step instead of passing on empty
+    # output (a failed issue lookup must not open a duplicate issue).
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7
         timeout-minutes: 5
@@ -42,7 +50,7 @@ jobs:
 
       - name: Install gotip
         id: install
-        timeout-minutes: 30
+        timeout-minutes: 25
         run: |
           go install golang.org/dl/gotip@latest
           gotip download
@@ -89,47 +97,82 @@ jobs:
             fi
           done
 
-      # PM5: which sonic files gotip compiles, for the go.mod version and for
-      # the newest release. While sonic.go (the JIT path) carries !go1.28, gotip
-      # compiles compat.go instead. The day either version selects sonic.go,
-      # sonic supports the next Go release: the step sets `selected`, and the
-      # step after it opens or updates the PM5 issue, separate from the canary
-      # failure issue, so that the bump procedure in docs/support.md starts.
-      - name: PM5 sonic support probe
+      # PM5 needs two signals (ruling R15b), and this step sets both outputs
+      # on every run:
+      # - rc_exists: go.dev/dl lists a go1.28 release candidate or release
+      #   (gotip itself always reports a development version);
+      # - selected: gotip compiles no encoding/json fallback file of sonic
+      #   (compat.go or *_compat.go importing encoding/json, in any package of
+      #   the sonic module), for the go.mod version or for the newest sonic.
+      #   While sonic's JIT files carry !go1.28, gotip compiles the fallback,
+      #   as TestSeamSonicJITPath forbids wherever internal/codec compiles.
+      # detail names the sonic versions probed and the fallback files each
+      # compiles. The next two steps open or update the matching issue.
+      - name: PM5 probe (go1.28 release candidate, sonic support)
         id: sonic
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         timeout-minutes: 10
         run: |
           tip="$(gotip version)"
-          detail=""
-          probe() { # $1: label, $2: module directory
-            local version files
-            version="$(cd "$2" && gotip list -m -f '{{.Version}}' github.com/bytedance/sonic)"
-            files="$(cd "$2" && gotip list -f '{{join .GoFiles " "}}' github.com/bytedance/sonic)"
-            echo "$1 sonic ${version} under ${tip}: ${files}"
-            echo "| $1 | ${version} | ${files} |" >>"$GITHUB_STEP_SUMMARY"
-            if [[ " ${files} " == *" sonic.go "* ]]; then
-              echo "::warning title=PM5 sonic support probe::sonic ${version} ($1) compiles its JIT path (sonic.go) under ${tip}"
-              detail="${detail:+${detail}; }sonic ${version} ($1) compiles its JIT path (sonic.go) under ${tip}"
-            fi
-          }
+          releases="$(curl -fsS 'https://go.dev/dl/?mode=json&include=all' |
+            jq -r '[.[].version | select(startswith("go1.28rc") or startswith("go1.28."))] | join(" ")')"
+          rc_exists=false
+          if [ -n "${releases}" ]; then
+            rc_exists=true
+          fi
           {
-            echo "### PM5 sonic support probe"
+            echo "### PM5 probe"
             echo
-            echo "| sonic | version | files compiled under ${tip} |"
+            echo "go1.28 releases on go.dev/dl: ${releases:-none}"
+            echo
+            echo "| sonic | version | encoding/json fallback files compiled under ${tip} |"
             echo "| --- | --- | --- |"
           } >>"$GITHUB_STEP_SUMMARY"
+          selected=false
+          detail=""
+          probe() { # $1: label, $2: module directory
+            local version listing pkg dir files ignored f fallback="" total=0
+            version="$(cd "$2" && gotip list -m -f '{{.Version}}' github.com/bytedance/sonic)"
+            listing="$(cd "$2" && gotip list -e -f '{{.ImportPath}}{{"\t"}}{{.Dir}}{{"\t"}}{{join .GoFiles " "}}{{"\t"}}{{join .IgnoredGoFiles " "}}' github.com/bytedance/sonic/...)"
+            while IFS=$'\t' read -r pkg dir files ignored; do
+              echo "$1 sonic ${version} ${pkg}: ${files}"
+              for f in ${files} ${ignored}; do
+                case "${f}" in
+                  compat.go | *_compat.go) ;;
+                  *) continue ;;
+                esac
+                grep -qF '"encoding/json"' "${dir}/${f}" || continue
+                total=$((total + 1))
+                if [[ " ${files} " == *" ${f} "* ]]; then
+                  fallback="${fallback:+${fallback} }${pkg#github.com/bytedance/}/${f}"
+                fi
+              done
+            done <<<"${listing}"
+            echo "| $1 | ${version} | ${fallback:-none} |" >>"$GITHUB_STEP_SUMMARY"
+            detail="${detail:+${detail}; }$1 sonic ${version} under ${tip} compiles ${fallback:-no encoding/json fallback file}"
+            if [ "${total}" -eq 0 ]; then
+              echo "::error title=PM5 probe::sonic ${version} ($1) has no encoding/json fallback file left to look for; update the probe"
+              exit 1
+            fi
+            if [ -z "${fallback}" ]; then
+              echo "::warning title=PM5 probe::sonic ${version} ($1) compiles its JIT path under ${tip}"
+              selected=true
+            fi
+          }
           probe "go.mod" "$GITHUB_WORKSPACE"
           newest="$(mktemp -d)"
           (cd "$newest" && gotip mod init sonicprobe && gotip get github.com/bytedance/sonic@latest)
           probe "newest" "$newest"
-          if [ -n "${detail}" ]; then
-            echo "selected=true" >>"$GITHUB_OUTPUT"
-            echo "detail=${detail}" >>"$GITHUB_OUTPUT"
-          fi
+          {
+            echo "rc_exists=${rc_exists}"
+            echo "selected=${selected}"
+            echo "detail=go1.28 releases: ${releases:-none}; ${detail}"
+          } >>"$GITHUB_OUTPUT"
 
-      - name: Open or update the PM5 sonic issue
-        if: ${{ !cancelled() && steps.sonic.outputs.selected == 'true' }}
+      # (a) The early warning: Go 1.28 is out or about to be, and sonic still
+      # takes its fallback there, so D1 will refuse every consumer on Go 1.28.
+      - name: Open or update the Go 1.28 waiting-on-sonic issue
+        if: ${{ !cancelled() && steps.sonic.outputs.rc_exists == 'true' && steps.sonic.outputs.selected == 'false' }}
         timeout-minutes: 5
         env:
           GH_TOKEN: ${{ github.token }}
@@ -137,11 +180,32 @@ jobs:
           DETAIL: ${{ steps.sonic.outputs.detail }}
         run: |
           run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          body="$(date -u '+%Y-%m-%d %H:%M:%S UTC'): ${DETAIL}. The SDK refuses to compile on Go 1.28 (D1) until a sonic release compiles its JIT path there; this workflow opens \"Go 1.28: sonic builds on tip, bump D1\" when one does. Run: ${run_url}"
+          # The search index lags behind new issues; list the open ones and
+          # match the exact title instead.
+          number="$(gh issue list --repo "${GITHUB_REPOSITORY}" --state open --limit 200 --json number,title |
+            jq -r --arg title "${TITLE}" '[.[] | select(.title == $title) | .number] | first // empty')"
+          if [ -n "${number}" ]; then
+            gh issue comment "${number}" --repo "${GITHUB_REPOSITORY}" --body "${body}"
+          else
+            gh issue create --repo "${GITHUB_REPOSITORY}" --title "${TITLE}" --body "${body}"
+          fi
+
+      # (b) sonic compiles its JIT path on tip: start the bump procedure.
+      - name: Open or update the Go 1.28 bump issue
+        if: ${{ !cancelled() && steps.sonic.outputs.selected == 'true' }}
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: "Go 1.28: sonic builds on tip, bump D1"
+          DETAIL: ${{ steps.sonic.outputs.detail }}
+        run: |
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           body="$(date -u '+%Y-%m-%d %H:%M:%S UTC'): ${DETAIL}. Start the Go 1.28 bump procedure in docs/support.md. Run: ${run_url}"
           # The search index lags behind new issues; list the open ones and
           # match the exact title instead.
-          number="$(gh issue list --repo "${GITHUB_REPOSITORY}" --state open --limit 200 \
-            --json number,title --jq '.[] | select(.title == env.TITLE) | .number' | head -n 1)"
+          number="$(gh issue list --repo "${GITHUB_REPOSITORY}" --state open --limit 200 --json number,title |
+            jq -r --arg title "${TITLE}" '[.[] | select(.title == $title) | .number] | first // empty')"
           if [ -n "${number}" ]; then
             gh issue comment "${number}" --repo "${GITHUB_REPOSITORY}" --body "${body}"
           else
@@ -159,8 +223,8 @@ jobs:
           body="The gotip canary failed at $(date -u '+%Y-%m-%d %H:%M:%S UTC'): ${run_url}"
           # The search index lags behind new issues; list the open ones and
           # match the exact title instead.
-          number="$(gh issue list --repo "${GITHUB_REPOSITORY}" --state open --limit 200 \
-            --json number,title --jq '.[] | select(.title == env.TITLE) | .number' | head -n 1)"
+          number="$(gh issue list --repo "${GITHUB_REPOSITORY}" --state open --limit 200 --json number,title |
+            jq -r --arg title "${TITLE}" '[.[] | select(.title == $title) | .number] | first // empty')"
           if [ -n "${number}" ]; then
             gh issue comment "${number}" --repo "${GITHUB_REPOSITORY}" --body "${body}"
           else

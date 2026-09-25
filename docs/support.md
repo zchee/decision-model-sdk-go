@@ -7,18 +7,27 @@
 | 1.27.x | `amd64`, `arm64` | any GOOS the Go release supports on that architecture | supported |
 | 1.27.x | any other (`386`, `riscv64`, `wasm`, …) | any | refused at compile time |
 | 1.28 and later | any | any | refused at compile time until the bump below |
-| 1.26 and earlier | any | any | cannot build the module (`go.mod` says `go 1.27`) |
+| 1.26 and earlier | any | any | switches to a Go 1.27 toolchain, or refuses the module (below) |
 
 CI runs the tests on `ubuntu-26.04` (linux/amd64), `xcode-27` (darwin/arm64)
 and `windows-2025` (windows/amd64).
+
+Off the matrix there are two outcomes:
+
+- An older `go` command never compiles the SDK itself. `go.mod` requires
+  `go 1.27`, so with `GOTOOLCHAIN=auto` (the default) it switches to a Go 1.27
+  toolchain (in this repository `go1.27.1`, from the `toolchain` line) and
+  builds with that; with `GOTOOLCHAIN=local` it refuses the module.
+- On a GOARCH other than `amd64` and `arm64`, or on Go 1.28 and later, the
+  build fails with the D1 identifier described below.
 
 The support window is the set of Go releases that the newest tag of
 `github.com/bytedance/sonic` supports. sonic is the SDK's only JSON codec, and
 its JIT path compiles only for
 `(amd64 && go1.17 && !go1.28) || (arm64 && go1.20 && !go1.28)` (the build line
 of `sonic.go` in v1.15.4). Everywhere else sonic silently falls back to
-`encoding/json` and prints a warning at init; the SDK refuses to compile there
-instead.
+`encoding/json` and prints a warning at init; within the Go releases `go.mod`
+admits, the SDK refuses to compile there instead.
 
 ## The compile-time refusal
 
@@ -56,8 +65,13 @@ own (`go test -run Seam ./internal/codec/`) and with every test run.
 `TestSeamBuildConstraints` asserts that every `internal/codec` file carries
 exactly one of the two constraint lines, as its first line; that the two are
 complements for every GOARCH and Go release; and that `unsupported.go` holds
-nothing but the identifier. `TestSeamSonicJITPath` asserts that sonic compiles
-`sonic.go`, its JIT path, wherever `internal/codec` compiles.
+nothing but the identifier. `TestSeamSonicJITPath` asserts that no sonic
+package `internal/codec` compiles takes its `encoding/json` fallback
+(`compat.go` or a `*_compat.go` file importing `encoding/json`, next to
+`sonic.go`, `api.go`, `*_native.go` or `spec.go` on the JIT side), on the host
+and, by comparing build lines, for every GOARCH and Go release up to the
+cutoff. `TestSeamImports` keeps every JSON library out of the other packages
+(`internal/testsupport`, which holds test tooling, excepted).
 
 From W2.0 on, `internal/codec` also imports `encoding/json`, only for the
 `json.Number` type that sonic's `ast.Visitor` interface requires; nothing is
@@ -66,36 +80,63 @@ encoded or decoded through it.
 ## Bump procedure for Go 1.28
 
 On Go 1.28 GA day every consumer on Go 1.28 gets the compile error above until
-sonic and the SDK both move. The weekly `gotip` workflow lists the files of
-sonic that `gotip` compiles, for the version in `go.mod` and for the newest
-release. While `sonic.go` carries `!go1.28`, `gotip` compiles `compat.go`
-instead; the day either version compiles `sonic.go`, the workflow opens or
-updates the issue "Go 1.28: waiting on sonic" (separate from its "gotip canary
-failing" issue), which is the signal to start the steps below. The probe keys
-on sonic's files rather than on the Go version because `gotip` always reports a
-development version, never a release candidate.
+sonic and the SDK both move. The weekly `gotip` workflow watches for that day
+with two signals and keeps each in its own issue, separate from its "gotip
+canary failing" issue:
+
+- It reads the Go download index (`https://go.dev/dl/?mode=json&include=all`)
+  for a `go1.28rc…` or `go1.28.…` release; `gotip` itself always reports a
+  development version, never a release candidate.
+- It lists the files `gotip` compiles for every package of the sonic module,
+  for the version in `go.mod` and for the newest release, and looks for
+  sonic's `encoding/json` fallback files (`compat.go` and the `*_compat.go`
+  files that import `encoding/json`). While sonic's JIT files carry
+  `!go1.28`, `gotip` compiles the fallback.
+
+Once a Go 1.28 release candidate or release exists and the fallback is still
+compiled, the workflow opens or updates the issue "Go 1.28: waiting on sonic"
+every week: the early warning that D1 will refuse Go 1.28 and that sonic has
+not caught up. Once either sonic version compiles no fallback file on `gotip`,
+it opens or updates "Go 1.28: sonic builds on tip, bump D1", which is the
+signal to start the steps below.
 
 When a sonic tag without `!go1.28` exists:
 
 1. Bump sonic: `go get github.com/bytedance/sonic@<tag> && go mod tidy`.
-2. In **one** commit, edit every site that names the supported range:
+2. Set the `d1Cutoff` constant of `internal/codec/seam_test.go` to
+   `"go1.29"` and run `go test -run Seam ./internal/codec/`: the seam tests
+   derive both constraint lines, the identifier and the text of every site
+   below from it, and fail on each site still naming the old range. Then, in
+   **one** commit, edit every site that names the supported range:
    - `unsupported.go` → `//go:build go1.29 || !(amd64 || arm64)`;
-   - every other file, tests included → `//go:build !go1.29 && (amd64 || arm64)`;
+   - every other file of `internal/codec`, tests included →
+     `//go:build !go1.29 && (amd64 || arm64)`;
    - the identifier, renamed to the new range (its `go1_27` part becomes
-     `go1_28`), in `unsupported.go`, in the `D1_IDENTIFIER` of
-     `.github/workflows/ci.yaml` and `.github/workflows/gotip.yaml`, and in
-     this document;
-   - the stand-in tag of the ci.yaml refusal check → `-tags=go1.29`;
-   - the `d1Cutoff` constant of `internal/codec/seam_test.go` → `"go1.29"`;
-   - the support-window sentence of `README.md` (`Go 1.27.x` → the new
-     range); it names no identifier, so the seam tests cannot guard it.
+     `go1_28`), in `unsupported.go`, in the `D1_IDENTIFIER` of the refusal
+     steps of `.github/workflows/ci.yaml` and `.github/workflows/gotip.yaml`,
+     in this document and in `README.md`;
+   - the prose "Go 1.17 to 1.27" and the quoted constraint
+     `"!go1.28 && (amd64 || arm64)"` in `internal/codec/unsupported.go`, and
+     "Go 1.17 to 1.27" in `internal/codec/doc.go`;
+   - `.github/workflows/ci.yaml`: the stand-in tag of the refusal step
+     (`GOFLAGS=-tags=go1.29`) and every comment naming Go 1.28;
+   - `.github/workflows/gotip.yaml`: both issue titles ("Go 1.29: waiting on
+     sonic", "Go 1.29: sonic builds on tip, bump D1"), the release filter of
+     the PM5 probe (`go1.29rc`, `go1.29.`) and every comment naming Go 1.28;
+   - this document: the support-matrix rows (`1.28.x` supported, `1.29 and
+     later` refused), the constraint lines and identifier above, the
+     `-tags go1.29` stand-in, the sonic build line quoted under "Support
+     matrix", and this procedure;
+   - the support-window sentence of `README.md` (`Go 1.27.x`, Go 1.28 → the
+     new range).
 
-   The seam tests are the guard for this edit: they derive both constraint
-   lines and the identifier from `d1Cutoff`, check every file's line, and fail
-   when any of the sites above names another identifier
-   (`TestSeamD1IdentifierSites`). Moving only `unsupported.go` would be wrong:
-   the other files would keep `!go1.28`, exclude themselves on Go 1.28, and
-   leave the package empty on a supported release.
+   `TestSeamD1IdentifierSites` checks each of these files for the text it
+   derives from `d1Cutoff` (in the two workflows it also requires the refusal
+   step to pass `D1_IDENTIFIER` to its script, and accepts no other Go
+   release anywhere in the file); `TestSeamBuildConstraints` checks every
+   file's constraint line. Moving only `unsupported.go` would be wrong: the
+   other files would keep `!go1.28`, exclude themselves on Go 1.28, and leave
+   the package empty on a supported release.
 3. Re-run the refusal checks (`GOARCH=386`, `GOARCH=riscv64`, and the
    next-release stand-in tag, now `-tags go1.29`; `go vet` and `go build`).
 4. Wait for the CI matrix to pass, then release a minor version.

@@ -31,9 +31,18 @@ package codec
 //     compiled on the host; encoder_native.go cut at go1.26 on amd64 only, so
 //     only the build-line comparison sees it; every encoding/json fallback
 //     file renamed, so the guard would have nothing to look for.
+//   - TestSeamD1IdentifierSites: in ci.yaml, the refusal step's D1_IDENTIFIER
+//     moved into a comment, the step renamed, its stand-in tag changed while
+//     a comment keeps the old one, its identifier grep replaced by a literal;
+//     in gotip.yaml, D1_IDENTIFIER dropped from the refusal step's env, the
+//     identifier grep removed, an issue title or the rc filter naming another
+//     release, a comment naming go1.27; "Go 1.17 to 1.26" in doc.go; another
+//     quoted constraint in unsupported.go; "Go 1.26.x" in README.md; a
+//     "1.29 and later" row in docs/support.md.
 
 import (
 	"bytes"
+	"fmt"
 	"go/ast"
 	"go/build/constraint"
 	"go/parser"
@@ -365,34 +374,85 @@ func TestSeamTransitiveImports(t *testing.T) {
 	}
 }
 
-// TestSeamD1IdentifierSites checks that every site naming the D1 identifier
-// names the same token (ruling R10): the Go 1.28 bump renames it in several
-// files at once, and a site left behind would either print a stale range to
-// consumers or grep CI output for an identifier the compiler no longer prints.
+// TestSeamD1IdentifierSites checks every site that the Go 1.28 bump edits
+// (ruling R10, docs/support.md): each names the D1 identifier, if at all, as
+// the one token the constraints imply, and carries the text derived from
+// d1Cutoff (the supported range, the refusal and issue titles, the stand-in
+// tag). The bump renames and rewrites them in several files at once; a site
+// left behind would print a stale range to consumers, grep CI output for an
+// identifier the compiler no longer prints, or file a tracking issue under
+// the old release. Moving d1Cutoff makes every stale site fail here.
 func TestSeamD1IdentifierSites(t *testing.T) {
 	mod := findModule(t)
 	token := regexp.MustCompile(`typesafe_sdk_go_requires\w*`)
+	release := regexp.MustCompile(`(?i)\bgo ?1\.(\d+)`)
+	cutoff := goMinor(d1Cutoff)
+	cutoffVersion := strings.TrimPrefix(d1Cutoff, "go")               // "1.28"
+	lastSupported := "1." + strconv.Itoa(cutoff-1)                    // "1.27"
+	supportedExpr := strings.TrimPrefix(supportedLine, "//go:build ") // quoted in prose
 	tests := map[string]struct {
-		path string   // slash-separated, from the module root
-		also []string // further text the site must contain
+		path       string   // slash-separated, from the module root
+		identifier bool     // the site must name the identifier
+		also       []string // text the site must contain
+		onlyCutoff bool     // every Go release the site names is d1Cutoff
+		step       string   // a workflow step that must pass D1_IDENTIFIER to its script
+		stepRun    []string // further text the step's script must contain outside comments
 	}{
-		"internal/codec/unsupported.go": {path: "internal/codec/unsupported.go"},
-		"ci.yaml AC-Q4 refusal check": {
-			path: ".github/workflows/ci.yaml",
-			also: []string{"GOFLAGS=-tags=" + d1Cutoff},
+		"internal/codec/unsupported.go": {
+			path:       "internal/codec/unsupported.go",
+			identifier: true,
+			also:       []string{"Go 1.17 to " + lastSupported, `"` + supportedExpr + `"`},
 		},
-		"gotip.yaml D1 probe": {path: ".github/workflows/gotip.yaml"},
-		"docs/support.md":     {path: "docs/support.md"},
+		"internal/codec/doc.go": {
+			path: "internal/codec/doc.go",
+			also: []string{"Go 1.17 to " + lastSupported},
+		},
+		"ci.yaml AC-Q4 refusal step": {
+			path:       ".github/workflows/ci.yaml",
+			identifier: true,
+			onlyCutoff: true,
+			step:       "D1 refusal off the support matrix",
+			stepRun:    []string{"GOFLAGS=-tags=" + d1Cutoff},
+		},
+		"gotip.yaml refusal step, PM5 probe and issue titles": {
+			path:       ".github/workflows/gotip.yaml",
+			identifier: true,
+			onlyCutoff: true,
+			step:       "D1 refusal with gotip",
+			also: []string{
+				`startswith("` + d1Cutoff + `rc")`,
+				`startswith("` + d1Cutoff + `.")`,
+				"Go " + cutoffVersion + ": waiting on sonic",
+				"Go " + cutoffVersion + ": sonic builds on tip, bump D1",
+			},
+		},
+		"docs/support.md": {
+			path:       "docs/support.md",
+			identifier: true,
+			also: []string{
+				refusalLine,
+				supportedLine,
+				"| " + lastSupported + ".x |",
+				"| " + cutoffVersion + " and later |",
+				"-tags " + d1Cutoff,
+			},
+		},
+		"README.md support window": {
+			path:       "README.md",
+			identifier: true,
+			also:       []string{"Go " + lastSupported + ".x"},
+		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			data, err := os.ReadFile(filepath.Join(mod.root, filepath.FromSlash(tt.path)))
+			raw, err := os.ReadFile(filepath.Join(mod.root, filepath.FromSlash(tt.path)))
 			if err != nil {
 				t.Fatal(err)
 			}
-			found := token.FindAllString(string(data), -1)
-			if len(found) == 0 {
-				t.Fatalf("%s names no D1 identifier, want %s", tt.path, d1Identifier)
+			data := string(raw)
+			found := token.FindAllString(data, -1)
+			if tt.identifier && len(found) == 0 {
+				t.Errorf("%s names no D1 identifier, want %s", tt.path, d1Identifier)
 			}
 			for _, got := range found {
 				if got != d1Identifier {
@@ -400,12 +460,117 @@ func TestSeamD1IdentifierSites(t *testing.T) {
 				}
 			}
 			for _, want := range tt.also {
-				if !strings.Contains(string(data), want) {
+				if !strings.Contains(data, want) {
 					t.Errorf("%s does not contain %q (d1Cutoff %s)", tt.path, want, d1Cutoff)
 				}
 			}
+			if tt.onlyCutoff {
+				for _, m := range release.FindAllStringSubmatch(data, -1) {
+					if n, _ := strconv.Atoi(m[1]); n != cutoff {
+						t.Errorf("%s names %q, want only the cutoff release %s", tt.path, m[0], d1Cutoff)
+					}
+				}
+			}
+			if tt.step != "" {
+				checkRefusalStep(t, tt.path, data, tt.step, tt.stepRun)
+			}
 		})
 	}
+}
+
+// checkRefusalStep checks that the workflow step called name sets
+// D1_IDENTIFIER to the identifier in its env block, and that its run script
+// greps the build output for that variable and contains every string of run,
+// comments excluded. A comment naming the identifier or the stand-in tag
+// therefore cannot stand in for the step.
+func checkRefusalStep(t *testing.T, path, workflow, name string, run []string) {
+	t.Helper()
+	step, err := workflowStep(workflow, name)
+	if err != nil {
+		t.Fatalf("%s: %v", path, err)
+	}
+	env := step.block("env")
+	if want := "D1_IDENTIFIER: " + d1Identifier; !slices.Contains(env, want) {
+		t.Errorf("%s: step %q: env %q does not contain %q", path, name, env, want)
+	}
+	var script []string
+	for _, line := range step.block("run") {
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		if code, _, ok := strings.Cut(line, " #"); ok {
+			line = code
+		}
+		script = append(script, line)
+	}
+	code := strings.Join(script, "\n")
+	for _, want := range append([]string{`grep -qF "$D1_IDENTIFIER"`}, run...) {
+		if !strings.Contains(code, want) {
+			t.Errorf("%s: step %q: the run script does not contain %q outside comments", path, name, want)
+		}
+	}
+}
+
+// yamlStep is one item of a workflow's steps list: its lines and the column
+// of its keys.
+type yamlStep struct {
+	lines  []string // the item's lines, from its "- name:" line on
+	keyCol int      // the column of the item's keys
+}
+
+// workflowStep finds the step whose first line is "- name: <name>" in a
+// GitHub Actions workflow and returns its lines: those after it that are
+// blank or indented deeper than its dash. It reads the block style this
+// repository's workflows use (no anchors, no flow sequences); it is not a
+// YAML parser.
+func workflowStep(workflow, name string) (yamlStep, error) {
+	lines := strings.Split(strings.ReplaceAll(workflow, "\r\n", "\n"), "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		value, ok := strings.CutPrefix(trimmed, "- name:")
+		if !ok || strings.Trim(strings.TrimSpace(value), `"'`) != name {
+			continue
+		}
+		dash := strings.Index(line, "-")
+		step := yamlStep{lines: []string{line}, keyCol: dash + 2}
+		for _, next := range lines[i+1:] {
+			if strings.TrimSpace(next) != "" && indent(next) <= dash {
+				break
+			}
+			step.lines = append(step.lines, next)
+		}
+		return step, nil
+	}
+	return yamlStep{}, fmt.Errorf("no step starts with %q", "- name: "+name)
+}
+
+// block returns the trimmed, non-blank lines nested under the step's key
+// (env, with, run: |): the lines after "key:" that are indented deeper than
+// the key.
+func (s yamlStep) block(key string) []string {
+	var out []string
+	for i, line := range s.lines {
+		if i == 0 || indent(line) != s.keyCol || !strings.HasPrefix(strings.TrimSpace(line), key+":") {
+			continue
+		}
+		for _, next := range s.lines[i+1:] {
+			trimmed := strings.TrimSpace(next)
+			if trimmed == "" {
+				continue
+			}
+			if indent(next) <= s.keyCol {
+				break
+			}
+			out = append(out, trimmed)
+		}
+		break
+	}
+	return out
+}
+
+// indent returns the number of leading spaces of line.
+func indent(line string) int {
+	return len(line) - len(strings.TrimLeft(line, " "))
 }
 
 // TestSeamBuildConstraints checks the D1 constraint of every file of this
