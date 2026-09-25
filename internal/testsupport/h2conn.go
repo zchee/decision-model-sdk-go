@@ -99,7 +99,24 @@ type h2stream struct {
 	// RST_STREAM) was cleared for writing; a drop after that is not recorded
 	// as SeenRequest.Dropped.
 	ended bool
+	// retired is set once the stream no longer counts against the stream
+	// limit: both sides have ended, or a RST_STREAM is about to leave. It
+	// is set before the frame that tells the client so (see retireLocked).
+	retired bool
 }
+
+// frameEnd says what a stream frame does to the server's side of it.
+type frameEnd int
+
+const (
+	// frameMid leaves the stream open.
+	frameMid frameEnd = iota
+	// frameEndStream carries END_STREAM: the server's side ends, and the
+	// stream closes if the client's side has ended too.
+	frameEndStream
+	// frameReset is RST_STREAM: the stream closes.
+	frameReset
+)
 
 // newH2Conn prepares a connection whose TLS handshake negotiated h2.
 func newH2Conn(s *LoopbackServer, nc *tls.Conn, idx int) *H2Conn {
@@ -127,13 +144,16 @@ func newH2Conn(s *LoopbackServer, nc *tls.Conn, idx int) *H2Conn {
 func (c *H2Conn) Index() int { return c.index }
 
 // ActiveStreams returns the identifiers of the streams open on the server
-// side (served or held), in ascending order.
+// side (served or held), in ascending order: the streams that count against
+// the stream limit.
 func (c *H2Conn) ActiveStreams() []uint32 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	ids := make([]uint32, 0, len(c.streams))
-	for id := range c.streams {
-		ids = append(ids, id)
+	for id, st := range c.streams {
+		if !st.retired {
+			ids = append(ids, id)
+		}
 	}
 	slices.Sort(ids)
 	return ids
@@ -249,7 +269,9 @@ func (c *H2Conn) dropLocked(st *h2stream) {
 		return
 	}
 	delete(c.streams, st.id)
-	c.active--
+	if !st.retired {
+		c.active--
+	}
 	st.reset = true
 	st.cancel()
 	if st.body != nil {
@@ -370,6 +392,9 @@ func (c *H2Conn) onHeaders(f *http2.MetaHeadersFrame) {
 		if st := c.streams[id]; st != nil && f.StreamEnded() && !st.remoteDone {
 			st.remoteDone = true
 			body = st.body
+			if st.ended {
+				c.retireLocked(st)
+			}
 		}
 		c.mu.Unlock()
 		if body != nil {
@@ -475,6 +500,12 @@ func (c *H2Conn) onData(f *http2.DataFrame) {
 	open := st != nil && !st.reset && !st.remoteDone
 	if st != nil && f.StreamEnded() {
 		st.remoteDone = true
+		if st.ended {
+			// The client's END_STREAM closes a stream whose server side
+			// has ended; the reader retires it before it reads the next
+			// frame, which may open a stream in its place.
+			c.retireLocked(st)
+		}
 	}
 	c.mu.Unlock()
 	if n > 0 {
@@ -531,12 +562,41 @@ func (c *H2Conn) maybeFinish() {
 	_ = c.nc.SetReadDeadline(time.Now().Add(time.Second))
 }
 
+// retireLocked takes st out of the count of open streams, once: the stream
+// is closed, or about to be, as far as the client can tell. A stream whose
+// last frame is written is closed on the server side when the frame leaves
+// (RFC 9113 section 5.1), so the count drops before the write, under the
+// write lock: a client that reads the frame and opens its next stream at
+// once never finds the server one stream over its limit, as with net/http's
+// server. c.mu must be held.
+func (c *H2Conn) retireLocked(st *h2stream) {
+	if st.retired || c.streams[st.id] != st {
+		return
+	}
+	st.retired = true
+	c.active--
+	c.cond.Broadcast()
+}
+
+// retireIfClosing retires st when the frame about to be written closes it:
+// a RST_STREAM, or END_STREAM after the client's END_STREAM. The caller holds
+// c.wmu (taken before c.mu).
+func (c *H2Conn) retireIfClosing(st *h2stream, end frameEnd) {
+	c.mu.Lock()
+	if end == frameReset || (end == frameEndStream && st.remoteDone) {
+		c.retireLocked(st)
+	}
+	c.mu.Unlock()
+}
+
 // finishStream forgets a stream the handler is done with.
 func (c *H2Conn) finishStream(st *h2stream) {
 	c.mu.Lock()
 	if cur, ok := c.streams[st.id]; ok && cur == st {
 		delete(c.streams, st.id)
-		c.active--
+		if !st.retired {
+			c.active--
+		}
 		c.cond.Broadcast()
 	}
 	c.mu.Unlock()
@@ -576,7 +636,7 @@ func (c *H2Conn) runHandler(st *h2stream, info *Stream) {
 				c.srv.tb.Errorf("testsupport: panic in LoopbackServer handler: %v\n%s", v, buf)
 			}
 			st.body.abandon()
-			_ = c.writeStream(st, true, func() error { return c.fr.WriteRSTStream(st.id, http2.ErrCode(CodeInternalError)) })
+			_ = c.writeStream(st, frameReset, func() error { return c.fr.WriteRSTStream(st.id, http2.ErrCode(CodeInternalError)) })
 			c.finishStream(st)
 		}
 	}()
@@ -589,7 +649,7 @@ func (c *H2Conn) runHandler(st *h2stream, info *Stream) {
 	if uploading {
 		// The handler answered before reading the whole body: tell the client
 		// to stop sending, as net/http's server does.
-		_ = c.writeStream(st, true, func() error { return c.fr.WriteRSTStream(st.id, http2.ErrCode(CodeNoError)) })
+		_ = c.writeStream(st, frameReset, func() error { return c.fr.WriteRSTStream(st.id, http2.ErrCode(CodeNoError)) })
 	}
 	c.finishStream(st)
 }
@@ -647,12 +707,21 @@ func (c *H2Conn) claim(st *h2stream, end bool) bool {
 }
 
 // writeStream runs a frame write for st unless the stream is already over;
-// end says that the frame ends the server's side of the stream.
-func (c *H2Conn) writeStream(st *h2stream, end bool, fn func() error) error {
-	if !c.claim(st, end) {
+// end says what the frame does to the server's side of the stream. A frame
+// that closes the stream retires it under the write lock, before the write.
+func (c *H2Conn) writeStream(st *h2stream, end frameEnd, fn func() error) error {
+	if !c.claim(st, end != frameMid) {
 		return errStreamReset
 	}
-	return c.write(fn)
+	c.wmu.Lock()
+	c.retireIfClosing(st, end)
+	err := fn()
+	c.wmu.Unlock()
+	if err != nil {
+		c.Close()
+		return fmt.Errorf("%w: %w", errConnClosed, err)
+	}
+	return nil
 }
 
 // writeHeaders encodes and writes a response header block, split into
@@ -663,6 +732,9 @@ func (c *H2Conn) writeHeaders(st *h2stream, status int, h http.Header, endStream
 	}
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
+	if endStream {
+		c.retireIfClosing(st, frameEndStream)
+	}
 	c.hbuf.Reset()
 	_ = c.henc.WriteField(hpack.HeaderField{Name: ":status", Value: strconv.Itoa(status)})
 	keys := make([]string, 0, len(h))
@@ -731,7 +803,7 @@ func (w *h2ResponseWriter) Write(p []byte) (int, error) {
 			return written, err
 		}
 		chunk := p[:n]
-		if err := w.conn.writeStream(w.st, false, func() error { return w.conn.fr.WriteData(w.st.id, false, chunk) }); err != nil {
+		if err := w.conn.writeStream(w.st, frameMid, func() error { return w.conn.fr.WriteData(w.st.id, false, chunk) }); err != nil {
 			return written, err
 		}
 		p = p[n:]
@@ -765,7 +837,7 @@ func (w *h2ResponseWriter) finish() {
 	}
 	if !w.ended {
 		w.ended = true
-		_ = w.conn.writeStream(w.st, true, func() error { return w.conn.fr.WriteData(w.st.id, true, nil) })
+		_ = w.conn.writeStream(w.st, frameEndStream, func() error { return w.conn.fr.WriteData(w.st.id, true, nil) })
 	}
 }
 

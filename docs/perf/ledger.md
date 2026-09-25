@@ -2054,6 +2054,11 @@ the whole host, and no other lane's timing run may overlap them.
 | W2.2-06 | 2026-09-25 15:46:21 UTC | W2.2 contention ×20 | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.55 → 42.18 (noisy by design) | `sh $C '(L)' $LO /tmp/ts-spike/bench.lock l-contention 44 -count=20 -run '^(TestFanOut|TestTokenResidualK21)$' -v ./internal/h2gate/` | PASS, 186.0 s: ordering 200/200; 200 vs 8 200/200 in 200 reps, wall p50 284.2 ms but max 1278 ms, refused 12-77 per run of 10; K21b: late 0 in 60 runs, fresh 200/200 in 60/60, probe ≤ 0.215 ms | 44 loops; `results/l-contention.txt` |
 | W2.2-07 | 2026-09-26 00:48:52 JST | W2.2 contention, `-race` ×5 | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 394.21 → 402.44 (noisy by design) | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $C '(M)' $MO $SP/bench.lock m-contention-race 16 -race -count=5 -run '^(TestFanOut|TestTokenResidualK21)$' -v ./internal/h2gate/` | PASS, 37.9 s, no race: ordering 50/50; 200 vs 8 200/200 in 50 reps; K21b late 0 in 15 runs, fresh 200/200 | `results/m-contention-race.txt` |
 | W2.2-08 | 2026-09-25 15:49:33 UTC | W2.2 contention, `-race` ×5 | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 42.18 → 43.28 (noisy by design) | `sh $C '(L)' $LO /tmp/ts-spike/bench.lock l-contention-race 44 -race -count=5 -run '^(TestFanOut|TestTokenResidualK21)$' -v ./internal/h2gate/` | PASS, 48.8 s, no race: ordering 50/50; 200 vs 8 200/200 in 50 reps (wall max 1282 ms, refused 39-60 per run); K21b late 0 in 15 runs, probe ≤ 1.043 ms, fresh 200/200 | `results/l-contention-race.txt` |
+| W2.2-09 | 2026-09-25 16:00:01 UTC | W2.2 R67 fix, before: 200 vs 8 under contention | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.07 → 36.72 (noisy by design) | `sh $C '(L)' $LO /tmp/ts-spike/bench.lock l-fix-before 44 -count=20 -run '^TestFanOut$' -v ./internal/h2gate/` (tree `de2e67d`) | PASS, 97.8 s: 200 vs 8 200/200 in 200 reps, refused streams 915 in all (19-75 per run of 10), wall max 1285 ms; ordering 200/200 | `results/l-fix-before.txt` |
+| W2.2-10 | 2026-09-25 16:02:33 UTC | W2.2 R67 fix, after | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 17.32 → 35.86 (noisy by design) | `sh $C '(L)' $LO /tmp/ts-spike/bench.lock l-fix-after 44 -count=20 -run '^TestFanOut$' -v ./internal/h2gate/` (the fix commit's tree) | PASS, 60.8 s: 200 vs 8 200/200 in 200 reps, refused streams 0 in every run, wall max 284 ms; ordering 200/200 | `results/l-fix-after.txt` |
+| W2.2-11 | 2026-09-26 01:02:33 JST | W2.2 R67 fix: `internal/testsupport` ×30 under contention | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 126.61 → 217.20 (noisy) | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $C '(M)' $MO $SP/bench.lock m-fix-testsupport 16 -count=30 ./internal/testsupport/` | PASS, 19.9 s | the host was loaded by other lanes before the loops started; `results/m-fix-testsupport.txt` |
+| W2.2-12 | 2026-09-26 01:02:58 JST | W2.2 R67 fix: `internal/h2gate` ×20 under contention | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 217.20 → 458.54 (noisy) | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $C '(M)' $MO $SP/bench.lock m-fix-h2gate 16 -count=20 -v ./internal/h2gate/` | PASS, 209.0 s, 2300 test and subtest passes, no failure; 200 vs 8 refused 0 in all 20 runs (wall max 372 ms); K21b late 0 in 60 runs; GOAWAY runs with refusals 10 of 20 | `results/m-fix-h2gate.txt` |
+| W2.2-13 | 2026-09-26 01:07:38 JST | W2.2 K21b GOAWAY scenario, instrumented copy | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 227.89 → 257.31 (noisy) | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $C '(M)' <lane scratchpad> $SP/bench.lock instr-out 16 -count=12 -run 'TestTokenResidualK21/success:_GOAWAY' -v ./internal/h2gate/` in a copy whose test logs the refused requests per connection | 12 runs: 8 without a refusal; 4 with 1, 27, 56 and 63 refusals, all on connection 1 (the re-dial), the first at the 9th request on it | throwaway test change, not committed; `results/m-k21-goaway-instr.txt` |
 
 ### W2.2 results
 
@@ -2106,4 +2111,35 @@ unloaded, they are 0-2. It is a property of the test server, stricter than
 RFC 9113 (a stream the server has ended is closed on its side when it sends
 the frame); a second refusal of one call would miss the 2 s deadline, so it
 is the one flake path of `TestFanOut`'s 200-vs-8 case under heavy load.
-Reported to the lead (W2.2 report, question 1).
+Reported to the lead (W2.2 report, question 1) and fixed under R67 (below).
+
+### W2.2 fix: the loopback server's stream count (R67)
+
+Ruling R67 took the fix: the loopback server now takes a stream out of its
+count when the stream closes, as net/http's server does, not when the
+handler goroutine gets round to it. A stream is retired, once, under the
+write lock and before the frame that closes it (a RST_STREAM, or END_STREAM
+after the client's END_STREAM), or by the reader when the client's
+END_STREAM arrives after the server's; `ActiveStreams` lists only the
+streams that count. The new subtest `TestLoopbackStreamLimit/success: a
+stream stops counting before the client reads its last frame` checks, 200
+times at a limit of 1, that no stream is still counted once the client has
+read its last frame; against the old server it failed 3 of 50 runs unloaded.
+
+Before and after, the same run (W2.2-09, -10): the 200-vs-8 case under 44
+loops on (L) went from 915 refused streams in 200 bursts (19-75 per 10, wall
+up to 1285 ms) to none (wall up to 284 ms). On (M), `internal/testsupport`
+×30 and all of `internal/h2gate` ×20 pass under contention (W2.2-11, -12),
+with no refused stream in the 200-vs-8 case.
+
+The fix does not touch the K21b GOAWAY scenario's refusals, which have
+another cause (W2.2-13): all of them are on the re-dialed connection, from
+its 9th request on. The stock transport replays the dropped streams onto
+the new connection without the token, as K21b says, so FirstHold does not
+engage there; until the client has read that connection's SETTINGS it
+assumes 100 streams (`internal/http2/transport.go:57,624`) and the queued
+callers' HEADERS, each written as soon as it takes the token, can exceed
+the server's 8. The refused ones end in the retry backoff. K21b's
+assertions hold throughout (no late call, the token free, fresh bursts
+200/200). A mitigation is proposed to the lead; nothing in `internal/h2gate`
+changed.

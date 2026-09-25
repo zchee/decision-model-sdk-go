@@ -422,6 +422,49 @@ func TestLoopbackStreamLimit(t *testing.T) {
 		}
 	})
 
+	t.Run("success: a stream stops counting before the client reads its last frame", func(t *testing.T) {
+		// A client that reads END_STREAM (or RST_STREAM) and opens its next
+		// stream at once must find the slot free, as with net/http's server:
+		// the count drops under the write lock before the frame leaves. Had it
+		// dropped after the write, the stream would still be counted here for
+		// as long as the handler goroutine took to finish it.
+		srv := NewLoopbackServer(t, ServerConfig{
+			MaxConcurrentStreams: 1,
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/upload" {
+					w.WriteHeader(http.StatusNoContent) // answered before the body: RST_STREAM(NO_ERROR) follows
+				}
+			}),
+		})
+		c := dialRaw(t, srv.Addr())
+		c.serverSettings()
+		conn := func() *H2Conn {
+			cs := srv.LiveH2Conns()
+			if len(cs) != 1 {
+				t.Fatalf("live connections %d, want 1", len(cs))
+			}
+			return cs[0]
+		}
+		const n = 200
+		for i := range n {
+			id := uint32(2*i + 1)
+			c.request(id, "/", true)
+			c.expect(frame{Type: "HEADERS", StreamID: id, Status: "200", End: true})
+			if open := conn().ActiveStreams(); len(open) != 0 {
+				t.Fatalf("stream %d: open streams %v after the client read END_STREAM, want none", id, open)
+			}
+		}
+		id := uint32(2*n + 1)
+		c.request(id, "/upload", false)
+		c.expect(frame{Type: "HEADERS", StreamID: id, Status: "204", End: true}, frame{Type: "RST_STREAM", StreamID: id, Code: CodeNoError})
+		if open := conn().ActiveStreams(); len(open) != 0 {
+			t.Errorf("open streams %v after the client read RST_STREAM, want none", open)
+		}
+		if srv.OverLimit() != 0 || srv.MaxActiveStreams() != 1 {
+			t.Errorf("OverLimit %d, MaxActiveStreams %d; want 0 and 1", srv.OverLimit(), srv.MaxActiveStreams())
+		}
+	})
+
 	t.Run("success: a limit lowered mid-connection is announced and enforced", func(t *testing.T) {
 		srv := NewLoopbackServer(t, ServerConfig{
 			MaxConcurrentStreams: 8,
