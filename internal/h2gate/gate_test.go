@@ -401,8 +401,10 @@ func TestWaiterFallThrough(t *testing.T) {
 			t.Errorf("first waiter HEADERS %v after the leader's (want at least the %v bound); last waiter done at %v, leader done at %v",
 				minGap, tr.holdBound, lastWaiterDone.Sub(l.Start), l.Done.Sub(l.Start))
 		}
-		if st.FirstHolds != 1 || st.HoldExpiries != 1 {
-			t.Errorf("stats %+v, want 1 FirstHold ended by the bound", st)
+		// No waiter fell through: they were released at the leader's
+		// GotConn, not by the wait bound (review W2.2A NIT 10).
+		if st.FirstHolds != 1 || st.HoldExpiries != 1 || st.FallThroughs != 0 {
+			t.Errorf("stats %+v, want 1 FirstHold ended by the bound and no fall-through", st)
 		}
 	})
 

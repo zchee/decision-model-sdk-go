@@ -189,6 +189,39 @@ func TestSettleHold(t *testing.T) {
 		}
 	})
 
+	t.Run("success: a second WroteHeaders replaces the hold bound; a replay onto a second new connection counts once", func(t *testing.T) {
+		tr := settleTransport(t, true, time.Minute)
+		cs := fakeConns(t, 2)
+		c := take(t, tr)
+		c.gotConn(httptrace.GotConnInfo{Conn: cs[0], Reused: false})
+		c.wroteHeaders()
+		first := c.hold.Load()
+		c.gotConn(httptrace.GotConnInfo{Conn: cs[1], Reused: false}) // the stock transport replays it, token still held
+		c.wroteHeaders()
+		if second := c.hold.Load(); second == nil || second == first {
+			t.Fatal("the second WroteHeaders armed no new bound")
+		}
+		if first.Stop() {
+			t.Error("the first bound was still armed after the second WroteHeaders")
+		}
+		c.finish()
+		if st := tr.Stats(); st.FirstHolds != 1 || len(tr.token) != 0 {
+			t.Errorf("stats %+v, token %d; want 1 FirstHold for the one request and the token free", st, len(tr.token))
+		}
+	})
+
+	t.Run("success: a WroteHeaders after the token went back arms no bound", func(t *testing.T) {
+		tr := settleTransport(t, true, time.Minute)
+		cs := fakeConns(t, 1)
+		c := take(t, tr)
+		c.gotConn(httptrace.GotConnInfo{Conn: cs[0], Reused: false})
+		c.finish() // send returned before the transport's write goroutine wrote the HEADERS
+		c.wroteHeaders()
+		if tm := c.hold.Load(); tm != nil {
+			t.Errorf("a bound was armed after the token went back")
+		}
+	})
+
 	t.Run("success: a request that still holds the token on a new connection is a plain FirstHold", func(t *testing.T) {
 		tr := settleTransport(t, true, time.Minute)
 		cs := fakeConns(t, 1)

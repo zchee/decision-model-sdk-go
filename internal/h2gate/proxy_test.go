@@ -250,6 +250,22 @@ func TestProxy(t *testing.T) {
 		}
 	})
 
+	t.Run("success: the SNI rule compares the SNI form, which an ECH handshake does not report", func(t *testing.T) {
+		// With ECH accepted, ConnectionState.ServerName is the configured
+		// name as it is (crypto/tls/handshake_client_tls13.go:102,277), so a
+		// trailing-dot API host would otherwise skip the check.
+		check := alpnCheck(scopeSNI, eff("", "example.com."), nil)
+		if err := check(tls.ConnectionState{ServerName: "example.com.", NegotiatedProtocol: "http/1.1"}); !errors.Is(err, ErrNotNegotiated) {
+			t.Errorf("API hop reported as %q: %v, want ErrNotNegotiated", "example.com.", err)
+		}
+		if err := check(tls.ConnectionState{ServerName: "example.com", NegotiatedProtocol: "h2"}); err != nil {
+			t.Errorf("API hop with h2: %v", err)
+		}
+		if err := check(tls.ConnectionState{}); err != nil {
+			t.Errorf("proxy hop (no SNI): %v, want it unchecked", err)
+		}
+	})
+
 	t.Run("success: eff is crypto/tls's SNI form", func(t *testing.T) {
 		got := map[string]string{
 			"example.com":           eff("", "example.com"),
@@ -331,14 +347,16 @@ func TestProxyTLS(t *testing.T) {
 	// override applies to both hops. No handshake is checked; the response's
 	// ProtoMajor is (K16): an HTTP/1.1 answer is refused with
 	// ErrNotNegotiated and a WARN, after the request was sent once.
-	for _, tc := range []struct {
-		name, api, route string
-		serverName       string
+	postChecks := map[string]struct {
+		api, route, serverName string
 	}{
-		{name: "an IP-literal API host", api: "", route: ""},
-		{name: "a ServerName override", api: exampleURL, route: "example.com:443", serverName: "example.com"},
-	} {
-		t.Run("error: behind a proxy, "+tc.name+" is checked after the response", func(t *testing.T) {
+		"error: behind a proxy, an IP-literal API host is checked after the response": {},
+		"error: behind a proxy, a ServerName override is checked after the response": {
+			api: exampleURL, route: "example.com:443", serverName: "example.com",
+		},
+	}
+	for name, tc := range postChecks {
+		t.Run(name, func(t *testing.T) {
 			srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{ALPN: testsupport.ALPNNone})
 			api, routes := tc.api, testsupport.Routes{}
 			if api == "" {

@@ -203,8 +203,14 @@ func TestCallerDialTLSRefused(t *testing.T) {
 				return unfinished(ctx, t, network, addr)
 			}}
 			tr := wrapped(t, base, l.URL(), connect)
+			// A deadline of about 5 × the bound: without the thin check the
+			// stock handshake runs on the detached dial context and never
+			// ends, and the failure should say so rather than time the test
+			// binary out.
+			ctx, cancel := context.WithTimeout(t.Context(), 5*2*connect)
+			defer cancel()
 			start := time.Now()
-			r := get(t.Context(), tr, l.URL()+"/")
+			r := get(ctx, tr, l.URL()+"/")
 			elapsed := time.Since(start)
 			want := map[string]bool{"proxy": false, "timeout": true, "not_negotiated": false}
 			if diff := gocmp.Diff(want, dialFlags(r.Err)); diff != "" {

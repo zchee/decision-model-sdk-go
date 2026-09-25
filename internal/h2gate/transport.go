@@ -494,11 +494,15 @@ func (c *call) gotConn(info httptrace.GotConnInfo) {
 		}
 	case !t.firstHold:
 	case !info.Reused:
-		c.first.Store(true)
-		t.firstHolds.Add(1)
+		// A request that still holds the token and is replayed onto a
+		// second new connection holds on, but counts once.
+		if c.first.CompareAndSwap(false, true) {
+			t.firstHolds.Add(1)
+		}
 	case t.takeUnsettled(info.Conn):
-		c.first.Store(true)
-		t.firstHolds.Add(1)
+		if c.first.CompareAndSwap(false, true) {
+			t.firstHolds.Add(1)
+		}
 		t.settleHolds.Add(1)
 	}
 	c.connected.Store(true)
@@ -514,8 +518,19 @@ func (c *call) wroteHeaders() {
 		c.giveBack(false)
 		return
 	}
-	if !c.given.Load() {
-		c.hold.Store(time.AfterFunc(c.t.holdBound, func() { c.giveBack(true) }))
+	if c.given.Load() {
+		return
+	}
+	// A stock retry writes the HEADERS again: its bound replaces the
+	// earlier one, which is stopped rather than left to fire as a no-op.
+	tm := time.AfterFunc(c.t.holdBound, func() { c.giveBack(true) })
+	if old := c.hold.Swap(tm); old != nil {
+		old.Stop()
+	}
+	// WroteHeaders can run on the transport's write goroutine after send
+	// returned and gave the token back; the timer then has nothing to end.
+	if c.given.Load() {
+		tm.Stop()
 	}
 }
 

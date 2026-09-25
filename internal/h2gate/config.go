@@ -305,7 +305,10 @@ func alpnCheck(scope alpnScope, want string, next func(tls.ConnectionState) erro
 				return err
 			}
 		}
-		apiHop := scope == scopeEvery || (scope == scopeSNI && cs.ServerName == want)
+		// An accepted ECH handshake reports the configured ServerName as it
+		// is, not its hostnameInSNI form (handshake_client_tls13.go:102,277),
+		// so the name is normalised before the comparison.
+		apiHop := scope == scopeEvery || (scope == scopeSNI && hostnameInSNI(cs.ServerName) == want)
 		if apiHop && cs.NegotiatedProtocol != "h2" {
 			return fmt.Errorf("%w: the API host's TLS handshake negotiated %q", ErrNotNegotiated, cs.NegotiatedProtocol)
 		}
