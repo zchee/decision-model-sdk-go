@@ -45,41 +45,41 @@ IDs that the plan's waves cite.
 
 | ID | Upstream | Go test / deviation | status |
 | --- | --- | --- | --- |
-| C1 | `test_round_trip` | `TestSystemOneRoundTrip` (typed, raw, mixed) | planned |
-| C2 | `test_extra_body_shallow_override` | `TestExtraBodyShallowOverride` | ported |
-| C3 | `test_unserializable_request_body_raises` | `TestUnencodableBodyFailsBeforeNetwork` | ported |
-| C4 | `test_raw_question_passthrough` | `TestRawQuestionPassthrough` | planned |
-| C5 | `test_question_schema_validation_is_left_to_api` | `TestRawQuestionSchemaLeftToAPI` | planned |
-| C6 | `test_rich_descriptions` | `TestStructuredContentRoundTrip` | planned |
-| C7 | `test_models_shape` | `TestModelsListShape` | planned |
-| C8 | `test_models_ignore_unknown_fields` | `TestModelsIgnoreUnknownFields` | planned |
-| C9 | `test_invalid_models_response` | `TestModelsInvalidBodies` (4 bodies) | planned |
-| C10 | `test_validation_before_network` | `TestQuestionValidationBeforeNetwork` | planned |
-| C11 | `test_error_mapping` | `TestAPIErrorMapping` (11 statuses) | planned |
-| C12 | `test_error_messages` | `TestAPIErrorMessages` (8 bodies) | planned |
+| C1 | `test_round_trip` | `TestSystemOneRoundTrip` (typed, raw, mixed) | ported |
+| C2 | `test_extra_body_shallow_override` | `TestExtraBodyShallowOverride` (body) + `TestClientExtraBodyShallowOverride` (through the client) | ported |
+| C3 | `test_unserializable_request_body_raises` | `TestUnencodableBodyFailsBeforeNetwork` (body) + `TestClientUnencodableBodyFailsBeforeNetwork` (through the client) | ported |
+| C4 | `test_raw_question_passthrough` | `TestRawQuestionPassthrough` | ported |
+| C5 | `test_question_schema_validation_is_left_to_api` | `TestRawQuestionSchemaLeftToAPI` | ported |
+| C6 | `test_rich_descriptions` | `TestStructuredContentRoundTrip` | ported |
+| C7 | `test_models_shape` | `TestModelsListShape` | ported |
+| C8 | `test_models_ignore_unknown_fields` | `TestModelsIgnoreUnknownFields` | ported |
+| C9 | `test_invalid_models_response` | `TestModelsInvalidBodies` (4 bodies) | ported |
+| C10 | `test_validation_before_network` | `TestQuestionValidationBeforeNetwork` | ported |
+| C11 | `test_error_mapping` | `TestAPIErrorMapping` (11 statuses) | ported |
+| C12 | `test_error_messages` | `TestAPIErrorMessages` (8 bodies) | ported |
 | C13 | `test_transport_errors` | `TestTransportErrorsBecomeConnectionOrTimeout` | planned |
-| C14 | `test_system_one_timeout_override` | `TestPerCallTimeoutOverride` (deviation: one deadline per attempt) | planned |
-| C15 | `test_headers_timeout_and_logging` | `TestProtectedHeadersAndPrefixBaseURL` | planned |
-| C16 | `test_http_client_settings` | `TestCallerTransportKeepsItsSettings` | planned |
-| C17 | `test_supplied_network_resources_closed` | `TestCloseClosesSuppliedTransport` | planned |
-| C18 | `test_owned_http_client_closed` | `TestCloseClosesOwnedTransport` | planned |
-| C19 | `test_exceptional_context_closes_http_client` | `TestCloseAfterFailedCall` | planned |
-| C20 | `test_task_cancellation_closes_context` | `TestCancelInFlightRequest` | planned |
-| C21 | `test_cancellation_propagates` | `TestCancelledContextMakesOneAttempt` | planned |
+| C14 | `test_system_one_timeout_override` | `TestPerCallTimeoutOverride` (deviation: one deadline per attempt; W2.5 flips the row, R79) | planned |
+| C15 | `test_headers_timeout_and_logging` | `TestProtectedHeadersAndPrefixBaseURL` + `TestSystemOneOverHTTP2` (the prefix on the wire) | ported |
+| C16 | `test_http_client_settings` | `TestCallerTransportKeepsItsSettings` | ported |
+| C17 | `test_supplied_network_resources_closed` | `TestCloseClosesSuppliedTransport` + `TestCloseIdlesSuppliedHTTPTransport` (a `*http.Transport` through `WithRoundTripper`, R79) | ported |
+| C18 | `test_owned_http_client_closed` | `TestCloseClosesOwnedTransport` | ported |
+| C19 | `test_exceptional_context_closes_http_client` | `TestCloseAfterFailedCall` | ported |
+| C20 | `test_task_cancellation_closes_context` | `TestCancelInFlightRequest` (one attempt, wraps the context's error; the error type is W2.5's) | ported |
+| C21 | `test_cancellation_propagates` | `TestCancelledContextMakesOneAttempt` (the error type is W2.5's) | ported |
 
 ### `tests/test_config.py` (11)
 
 | ID | Upstream | Go test / deviation | status |
 | --- | --- | --- | --- |
 | F1 | `test_transport_and_http_client_mutually_exclusive` | deviation "one transport option, two kinds" + `TestTransportOptionsAreExclusive` | deviation |
-| F2 | `test_model_override` | `TestModelOverridePerCall` | planned |
-| F3 | `test_resolution` | `TestConfigResolutionOrder` (default/env/explicit) | planned |
+| F2 | `test_model_override` | `TestModelOverridePerCall` | ported |
+| F3 | `test_resolution` | `TestConfigResolutionOrder` (default/env/explicit) + `TestConfigResolutionOnTheWire` | ported |
 | F4 | `test_missing_key` | `TestMissingAPIKey` | ported |
-| F5 | `test_api_key_whitespace` | `TestAPIKeyTrimmed` | ported |
+| F5 | `test_api_key_whitespace` | `TestAPIKeyTrimmed` + `TestAPIKeyTrimmedOnTheWire` | ported |
 | F6 | `test_invalid_explicit_key_does_not_fall_back_to_env` | `TestInvalidExplicitKeyDoesNotFallBack` | ported |
 | F7 | `test_invalid_api_key` | `TestInvalidAPIKeyNeverEchoed` | ported |
-| F8 | `test_empty_env_unset` | `TestBlankEnvIsUnset` | ported |
-| F9 | `test_invalid_timeout` | `TestInvalidTimeout` | ported |
+| F8 | `test_empty_env_unset` | `TestBlankEnvIsUnset` + `TestBlankEnvIsUnsetOnTheWire` | ported |
+| F9 | `test_invalid_timeout` | `TestInvalidTimeout` + `TestCallOptionsRefused` (the per-call `Timeout`) | ported |
 | F10 | `test_timeout_object` | deviation "one deadline per attempt" + `TestTimeoutSettings` | deviation |
 | F11 | `test_http_client_timeout_precedence` | deviation "a custom transport owns its timeouts" | deviation |
 
@@ -89,10 +89,10 @@ IDs that the plan's waves cite.
 | --- | --- | --- | --- |
 | E1 | `test_exception_reconstruction` | deviation "errors are values" + `TestErrorsAsRoundTrip` | deviation |
 | E2 | `test_api_error_from_process_pool` | deviation "no process pools" | deviation |
-| E3 | `test_api_error_request_context` | `TestAPIErrorRendersEndpointStatusMessageRequestID` | ported |
-| E4 | `test_api_error_endpoint_omits_url_credentials` | `TestEndpointOmitsCredentialsQueryFragment` | ported |
-| E5 | `test_message_override` | `TestAPIErrorMessageOverride` | ported |
-| E6 | `test_error_body_edge_cases` | `TestAPIErrorBodyEdgeCases` (8 exact) + deviation "plain-text body cut at 200" (`long-plain-message`) | ported |
+| E3 | `test_api_error_request_context` | `TestAPIErrorRendersEndpointStatusMessageRequestID` + `TestAPIErrorRequestContextThroughClient` | ported |
+| E4 | `test_api_error_endpoint_omits_url_credentials` | `TestEndpointOmitsCredentialsQueryFragment` (constructor-level: a base URL with credentials is refused when the client is built, R63) | ported |
+| E5 | `test_message_override` | `TestAPIErrorMessageOverride` (constructor-level, as upstream) | ported |
+| E6 | `test_error_body_edge_cases` | `TestAPIErrorBodyEdgeCases` (8 exact) + `TestAPIErrorBodyEdgeCasesThroughClient` + deviation "plain-text body cut at 200" (`long-plain-message`) | ported |
 
 ### `tests/test_integration.py` (3)
 
@@ -145,19 +145,19 @@ IDs that the plan's waves cite.
 
 | ID | Upstream | Go test / deviation | status |
 | --- | --- | --- | --- |
-| R1 | `test_malformed_response_raises_validation_error` | `TestMalformedResponseFieldPaths` (8) | ported |
+| R1 | `test_malformed_response_raises_validation_error` | `TestMalformedResponseFieldPaths` (8) + `TestMalformedResponseThroughClient` | ported |
 | R2 | `test_nested_missing_field_path` | `TestModelsMissingMemberPath` | ported |
-| R3 | `test_response_carries_request_id` | `TestResponseRequestID` | planned |
-| R4 | `test_response_carries_raw_http_response` | `TestResponseMeta` | planned |
+| R3 | `test_response_carries_request_id` | `TestResponseRequestID` | ported |
+| R4 | `test_response_carries_raw_http_response` | `TestResponseMeta` | ported |
 | R5 | `test_response_serialization_excludes_http_metadata` | `TestResponseJSONRoundTrip` (models and systemone) | planned |
-| R6 | `test_copied_response_preserves_metadata` | deviation "responses are values" + `TestResponseCopyKeepsMeta` | planned |
-| R7 | `test_missing_raw_raises_on_access` | deviation "empty `Meta()`" | planned |
-| R8 | `test_missing_request_id_raises_on_access` | `TestRequestIDAbsent` | planned |
-| R9 | `test_unknown_extra_fields_tolerated` | `codec.TestUnknownMembersIgnored` | ported |
-| R10 | `test_unknown_answer_type_ignored` | `TestUnknownAnswerTypeSkipped` | ported |
+| R6 | `test_copied_response_preserves_metadata` | deviation "responses are values" + `TestResponseCopyKeepsMeta` | deviation |
+| R7 | `test_missing_raw_raises_on_access` | deviation "empty `Meta()`" + `TestZeroResponseHasEmptyMeta` | deviation |
+| R8 | `test_missing_request_id_raises_on_access` | `TestRequestIDAbsent` | ported |
+| R9 | `test_unknown_extra_fields_tolerated` | `codec.TestUnknownMembersIgnored` + `TestUnknownMembersIgnoredThroughClient` | ported |
+| R10 | `test_unknown_answer_type_ignored` | `TestUnknownAnswerTypeSkipped` + `TestUnknownAnswerTypeThroughClient` | ported |
 | R11 | `test_response_preserves_nested_json` | `codec.TestStructuredLegendExactBytes` | ported |
 | R12 | `test_answer_attributes_and_dictionary_types` | `TestAnswerJSONShapes` | planned |
-| R13 | `test_public_response_types_ignore_unknown_fields` | `codec.TestPublicTypesIgnoreUnknownMembers` (7 types) | ported |
+| R13 | `test_public_response_types_ignore_unknown_fields` | `codec.TestPublicTypesIgnoreUnknownMembers` (7 types) + `TestPublicTypesIgnoreUnknownMembersThroughClient` | ported |
 | R14 | `test_answer_fields_are_frozen` | deviation "unexported fields with getters" | planned |
 | R15 | `test_answer_groups_are_cached_and_not_serialized` | deviation "`iter.Seq2` filters" | planned |
 
@@ -195,8 +195,8 @@ IDs that the plan's waves cite.
 
 | ID | Upstream | Go test / deviation | status |
 | --- | --- | --- | --- |
-| T1 | `test_str_subclasses_fallback_to_strings` | deviation "`any` state" + `TestNamedStringStateEncodesAsString` | deviation |
-| T2 | `test_json_value_and_state_exclude_top_level_none` | deviation "`any` state" + `TestScalarStatesRefused` (`nil`, number, bool) | deviation |
+| T1 | `test_str_subclasses_fallback_to_strings` | deviation "`any` state" + `TestNamedStringStateEncodesAsString` + `TestClientStateForms` | deviation |
+| T2 | `test_json_value_and_state_exclude_top_level_none` | deviation "`any` state" + `TestScalarStatesRefused` (`nil`, number, bool) + `TestClientUnencodableBodyFailsBeforeNetwork` | deviation |
 | T3 | `test_array_inputs` | `TestArrayContentEverywhere` (4 array positions: state, instructions, criteria description, score levels; upstream parametrises raw/typed) | ported |
 | T4 | `test_raw_optional_fields_preserve_explicit_null` | `TestRawQuestionKeepsExplicitNull` | ported |
 | T5 | `test_explicitly_nullable_json_values` | `TestNullInsideContentSurvives` | ported |
