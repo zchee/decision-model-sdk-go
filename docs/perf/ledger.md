@@ -2540,3 +2540,79 @@ and `BASE=504b201`.
 | W2.3-02 | 2026-09-26 04:13:35 JST | W2.3 `call/sdk` time | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 4.91 → 4.83 | `BASE=$BASE GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock MAXLOAD=16 sh $R '(M)' $O $SP/bench.lock bench-M -run '^$' -bench '^BenchmarkCall$' -benchmem -count=10 .` | `call/sdk` 4.742 µs ± 3 %, 22 allocs/op | `results/bench-M.txt`, `results/benchstat-M.txt` |
 | W2.3-03 | 2026-09-25 19:14:18 UTC | W2.3 AC-P6 whole call and AC-P5 memstats | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.02 → 0.10 | `BASE=$BASE sh $R '(L)' $O /tmp/ts-spike/bench.lock alloc-L -count=1 -run '^(TestAllocWholeCall\|TestMemStatsCap)$' -v .` | identical to W2.3-01 in every count | `results/alloc-L.txt` |
 | W2.3-04 | 2026-09-25 19:14:19 UTC | W2.3 `call/sdk` time | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.10 → 0.17 | `BASE=$BASE MAXLOAD=44 sh $R '(L)' $O /tmp/ts-spike/bench.lock bench-L -run '^$' -bench '^BenchmarkCall$' -benchmem -count=10 .` | `call/sdk` 6.100 µs ± 0 %, 22 allocs/op | `results/bench-L.txt`, `results/benchstat-L.txt` |
+
+## W2.4: response payloads (AC-F10)
+
+W2.4 gives `SystemOneResponse` and `ModelsResponse` a `MarshalJSON` and
+an `UnmarshalJSON`, and `NoulAnswer`, `ChoiceAnswer`, `ScoreAnswer`,
+`Answer`, `Answers`, `Usage` and `ModelCard` a `MarshalJSON` (ruling
+R80). The payload is written by `internal/wire`'s payload writer, not by
+sonic: its shape is fixed and typed, and wire already holds
+pydantic-core's string escaper and zmij's float layout (R33, R42), so the
+bytes are the Python SDK's `model_dump_json` bytes, and K27's
+architecture-dependent `-0.0` cannot arise on this path (no sonic encoder
+runs, and the decoder reads `-0` as 0, R73 NIT 4). Reading a payload back
+is the production decoder with no question set. The numbers are
+informational: no frozen budget covers them; `TestAllocResponseJSON` pins
+the allocation counts so a change shows in CI. Measured at eaedbdd; raw
+outputs are in `_spikes/w2.4/results/` (with the gate logs of both hosts,
+`gate-M.txt` and `gate-L.txt`). Commands use
+`R=_spikes/s-c1/run.sh` (W0.5's runner), `O=_spikes/w2.4/results`,
+`SP=/private/tmp/claude-501/-Users-zchee-go-src-github-com-zchee-typesafe-sdk-go/c8084031-5323-4873-8c36-a19f65c9e6ff/scratchpad`
+and `BASE=eaedbdd`.
+
+### How the numbers were taken
+
+- (M): `go1.27.1 darwin/arm64`, `GOEXPERIMENT=nosimd,noruntimesecret`,
+  under `/opt/homebrew/opt/util-linux/bin/flock` on `$SP/bench.lock`.
+- (L): the tree at eaedbdd written by `git archive eaedbdd` and piped
+  over ssh to `/tmp/ts-spike/w2.4-meas/wt-w2.4`; toolchain
+  `/tmp/ts-spike/go/bin/go` with the §11 `GOPATH`, `GOMODCACHE` and
+  `GOCACHE` under `/tmp/ts-spike` and no `GOEXPERIMENT`, under
+  `flock /tmp/ts-spike/bench.lock`.
+- `TestAllocResponseJSON` (root, `//go:build !race`): for each of
+  `result.json`, `result-20.json`, `structured-legend-flood-1k.json` and
+  `models.json`, the response is read from the fixture with
+  `UnmarshalJSON`; then `MarshalJSON` is measured, and `UnmarshalJSON` of
+  the payload into a fresh response. Counts are `runtime.ReadMemStats`
+  deltas under `testsupport.QuietRuntime` (collector off,
+  `GOMAXPROCS(1)`), the minimum that three of five runs share, with the
+  decoder's pool warm (section 6.1.6).
+- Parity: `_spikes/w2.4/python_dump.py` run with the upstream checkout's
+  own `.venv` (typesafe-sdk-python 0.7.1 at 0ffd094, Python 3.14.6,
+  pydantic-core 2.46.5), output `results/python-dump.txt`, probed
+  2026-09-26 04:54:53 JST (time from `date`); `TestResponseJSONFixtures`
+  and `TestAnswerJSONShapes` compare against it.
+- Load (R17): (M) 4.08 → 4.08 on 16 cores; (L) 0.11 → 0.11 on 44.
+
+### W2.4 findings
+
+1. **A payload costs one allocation at every size, on both hosts:**
+   `result.json` 364 B in a 704 B buffer, `result-20.json` 2 253 B in
+   4 864 B, the 1k flood 57 418 B in 98 304 B, `models.json` 89 B in
+   96 B. The writer sizes its buffer once, with every float at its
+   longest (24 bytes) and every count at 20, so only strings that need
+   escapes can outgrow it. The buffer is 1.7 to 2.2 times the payload on
+   these fixtures, because the fixtures' floats are short; a tighter
+   bound (the length of each float as written, one more format per float)
+   is a W5.3 candidate if the retained size matters.
+2. **Reading a payload back costs what the decode costs without a
+   question set:** 5 allocations / 752 B for `result.json`, 25 / 6 520 B
+   for `result-20.json`, 91 / 213 896 B for the 1k flood, 2 / 80 B for
+   `models.json`: every string is a copy into one arena, the misses
+   column of `TestAllocDecodeFixtures` (W2.0).
+3. **Byte parity with `model_dump_json`:** of the 14 fixtures both SDKs
+   accept (13 System One bodies and `models.json`), 13 marshal to
+   Python's bytes exactly; `escaped-member-names.json` differs in one
+   escape inside a structured legend level, which Go keeps as received
+   (`summ\u0061ry` where Python writes `summary`; R73). The four answer
+   shapes of R12, R14 and R11, `Usage` and `ModelMetadata` match too.
+   Python refuses `deviation-lone-surrogate.json`, which Go reads and
+   writes back; Go refuses the three other `deviation-*` bodies. All 15
+   bodies Go accepts read back to equal values and write the same bytes
+   a second time (a fixed point).
+
+| # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| W2.4-01 | 2026-09-26 05:00:02 JST | W2.4 payload allocations | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 4.08 → 4.08 | `BASE=$BASE GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock alloc-M -count=1 -run '^TestAllocResponseJSON$' -v .` | marshal 1/704 B (result), 1/4864 B (result-20), 1/98304 B (flood-1k), 1/96 B (models); unmarshal 5/752 B, 25/6520 B, 91/213896 B, 2/80 B | mallocs/bytes, collector off, `GOMAXPROCS(1)`, 3 of 5 runs agree; `results/alloc-M.txt` |
+| W2.4-02 | 2026-09-25 19:59:59 UTC | W2.4 payload allocations | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.11 → 0.11 | `BASE=$BASE sh $R '(L)' $O /tmp/ts-spike/bench.lock alloc-L -count=1 -run '^TestAllocResponseJSON$' -v .` | identical to W2.4-01 in every count | `results/alloc-L.txt` |
