@@ -512,3 +512,98 @@ func TestAttemptErrorClassification(t *testing.T) {
 		})
 	}
 }
+
+// TestCloseIdlesSuppliedHTTPTransport completes C17 (AC-F9, ruling R79): a
+// *http.Transport given with WithRoundTripper counts as a supplied
+// *http.Transport, so Close closes its idle connection, which the server
+// sees closed; the connection stays open until then.
+func TestCloseIdlesSuppliedHTTPTransport(t *testing.T) {
+	srv := httptest.NewUnstartedServer(apiHandler(t))
+	hook, closed := closeWatch()
+	srv.Config.ConnState = hook
+	srv.Start()
+	t.Cleanup(srv.Close)
+	tr := &http.Transport{}
+	t.Cleanup(tr.CloseIdleConnections)
+	clearEnv(t)
+	c, err := NewClient(WithAPIKey(testKey), WithRoundTripper(tr), WithBaseURL(srv.URL))
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	if _, err := c.Models().List(t.Context()); err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if n := len(closed); n != 0 {
+		t.Fatalf("%d connections closed before Close, want 0", n)
+	}
+	for range 2 {
+		if err := c.Close(); err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+	}
+	waitClosed(t, closed, "Close of a WithRoundTripper *http.Transport")
+	if _, err := c.Models().List(t.Context()); !errors.Is(err, ErrClientClosed) {
+		t.Errorf("List after Close = %v, want ErrClientClosed", err)
+	}
+}
+
+// TestAttemptDeadlineEndsTheCall pins the per-attempt deadline against a
+// server that never answers: with WithTimeout, and with a per-call Timeout
+// over the default, the call returns within the timeout plus 1 s with an
+// error that wraps context.DeadlineExceeded, and not before the timeout
+// less one 20 ms clock tick (K29). A client without the deadline fails
+// here at once instead of at the test binary's timeout. The error's type
+// is W2.5's classification.
+func TestAttemptDeadlineEndsTheCall(t *testing.T) {
+	const (
+		timeout    = 200 * time.Millisecond
+		coarseTick = 20 * time.Millisecond
+	)
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	}))
+	t.Cleanup(srv.Close)
+	t.Cleanup(func() { close(release) })
+	tests := map[string]struct {
+		client []ClientOption
+		call   []CallOption
+	}{
+		"error: the client's timeout": {client: []ClientOption{WithTimeout(timeout)}},
+		"error: a per-call timeout":   {call: []CallOption{Timeout(timeout)}},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			clearEnv(t)
+			c, err := NewClient(append([]ClientOption{WithAPIKey(testKey), WithBaseURL(srv.URL)}, tt.client...)...)
+			if err != nil {
+				t.Fatalf("NewClient: %v", err)
+			}
+			t.Cleanup(func() { _ = c.Close() })
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			errc := make(chan error, 1)
+			start := time.Now()
+			go func() {
+				_, err := c.Models().List(ctx, tt.call...)
+				errc <- err
+			}()
+			select {
+			case err := <-errc:
+				elapsed := time.Since(start)
+				if !errors.Is(err, context.DeadlineExceeded) {
+					t.Errorf("List error = %v (%T), want one wrapping context.DeadlineExceeded", err, err)
+				}
+				if elapsed < timeout-coarseTick {
+					t.Errorf("List returned after %v, before its %v deadline", elapsed, timeout)
+				}
+			case <-time.After(timeout + time.Second):
+				cancel()
+				t.Fatalf("List did not return within %v of its %v deadline", time.Second, timeout)
+			}
+		})
+	}
+}
