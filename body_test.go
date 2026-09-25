@@ -416,6 +416,10 @@ func TestExtraBodyShallowOverride(t *testing.T) {
 	})
 }
 
+// blob is a named byte slice without a marshaler: sonic would send it as
+// base64 (R59b).
+type blob []byte
+
 // roundTripFunc adapts a function to http.RoundTripper.
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
@@ -508,6 +512,17 @@ func TestUnencodableBodyFailsBeforeNetwork(t *testing.T) {
 		"error: a []byte state (R49)": {
 			state:   []byte(`{"a":1}`),
 			want:    []string{"state: a plain []byte is ambiguous; send string(b) for text or RawJSON(b) for JSON"},
+			isCause: codec.ErrPlainBytes,
+		},
+		"error: a named byte-slice state (R59b)": {
+			state:   blob(`{"a":1}`),
+			want:    []string{"state: a plain []byte is ambiguous: typesafe.blob is a byte slice; send string(b) for text or RawJSON(b) for JSON"},
+			isCause: codec.ErrPlainBytes,
+		},
+		"error: a named byte-slice extra member (R59b)": {
+			state:   "x",
+			extra:   []bodyMember{{"b", blob("hi")}},
+			want:    []string{`extra body member "b": a plain []byte is ambiguous: typesafe.blob is a byte slice; send string(b)`},
 			isCause: codec.ErrPlainBytes,
 		},
 		"error: a []byte extra member (R56)": {

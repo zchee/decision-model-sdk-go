@@ -17,8 +17,10 @@
 package codec
 
 import (
+	"encoding"
 	"errors"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -88,8 +90,9 @@ func (e *EncodeError) Unwrap() error { return e.Err }
 // numbers, and nil maps, slices and pointers, which encode as null), and
 // valid UTF-8 ([wire.ErrInvalidUTF8] otherwise: sonic copies the bytes of a
 // Go string as they are, and a body with an invalid byte is not JSON text).
-// A plain []byte fails with [ErrPlainBytes]; a []byte nested inside the
-// state is sent as a base64 string, as encoding/json does. A value sonic
+// A plain []byte, or a byte slice of a named type that sonic would also send
+// as base64 (plainBytes), fails with [ErrPlainBytes]; a []byte nested inside
+// the state is sent as a base64 string, as encoding/json does. A value sonic
 // cannot encode fails with an [*EncodeError].
 //
 // Floats keep sonic's spelling, which is encoding/json's (ruling R46): 3.0 is
@@ -102,8 +105,8 @@ func (e *EncodeError) Unwrap() error { return e.Err }
 // On failure *buf keeps its length from before the call. The checks cost one
 // pass over the encoded bytes and allocate nothing.
 func EncodeState(buf *[]byte, state any) error {
-	if _, ok := state.([]byte); ok {
-		return ErrPlainBytes
+	if err := plainBytes(state); err != nil {
+		return err
 	}
 	start := len(*buf)
 	if err := encoder.EncodeInto(buf, state, encodeOptions); err != nil {
@@ -130,9 +133,10 @@ func EncodeState(buf *[]byte, state any) error {
 // EncodeValue appends the JSON encoding of v, any JSON value, to *buf with
 // sonic's encoder.EncodeInto, for a member of the request body other than
 // the state. Unlike [EncodeState] it takes null, booleans and numbers; the
-// output must still be valid UTF-8. A plain []byte fails with
-// [ErrPlainBytes], as for the state (ruling R56), and a []byte nested inside
-// v is sent as a base64 string. A value sonic cannot encode fails with an
+// output must still be valid UTF-8. A plain []byte, or a byte slice of a
+// named type (plainBytes), fails with [ErrPlainBytes], as for the state
+// (rulings R56 and R59b), and a []byte nested inside v is sent as a base64
+// string. A value sonic cannot encode fails with an
 // [*EncodeError]. On failure *buf keeps its length from before the call.
 //
 // Floats and map members follow the state's rules (rulings R46, R55 and
@@ -141,8 +145,8 @@ func EncodeState(buf *[]byte, state any) error {
 // Go's iteration order. Raw JSON appended with [AppendRawValue], or a number
 // carried as a string, keeps an exact spelling.
 func EncodeValue(buf *[]byte, v any) error {
-	if _, ok := v.([]byte); ok {
-		return ErrPlainBytes
+	if err := plainBytes(v); err != nil {
+		return err
 	}
 	start := len(*buf)
 	if err := encoder.EncodeInto(buf, v, encodeOptions); err != nil {
@@ -188,6 +192,30 @@ func AppendRawValue(buf *[]byte, raw []byte) error {
 	}
 	*buf = append(*buf, raw...)
 	return nil
+}
+
+// marshalerType and textMarshalerType are the interfaces through which sonic
+// writes a byte slice as something other than base64: its own JSON, or its
+// text as a JSON string.
+var (
+	marshalerType     = reflect.TypeFor[interface{ MarshalJSON() ([]byte, error) }]()
+	textMarshalerType = reflect.TypeFor[encoding.TextMarshaler]()
+)
+
+// plainBytes returns [ErrPlainBytes] when sonic would send v as a base64
+// string: v is a []byte, or a value of another type whose kind is a slice of
+// uint8 (type blob []byte) and which has no MarshalJSON or MarshalText
+// method (json.RawMessage and net.IP have one and pass). It allocates
+// nothing unless it refuses (ruling R59b).
+func plainBytes(v any) error {
+	if _, ok := v.([]byte); ok {
+		return ErrPlainBytes
+	}
+	t := reflect.TypeOf(v)
+	if t == nil || t.Kind() != reflect.Slice || t.Elem().Kind() != reflect.Uint8 || t.Implements(marshalerType) || t.Implements(textMarshalerType) {
+		return nil
+	}
+	return fmt.Errorf("%w: %s is a byte slice", ErrPlainBytes, t)
 }
 
 // skipSpace returns the offset of the first byte of b that is not JSON

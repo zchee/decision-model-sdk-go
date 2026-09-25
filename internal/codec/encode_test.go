@@ -21,6 +21,7 @@ import (
 	"errors"
 	"io"
 	"math"
+	"net"
 	"strings"
 	"testing"
 
@@ -33,6 +34,9 @@ import (
 // prefix stands for the bytes a body holds before the state; every encoder
 // call appends after it and must leave it alone, on success and on failure.
 const prefix = `{"state":`
+
+// blob is a named byte slice without a marshaler: sonic sends it as base64.
+type blob []byte
 
 // celsius is a named float type: a number however it is named.
 type celsius float64
@@ -175,23 +179,25 @@ func TestEncodeState(t *testing.T) {
 			want:  "\"é\u2028\u2029\U0001F600<>&\"",
 		},
 
-		"error: nil":                    {state: nil, err: errShape, wantText: "nil encodes as null, not a string"},
-		"error: true":                   {state: true, err: errShape, wantText: "bool encodes as a boolean"},
-		"error: false":                  {state: false, err: errShape, wantText: "bool encodes as a boolean"},
-		"error: int":                    {state: 3, err: errShape, wantText: "int encodes as a number"},
-		"error: negative int8":          {state: int8(-3), err: errShape, wantText: "int8 encodes as a number"},
-		"error: uint64":                 {state: uint64(math.MaxUint64), err: errShape, wantText: "a number"},
-		"error: float64":                {state: 1.5, err: errShape, wantText: "float64 encodes as a number"},
-		"error: float32":                {state: float32(1.5), err: errShape, wantText: "a number"},
-		"error: named float":            {state: celsius(21.5), err: errShape, wantText: "codec.celsius encodes as a number"},
-		"error: json.Number":            {state: json.Number("12"), err: errShape, wantText: "json.Number encodes as a number"},
-		"error: nil map":                {state: map[string]any(nil), err: errShape, wantText: "encodes as null"},
-		"error: nil slice":              {state: []any(nil), err: errShape, wantText: "encodes as null"},
-		"error: nil pointer":            {state: (*ticket)(nil), err: errShape, wantText: "*codec.ticket encodes as null"},
-		"error: json.RawMessage number": {state: json.RawMessage("3"), err: errShape, wantText: "a number"},
-		"error: json.RawMessage null":   {state: json.RawMessage(" null"), err: errShape, wantText: "null"},
-		"error: marshaler number":       {state: scalarMarshaler{}, err: errShape, wantText: "a number"},
-		"error: []byte":                 {state: []byte(`{"a":1}`), err: errBytes, wantText: "a plain []byte is ambiguous"},
+		"error: nil":                       {state: nil, err: errShape, wantText: "nil encodes as null, not a string"},
+		"error: true":                      {state: true, err: errShape, wantText: "bool encodes as a boolean"},
+		"error: false":                     {state: false, err: errShape, wantText: "bool encodes as a boolean"},
+		"error: int":                       {state: 3, err: errShape, wantText: "int encodes as a number"},
+		"error: negative int8":             {state: int8(-3), err: errShape, wantText: "int8 encodes as a number"},
+		"error: uint64":                    {state: uint64(math.MaxUint64), err: errShape, wantText: "a number"},
+		"error: float64":                   {state: 1.5, err: errShape, wantText: "float64 encodes as a number"},
+		"error: float32":                   {state: float32(1.5), err: errShape, wantText: "a number"},
+		"error: named float":               {state: celsius(21.5), err: errShape, wantText: "codec.celsius encodes as a number"},
+		"error: json.Number":               {state: json.Number("12"), err: errShape, wantText: "json.Number encodes as a number"},
+		"error: nil map":                   {state: map[string]any(nil), err: errShape, wantText: "encodes as null"},
+		"error: nil slice":                 {state: []any(nil), err: errShape, wantText: "encodes as null"},
+		"error: nil pointer":               {state: (*ticket)(nil), err: errShape, wantText: "*codec.ticket encodes as null"},
+		"error: json.RawMessage number":    {state: json.RawMessage("3"), err: errShape, wantText: "a number"},
+		"error: json.RawMessage null":      {state: json.RawMessage(" null"), err: errShape, wantText: "null"},
+		"error: marshaler number":          {state: scalarMarshaler{}, err: errShape, wantText: "a number"},
+		"error: []byte":                    {state: []byte(`{"a":1}`), err: errBytes, wantText: "a plain []byte is ambiguous"},
+		"error: a named byte slice (R59b)": {state: blob(`{"a":1}`), err: errBytes, wantText: "a plain []byte is ambiguous: codec.blob is a byte slice"},
+		"success: a byte slice with MarshalText is its text": {state: net.IPv4(192, 0, 2, 1), want: `"192.0.2.1"`},
 		"success: a nested []byte is base64 (R49 deviation)": {state: map[string]any{"b": []byte("hi")}, want: `{"b":"aGk="}`},
 		"error: NaN":                      {state: []any{math.NaN()}, err: errEncode, wantText: "NaN"},
 		"error: +Inf in a map":            {state: map[string]any{"a": math.Inf(1)}, err: errEncode, wantText: "Infinite"},
@@ -237,6 +243,8 @@ func TestEncodeValue(t *testing.T) {
 		"success: map":    {value: map[string]any{"x": map[string]any{"type": "noul"}}, want: `{"x":{"type":"noul"}}`},
 		"success: a nested []byte as base64 (R56 deviation)": {value: map[string]any{"b": []byte("hi")}, want: `{"b":"aGk="}`},
 		"error: a plain []byte (R56)":                        {value: []byte("hi"), err: errBytes, wantText: "a plain []byte is ambiguous"},
+		"error: a named byte slice (R59b)":                   {value: blob("hi"), err: errBytes, wantText: "codec.blob is a byte slice"},
+		"success: a nested named byte slice as base64":       {value: []any{blob("hi")}, want: `["aGk="]`},
 		"success: json.RawMessage":                           {value: json.RawMessage(`null`), want: `null`},
 		"error: NaN":                                         {value: math.NaN(), err: errEncode, wantText: "NaN"},
 		"error: channel":                                     {value: make(chan int), err: errEncode, wantText: "chan int"},
