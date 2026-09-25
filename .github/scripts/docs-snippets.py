@@ -6,7 +6,9 @@
 """Prove every Go block in README.md and docs/ equals its examples/ source (XD1).
 
 Skeleton: the checks are written in wave W6.3 of the port plan. Until then the
-script accepts its final flags, prints that it is a skeleton and exits 0.
+script accepts its final flags, logs "not implemented until W6.3" to stderr
+and exits 2, so a CI step wired to it before W6.3 fails instead of passing
+without checking anything.
 
 Usage (from the repository root)::
 
@@ -16,13 +18,31 @@ Usage (from the repository root)::
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 
+NOT_IMPLEMENTED = "docs-snippets: not implemented until W6.3"
+
+_LOG = logging.getLogger("docs-snippets")
+
 
 def main(argv: list[str] | None = None) -> int:
-    """Parse the flags and report the skeleton status."""
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    """Parse the flags and refuse to run.
+
+    Args:
+        argv: the command-line arguments without the program name; ``None``
+            reads ``sys.argv``.
+
+    Returns:
+        2, for every set of valid flags, until W6.3 implements the checks.
+
+    Raises:
+        SystemExit: the flags are invalid (status 2), or ``--help`` (status 0).
+    """
+    parser = argparse.ArgumentParser(
+        description=__doc__.splitlines()[0], epilog=NOT_IMPLEMENTED
+    )
     parser.add_argument(
         "--readme", required=True, type=Path, help="README to scan for Go blocks"
     )
@@ -36,9 +56,10 @@ def main(argv: list[str] | None = None) -> int:
         help="directory of example packages the blocks must equal",
     )
     parser.parse_args(argv)
-    print("docs-snippets: skeleton: completed in W6.3")
-    return 0
+    _LOG.error("%s", NOT_IMPLEMENTED)
+    return 2
 
 
 if __name__ == "__main__":
+    logging.basicConfig(format="%(message)s")
     sys.exit(main())

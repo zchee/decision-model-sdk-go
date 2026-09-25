@@ -58,6 +58,11 @@ bench.txt
 # profile
 *.pprof
 
-# Python caches from .github/scripts tests
+# typesafe-sdk-python at the pinned commit: the ci.yaml lint job checks it out
+# here for .github/scripts/port-test-matrix.py --upstream upstream.
+/upstream/
+
+# Python caches and coverage data from .github/scripts tests
 __pycache__/
 .pytest_cache/
+.coverage
