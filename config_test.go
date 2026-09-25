@@ -71,12 +71,13 @@ func mustResolve(t *testing.T, getenv func(string) string, opts ...ClientOption)
 }
 
 // resolveError resolves opts, which must fail with a *ConfigError, and
-// returns it.
+// returns it. A config that resolves is never printed: it holds the key and
+// the Authorization header.
 func resolveError(t *testing.T, getenv func(string) string, opts ...ClientOption) *ConfigError {
 	t.Helper()
 	c, err := resolveConfig(getenv, opts...)
 	if err == nil {
-		t.Fatalf("resolve = %+v, want an error", c)
+		t.Fatalf("resolve succeeded (config returned: %t), want an error", c != nil)
 	}
 	if c != nil {
 		t.Errorf("resolve returned a config with its error")
