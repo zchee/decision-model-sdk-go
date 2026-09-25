@@ -46,8 +46,8 @@ IDs that the plan's waves cite.
 | ID | Upstream | Go test / deviation | status |
 | --- | --- | --- | --- |
 | C1 | `test_round_trip` | `TestSystemOneRoundTrip` (typed, raw, mixed) | planned |
-| C2 | `test_extra_body_shallow_override` | `TestExtraBodyShallowOverride` | planned |
-| C3 | `test_unserializable_request_body_raises` | `TestUnencodableBodyFailsBeforeNetwork` | planned |
+| C2 | `test_extra_body_shallow_override` | `TestExtraBodyShallowOverride` | ported |
+| C3 | `test_unserializable_request_body_raises` | `TestUnencodableBodyFailsBeforeNetwork` | ported |
 | C4 | `test_raw_question_passthrough` | `TestRawQuestionPassthrough` | planned |
 | C5 | `test_question_schema_validation_is_left_to_api` | `TestRawQuestionSchemaLeftToAPI` | planned |
 | C6 | `test_rich_descriptions` | `TestStructuredContentRoundTrip` | planned |
@@ -195,12 +195,12 @@ IDs that the plan's waves cite.
 
 | ID | Upstream | Go test / deviation | status |
 | --- | --- | --- | --- |
-| T1 | `test_str_subclasses_fallback_to_strings` | deviation "`any` state" | planned |
-| T2 | `test_json_value_and_state_exclude_top_level_none` | deviation + `TestScalarStatesRefused` (`nil`, number, bool) | planned |
-| T3 | `test_array_inputs` | `TestArrayContentEverywhere` (4 array positions: state, instructions, criteria description, score levels; upstream parametrises raw/typed) | planned |
+| T1 | `test_str_subclasses_fallback_to_strings` | deviation "`any` state" + `TestNamedStringStateEncodesAsString` | deviation |
+| T2 | `test_json_value_and_state_exclude_top_level_none` | deviation "`any` state" + `TestScalarStatesRefused` (`nil`, number, bool) | deviation |
+| T3 | `test_array_inputs` | `TestArrayContentEverywhere` (4 array positions: state, instructions, criteria description, score levels; upstream parametrises raw/typed) | ported |
 | T4 | `test_raw_optional_fields_preserve_explicit_null` | `TestRawQuestionKeepsExplicitNull` | ported |
-| T5 | `test_explicitly_nullable_json_values` | `TestNullInsideContentSurvives` | planned |
-| T6 | `test_abstract_input_containers_encode` | `TestMapSliceStructStates` | planned |
+| T5 | `test_explicitly_nullable_json_values` | `TestNullInsideContentSurvives` | ported |
+| T6 | `test_abstract_input_containers_encode` | `TestMapSliceStructStates` | ported |
 
 ### `tests/test_docs.py` (2, live sybil examples)
 
