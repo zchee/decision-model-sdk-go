@@ -68,8 +68,14 @@ func (e *EncodeError) Unwrap() error { return e.Err }
 // numbers, and nil maps, slices and pointers, which encode as null), and
 // valid UTF-8 ([wire.ErrInvalidUTF8] otherwise: sonic copies the bytes of a
 // Go string as they are, and a body with an invalid byte is not JSON text).
-// A plain []byte fails with [ErrBytesState]; a value sonic cannot encode
-// fails with an [*EncodeError].
+// A plain []byte fails with [ErrBytesState]; a []byte nested inside the
+// state is sent as a base64 string, as encoding/json does. A value sonic
+// cannot encode fails with an [*EncodeError].
+//
+// Floats keep sonic's spelling, which is encoding/json's (ruling R46): 3.0 is
+// written 3, -0.0 as 0, and 1e16 <= |x| < 1e21 and 1e-6 <= |x| < 1e-5 in
+// fixed digits. Raw JSON appended with [AppendRawState], or a number carried
+// as a string, keeps an exact spelling.
 //
 // On failure *buf keeps its length from before the call. The checks cost one
 // pass over the encoded bytes and allocate nothing.

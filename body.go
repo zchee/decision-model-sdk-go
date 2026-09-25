@@ -60,6 +60,13 @@ const (
 // (codec.EncodeValue), a RawJSON value as it is after codec.AppendRawValue's
 // check, Content as a question writes it and unset Content as null.
 //
+// A float inside a state that sonic writes keeps sonic's spelling (ruling
+// R46), a consequence of section 6.1.2 encoding the state with sonic and of
+// the owner's decision D1, not a choice of this function: 3.0 is written 3,
+// -0.0 as 0, and 1e16 <= |x| < 1e21 and 1e-6 <= |x| < 1e-5 in fixed digits,
+// where the Python SDK writes 3.0, -0.0 and e-notation. A state that needs an
+// exact spelling is sent as RawJSON, or carries the number as a string.
+//
 // It fails with a [*ConfigError] when qs is nil or holds no question (a
 // Prepared that [Questions.Prepare] did not return), or when model is not
 // valid UTF-8, and with an [*InvalidRequestError] when a member cannot be

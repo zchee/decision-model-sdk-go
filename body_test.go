@@ -223,7 +223,7 @@ func TestBodyDeviationsFromPython(t *testing.T) {
 		want   string // what sonic sends
 		check  func(t *testing.T, python, got string)
 	}{
-		"deviation: R47 control characters": {
+		"deviation: control character escapes": {
 			state: text,
 			python: `{"state":"\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\b\t\n\u000b\f\r\u000e\u000f` +
 				`\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001a\u001b\u001c\u001d\u001e\u001f` + escapedTail + `"` + tail,
@@ -252,7 +252,7 @@ func TestBodyDeviationsFromPython(t *testing.T) {
 				}
 			},
 		},
-		"deviation: R46 float spelling": {
+		"deviation: state float spelling": {
 			state: floats,
 			python: `{"state":[0.00001,9.99e-6,0.0001,0.1,1.5,3.0,-7.0,9999999999999998.0,1e+16,1e+20,1e+21,1e+22,` +
 				`5e-324,1.7976931348623157e+308,-0.0,0.0,9007199254740992.0,1.2345678901234567e+19]` + tail,
@@ -647,20 +647,21 @@ func TestMapSliceStructStates(t *testing.T) {
 		state any
 		want  string
 	}{
-		"success: map[string]any with a slice":     {state: map[string]any{"items": []any{"a", nil}}, want: `{"items":["a",null]}`},
-		"success: map[string][]any":                {state: map[string][]any{"items": {"a", nil}}, want: `{"items":["a",null]}`},
-		"success: a map holding an array":          {state: map[string][2]any{"items": {"a", nil}}, want: `{"items":["a",null]}`},
-		"success: a map holding pointers":          {state: map[string][]*string{"items": {&a, nil}}, want: `{"items":["a",null]}`},
-		"success: map[string]int":                  {state: map[string]int{"n": 1}, want: `{"n":1}`},
-		"success: a struct":                        {state: items{Items: []any{"a", nil}}, want: `{"items":["a",null]}`},
-		"success: a pointer to a struct":           {state: &items{Items: []any{"a", nil}}, want: `{"items":["a",null]}`},
-		"success: an embedded struct's fields":     {state: embedded{items{Items: []any{"a", nil}}}, want: `{"items":["a",null]}`},
-		"success: []any":                           {state: []any{"a", nil}, want: `["a",null]`},
-		"success: []string":                        {state: []string{"a", "b"}, want: `["a","b"]`},
-		"success: an array":                        {state: [2]any{"a", nil}, want: `["a",null]`},
-		"success: []int":                           {state: []int{1, 2}, want: `[1,2]`},
-		"success: a slice of maps":                 {state: []map[string]any{{"k": nil}}, want: `[{"k":null}]`},
-		"success: map[string]string, sorted order": {state: map[string]string{"k": "v"}, want: `{"k":"v"}`},
+		"success: map[string]any with a slice":               {state: map[string]any{"items": []any{"a", nil}}, want: `{"items":["a",null]}`},
+		"success: map[string][]any":                          {state: map[string][]any{"items": {"a", nil}}, want: `{"items":["a",null]}`},
+		"success: a map holding an array":                    {state: map[string][2]any{"items": {"a", nil}}, want: `{"items":["a",null]}`},
+		"success: a map holding pointers":                    {state: map[string][]*string{"items": {&a, nil}}, want: `{"items":["a",null]}`},
+		"success: map[string]int":                            {state: map[string]int{"n": 1}, want: `{"n":1}`},
+		"success: a struct":                                  {state: items{Items: []any{"a", nil}}, want: `{"items":["a",null]}`},
+		"success: a pointer to a struct":                     {state: &items{Items: []any{"a", nil}}, want: `{"items":["a",null]}`},
+		"success: an embedded struct's fields":               {state: embedded{items{Items: []any{"a", nil}}}, want: `{"items":["a",null]}`},
+		"success: []any":                                     {state: []any{"a", nil}, want: `["a",null]`},
+		"success: []string":                                  {state: []string{"a", "b"}, want: `["a","b"]`},
+		"success: an array":                                  {state: [2]any{"a", nil}, want: `["a",null]`},
+		"success: []int":                                     {state: []int{1, 2}, want: `[1,2]`},
+		"success: a slice of maps":                           {state: []map[string]any{{"k": nil}}, want: `[{"k":null}]`},
+		"success: map[string]string, sorted order":           {state: map[string]string{"k": "v"}, want: `{"k":"v"}`},
+		"deviation: a nested []byte is sent as base64 (R49)": {state: map[string]any{"b": []byte("hi")}, want: `{"b":"aGk="}`},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
