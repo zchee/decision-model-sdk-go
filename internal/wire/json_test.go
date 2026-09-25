@@ -15,8 +15,10 @@
 package wire
 
 import (
+	"bytes"
 	"errors"
 	"math"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"testing"
@@ -136,6 +138,16 @@ func TestAppendJSON(t *testing.T) {
 		"error: no digit after the dot":        {raw: `1.`, wantOffset: 2, wantMsg: "invalid number, want a digit after '.'"},
 		"error: no digit in the exponent":      {raw: `1e+`, wantOffset: 3, wantMsg: "invalid number, want a digit in the exponent"},
 		"error: a byte-order mark":             {raw: "\xef\xbb\xbf{}", wantOffset: 0, wantMsg: `unexpected "\xef", want a value`},
+		// The edges of the two byte classes the scanner draws a line through:
+		// U+001F is the last control character JSON forbids raw inside a
+		// string and U+007F is allowed; only space, tab, line feed and
+		// carriage return separate tokens.
+		"error: a raw U+001F inside a string":    {raw: "\"\x1f\"", wantOffset: 1, wantMsg: `raw control character "\x1f" in a string`},
+		"success: a raw U+007F inside a string":  {raw: "\"\x7f\"", want: "\"\x7f\""},
+		"error: a form feed between tokens":      {raw: "[1\f]", wantOffset: 2, wantMsg: `unexpected "\f", want ',' or a closing bracket`},
+		"error: a vertical tab between tokens":   {raw: "[1\v]", wantOffset: 2, wantMsg: `unexpected "\v", want ',' or a closing bracket`},
+		"error: a no-break space between tokens": {raw: "[1\xc2\xa0]", wantOffset: 2, wantMsg: `unexpected "\xc2", want ',' or a closing bracket`},
+		"success: a space between tokens":        {raw: "[1 ]", want: "[1]"},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -282,4 +294,113 @@ func TestBuilderRawValues(t *testing.T) {
 			}
 		})
 	}
+}
+
+// FuzzAppendJSON checks the invariants AppendJSON keeps on any input (ruling
+// R44). The differential check against encoding/json belongs to
+// internal/codec's tests, since this package's tests import no JSON library.
+//
+//   - It never panics.
+//   - A failure is a *SyntaxError whose offset lies within the input, and
+//     the returned slice is dst unchanged.
+//   - A success scans again to itself: removing whitespace is a fixed point,
+//     and the output is never longer than the input.
+//   - A success allocates nothing while at most 32 containers are open at
+//     once, the scanner's stack array; deeper input grows the stack on the
+//     heap. Not checked under -race, like the other allocation tests.
+func FuzzAppendJSON(f *testing.F) {
+	for _, seed := range []string{
+		``, ` `, `null`, `true`, `false`, `0`, `-0`, `1.5e+3`, `-12.25E-3`, `01`, `1.`, `1e`, `-`, `+1`, `.5`,
+		`""`, `"a\"b\\c\/d\b\f\n\r\t\u00e9\uD83D\uDE00"`, `"\ud800"`, `"\q"`, `"\u12g4"`, "\"\x1f\"", "\"\x7f\"",
+		"\"a\xffb\"", "\"\xed\xa0\x80\"", `"abc`, `"abc\`,
+		`[]`, `{}`, `[ ]`, `{ }`, `[1,2,[3,{"a":[]}]]`, `{"a":1,"b":[true,null],"c":{"d":"e"}}`,
+		"{\n  \"text\" : \"Classify\",\r\n\t\"extra\" : null\n}\n", "[1\f]", "[1\v]", "[1\xc2\xa0]", "\xef\xbb\xbf{}",
+		`[1,]`, `{"a":1,}`, `[1}`, `{1:2}`, `{"a" 1}`, `{"a":1} x`, `{}{}`, `[tru]`, `[nul]`,
+		strings.Repeat("[", 32) + strings.Repeat("]", 32), strings.Repeat("[", 40) + strings.Repeat("]", 40),
+		strings.Repeat(`{"a":`, 20) + `1` + strings.Repeat("}", 20),
+	} {
+		f.Add([]byte(seed))
+	}
+	checkAllocs := !raceEnabled()
+	f.Fuzz(func(t *testing.T, raw []byte) {
+		prefix := []byte("prefix:")
+		dst := append(make([]byte, 0, len(prefix)+len(raw)), prefix...)
+		out, err := AppendJSON(dst, raw)
+		if err != nil {
+			se, ok := errors.AsType[*SyntaxError](err)
+			if !ok {
+				t.Fatalf("AppendJSON(%q) error = %T %v, want a *SyntaxError", raw, err, err)
+			}
+			if se.Offset < 0 || se.Offset > len(raw) {
+				t.Fatalf("AppendJSON(%q) error offset %d outside [0, %d]", raw, se.Offset, len(raw))
+			}
+			if string(out) != "prefix:" {
+				t.Fatalf("AppendJSON(%q) on error = %q, want dst unchanged", raw, out)
+			}
+			return
+		}
+		if !bytes.HasPrefix(out, prefix) {
+			t.Fatalf("AppendJSON(%q) = %q, lost the prefix", raw, out)
+		}
+		compact := out[len(prefix):]
+		if len(compact) > len(raw) {
+			t.Fatalf("AppendJSON(%q) = %q, longer than the input", raw, compact)
+		}
+		again, err := AppendJSON(nil, compact)
+		if err != nil {
+			t.Fatalf("AppendJSON(%q) = %q, which does not scan again: %v", raw, compact, err)
+		}
+		if !bytes.Equal(again, compact) {
+			t.Fatalf("AppendJSON(%q) = %q, but scanning that gives %q", raw, compact, again)
+		}
+		if checkAllocs && maxOpen(compact) <= 32 {
+			if n := testing.AllocsPerRun(1, func() { _, _ = AppendJSON(dst[:len(prefix)], raw) }); n != 0 {
+				t.Fatalf("AppendJSON(%q) allocated %.0f times, want 0", raw, n)
+			}
+		}
+	})
+}
+
+// maxOpen returns the largest number of containers open at once in the
+// compact JSON b that the scanner pushes on its stack: an empty container,
+// closed at once, is never pushed.
+func maxOpen(b []byte) int {
+	depth, most := 0, 0
+	inString := false
+	for i := 0; i < len(b); i++ {
+		c := b[i]
+		switch {
+		case inString && c == '\\':
+			i++
+		case c == '"':
+			inString = !inString
+		case inString:
+		case c == '{' || c == '[':
+			if i+1 < len(b) && (b[i+1] == '}' || b[i+1] == ']') {
+				i++
+				continue
+			}
+			depth++
+			most = max(most, depth)
+		case c == '}' || c == ']':
+			depth--
+		}
+	}
+	return most
+}
+
+// raceEnabled reports whether the test binary was built with -race, under
+// which allocation counts are not asserted (internal/codec's tests do the
+// same).
+func raceEnabled() bool {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return false
+	}
+	for _, s := range info.Settings {
+		if s.Key == "-race" {
+			return s.Value == "true"
+		}
+	}
+	return false
 }
