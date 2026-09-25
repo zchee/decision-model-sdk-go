@@ -162,7 +162,10 @@ func TestProxy(t *testing.T) {
 	t.Run("error: a CONNECT the proxy refuses is a plain dial failure", func(t *testing.T) {
 		// The stock transport returns the status text of a failed CONNECT
 		// without the proxyconnect wrapper (transport.go:2036-2043), so the
-		// classification cannot tell it from a failure past the proxy.
+		// classification cannot tell it from a failure past the proxy. The
+		// same holds for a caller TLS dialer's unfinished handshake with an
+		// https proxy, which customDialTLS completes and returns unwrapped
+		// (:1905-1910); W7 records both under K16.
 		p := testsupport.NewProxy(t, testsupport.ProxyPlain, testsupport.Routes{})
 		var h hops
 		tr := proxiedTransport(t, exampleURL, p, &h, nil)
