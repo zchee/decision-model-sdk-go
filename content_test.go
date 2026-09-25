@@ -94,36 +94,87 @@ func TestContentJSONSharesTheBytes(t *testing.T) {
 	}
 }
 
-// TestContentMarshalJSON covers the JSON form of Content (ruling R52): text
-// escaped as the questions are, JSON content as the bytes it holds, unset
-// Content as null, and the two failures.
+// TestContentMarshalJSON covers the JSON form of Content (rulings R52 and
+// R60): text escaped as the questions are, JSON content checked by wire's
+// scanner and compacted, unset Content as null, and the failures.
 func TestContentMarshalJSON(t *testing.T) {
 	tests := map[string]struct {
-		c       Content
-		want    string
-		wantErr error
+		c          Content
+		want       string
+		wantErr    error // errors.Is target
+		wantSyntax bool  // the failure is wire's scanner's (*wire.SyntaxError)
 	}{
-		"success: text, escaped as in the questions": {c: Text("a\"b\\c\b\f<>é"), want: `"a\"b\\c\b\f<>é"`},
+		"success: text, escaped as in the questions": {c: Text("a\"b\\c\b\f<>\u00e9"), want: `"a\"b\\c\b\f<>` + "\u00e9" + `"`},
 		"success: empty text":                        {c: Text(""), want: `""`},
-		"success: a JSON object, bytes as given":     {c: JSON([]byte(` { "a" : 1 } `)), want: ` { "a" : 1 } `},
+		"success: a JSON object, compacted":          {c: JSON([]byte(` { "a" : [1, null] } `)), want: `{"a":[1,null]}`},
 		"success: a JSON array":                      {c: JSON([]byte(`[1,null]`)), want: `[1,null]`},
 		"success: unset Content is null":             {c: Content{}, want: `null`},
 		"error: text that is not UTF-8":              {c: Text("\xff"), wantErr: wire.ErrInvalidUTF8},
 		"error: JSON content that is a number":       {c: JSON([]byte(` 3`)), wantErr: wire.ErrContentShape},
 		"error: empty JSON content":                  {c: JSON(nil), wantErr: wire.ErrContentShape},
+		"error: complete but invalid JSON":           {c: JSON([]byte(`{"a":}`)), wantSyntax: true},
+		"error: a trailing comma":                    {c: JSON([]byte(`[1,]`)), wantSyntax: true},
+		"error: truncated JSON":                      {c: JSON([]byte(`{"a":`)), wantSyntax: true},
+		"error: a raw control character in a string": {c: JSON([]byte("[\"a\nb\"]")), wantSyntax: true},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			got, err := tt.c.MarshalJSON()
-			if !errors.Is(err, tt.wantErr) {
-				t.Fatalf("MarshalJSON err = %v, want %v", err, tt.wantErr)
-			}
-			if tt.wantErr != nil {
-				return
-			}
-			if diff := gocmp.Diff(tt.want, string(got)); diff != "" {
-				t.Errorf("MarshalJSON (-want +got):\n%s", diff)
-			}
+			checkMarshal(t, got, err, tt.want, tt.wantErr, tt.wantSyntax)
 		})
+	}
+}
+
+// TestRawJSONMarshalJSON covers the JSON form of nested RawJSON (rulings R57
+// and R60): any single JSON value, checked by wire's scanner and compacted,
+// nil as null, and the failures.
+func TestRawJSONMarshalJSON(t *testing.T) {
+	tests := map[string]struct {
+		r          RawJSON
+		want       string
+		wantSyntax bool // the failure is wire's scanner's (*wire.SyntaxError)
+	}{
+		"success: an object, compacted":       {r: RawJSON(` { "a" : [1, 2] } `), want: `{"a":[1,2]}`},
+		"success: a number":                   {r: RawJSON(` 4 `), want: `4`},
+		"success: a string keeps its escapes": {r: RawJSON(`"a\u00e9\n"`), want: `"a\u00e9\n"`},
+		"success: null":                       {r: RawJSON(`null`), want: `null`},
+		"success: a nil RawJSON is null":      {r: nil, want: `null`},
+		"error: empty":                        {r: RawJSON{}, wantSyntax: true},
+		"error: complete but invalid":         {r: RawJSON(`{"a" 1}`), wantSyntax: true},
+		"error: a trailing comma":             {r: RawJSON(`{"a":1,}`), wantSyntax: true},
+		"error: two values":                   {r: RawJSON(`[1 2]`), wantSyntax: true},
+		"error: trailing data":                {r: RawJSON(`{} x`), wantSyntax: true},
+		"error: truncated":                    {r: RawJSON(`[1,`), wantSyntax: true},
+		"error: invalid UTF-8 in a string":    {r: RawJSON("\"\xff\""), wantSyntax: true},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := tt.r.MarshalJSON()
+			checkMarshal(t, got, err, tt.want, nil, tt.wantSyntax)
+		})
+	}
+}
+
+// checkMarshal checks a MarshalJSON result: the bytes on success, or a
+// failure that is wantErr (errors.Is) or a *wire.SyntaxError.
+func checkMarshal(t *testing.T, got []byte, err error, want string, wantErr error, wantSyntax bool) {
+	t.Helper()
+	if wantErr == nil && !wantSyntax {
+		if err != nil {
+			t.Fatalf("MarshalJSON: %v", err)
+		}
+		if diff := gocmp.Diff(want, string(got)); diff != "" {
+			t.Errorf("MarshalJSON (-want +got):\n%s", diff)
+		}
+		return
+	}
+	if err == nil {
+		t.Fatalf("MarshalJSON = %q, want an error", got)
+	}
+	if wantErr != nil && !errors.Is(err, wantErr) {
+		t.Errorf("MarshalJSON err = %v, want errors.Is %v", err, wantErr)
+	}
+	if _, ok := errors.AsType[*wire.SyntaxError](err); ok != wantSyntax {
+		t.Errorf("errors.As *wire.SyntaxError = %t, want %t (err %v)", ok, wantSyntax, err)
 	}
 }

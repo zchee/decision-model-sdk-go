@@ -849,12 +849,13 @@ func TestInvalidRequestError(t *testing.T) {
 	}
 }
 
-// TestNestedContentEncodesAsContent checks ruling R52: Content nested in a
-// state or in a body member's value, where sonic writes it through
-// Content.MarshalJSON, is sent as content, never as the empty object its
-// unexported fields would give: text escaped as the questions are (\b as
-// Python writes it), JSON content as the bytes it holds (whitespace kept),
-// unset Content as null. Invalid nested content fails before any network.
+// TestNestedContentEncodesAsContent checks rulings R52 and R60: Content
+// nested in a state or in a body member's value, where sonic writes it
+// through Content.MarshalJSON, is sent as content, never as the empty object
+// its unexported fields would give: text escaped as the questions are (\b as
+// Python writes it), JSON content checked by wire's scanner and compacted,
+// unset Content as null. Invalid nested content fails before any network, in
+// every build.
 func TestNestedContentEncodesAsContent(t *testing.T) {
 	type holder struct {
 		C Content  `json:"c"`
@@ -870,14 +871,15 @@ func TestNestedContentEncodesAsContent(t *testing.T) {
 		want    []string // the accepted bodies, when it encodes (a Go map has no member order)
 		wantErr string   // a substring of the *InvalidRequestError message, when it does not
 		wantIs  error    // errors.Is target of a refusal, if any
+		syntax  bool     // the refusal is wire's scanner's (*wire.SyntaxError)
 	}{
 		"success: text in a map state": {
 			state: map[string]any{"c": text},
 			want:  []string{body(`{"c":"a\bb"}`, "")},
 		},
-		"success: JSON content in a map state, bytes as given": {
+		"success: JSON content in a map state, compacted": {
 			state: map[string]any{"c": JSON([]byte(` { "a" : [1, null] } `))},
-			want:  []string{body(`{"c": { "a" : [1, null] } }`, "")},
+			want:  []string{body(`{"c":{"a":[1,null]}}`, "")},
 		},
 		"success: unset Content in a map state is null": {
 			state: map[string]any{"c": Content{}},
@@ -899,14 +901,25 @@ func TestNestedContentEncodesAsContent(t *testing.T) {
 				body(`"hi"`, `,"ctx":{"u":null,"c":"a\bb"}`),
 			},
 		},
-		// Truncated on purpose: under -race, sonic's check of a
-		// MarshalJSON output accepts a few complete but invalid outputs
-		// ({"a":}, [1 2], a trailing comma: about 0.5 %, never in a normal
-		// build; _spikes/w1.2/validrace), and refuses a truncated one in
-		// both builds.
-		"error: invalid JSON content nested in the state": {
+		// Under -race, sonic's own check of a MarshalJSON output accepts
+		// a few complete but invalid outputs ({"a":}, [1 2], a trailing
+		// comma: K26, _spikes/w1.2/validrace); wire's scanner refuses them
+		// first, in every build (R60).
+		"error: complete but invalid JSON content nested in the state": {
+			state:   map[string]any{"c": JSON([]byte(`{"a":}`))},
+			wantErr: `state: invalid JSON at byte 5: unexpected "}", want a value`,
+			syntax:  true,
+		},
+		"error: JSON content with a trailing comma, nested in an extra member": {
+			state:   "hi",
+			extra:   []bodyMember{{"ctx", []any{JSON([]byte(`{"a":1,}`))}}},
+			wantErr: `extra body member "ctx": invalid JSON at byte 7: unexpected "}", want a member name`,
+			syntax:  true,
+		},
+		"error: truncated JSON content nested in the state": {
 			state:   map[string]any{"c": JSON([]byte(`{"a":`))},
-			wantErr: "state: a MarshalJSON method returned invalid JSON (syntax error at position ",
+			wantErr: "state: invalid JSON at byte 5: unexpected end of input, want a value",
+			syntax:  true,
 		},
 		"error: JSON content that is not an object or an array": {
 			state:   []any{JSON([]byte(`3`))},
@@ -930,6 +943,9 @@ func TestNestedContentEncodesAsContent(t *testing.T) {
 				}
 				if tt.wantIs != nil && !errors.Is(err, tt.wantIs) {
 					t.Errorf("err = %v, want errors.Is %v", err, tt.wantIs)
+				}
+				if _, ok := errors.AsType[*wire.SyntaxError](err); ok != tt.syntax {
+					t.Errorf("errors.As *wire.SyntaxError = %t, want %t (err %v)", ok, tt.syntax, err)
 				}
 				return
 			}
@@ -955,12 +971,12 @@ func closest(want []string, got string) string {
 	return want[0]
 }
 
-// TestNestedRawJSONEncodesAsJSON checks ruling R57: RawJSON nested in a state
-// or in a body member's value, where sonic writes it through
-// RawJSON.MarshalJSON, is sent as the JSON it holds (validated, whitespace
-// kept), never as the base64 string a plain byte slice would give; a nil one
-// is null. A top-level *RawJSON takes the verbatim path of the RawJSON it
-// points to, and a nil one is refused.
+// TestNestedRawJSONEncodesAsJSON checks rulings R57 and R60: RawJSON nested in
+// a state or in a body member's value, where sonic writes it through
+// RawJSON.MarshalJSON, is sent as the JSON it holds (checked by wire's
+// scanner and compacted), never as the base64 string a plain byte slice
+// would give; a nil one is null. A top-level *RawJSON takes the verbatim path
+// of the RawJSON it points to, whitespace kept, and a nil one is refused.
 func TestNestedRawJSONEncodesAsJSON(t *testing.T) {
 	type holder struct {
 		R RawJSON  `json:"r"`
@@ -977,11 +993,12 @@ func TestNestedRawJSONEncodesAsJSON(t *testing.T) {
 		want    string // the body, when it encodes
 		wantErr string // a substring of the *InvalidRequestError message, when it does not
 		wantIs  error  // errors.Is target of a refusal, if any
-		sonic   bool   // the refusal comes from sonic (*codec.EncodeError)
+		sonic   bool   // the refusal comes through sonic (*codec.EncodeError)
+		syntax  bool   // the refusal is wire's scanner's (*wire.SyntaxError)
 	}{
-		"success: RawJSON in a map state, whitespace kept": {
+		"success: RawJSON in a map state, compacted": {
 			state: map[string]any{"r": raw},
-			want:  body(`{"r": {"a" : [1, null]} }`, ""),
+			want:  body(`{"r":{"a":[1,null]}}`, ""),
 		},
 		"success: RawJSON as a struct field and through a pointer field": {
 			state: holder{R: RawJSON(`[1,2]`), P: &four},
@@ -1009,21 +1026,38 @@ func TestNestedRawJSONEncodesAsJSON(t *testing.T) {
 			extra: []bodyMember{{"p", &four}},
 			want:  body(`"hi"`, `,"p":4`),
 		},
-		"error: invalid RawJSON nested in the state": {
+		"error: truncated RawJSON nested in the state": {
 			state:   map[string]any{"r": RawJSON(`{"a":`)},
-			wantErr: "state: ",
+			wantErr: "state: invalid JSON at byte 5: unexpected end of input, want a value",
 			sonic:   true,
+			syntax:  true,
+		},
+		// The complete but invalid outputs sonic's own check lets through
+		// under -race (K26): wire's scanner refuses them first (R60).
+		"error: complete but invalid RawJSON nested in the state": {
+			state:   holder{R: RawJSON(`[1 2]`)},
+			wantErr: `state: invalid JSON at byte 3: unexpected "2", want ',' or a closing bracket`,
+			sonic:   true,
+			syntax:  true,
+		},
+		"error: RawJSON with a trailing comma, nested through a pointer": {
+			state:   holder{P: new(RawJSON(`{"a":1,}`))},
+			wantErr: `state: invalid JSON at byte 7: unexpected "}", want a member name`,
+			sonic:   true,
+			syntax:  true,
 		},
 		"error: RawJSON with trailing data nested in an extra member": {
 			state:   "hi",
 			extra:   []bodyMember{{"cfg", []any{RawJSON(`1 2`)}}},
-			wantErr: `extra body member "cfg": `,
+			wantErr: `extra body member "cfg": invalid JSON at byte 2: unexpected "2" after the value`,
 			sonic:   true,
+			syntax:  true,
 		},
 		"error: nested RawJSON that is not UTF-8": {
 			state:   map[string]any{"r": RawJSON("\"\xff\"")},
-			wantErr: "state: string is not valid UTF-8",
-			wantIs:  wire.ErrInvalidUTF8,
+			wantErr: "state: invalid JSON at byte 1: invalid UTF-8 in a string",
+			sonic:   true,
+			syntax:  true,
 		},
 		"error: a nil *RawJSON state": {
 			state:   (*RawJSON)(nil),
@@ -1055,6 +1089,9 @@ func TestNestedRawJSONEncodesAsJSON(t *testing.T) {
 			}
 			if _, ok := errors.AsType[*codec.EncodeError](err); ok != tt.sonic {
 				t.Errorf("errors.As *codec.EncodeError = %t, want %t (err %v)", ok, tt.sonic, err)
+			}
+			if _, ok := errors.AsType[*wire.SyntaxError](err); ok != tt.syntax {
+				t.Errorf("errors.As *wire.SyntaxError = %t, want %t (err %v)", ok, tt.syntax, err)
 			}
 		})
 	}
@@ -1124,19 +1161,27 @@ func TestEncodeErrorMessageIsBounded(t *testing.T) {
 		cut      bool   // the message ends with the cut's U+2026
 		inCause  bool   // the payload is in the cause, which Unwrap keeps whole
 	}{
-		"error: 1 MiB of invalid JSON content nested in the state": {
+		// Nested JSON Content and RawJSON fail in wire's scanner (R60),
+		// whose message names a position and at most one byte of the input.
+		"error: 1 MiB of truncated JSON content nested in the state": {
 			state:    map[string]any{"c": JSON([]byte(`{"k":"` + payload + `"`))},
-			want:     "state: a MarshalJSON method returned invalid JSON (syntax error at position ",
+			want:     "state: invalid JSON at byte 1048579: unexpected end of input, want ',' or a closing bracket",
 			noSecret: true,
-			inCause:  true,
 		},
-		"error: 1 MiB of invalid RawJSON nested in the state": {
-			// Truncated, not a trailing comma: see the invalid nested JSON
-			// case of TestNestedContentEncodesAsContent.
-			state:    []any{RawJSON(`["` + payload + `"`)},
-			want:     "state: a MarshalJSON method returned invalid JSON (syntax error at position ",
+		"error: 1 MiB of JSON content with a trailing comma nested in the state": {
+			state:    map[string]any{"c": JSON([]byte(`{"k":"` + payload + `",}`))},
+			want:     `state: invalid JSON at byte 1048580: unexpected "}", want a member name`,
 			noSecret: true,
-			inCause:  true,
+		},
+		"error: 1 MiB of truncated RawJSON nested in the state": {
+			state:    []any{RawJSON(`["` + payload + `"`)},
+			want:     "state: invalid JSON at byte 1048575: unexpected end of input, want ',' or a closing bracket",
+			noSecret: true,
+		},
+		"error: 1 MiB of RawJSON with a trailing comma nested in the state": {
+			state:    []any{RawJSON(`["` + payload + `",]`)},
+			want:     `state: invalid JSON at byte 1048576: unexpected "]", want a value`,
+			noSecret: true,
 		},
 		"error: a 1 MiB invalid RawMessage-like state": {
 			state:    rawMessage(`{"k":"` + payload + `"`),

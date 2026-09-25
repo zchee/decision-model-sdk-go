@@ -31,23 +31,27 @@ import "github.com/zchee/typesafe-sdk-go/internal/wire"
 // valid JSON value is then the caller's contract. A *RawJSON there is sent
 // as the RawJSON it points to; a nil one is refused. Nested inside a state
 // or a member's value (a map value, a struct field, a slice element, through
-// a pointer too), it is written by [RawJSON.MarshalJSON]: validated by the
-// encoder, not compacted. A member name repeated inside an object
+// a pointer too), it is written by [RawJSON.MarshalJSON]: checked and written
+// without its insignificant whitespace, as a question field is. A member name repeated inside an object
 // (`{"a":1,"a":2}`) is passed through unchanged, which a Python dict cannot
 // produce; the server decides which one counts.
 type RawJSON []byte
 
-// MarshalJSON returns r as it is, or null when r is nil, as
-// json.RawMessage does, so that RawJSON nested inside a state or a request
-// body member is sent as the JSON it holds, never as a base64 string. The
-// encoder validates the bytes and keeps their whitespace. r is returned, not
-// copied, so nested RawJSON costs no more than a string field of the same
-// size.
+// MarshalJSON returns r without its insignificant whitespace, or null when r
+// is nil, as json.RawMessage does, so that RawJSON nested inside a state or a
+// request body member is sent as the JSON it holds, never as a base64
+// string. It fails when r is not exactly one valid JSON value, checked by the
+// same scanner as a question's JSON, so that invalid JSON never reaches the
+// network (ruling R60); the encoder checks the result a second time.
+//
+// Nested RawJSON costs one scan and one copy of its bytes per call. A
+// RawJSON that is the state itself, or an extra body member's whole value, is
+// sent as it is and costs neither.
 func (r RawJSON) MarshalJSON() ([]byte, error) {
 	if r == nil {
 		return []byte("null"), nil
 	}
-	return r, nil
+	return wire.AppendJSON(make([]byte, 0, len(r)), r)
 }
 
 // Content is text, or a JSON object or array: what the API accepts as a
@@ -98,44 +102,26 @@ func (c Content) Text() string { return c.w.Text }
 // unset. The slice is shared: callers must not modify it.
 func (c Content) JSON() RawJSON { return c.w.JSON }
 
-// MarshalJSON returns c as a JSON value, so that Content nested inside a
-// state or a request body member, such as a map[string]any value or a
-// struct field, is sent as content rather than as an empty object: text as
-// a JSON string, escaped as the questions are; JSON content as the bytes it
-// holds, which the encoder then validates (they are not compacted); unset
-// Content as null. It fails when the text is not valid UTF-8, or when the
-// JSON's first byte other than whitespace does not open an object or an
-// array.
+// MarshalJSON returns c as a JSON value, written as a question writes it, so
+// that Content nested inside a state or a request body member, such as a
+// map[string]any value or a struct field, is sent as content rather than as
+// an empty object: text as a JSON string, escaped as the questions are; JSON
+// content checked and without its insignificant whitespace; unset Content as
+// null. It fails when the text is not valid UTF-8, or when the JSON content
+// is not a single valid JSON object or array, so that invalid JSON never
+// reaches the network (ruling R60); the encoder checks the result a second
+// time.
 //
-// Nested text costs one copy of the text per call: the escaped text is built
-// in a new slice for the encoder, where a string field is written straight
-// into the body. JSON content is returned without a copy, and a Content that
-// is the state itself, or an extra body member's whole value, takes a path
-// that copies nothing. For large text, prefer a string field or a top-level
-// Content.
+// Nested content costs one copy per call, and JSON content one scan too: it
+// is built in a new slice for the encoder, where a string field is written
+// straight into the body. A Content that is the state itself, or an extra
+// body member's whole value, is written into the body without the copy. For
+// large values, prefer a string field or a top-level Content.
 func (c Content) MarshalJSON() ([]byte, error) {
-	switch {
-	case !c.set:
+	if !c.set {
 		return []byte("null"), nil
-	case c.w.IsJSON():
-		if i := firstNonSpace(c.w.JSON); i == len(c.w.JSON) || c.w.JSON[i] != '{' && c.w.JSON[i] != '[' {
-			return nil, wire.ErrContentShape
-		}
-		return c.w.JSON, nil
-	default:
-		return wire.AppendString(make([]byte, 0, len(c.w.Text)+2), c.w.Text)
 	}
-}
-
-// firstNonSpace returns the offset of the first byte of b that is not JSON
-// whitespace, or len(b).
-func firstNonSpace(b []byte) int {
-	for i, c := range b {
-		if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
-			return i
-		}
-	}
-	return len(b)
+	return wire.AppendContent(make([]byte, 0, len(c.w.Text)+len(c.w.JSON)+2), c.w)
 }
 
 // orNil returns the content to write, or nil when c is unset.
