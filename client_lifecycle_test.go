@@ -1,0 +1,405 @@
+// Copyright 2026 The typesafe-sdk-go Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package typesafe
+
+import (
+	"context"
+	"errors"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	gocmp "github.com/google/go-cmp/cmp"
+
+	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
+)
+
+// apiHandler serves the two API endpoints under any path prefix: the
+// upstream RESULT for POST .../v1/systemone and models.json for GET
+// .../v1/models.
+func apiHandler(t *testing.T) http.Handler {
+	t.Helper()
+	result := testsupport.Fixture(t, "result.json")
+	models := testsupport.Fixture(t, "models.json")
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, systemOnePath):
+			_, _ = w.Write(result)
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, modelsPath):
+			_, _ = w.Write(models)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+// closingRT is a caller's RoundTripper that implements io.Closer and counts
+// its Close calls.
+type closingRT struct {
+	rt     http.RoundTripper
+	closes atomic.Int32
+}
+
+func (c *closingRT) RoundTrip(req *http.Request) (*http.Response, error) { return c.rt.RoundTrip(req) }
+
+func (c *closingRT) Close() error {
+	c.closes.Add(1)
+	return nil
+}
+
+// TestSystemOneOverHTTP2 runs the client over the SDK's own transport and a
+// real TLS connection to the loopback server (WithRootCAs trusts its
+// certificate): WarmUp and three calls go on one HTTP/2 connection (Stats
+// counts one dial and four attempts), under a base URL's path prefix, with
+// the SDK's headers on the wire and no X-TypeSafe-Retry-Count (C15's wire
+// half).
+func TestSystemOneOverHTTP2(t *testing.T) {
+	srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: apiHandler(t)})
+	clearEnv(t)
+	c, err := NewClient(WithAPIKey(testKey), WithBaseURL(srv.URL()+"/prefix///"), WithRootCAs(testsupport.RootCAs(t)))
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	if err := c.WarmUp(t.Context()); err != nil {
+		t.Fatalf("WarmUp: %v", err)
+	}
+	for range 3 {
+		resp, err := c.SystemOne(t.Context(), map[string]any{"document": "Hello 🌍"}, q3Questions(t))
+		if err != nil {
+			t.Fatalf("SystemOne: %v", err)
+		}
+		if n, ok := resp.Answers().Noul("spam"); !ok || n.Noul() != 0.98 {
+			t.Errorf(`Answers().Noul("spam") = %v, %t`, n.Noul(), ok)
+		}
+	}
+	if diff := gocmp.Diff(Stats{Dials: 1, Attempts: 4}, c.Stats()); diff != "" {
+		t.Errorf("Stats (-want +got):\n%s", diff)
+	}
+	if srv.Accepts() != 1 {
+		t.Errorf("the server accepted %d connections, want 1", srv.Accepts())
+	}
+	type seen struct{ Proto, Method, Path, Authorization, ContentType, RetryCount string }
+	var got []seen
+	for _, r := range srv.Requests() {
+		got = append(got, seen{r.Proto, r.Method, r.Path, r.Header.Get("Authorization"), r.Header.Get("Content-Type"), r.Header.Get(headerRetryCount)})
+	}
+	post := seen{"HTTP/2.0", http.MethodPost, "/prefix/v1/systemone", "Bearer " + testKey, "application/json", ""}
+	want := []seen{{"HTTP/2.0", http.MethodGet, "/prefix/v1/models", "Bearer " + testKey, "", ""}, post, post, post}
+	if diff := gocmp.Diff(want, got); diff != "" {
+		t.Errorf("requests on the wire (-want +got):\n%s", diff)
+	}
+}
+
+// TestCallerTransportKeepsItsSettings ports test_http_client_settings (C16)
+// to WithHTTPTransport: the client works over a clone of the caller's
+// *http.Transport, so the requests go through the caller's dialer and TLS
+// configuration and carry the SDK's headers, while the caller's transport
+// is neither used nor changed. Close closes the clone's idle connection.
+func TestCallerTransportKeepsItsSettings(t *testing.T) {
+	srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: apiHandler(t)})
+	var dials atomic.Int32
+	dialer := &net.Dialer{}
+	tlsConfig := testsupport.ClientTLSConfig(t)
+	tr := &http.Transport{
+		TLSClientConfig:   tlsConfig,
+		ForceAttemptHTTP2: true,
+		MaxIdleConns:      7,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			dials.Add(1)
+			return dialer.DialContext(ctx, network, addr)
+		},
+	}
+	clearEnv(t)
+	c, err := NewClient(WithAPIKey(testKey), WithHTTPTransport(tr), WithBaseURL(srv.URL()), WithHeader("X-Sdk-Default", "sdk"), WithHeader("X-Call", "sdk"))
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	models, err := c.Models().List(t.Context(), Header("X-Call", "call"))
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(models.Models()) != 1 {
+		t.Errorf("List returned %d models, want 1", len(models.Models()))
+	}
+	if _, err := c.SystemOne(t.Context(), "x", noulQuestion(t), Header("X-Call", "call")); err != nil {
+		t.Fatalf("SystemOne: %v", err)
+	}
+	var methods []string
+	for _, r := range srv.Requests() {
+		methods = append(methods, r.Method)
+		if r.Header.Get("Authorization") != "Bearer "+testKey || r.Header.Get("X-Sdk-Default") != "sdk" || r.Header.Get("X-Call") != "call" {
+			t.Errorf("%s headers %v, want the SDK's Authorization, X-Sdk-Default: sdk and X-Call: call", r.Method, r.Header)
+		}
+	}
+	if diff := gocmp.Diff([]string{http.MethodGet, http.MethodPost}, methods); diff != "" {
+		t.Errorf("methods (-want +got):\n%s", diff)
+	}
+	if tr.TLSClientConfig != tlsConfig || tr.MaxIdleConns != 7 || tr.Proxy != nil || !tr.ForceAttemptHTTP2 || tr.MaxConnsPerHost != 0 {
+		t.Errorf("the caller's transport changed: TLS %p (want %p), MaxIdleConns %d, Proxy set %t, MaxConnsPerHost %d", tr.TLSClientConfig, tlsConfig, tr.MaxIdleConns, tr.Proxy != nil, tr.MaxConnsPerHost)
+	}
+	if n := dials.Load(); n != 1 {
+		t.Errorf("the caller's dialer ran %d times, want 1", n)
+	}
+	if diff := gocmp.Diff(Stats{Dials: 1, Attempts: 2}, c.Stats()); diff != "" {
+		t.Errorf("Stats (-want +got):\n%s", diff)
+	}
+	if err := c.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for len(srv.LiveH2Conns()) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("%d connections still open 5 s after Close, want 0", len(srv.LiveH2Conns()))
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// TestCloseClosesSuppliedTransport ports test_supplied_network_resources_closed
+// (C17, AC-F9): Close calls Close once on a WithRoundTripper transport that
+// is an io.Closer, however often the client is closed; a call after Close
+// fails with a *ConfigError that wraps ErrClientClosed and says the client
+// is closed. A WithHTTPTransport clone's idle connections close at Close
+// (TestCallerTransportKeepsItsSettings).
+func TestCloseClosesSuppliedTransport(t *testing.T) {
+	tests := map[string]struct {
+		rt     func(*testsupport.Recorder) http.RoundTripper
+		closes func(http.RoundTripper) int
+	}{
+		"success: an io.Closer is closed once": {
+			rt:     func(rec *testsupport.Recorder) http.RoundTripper { return rec },
+			closes: func(rt http.RoundTripper) int { return rt.(*testsupport.Recorder).Closes() },
+		},
+		"success: an io.Closer wrapper is closed once": {
+			rt:     func(rec *testsupport.Recorder) http.RoundTripper { return &closingRT{rt: rec} },
+			closes: func(rt http.RoundTripper) int { return int(rt.(*closingRT).closes.Load()) },
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			rec := replying(http.StatusOK, []byte(`{"models":[]}`))
+			rt := tt.rt(rec)
+			c := newTestClient(t, rt)
+			if _, err := c.Models().List(t.Context()); err != nil {
+				t.Fatalf("List: %v", err)
+			}
+			for range 2 {
+				if err := c.Close(); err != nil {
+					t.Fatalf("Close: %v", err)
+				}
+			}
+			if n := tt.closes(rt); n != 1 {
+				t.Errorf("the transport was closed %d times, want 1", n)
+			}
+			_, err := c.Models().List(t.Context())
+			if _, ok := errors.AsType[*ConfigError](err); !ok || !errors.Is(err, ErrClientClosed) || !strings.Contains(err.Error(), "closed") {
+				t.Errorf("List after Close = %v, want a *ConfigError wrapping ErrClientClosed", err)
+			}
+			if rec.Count() != 1 {
+				t.Errorf("the transport saw %d requests, want 1", rec.Count())
+			}
+		})
+	}
+}
+
+// TestCloseClosesOwnedTransport ports test_owned_http_client_closed (C18):
+// the transport a client builds has the default 10 s timeout, and Close
+// closes its idle connection.
+func TestCloseClosesOwnedTransport(t *testing.T) {
+	var mu sync.Mutex
+	states := map[http.ConnState]int{}
+	srv := httptest.NewUnstartedServer(apiHandler(t))
+	srv.Config.ConnState = func(_ net.Conn, st http.ConnState) {
+		mu.Lock()
+		states[st]++
+		mu.Unlock()
+	}
+	srv.Start()
+	t.Cleanup(srv.Close)
+	clearEnv(t)
+	c, err := NewClient(WithAPIKey(testKey), WithBaseURL(srv.URL))
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	if c.cfg.transport.gate == nil || c.cfg.timeout != DefaultTimeout {
+		t.Errorf("SDK transport %t, timeout %v, want the SDK's own transport and %v", c.cfg.transport.gate != nil, c.cfg.timeout, DefaultTimeout)
+	}
+	if _, err := c.Models().List(t.Context()); err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if err := c.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		mu.Lock()
+		closed := states[http.StateClosed]
+		mu.Unlock()
+		if closed == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the server saw %d closed connections 5 s after Close, want 1", closed)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if _, err := c.Models().List(t.Context()); !errors.Is(err, ErrClientClosed) {
+		t.Errorf("List after Close = %v, want ErrClientClosed", err)
+	}
+}
+
+// TestCloseAfterFailedCall ports test_exceptional_context_closes_http_client
+// (C19): a call whose transport fails returns an error that wraps the
+// transport's own (a caller's error, and a cancellation), and Close then
+// closes the supplied transport once.
+func TestCloseAfterFailedCall(t *testing.T) {
+	failure := errors.New("original failure")
+	for name, cause := range map[string]error{"error: a transport failure": failure, "error: a cancellation": context.Canceled} {
+		t.Run(name, func(t *testing.T) {
+			rec := &testsupport.Recorder{Replies: []testsupport.Reply{{Err: cause}}}
+			c := newTestClient(t, rec)
+			_, err := c.Models().List(t.Context())
+			if !errors.Is(err, cause) {
+				t.Fatalf("List error = %v, want one wrapping %v", err, cause)
+			}
+			if err := c.Close(); err != nil {
+				t.Fatalf("Close: %v", err)
+			}
+			if rec.Closes() != 1 {
+				t.Errorf("the transport was closed %d times, want 1", rec.Closes())
+			}
+		})
+	}
+}
+
+// TestCancelInFlightRequest ports test_task_cancellation_closes_context
+// (C20)'s client half: cancelling the context of a call whose request is in
+// flight ends it after one attempt with an error that wraps
+// context.Canceled, and Close then closes the transport once. The error's
+// type is W2.5's classification.
+func TestCancelInFlightRequest(t *testing.T) {
+	started := make(chan struct{})
+	rt := &closingRT{rt: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		close(started)
+		<-req.Context().Done()
+		return nil, req.Context().Err()
+	})}
+	c := newTestClient(t, rt)
+	ctx, cancel := context.WithCancel(t.Context())
+	errc := make(chan error, 1)
+	go func() {
+		_, err := c.SystemOne(ctx, "x", noulQuestion(t))
+		errc <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the request did not reach the transport within 5 s")
+	}
+	cancel()
+	var err error
+	select {
+	case err = <-errc:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the call did not return within 5 s of the cancellation")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("SystemOne error = %v, want one wrapping context.Canceled", err)
+	}
+	if n := c.Stats().Attempts; n != 1 {
+		t.Errorf("Stats().Attempts = %d, want 1", n)
+	}
+	if err := c.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if n := rt.closes.Load(); n != 1 {
+		t.Errorf("the transport was closed %d times, want 1", n)
+	}
+}
+
+// TestCancelledContextMakesOneAttempt ports test_cancellation_propagates
+// (C21)'s client half: a call under a cancelled context makes one attempt,
+// which the transport ends at once, and returns an error that wraps
+// context.Canceled. The error's type is W2.5's classification.
+func TestCancelledContextMakesOneAttempt(t *testing.T) {
+	rec := replying(http.StatusOK, []byte(`{"models":[]}`))
+	c := newTestClient(t, rec)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err := c.Models().List(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("List error = %v, want one wrapping context.Canceled", err)
+	}
+	if rec.Count() != 1 || c.Stats().Attempts != 1 {
+		t.Errorf("the transport saw %d requests and Stats counts %d attempts, want 1 and 1", rec.Count(), c.Stats().Attempts)
+	}
+}
+
+// TestZeroClientRefused checks that a Client NewClient did not build fails
+// every call and Close with a *ConfigError, and counts nothing.
+func TestZeroClientRefused(t *testing.T) {
+	var c Client
+	var nilClient *Client
+	for name, fn := range map[string]func() error{
+		"SystemOne": func() error { _, err := c.SystemOne(t.Context(), "x", noulQuestion(t)); return err },
+		"List":      func() error { _, err := c.Models().List(t.Context()); return err },
+		"WarmUp":    func() error { return c.WarmUp(t.Context()) },
+		"Close":     c.Close,
+		"nil Close": nilClient.Close,
+	} {
+		if _, ok := errors.AsType[*ConfigError](fn()); !ok {
+			t.Errorf("%s on a zero Client: want a *ConfigError", name)
+		}
+	}
+	if diff := gocmp.Diff(Stats{}, nilClient.Stats()); diff != "" {
+		t.Errorf("Stats of a nil Client (-want +got):\n%s", diff)
+	}
+}
+
+// TestConcurrentCalls runs calls from many goroutines on one client, under
+// -race in CI: they share the header template and the endpoint URL, which
+// no call writes, and each gets its own answers.
+func TestConcurrentCalls(t *testing.T) {
+	rec := &testsupport.Recorder{Discard: true, Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, testsupport.Fixture(t, "result.json"))}}
+	c := newTestClient(t, rec)
+	qs := q3Questions(t)
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Go(func() {
+			for range 8 {
+				resp, err := c.SystemOne(t.Context(), map[string]any{"k": "v"}, qs)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				if p, ok := resp.Answers().Choice("tone"); !ok || p.Choice() != "friendly" {
+					t.Errorf("tone = %q, %t", p.Choice(), ok)
+				}
+			}
+		})
+	}
+	wg.Wait()
+	if n := c.Stats().Attempts; n != 16*8 {
+		t.Errorf("Stats().Attempts = %d, want %d", n, 16*8)
+	}
+}
