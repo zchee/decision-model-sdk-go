@@ -151,13 +151,14 @@ jobs:
         run: go test -count=1 ./internal/codec/ ./internal/wire/ ./internal/testsupport/
 
       # The root package's pinned Prepare counts (ruling R50), the request
-      # body's NF1 counts (W1.2), and the decode budgets of AC-P2 and AC-P8
-      # (W2.0); W5.2 folds the names into the ALLOC list above and this step
-      # into its own.
+      # body's NF1 counts (W1.2), the decode budgets of AC-P2 and AC-P8
+      # (W2.0), and the whole call's AC-P6 and AC-P5 budgets (W2.3); W5.2
+      # folds the names into the ALLOC list above and this step into its
+      # own.
       - name: go test without -race (root allocation tests)
         run: |
-          test "$(go test -list '^(TestAllocPrepare|TestAllocBodyKinds|TestAllocDecodeFixtures|TestLinearityFlood)$' . | grep -c '^Test')" -eq 4
-          go test -count=1 -run '^(TestAllocPrepare|TestAllocBodyKinds|TestAllocDecodeFixtures|TestLinearityFlood)$' -v .
+          test "$(go test -list '^(TestAllocPrepare|TestAllocBodyKinds|TestAllocDecodeFixtures|TestLinearityFlood|TestAllocWholeCall|TestMemStatsCap)$' . | grep -c '^Test')" -eq 6
+          go test -count=1 -run '^(TestAllocPrepare|TestAllocBodyKinds|TestAllocDecodeFixtures|TestLinearityFlood|TestAllocWholeCall|TestMemStatsCap)$' -v .
 
       # OIDC authentication: the action exchanges the job's id-token (hence
       # `id-token: write` above) and ignores any token input. It needs the Codecov
