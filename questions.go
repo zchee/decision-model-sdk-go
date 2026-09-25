@@ -84,6 +84,9 @@ type Score struct {
 // map[string]any, map[string]string, [Content] (unset Content is null) or
 // [RawJSON], nested in maps and slices to any depth up to 1000 levels. Map
 // members are sent in sorted key order, as a Go map has no order of its own.
+// A value of any other type, such as []int, a named string type or a struct,
+// makes Prepare fail: encode it first and pass the bytes as [RawJSON], which
+// is checked and sent without its insignificant whitespace but never decoded.
 //
 // [Questions.Prepare] applies the checks the Python SDK applies to a raw
 // question: a "choice" or "score" has a "criteria" field, and a "score"'s
