@@ -32,9 +32,9 @@ import "github.com/zchee/typesafe-sdk-go/internal/wire"
 // as the RawJSON it points to; a nil one is refused. Nested inside a state
 // or a member's value (a map value, a struct field, a slice element, through
 // a pointer too), it is written by [RawJSON.MarshalJSON]: checked and written
-// without its insignificant whitespace, as a question field is. A member name repeated inside an object
-// (`{"a":1,"a":2}`) is passed through unchanged, which a Python dict cannot
-// produce; the server decides which one counts.
+// without its insignificant whitespace, as a question field is. A member name
+// repeated inside an object (`{"a":1,"a":2}`) is passed through unchanged,
+// which a Python dict cannot produce; the server decides which one counts.
 type RawJSON []byte
 
 // MarshalJSON returns r without its insignificant whitespace, or null when r

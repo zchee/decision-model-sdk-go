@@ -73,6 +73,12 @@ const (
 // R59); the body of one call, and so every attempt of it, is encoded once. A
 // struct or RawJSON gives stable bytes.
 //
+// The output of a caller's json.Marshaler, a nested json.RawMessage among
+// them, is the caller's contract, as a top-level RawJSON is (ruling R61):
+// sonic's check of it does not refuse every invalid output (K26), while the
+// SDK's own nested Content and RawJSON go through wire's scanner (R60), and
+// the body is not scanned again as a whole.
+//
 // It fails with a [*ConfigError] when qs is nil or holds no question (a
 // Prepared that [Questions.Prepare] did not return), or when model is not
 // valid UTF-8, and with an [*InvalidRequestError] when a member cannot be

@@ -198,6 +198,25 @@ func TestEncodeState(t *testing.T) {
 		"error: marshaler number":          {state: scalarMarshaler{}, err: errShape, wantText: "a number"},
 		"error: []byte":                    {state: []byte(`{"a":1}`), err: errBytes, wantText: "a plain []byte is ambiguous"},
 		"error: a named byte slice (R59b)": {state: blob(`{"a":1}`), err: errBytes, wantText: "a plain []byte is ambiguous: codec.blob is a byte slice"},
+		"error: a pointer to a []byte (NIT C)": {
+			state:    new([]byte(`{"a":1}`)),
+			err:      errBytes,
+			wantText: "a plain []byte is ambiguous: *[]uint8 points to a byte slice",
+		},
+		"error: a pointer to a named byte slice (NIT C)": {
+			state:    new(blob(`{"a":1}`)),
+			err:      errBytes,
+			wantText: "*codec.blob points to a byte slice",
+		},
+		"error: a nil pointer to a byte slice (NIT C)": {
+			state:    (*blob)(nil),
+			err:      errShape,
+			wantText: "nil *codec.blob holds no value, not a string, an array or an object",
+		},
+		"success: a pointer to json.RawMessage passes": {
+			state: new(json.RawMessage(`{"a":1}`)),
+			want:  `{"a":1}`,
+		},
 		"success: a byte slice with MarshalText is its text": {state: net.IPv4(192, 0, 2, 1), want: `"192.0.2.1"`},
 		"success: a nested []byte is base64 (R49 deviation)": {state: map[string]any{"b": []byte("hi")}, want: `{"b":"aGk="}`},
 		"error: NaN":                      {state: []any{math.NaN()}, err: errEncode, wantText: "NaN"},
@@ -245,11 +264,21 @@ func TestEncodeValue(t *testing.T) {
 		"success: a nested []byte as base64 (R56 deviation)": {value: map[string]any{"b": []byte("hi")}, want: `{"b":"aGk="}`},
 		"error: a plain []byte (R56)":                        {value: []byte("hi"), err: errBytes, wantText: "a plain []byte is ambiguous"},
 		"error: a named byte slice (R59b)":                   {value: blob("hi"), err: errBytes, wantText: "codec.blob is a byte slice"},
-		"success: a nested named byte slice as base64":       {value: []any{blob("hi")}, want: `["aGk="]`},
-		"success: json.RawMessage":                           {value: json.RawMessage(`null`), want: `null`},
-		"error: NaN":                                         {value: math.NaN(), err: errEncode, wantText: "NaN"},
-		"error: channel":                                     {value: make(chan int), err: errEncode, wantText: "chan int"},
-		"error: invalid UTF-8 string":                        {value: "\xff", err: errUTF8},
+		"error: a pointer to a named byte slice (NIT C)": {
+			value:    new(blob("hi")),
+			err:      errBytes,
+			wantText: "*codec.blob points to a byte slice",
+		},
+		"error: a nil pointer to a byte slice (NIT C)": {
+			value:    (*[]byte)(nil),
+			err:      errRaw,
+			wantText: "nil *[]uint8 holds no value, not a JSON value",
+		},
+		"success: a nested named byte slice as base64": {value: []any{blob("hi")}, want: `["aGk="]`},
+		"success: json.RawMessage":                     {value: json.RawMessage(`null`), want: `null`},
+		"error: NaN":                                   {value: math.NaN(), err: errEncode, wantText: "NaN"},
+		"error: channel":                               {value: make(chan int), err: errEncode, wantText: "chan int"},
+		"error: invalid UTF-8 string":                  {value: "\xff", err: errUTF8},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {

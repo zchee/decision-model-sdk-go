@@ -103,10 +103,16 @@ func (e *EncodeError) Unwrap() error { return e.Err }
 // iteration order, which changes from one encode to the next (ruling R55):
 // a struct or raw JSON gives stable bytes.
 //
+// The output of a json.Marshaler in the state, such as a nested
+// json.RawMessage, is checked only by sonic, whose check does not refuse
+// every invalid output (K26); that it is valid JSON is the caller's
+// contract, as for raw JSON appended with [AppendRawState] (ruling R61). The
+// state is not scanned again as a whole.
+//
 // On failure *buf keeps its length from before the call. The checks cost one
 // pass over the encoded bytes and allocate nothing.
 func EncodeState(buf *[]byte, state any) error {
-	if err := plainBytes(state); err != nil {
+	if err := plainBytes(state, ErrStateShape); err != nil {
 		return err
 	}
 	start := len(*buf)
@@ -146,7 +152,7 @@ func EncodeState(buf *[]byte, state any) error {
 // Go's iteration order. Raw JSON appended with [AppendRawValue], or a number
 // carried as a string, keeps an exact spelling.
 func EncodeValue(buf *[]byte, v any) error {
-	if err := plainBytes(v); err != nil {
+	if err := plainBytes(v, ErrRawValue); err != nil {
 		return err
 	}
 	start := len(*buf)
@@ -204,19 +210,42 @@ var (
 )
 
 // plainBytes returns [ErrPlainBytes] when sonic would send v as a base64
-// string: v is a []byte, or a value of another type whose kind is a slice of
+// string: v is a []byte, a value of another type whose kind is a slice of
 // uint8 (type blob []byte) and which has no MarshalJSON or MarshalText
-// method (json.RawMessage and net.IP have one and pass). It allocates
-// nothing unless it refuses (ruling R59b).
-func plainBytes(v any) error {
+// method (json.RawMessage and net.IP have one and pass), or a non-nil
+// pointer to either (*[]byte, *blob) without such a method of its own. A nil
+// pointer to one is refused as holding no value, with nilErr: the state's
+// [ErrStateShape] or a member's [ErrRawValue]. It allocates nothing unless
+// it refuses (rulings R59b and R59c's NIT C).
+func plainBytes(v any, nilErr error) error {
 	if _, ok := v.([]byte); ok {
 		return ErrPlainBytes
 	}
 	t := reflect.TypeOf(v)
-	if t == nil || t.Kind() != reflect.Slice || t.Elem().Kind() != reflect.Uint8 || t.Implements(marshalerType) || t.Implements(textMarshalerType) {
+	if t == nil || marshals(t) {
 		return nil
 	}
-	return fmt.Errorf("%w: %s is a byte slice", ErrPlainBytes, t)
+	if byteSlice(t) {
+		return fmt.Errorf("%w: %s is a byte slice", ErrPlainBytes, t)
+	}
+	if t.Kind() != reflect.Pointer || !byteSlice(t.Elem()) || marshals(t.Elem()) {
+		return nil
+	}
+	if reflect.ValueOf(v).IsNil() {
+		return fmt.Errorf("nil %s holds no value, %w", t, nilErr)
+	}
+	return fmt.Errorf("%w: %s points to a byte slice", ErrPlainBytes, t)
+}
+
+// byteSlice reports whether t's kind is a slice of uint8.
+func byteSlice(t reflect.Type) bool {
+	return t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.Uint8
+}
+
+// marshals reports whether t has a MarshalJSON or MarshalText method, through
+// which sonic writes a value of t as something other than base64.
+func marshals(t reflect.Type) bool {
+	return t.Implements(marshalerType) || t.Implements(textMarshalerType)
 }
 
 // skipSpace returns the offset of the first byte of b that is not JSON

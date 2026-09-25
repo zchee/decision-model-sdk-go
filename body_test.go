@@ -525,6 +525,23 @@ func TestUnencodableBodyFailsBeforeNetwork(t *testing.T) {
 			want:    []string{`extra body member "b": a plain []byte is ambiguous: typesafe.blob is a byte slice; send string(b)`},
 			isCause: codec.ErrPlainBytes,
 		},
+		"error: a pointer to a []byte state (NIT C)": {
+			state:   new([]byte(`{"a":1}`)),
+			want:    []string{"state: a plain []byte is ambiguous: *[]uint8 points to a byte slice; send string(b) for text or RawJSON(b) for JSON"},
+			isCause: codec.ErrPlainBytes,
+		},
+		"error: a pointer to a named byte slice extra member (NIT C)": {
+			state:   "x",
+			extra:   []bodyMember{{"p", new(blob("hi"))}},
+			want:    []string{`extra body member "p": a plain []byte is ambiguous: *typesafe.blob points to a byte slice; send string(b)`},
+			isCause: codec.ErrPlainBytes,
+		},
+		"error: a nil pointer to a byte slice extra member (NIT C)": {
+			state:   "x",
+			extra:   []bodyMember{{"p", (*blob)(nil)}},
+			want:    []string{`extra body member "p": nil *typesafe.blob holds no value, not a JSON value`},
+			isCause: codec.ErrRawValue,
+		},
 		"error: a []byte extra member (R56)": {
 			state:   "x",
 			extra:   []bodyMember{{"blob", []byte("hi")}},
