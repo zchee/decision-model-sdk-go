@@ -39,4 +39,7 @@ jobs:
           CODSPEED_PERF_UNWINDING_MODE: fp
         with:
           mode: walltime
-          run: go test -bench=. -run '^$' ./...
+          # The CodSpeed Go runner accepts only -bench and runs benchmarks only.
+          # It drops -run but keeps its value as a package pattern, so
+          # `-run '^$'` fails with: malformed import path "^$".
+          run: go test -bench=. ./...
