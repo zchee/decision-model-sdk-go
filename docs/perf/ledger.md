@@ -83,6 +83,7 @@ experiment set are in [`../support.md`](../support.md#measurement-rule).
 | W1.3-03 | 2026-09-25 21:51:01 JST | W1.3 `Prepare()` allocation call sites | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 4.38 → 4.38 | `GOEXPERIMENT=nosimd,noruntimesecret sh _spikes/w1.3/breakdown.sh "$PWD" $SP/bench.lock $O/breakdown-M-base95f3e4c.txt <tmpdir>` | memprofile traces at rate 1 per case; [W1.3 findings](#w13-findings) item 3 | base 95f3e4c; the script (committed with the results) takes the lock itself; `results/breakdown-M-base95f3e4c.txt` |
 | W1.3-04 | 2026-09-25 12:49:07 UTC | W1.3 `Prepare()` allocations | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.04 → 0.04 | `BASE=$BASE sh $R '(L)' $O /tmp/ts-spike/bench.lock alloc-L-base95f3e4c -count=1 -run '^TestAllocPrepare$' -v .` | identical to W1.3-01 in every malloc and byte count and every prepared length | base 95f3e4c; `results/alloc-L-base95f3e4c.txt` |
 | W1.3-05 | 2026-09-25 12:49:08 UTC | W1.3 `Prepare()` ns/op | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.04 → 0.63 | `BASE=$BASE MAXLOAD=44 sh $R '(L)' $O /tmp/ts-spike/bench.lock bench-L-base95f3e4c -run '^$' -bench '^Benchmark(Prepare\|FalsyJSON)$' -benchmem -count=5 .` | sketch 1.155 µs, one noul 180.2 ns, 20×10 choices 20.28 µs, 20×8 text scores 16.09 µs, 20×8 JSON scores 44.48 µs, 100 raw 133.7 µs, escapes 5.384 µs (medians of 5); `falsyJSON` on the array 2.089 µs; [W1.3 tables](#w13-tables) | base 95f3e4c; `results/bench-L-base95f3e4c.txt`, `results/benchstat-L-base95f3e4c.txt` |
+| W1.2-01 | 2026-09-25 22:04:45 JST | W1.2 R48 | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 7.43 → 7.59 | `flock bench.lock GOEXPERIMENT=nosimd,noruntimesecret go test -run '^$' -bench '^BenchmarkEncodeState$' -benchmem -count=10 ./internal/codec/` | medians of 10, check / encode: ASCII 1 KiB 17.74 ns / 150.6 ns (11.8 %), 64 KiB 828.7 ns / 4.728 µs (17.5 %), 6 MiB 81.85 µs / 445.0 µs (18.4 %); CJK 1 KiB 426.5 ns / 555.8 ns (76.7 %), 64 KiB 27.31 µs / 30.96 µs (88.2 %), 6 MiB 2.618 ms / 2.964 ms (88.3 %); every ± ≤ 2 %. The pass reads 52.1–73.6 GiB/s on ASCII and 2.21–2.24 GiB/s on CJK, and allocates nothing (`encode` 1 alloc/op, sonic's) | Against the AC-P6 time clause (q3 `call/sdk` 4.647 µs against `call/naive` 8.968 µs, W0.5-04), the pass adds 18 ns to a 1 KiB ASCII state (0.4 % of `call/sdk`) and 427 ns to a 1 KiB CJK state (9.2 %); the clause holds either way. On CJK text the pass costs about 7.6 × sonic's own encode (2.618 ms against 0.346 ms at 6 MiB). Base b227e5b plus the W1.2 working tree |
 
 ## W0.4 transport spikes (S-T1 to S-T5b, F1)
 
@@ -1947,3 +1948,16 @@ The estimates are arithmetic on the call-site table, not measurements.
 | `small-14B` | 27.90 ns ± 0.55 ns | 48.06 ns ± 0.25 ns | 0 | 0 |
 | `array` | 1.194 µs ± 0.043 µs | 2.089 µs ± 0.006 µs | 2 560 | 6 |
 | `map` | 978.0 ns ± 24.9 ns | 1.769 µs ± 0.007 µs | 2 432 | 6 |
+
+## W1.2: the request state's UTF-8 pass (R48)
+
+Ruling R48 makes `codec.EncodeState` refuse a state whose encoding is not
+valid UTF-8, with one `utf8.Valid` pass over the encoded state bytes after
+sonic's encode (sonic's options 0 copy a Go string's bytes as they are). The
+row measures that pass next to the whole state encode it belongs to, for a
+text state of ASCII and of CJK text (three-byte runes, which leave
+`utf8.Valid`'s ASCII fast path), at the three sizes the ruling names.
+`encode` is `EncodeState` into a pooled scratch, the pass included; `check`
+is the pass alone over the same encoded bytes. The benchmark is
+`BenchmarkEncodeState` in `internal/codec/encode_bench_test.go`; the run held
+the bench lock. The row is [W1.2-01](#rows).

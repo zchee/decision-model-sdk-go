@@ -24,8 +24,10 @@
 // sonic, unsafe and every JSON library out of the other packages and checks
 // the two build constraints file by file.
 //
-// The package holds the request body's scratch pool ([Body]), the per-string
-// check the response decoder runs ([ValidString]) and the encoder's
-// [Pretouch] hook. The production encoder and decoder land in later waves of
-// the port plan (W1.2 and W2.0).
+// The package holds the request body's scratch pool ([Body]), the request
+// encoder that writes a state or a body member into it ([EncodeState],
+// [EncodeValue], [AppendRawState], [AppendRawValue]), the per-string check
+// the response decoder runs ([ValidString]) and the encoder's [Pretouch]
+// hook. The production decoder lands in a later wave of the port plan
+// (W2.0).
 package codec

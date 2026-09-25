@@ -149,6 +149,19 @@ func (b Body) Open() (*BodyReader, error) {
 	}
 }
 
+// GetBody is [Body.Open] in the form of http.Request.GetBody: it returns a
+// new reader over the body, or a nil reader and [ErrBodyReleased]. A request
+// that sends the body sets GetBody to this method, so that a replay or a
+// retry reads the same bytes.
+func (b Body) GetBody() (io.ReadCloser, error) {
+	r, err := b.Open()
+	if err != nil {
+		// A nil *BodyReader in the interface would not compare equal to nil.
+		return nil, err
+	}
+	return r, nil
+}
+
 // Release drops the SDK call's reference. It is idempotent: only the first
 // call through a live handle counts, and a stale handle changes nothing.
 func (b Body) Release() {
