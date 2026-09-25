@@ -277,6 +277,9 @@ func (v *visitor) reset(body string, m mode) {
 	v.cards = v.cards[:0]
 	v.card, v.cardHas, v.cardBad = wire.ModelCard{}, 0, 0
 	v.cardsErr, v.hasCards = pend{}, false
+	// The label index is keyed by strings of the last body; a pooled
+	// visitor must not keep that body alive through them.
+	clear(v.strIdx)
 }
 
 // release drops the visitor's references into the last body, so a pooled

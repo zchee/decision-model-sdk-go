@@ -237,3 +237,66 @@ func TestSkippedAnswersLogWithoutALogger(t *testing.T) {
 		t.Errorf("records = %v, want none above ERROR", got)
 	}
 }
+
+// TestMalformedFixturesRefused checks AC-F7 through the root package: every
+// testdata/malformed-*.json, and deviation-big-exp-noul.json, is refused with
+// a *ResponseValidationError at the field path testdata/README.md names, the
+// body and status kept, and every other System One fixture is accepted.
+func TestMalformedFixturesRefused(t *testing.T) {
+	want := map[string]string{
+		"malformed-empty.json":              ".",
+		"malformed-whitespace.json":         ".",
+		"malformed-truncated.json":          ".",
+		"malformed-trailing-garbage.json":   ".",
+		"malformed-trailing-value.json":     ".",
+		"malformed-trailing-nbsp.json":      ".",
+		"malformed-trailing-formfeed.json":  ".",
+		"malformed-root-array.json":         ".",
+		"malformed-invalid-utf8.json":       ".",
+		"malformed-control-char.json":       ".",
+		"malformed-control-char-key.json":   ".",
+		"malformed-invalid-utf8-key.json":   ".",
+		"malformed-invalid-escape.json":     ".",
+		"malformed-bad-literal.json":        ".",
+		"malformed-double-comma.json":       ".",
+		"malformed-leading-zero.json":       ".",
+		"malformed-trailing-comma.json":     ".",
+		"malformed-big-exp.json":            "usage.input_tokens",
+		"malformed-usage-type.json":         "usage.input_tokens",
+		"malformed-missing-model.json":      "model",
+		"malformed-missing-usage.json":      "usage",
+		"malformed-answers-not-object.json": "answers",
+		"deviation-big-exp-noul.json":       "answers.spam.noul",
+	}
+	for _, name := range testsupport.FixtureNames(t, "malformed-*.json") {
+		if _, ok := want[name]; !ok {
+			t.Errorf("%s has no expected field path", name)
+		}
+	}
+	for _, name := range testsupport.FixtureNames(t, "*.json") {
+		if name == "models.json" {
+			continue
+		}
+		t.Run(name, func(t *testing.T) {
+			body := testsupport.Fixture(t, name)
+			meta := &wire.ResponseMeta{Status: http.StatusOK, Body: body}
+			var dst wire.SystemOneResult
+			err := decodeSystemOne(t.Context(), nil, meta, systemOneEndpoint, nil, "", &dst)
+			path, reject := want[name]
+			if !reject {
+				if err != nil {
+					t.Fatalf("refused (%v), want accepted", err)
+				}
+				return
+			}
+			rve := validationError(t, err)
+			sameBody := len(rve.Body) == len(body) && (len(body) == 0 || &rve.Body[0] == &body[0])
+			if rve.FieldPath != path || rve.StatusCode != http.StatusOK || !sameBody {
+				t.Errorf("field path %q status %d, want %q 200 and the body kept", rve.FieldPath, rve.StatusCode, path)
+			}
+			if want := systemOneEndpoint + ": 200 Invalid response data at '" + path + "'."; rve.Error() != want {
+				t.Errorf("Error() = %q, want %q", rve.Error(), want)
+			}
+		})
+	}
+}

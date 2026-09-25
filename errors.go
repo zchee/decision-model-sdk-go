@@ -408,7 +408,9 @@ type TimeoutError struct {
 }
 
 // Error returns "Request timed out (timeout=<seconds>s).", or "Request timed
-// out." without a timeout, as the Python SDK's str() does in seconds.
+// out." without a timeout. The Python SDK's str() prints the timeout as a
+// float without a unit ("timeout=10.0"); the Go port prints it with an "s"
+// and without a trailing ".0" ("timeout=10s"), as the Rust port does.
 func (e *TimeoutError) Error() string {
 	if e.Timeout <= 0 {
 		return "Request timed out."

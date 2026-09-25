@@ -519,3 +519,41 @@ func TestDuplicatesLastWins(t *testing.T) {
 		t.Errorf("usage kept output_tokens from the superseded usage member")
 	}
 }
+
+// TestReleaseDropsBodyReferences checks that a decoder going back to the
+// pool keeps no string of the last body and no string of the last question
+// set: its scratch maps and lists are empty, so neither is kept alive by the
+// pool. The body holds a choice of 20 labels and a flood legend, so every
+// map the decode hashes into is used.
+func TestReleaseDropsBodyReferences(t *testing.T) {
+	var probs []string
+	for i := range 20 {
+		probs = append(probs, `"label-`+strconv.Itoa(i)+`":0.05`)
+	}
+	body := `{"model":"m","usage":{},"answers":{"c":{"type":"choice","choice":"label-0","confidence":1,"probabilities":{` + strings.Join(probs, ",") + `}}}}`
+	first, _, _, err := decodeBody(t, []byte(body), nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range [][]byte{[]byte(body), testsupport.Fixture(t, "structured-legend-flood-1k.json"), testsupport.Fixture(t, "result-20.json")} {
+		d := newDecoder()
+		var res wire.SystemOneResult
+		if _, err := d.systemOne(b, questionsFor(t, first), "m", &res); err != nil {
+			t.Fatal(err)
+		}
+		d.release()
+		v := &d.v
+		if v.body != "" || len(v.set) != 0 || len(v.setIdx) != 0 || len(v.strIdx) != 0 || len(v.probs) != 0 || len(v.legend) != 0 || len(v.cards) != 0 || v.curKey != "" || v.model != "" {
+			t.Errorf("visitor keeps the body: body %d bytes, set %d, setIdx %d, strIdx %d, probs %d, legend %d, cards %d, curKey %q, model %q",
+				len(v.body), len(v.set), len(v.setIdx), len(v.strIdx), len(v.probs), len(v.legend), len(v.cards), v.curKey, v.model)
+		}
+		if len(d.optIdx) != 0 || len(d.raws) != 0 || len(d.strs) != 0 || len(d.jsons) != 0 {
+			t.Errorf("decoder keeps references: optIdx %d, raws %d, strs %d, jsons %d", len(d.optIdx), len(d.raws), len(d.strs), len(d.jsons))
+		}
+		for i, n := range d.nodes {
+			if n.Exists() {
+				t.Errorf("node %d still set", i)
+			}
+		}
+	}
+}

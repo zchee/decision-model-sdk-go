@@ -207,10 +207,12 @@ func newDecoder() *decoder {
 
 var decoders = sync.Pool{New: func() any { return newDecoder() }}
 
-// release drops every reference the decoder holds into the last body and
-// the last result, so the pool keeps neither alive.
+// release drops every reference the decoder holds into the last body, the
+// last result and the last question set, so the pool keeps none of them
+// alive.
 func (d *decoder) release() {
 	d.v.release()
+	clear(d.optIdx)
 	clear(d.nodes)
 	clear(d.raws)
 	d.raws = d.raws[:0]
