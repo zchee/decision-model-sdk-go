@@ -506,7 +506,8 @@ func TestParsePythonFloat(t *testing.T) {
 
 // TestErrorRenderings pins the Error() text of the types that render
 // without a response body: *ResponseTooLargeError, *ConnectionError and
-// *TimeoutError, and what they unwrap to.
+// *TimeoutError, and what they unwrap to; and of a *ResponseValidationError
+// without a status, as UnmarshalJSON returns for a payload it refuses.
 func TestErrorRenderings(t *testing.T) {
 	cause := errors.New("dial tcp 192.0.2.1:443: i/o timeout")
 	tests := map[string]struct {
@@ -528,6 +529,8 @@ func TestErrorRenderings(t *testing.T) {
 		"success: the context's deadline":          {err: newTimeoutError(0, context.DeadlineExceeded), want: "Request timed out.", wantCause: context.DeadlineExceeded},
 		"success: the proxy hop":                   {err: newProxyTimeoutError(10*time.Second, cause), want: "Request timed out on the proxy hop (timeout=10s).", wantCause: cause},
 		"success: the proxy hop without a timeout": {err: newProxyTimeoutError(0, cause), want: "Request timed out on the proxy hop.", wantCause: cause},
+		"success: a zero status is left out":       {err: &ResponseValidationError{FieldPath: "answers.n.noul"}, want: "Invalid response data at 'answers.n.noul'."},
+		"success: a zero status after an endpoint": {err: &ResponseValidationError{Endpoint: "GET https://api.typesafe.ai/v1/models", FieldPath: "."}, want: "GET https://api.typesafe.ai/v1/models: Invalid response data at '.'."},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {

@@ -459,20 +459,23 @@ func newProxyTimeoutError(timeout time.Duration, cause error) *TimeoutError {
 
 // renderResponseError renders an error about a response as the Python SDK's
 // TypeSafeAPIError.__str__ does: "<endpoint>: <status> <message>
-// (request_id=<id>)", without the endpoint when it is empty, the message
-// when it is empty, and the request id when the header is absent. The
-// request id is escaped and cut at 128 characters.
+// (request_id=<id>)", without the endpoint when it is empty, the status
+// when it is zero (a payload read back by UnmarshalJSON), the message when
+// it is empty, and the request id when the header is absent. The request id
+// is escaped and cut at 128 characters.
 func renderResponseError(endpoint string, status int, message string, h http.Header) string {
 	b := make([]byte, 0, len(endpoint)+len(message)+48)
 	if endpoint != "" {
 		b = append(b, endpoint...)
 		b = append(b, ": "...)
 	}
-	b = strconv.AppendInt(b, int64(status), 10)
-	if message != "" {
-		b = append(b, ' ')
-		b = append(b, message...)
+	if status != 0 {
+		b = strconv.AppendInt(b, int64(status), 10)
+		if message != "" {
+			b = append(b, ' ')
+		}
 	}
+	b = append(b, message...)
 	if id, ok := requestID(h); ok {
 		b = append(b, " (request_id="...)
 		b = appendSafeText(b, id, maxNameChars, false)
