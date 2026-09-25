@@ -25,6 +25,7 @@ import (
 	"net/http/httptrace"
 	"net/textproto"
 	"net/url"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -343,7 +344,8 @@ func (t *transport) roundTrip(req *http.Request, timeout time.Duration) (*http.R
 		// net/http composes every trace on the context into the one it calls,
 		// so the context net/http sees carries the shielded trace alone
 		// (K28c).
-		sh = newShield(trace, t.logger)
+		sh = newShield(req.Context(), trace, t.logger)
+		defer sh.markReturned()
 		req = req.WithContext(httptrace.WithClientTrace(untracedContext{req.Context()}, &sh.trace))
 	}
 	resp, err := t.rt.RoundTrip(req)
@@ -506,23 +508,29 @@ func scrubUserinfo(s string) (string, bool) {
 	return b.String(), true
 }
 
-// shield wraps a caller's httptrace hooks for one request (K28, K28b): a
-// hook that panics inside net/http, which may hold its connection pool's
+// shield wraps a caller's httptrace hooks for one request (K28, K28b, K28c):
+// a hook that panics inside net/http, which may hold its connection pool's
 // lock or a reserved stream there, is recovered in place, and done raises the
-// panic again on the goroutine that called RoundTrip.
+// panic again on the goroutine that called RoundTrip. A panic it does not
+// raise is logged at WARN with its hook and stack, never its value, which
+// may hold data.
 type shield struct {
 	trace  httptrace.ClientTrace
+	ctx    context.Context // the request's, for the log records
 	logger *slog.Logger
 
 	mu       sync.Mutex
 	returned bool
 	panicked bool
+	hook     string // the hook of the kept panic
 	value    any
+	stack    []byte
 }
 
-// newShield returns a shield whose trace calls every hook of c, recovered.
-func newShield(c *httptrace.ClientTrace, logger *slog.Logger) *shield {
-	s := &shield{logger: logger}
+// newShield returns a shield for a request with context ctx whose trace
+// calls every hook of c, recovered.
+func newShield(ctx context.Context, c *httptrace.ClientTrace, logger *slog.Logger) *shield {
+	s := &shield{ctx: ctx, logger: logger}
 	if h := c.GetConn; h != nil {
 		s.trace.GetConn = func(hostPort string) { defer s.recover("GetConn"); h(hostPort) }
 	}
@@ -577,32 +585,37 @@ func newShield(c *httptrace.ClientTrace, logger *slog.Logger) *shield {
 	return s
 }
 
-// recover is deferred by every wrapped hook: it stops a panic of the hook and
-// keeps the first one for done, or logs one that comes after done.
+// recover is deferred by every wrapped hook: it stops a panic of the hook,
+// keeps the first one before RoundTrip returned for done, and logs any
+// other.
 func (s *shield) recover(hook string) {
 	v := recover()
 	if v == nil {
 		return
 	}
+	stack := debug.Stack()
 	s.mu.Lock()
-	late := s.returned
-	if !late && !s.panicked {
-		s.panicked, s.value = true, v
+	late, first := s.returned, !s.panicked
+	if !late && first {
+		s.panicked, s.hook, s.value, s.stack = true, hook, v, stack
 	}
 	s.mu.Unlock()
-	if late {
-		s.logger.LogAttrs(context.Background(), slog.LevelWarn, "transport: trace hook panic after the request returned, recovered",
-			slog.String("hook", hook))
+	switch {
+	case late:
+		s.log("transport: trace hook panic after the request returned, recovered", hook, stack)
+	case !first:
+		s.log("transport: trace hook panic after an earlier one, recovered", hook, stack)
 	}
 }
 
-// done ends the request's shield on the goroutine that called RoundTrip:
-// when a hook panicked, it closes resp's body, if any, and panics again with
-// the hook's value.
+// done ends the request's shield on the goroutine that called RoundTrip,
+// once RoundTrip has returned: when a hook panicked, it closes resp's body,
+// if any, logs the hook and its stack, and panics again with the hook's
+// value.
 func (s *shield) done(resp *http.Response) {
 	s.mu.Lock()
 	s.returned = true
-	panicked, v := s.panicked, s.value
+	panicked, hook, v, stack := s.panicked, s.hook, s.value, s.stack
 	s.mu.Unlock()
 	if !panicked {
 		return
@@ -610,5 +623,30 @@ func (s *shield) done(resp *http.Response) {
 	if resp != nil && resp.Body != nil {
 		_ = resp.Body.Close()
 	}
+	s.log("transport: trace hook panic, raised again on the caller", hook, stack)
 	panic(v)
+}
+
+// markReturned ends the request's shield when RoundTrip itself panicked, so
+// done never ran; roundTrip defers it. A hook panic after it is logged, and
+// one kept before it, which RoundTrip's panic replaces on the caller, is
+// logged rather than lost. After done it does nothing.
+func (s *shield) markReturned() {
+	s.mu.Lock()
+	if s.returned {
+		s.mu.Unlock()
+		return
+	}
+	s.returned = true
+	panicked, hook, stack := s.panicked, s.hook, s.stack
+	s.mu.Unlock()
+	if panicked {
+		s.log("transport: trace hook panic replaced by a RoundTrip panic, recovered", hook, stack)
+	}
+}
+
+// log writes a WARN record about a hook's panic: the hook and the stack of
+// the goroutine it panicked on.
+func (s *shield) log(msg, hook string, stack []byte) {
+	s.logger.LogAttrs(s.ctx, slog.LevelWarn, msg, slog.String("hook", hook), slog.String("stack", string(stack)))
 }

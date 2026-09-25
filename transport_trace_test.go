@@ -24,8 +24,10 @@ import (
 	"net/http/httptrace"
 	"reflect"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -88,7 +90,7 @@ func TestClientTraceShieldCoversEveryHook(t *testing.T) {
 			panic(hookPanic{hook: name})
 		}))
 	}
-	sh := newShield(&in, slog.New(slog.DiscardHandler))
+	sh := newShield(t.Context(), &in, slog.New(slog.DiscardHandler))
 	out := reflect.ValueOf(&sh.trace).Elem()
 	for i, name := range names {
 		f := out.Field(i)
@@ -110,7 +112,7 @@ func TestClientTraceShieldCoversEveryHook(t *testing.T) {
 	if p := recovered(func() { sh.done(nil) }); p != (hookPanic{hook: names[0]}) {
 		t.Errorf("done panicked with %v, want the first hook's value %v", p, hookPanic{hook: names[0]})
 	}
-	empty := newShield(&httptrace.ClientTrace{}, slog.New(slog.DiscardHandler))
+	empty := newShield(t.Context(), &httptrace.ClientTrace{}, slog.New(slog.DiscardHandler))
 	if !reflect.ValueOf(empty.trace).IsZero() {
 		t.Error("a trace without hooks gave a shield with hooks, want none")
 	}
@@ -338,6 +340,130 @@ func TestUntracedContext(t *testing.T) {
 	}
 }
 
+// ctxLogKey is the context key whose value ctxRecorder keeps.
+type ctxLogKey struct{}
+
+// ctxRecord is a record as ctxRecorder keeps it.
+type ctxRecord struct {
+	level    slog.Level
+	msg      string
+	attrs    map[string]string
+	ctxValue any // the record's context's value for ctxLogKey
+}
+
+// ctxRecorder is a slog.Handler that keeps every record with the value its
+// context carries for ctxLogKey.
+type ctxRecorder struct {
+	mu      sync.Mutex
+	records []ctxRecord
+}
+
+func (*ctxRecorder) Enabled(context.Context, slog.Level) bool { return true }
+
+func (r *ctxRecorder) Handle(ctx context.Context, rec slog.Record) error {
+	attrs := map[string]string{}
+	rec.Attrs(func(a slog.Attr) bool {
+		attrs[a.Key] = a.Value.String()
+		return true
+	})
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.records = append(r.records, ctxRecord{level: rec.Level, msg: rec.Message, attrs: attrs, ctxValue: ctx.Value(ctxLogKey{})})
+	return nil
+}
+
+func (r *ctxRecorder) WithAttrs([]slog.Attr) slog.Handler { return r }
+
+func (r *ctxRecorder) WithGroup(string) slog.Handler { return r }
+
+// all returns the records kept so far.
+func (r *ctxRecorder) all() []ctxRecord {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.records)
+}
+
+// assertHookRecords checks that got holds one WARN record per want entry, in
+// order, each naming its hook, carrying the stack of the goroutine the hook
+// panicked on (so it shows the hook's frame, fn), logged with the request's
+// context, and never holding secret.
+func assertHookRecords(t *testing.T, got []ctxRecord, want [][2]string, fn, secret string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%d records, want %d: %+v", len(got), len(want), got)
+	}
+	for i, r := range got {
+		if r.level != slog.LevelWarn || r.msg != want[i][0] || r.attrs["hook"] != want[i][1] {
+			t.Errorf("record %d = %v %q hook %q, want WARN %q hook %q", i, r.level, r.msg, r.attrs["hook"], want[i][0], want[i][1])
+		}
+		if stack := r.attrs["stack"]; !strings.Contains(stack, "panic(") || !strings.Contains(stack, fn) {
+			t.Errorf("record %d stack does not show the hook %s panicking:\n%s", i, fn, stack)
+		}
+		if r.ctxValue != "the request's" {
+			t.Errorf("record %d logged with context value %v, want the request's context", i, r.ctxValue)
+		}
+		for k, v := range r.attrs {
+			if strings.Contains(r.msg, secret) || strings.Contains(v, secret) {
+				t.Errorf("record %d attribute %s holds the panic value", i, k)
+			}
+		}
+	}
+}
+
+// TestClientTraceShieldLogs pins the shield's records: a panic after an
+// earlier one, the panic raised again on the caller and a panic after the
+// request returned are each logged at WARN with the hook's name and stack,
+// with the request's context, and never with the panic's value.
+func TestClientTraceShieldLogs(t *testing.T) {
+	const secret = "hunter2-in-a-panic-value"
+	rec := &ctxRecorder{}
+	ctx := context.WithValue(t.Context(), ctxLogKey{}, "the request's")
+	sh := newShield(ctx, &httptrace.ClientTrace{
+		GetConn:     func(string) { panic(secret + " first") },
+		GotConn:     func(httptrace.GotConnInfo) { panic(secret + " second") },
+		PutIdleConn: func(error) { panic(secret + " late") },
+	}, slog.New(rec))
+	sh.trace.GetConn("h:443")
+	sh.trace.GotConn(httptrace.GotConnInfo{})
+	if p := recovered(func() { sh.done(nil) }); p != secret+" first" {
+		t.Errorf("done panicked with %v, want the first hook's value", p)
+	}
+	sh.trace.PutIdleConn(nil)
+	sh.markReturned()
+	assertHookRecords(t, rec.all(), [][2]string{
+		{"transport: trace hook panic after an earlier one, recovered", "GotConn"},
+		{"transport: trace hook panic, raised again on the caller", "GetConn"},
+		{"transport: trace hook panic after the request returned, recovered", "PutIdleConn"},
+	}, "TestClientTraceShieldLogs.func", secret)
+}
+
+// TestClientTraceRoundTripPanic pins roundTrip's deferred markReturned: when
+// RoundTrip itself panics, its panic reaches the caller, the hook panic it
+// replaces is logged rather than lost, and a hook that panics afterwards is
+// logged as late rather than kept for a done that never comes.
+func TestClientTraceRoundTripPanic(t *testing.T) {
+	rec := &ctxRecorder{}
+	var captured *httptrace.ClientTrace
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		captured = httptrace.ContextClientTrace(req.Context())
+		captured.GetConn("h:443")
+		panic("the round tripper failed")
+	})
+	c := mustResolve(t, noEnv, WithAPIKey(testKey), WithRoundTripper(rt), WithLogger(slog.New(rec)), WithClientTrace(&httptrace.ClientTrace{
+		GetConn: func(string) { panic(hookPanic{hook: "GetConn"}) },
+		GotConn: func(httptrace.GotConnInfo) { panic(hookPanic{hook: "GotConn"}) },
+	}))
+	ctx := context.WithValue(t.Context(), ctxLogKey{}, "the request's")
+	if p := recovered(func() { getVia(ctx, c.transport, "https://api.typesafe.ai/v1/models", 0) }); p != "the round tripper failed" {
+		t.Fatalf("roundTrip panicked with %v, want the round tripper's panic", p)
+	}
+	captured.GotConn(httptrace.GotConnInfo{})
+	assertHookRecords(t, rec.all(), [][2]string{
+		{"transport: trace hook panic replaced by a RoundTrip panic, recovered", "GetConn"},
+		{"transport: trace hook panic after the request returned, recovered", "GotConn"},
+	}, "TestClientTraceRoundTripPanic.func", "never set")
+}
+
 // TestClientTraceLatePanicIsLogged pins a hook that panics after roundTrip
 // returned, on a net/http goroutine: PutIdleConn of an HTTP/1.1 response,
 // which net/http calls once the body has been read. The panic cannot be
@@ -377,8 +503,9 @@ func TestClientTraceLatePanicIsLogged(t *testing.T) {
 		for _, a := range w.Attrs {
 			attrs[a.Key] = a.Value.String()
 		}
-		if w.Message != "transport: trace hook panic after the request returned, recovered" || attrs["hook"] != "PutIdleConn" {
-			t.Errorf("WARN %q %v, want the late-panic record naming PutIdleConn", w.Message, attrs)
+		if w.Message != "transport: trace hook panic after the request returned, recovered" || attrs["hook"] != "PutIdleConn" ||
+			!strings.Contains(attrs["stack"], "TestClientTraceLatePanicIsLogged.func") {
+			t.Errorf("WARN %q hook %q, want the late-panic record naming PutIdleConn with its stack:\n%s", w.Message, attrs["hook"], attrs["stack"])
 		}
 	}
 	if srv.Accepts() != 1 {
