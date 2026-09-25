@@ -112,14 +112,17 @@ func TestPretouchFirstCallCostsAWarmCall(t *testing.T) {
 	}
 	testsupport.QuietRuntime(t)
 	buf := make([]byte, 0, 4<<10)
-	encode := func(v any) {
+	// encode takes the calling test, so a failure inside a subtest fails that
+	// subtest from its own goroutine. It does not call tb.Helper: that records
+	// the caller in a map, an allocation inside the measured section.
+	encode := func(tb testing.TB, v any) {
 		buf = buf[:0]
 		if err := encoder.EncodeInto(&buf, v, 0); err != nil {
-			t.Fatalf("EncodeInto: %v", err)
+			tb.Fatalf("EncodeInto: %v", err)
 		}
 	}
 	// Fill sonic's own pools (its encoder stack) before anything is measured.
-	encode("warm")
+	encode(t, "warm")
 
 	tests := map[string]struct {
 		pretouch bool
@@ -139,8 +142,8 @@ func TestPretouchFirstCallCostsAWarmCall(t *testing.T) {
 						t.Fatalf("Pretouch(%v): %v", typ, err)
 					}
 				}
-				first[i] = testsupport.Measure(func() { encode(v) })
-				warm[i] = testsupport.Measure(func() { encode(v) })
+				first[i] = testsupport.Measure(func() { encode(t, v) })
+				warm[i] = testsupport.Measure(func() { encode(t, v) })
 			}
 			if want := `{"subject":"","tags":null,"extra":null}`; string(buf) != want {
 				t.Fatalf("EncodeInto wrote %s, want %s", buf, want)

@@ -101,11 +101,17 @@ jobs:
       # on every run:
       # - rc_exists: go.dev/dl lists a go1.28 release candidate or release
       #   (gotip itself always reports a development version);
-      # - selected: gotip compiles no encoding/json fallback file of sonic
-      #   (compat.go or *_compat.go importing encoding/json, in any package of
-      #   the sonic module), for the go.mod version or for the newest sonic.
-      #   While sonic's JIT files carry !go1.28, gotip compiles the fallback,
-      #   as TestSeamSonicJITPath forbids wherever internal/codec compiles.
+      # - selected: gotip compiles no encoding/json fallback file of sonic, in
+      #   any package of the sonic module, for the go.mod version or for the
+      #   newest sonic. A fallback file is recognised as isSonicFallback in
+      #   internal/codec/seam_test.go does, whatever its name: it imports
+      #   encoding/json (an import line, not a quoted comment), and its
+      #   //go:build line names a go1.N tag and selects it on amd64 or arm64
+      #   for a Go release newer than every tag it names. JIT files that
+      #   import encoding/json (jitdec's *_regabi_amd64.go, !go1.28) are
+      #   therefore not counted. While sonic's JIT files carry !go1.28, gotip
+      #   compiles the fallback, as TestSeamSonicJITPath forbids wherever
+      #   internal/codec compiles.
       # detail names the sonic versions probed and the fallback files each
       # compiles. The next two steps open or update the matching issue.
       - name: PM5 probe (go1.28 release candidate, sonic support)
@@ -130,6 +136,35 @@ jobs:
           } >>"$GITHUB_STEP_SUMMARY"
           selected=false
           detail=""
+          is_fallback() { # $1: a Go file; the rule of the comment above
+            local build word arch expr release=false
+            local -a words
+            grep -qE '^[[:space:]]*(import[[:space:]]+)?([[:alnum:]_.]+[[:space:]]+)?"encoding/json"[[:space:]]*(//.*)?$' "$1" || return 1
+            # The //go:build expression before the package clause, with every
+            # operator set apart by spaces (awk's & is the matched text).
+            build="$(awk '/^package[ \t]/ { exit } /^\/\/go:build[ \t]/ { sub(/^\/\/go:build/, ""); gsub(/[()!]|&&|[|][|]/, " & "); print; exit }' "$1")"
+            [ -n "${build}" ] || return 1
+            read -ra words <<<"${build}"
+            for arch in amd64 arm64; do
+              expr=""
+              for word in "${words[@]}"; do
+                case "${word}" in
+                  go1.[0-9]*)
+                    release=true
+                    expr+='1'
+                    ;;
+                  "${arch}") expr+='1' ;;
+                  '(' | ')' | '!' | '&&' | '||') expr+="${word}" ;;
+                  *) expr+='0' ;;
+                esac
+              done
+              # expr holds only 0, 1 and the operators, so it is safe here.
+              if [ "${release}" = true ] && ((expr)); then
+                return 0
+              fi
+            done
+            return 1
+          }
           probe() { # $1: label, $2: module directory
             local version listing pkg dir files ignored f fallback="" total=0
             version="$(cd "$2" && gotip list -m -f '{{.Version}}' github.com/bytedance/sonic)"
@@ -138,10 +173,9 @@ jobs:
               echo "$1 sonic ${version} ${pkg}: ${files}"
               for f in ${files} ${ignored}; do
                 case "${f}" in
-                  compat.go | *_compat.go) ;;
-                  *) continue ;;
+                  *_test.go) continue ;;
                 esac
-                grep -qF '"encoding/json"' "${dir}/${f}" || continue
+                is_fallback "${dir}/${f}" || continue
                 total=$((total + 1))
                 if [[ " ${files} " == *" ${f} "* ]]; then
                   fallback="${fallback:+${fallback} }${pkg#github.com/bytedance/}/${f}"

@@ -29,16 +29,18 @@ package codec
 //   - TestSeamSonicJITPath, with sonic replaced by an edited copy: spec.go and
 //     spec_compat.go of internal/encoder/alg cut at go1.27, so the fallback is
 //     compiled on the host; encoder_native.go cut at go1.26 on amd64 only, so
-//     only the build-line comparison sees it; every encoding/json fallback
-//     file renamed, so the guard would have nothing to look for.
+//     only the build-line comparison sees it; encoder_compat.go (or
+//     ast/api_compat.go) renamed and cut at go1.27, so a fallback under
+//     another name is compiled on the host; the encoding/json import dropped
+//     from every fallback file, so the guard would have nothing to look for.
 //   - TestSeamD1IdentifierSites: in ci.yaml, the refusal step's D1_IDENTIFIER
 //     moved into a comment, the step renamed, its stand-in tag changed while
 //     a comment keeps the old one, its identifier grep replaced by a literal;
 //     in gotip.yaml, D1_IDENTIFIER dropped from the refusal step's env, the
-//     identifier grep removed, an issue title or the rc filter naming another
-//     release, a comment naming go1.27; "Go 1.17 to 1.26" in doc.go; another
-//     quoted constraint in unsupported.go; "Go 1.26.x" in README.md; a
-//     "1.29 and later" row in docs/support.md.
+//     identifier grep removed, either issue step's TITLE reworded, the rc
+//     filter naming another release, a comment naming go1.27; "Go 1.17 to
+//     1.26" in doc.go; another quoted constraint in unsupported.go; "Go
+//     1.26.x" in README.md; a "1.29 and later" row in docs/support.md.
 
 import (
 	"bytes"
@@ -391,12 +393,13 @@ func TestSeamD1IdentifierSites(t *testing.T) {
 	lastSupported := "1." + strconv.Itoa(cutoff-1)                    // "1.27"
 	supportedExpr := strings.TrimPrefix(supportedLine, "//go:build ") // quoted in prose
 	tests := map[string]struct {
-		path       string   // slash-separated, from the module root
-		identifier bool     // the site must name the identifier
-		also       []string // text the site must contain
-		onlyCutoff bool     // every Go release the site names is d1Cutoff
-		step       string   // a workflow step that must pass D1_IDENTIFIER to its script
-		stepRun    []string // further text the step's script must contain outside comments
+		path       string            // slash-separated, from the module root
+		identifier bool              // the site must name the identifier
+		also       []string          // text the site must contain
+		onlyCutoff bool              // every Go release the site names is d1Cutoff
+		step       string            // a workflow step that must pass D1_IDENTIFIER to its script
+		stepRun    []string          // further text the step's script must contain outside comments
+		issueSteps map[string]string // workflow step name -> the issue TITLE its env must set
 	}{
 		"internal/codec/unsupported.go": {
 			path:       "internal/codec/unsupported.go",
@@ -422,8 +425,13 @@ func TestSeamD1IdentifierSites(t *testing.T) {
 			also: []string{
 				`startswith("` + d1Cutoff + `rc")`,
 				`startswith("` + d1Cutoff + `.")`,
-				"Go " + cutoffVersion + ": waiting on sonic",
-				"Go " + cutoffVersion + ": sonic builds on tip, bump D1",
+			},
+			// Each title is checked in its own step's env: the first issue's
+			// body quotes the second title, so a whole-file search would miss
+			// a reworded TITLE.
+			issueSteps: map[string]string{
+				"Open or update the Go " + cutoffVersion + " waiting-on-sonic issue": "Go " + cutoffVersion + ": waiting on sonic",
+				"Open or update the Go " + cutoffVersion + " bump issue":             "Go " + cutoffVersion + ": sonic builds on tip, bump D1",
 			},
 		},
 		"docs/support.md": {
@@ -473,6 +481,17 @@ func TestSeamD1IdentifierSites(t *testing.T) {
 			}
 			if tt.step != "" {
 				checkRefusalStep(t, tt.path, data, tt.step, tt.stepRun)
+			}
+			for name, title := range tt.issueSteps {
+				step, err := workflowStep(data, name)
+				if err != nil {
+					t.Errorf("%s: %v", tt.path, err)
+					continue
+				}
+				env := step.block("env")
+				if want := `TITLE: "` + title + `"`; !slices.Contains(env, want) {
+					t.Errorf("%s: step %q: env %q does not contain %q", tt.path, name, env, want)
+				}
 			}
 		})
 	}
@@ -734,12 +753,65 @@ func sonicFiles(t *testing.T, root string) []sonicFile {
 }
 
 // isSonicFallback reports whether f is one of sonic's encoding/json fallback
-// files: compat.go or *_compat.go importing encoding/json. The other compat
-// files (internal/rt's base64_compat.go, which arm64 compiles by design)
-// are portable replacements, not the fallback.
+// files, whatever its name: it imports encoding/json, its build line names a
+// go1.N release tag, and that line selects it on amd64 or arm64 for a Go
+// release newer than every release it names, because a release sonic does
+// not know yet is where it falls back. Two kinds of file fail that test by
+// design: the JIT side that also imports encoding/json
+// (internal/decoder/jitdec's *_regabi_amd64.go, go1.17 && !go1.28), and the
+// portable compat files that do not import it (internal/rt's
+// base64_compat.go, which arm64 compiles by design).
 func isSonicFallback(f sonicFile) bool {
-	_, json := f.imports["encoding/json"]
-	return json && (f.name == "compat.go" || strings.HasSuffix(f.name, "_compat.go"))
+	if _, json := f.imports["encoding/json"]; !json || f.expr == nil || !namesRelease(f.expr) {
+		return false
+	}
+	for _, arch := range []string{"amd64", "arm64"} {
+		if f.expr.Eval(func(tag string) bool { return goMinor(tag) >= 0 || tag == arch }) {
+			return true
+		}
+	}
+	return false
+}
+
+// TestSeamSonicFallbackRule pins isSonicFallback on the build lines of sonic
+// v1.15.4, where the name no longer decides: a fallback file under another
+// name is still one, and a JIT file importing encoding/json is not.
+func TestSeamSonicFallbackRule(t *testing.T) {
+	const (
+		fallbackLine = "//go:build (!amd64 && !arm64) || go1.28 || !go1.17 || (arm64 && !go1.20)"
+		jitLine      = "//go:build (amd64 && go1.17 && !go1.28) || (arm64 && go1.20 && !go1.28)"
+	)
+	tests := map[string]struct {
+		name, line string
+		imports    []string
+		want       bool
+	}{
+		"success: compat.go of the root package":              {name: "compat.go", line: fallbackLine, imports: []string{"encoding/json"}, want: true},
+		"success: a fallback file under another name":         {name: "encoder_fallback.go", line: fallbackLine, imports: []string{"encoding/json", "io"}, want: true},
+		"success: alg's fallback, cut at go1.16":              {name: "spec_compat.go", line: "//go:build (!amd64 && !arm64) || go1.28 || !go1.16 || (arm64 && !go1.20)", imports: []string{"encoding/json"}, want: true},
+		"error: the JIT side of the same package":             {name: "sonic.go", line: jitLine, imports: []string{"github.com/bytedance/sonic/decoder"}},
+		"error: a JIT file that imports encoding/json":        {name: "generic_regabi_amd64.go", line: "//go:build go1.17 && !go1.28", imports: []string{"encoding/json"}},
+		"error: a portable compat file without the import":    {name: "base64_compat.go", line: fallbackLine, imports: []string{"encoding/base64"}},
+		"error: an encoding/json importer with no build line": {name: "node.go", imports: []string{"encoding/json"}},
+		"error: a build line without a release tag":           {name: "encode_race.go", line: "//go:build race", imports: []string{"encoding/json"}},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			f := sonicFile{name: tt.name, line: tt.line, imports: map[string]struct{}{}}
+			for _, p := range tt.imports {
+				f.imports[p] = struct{}{}
+			}
+			if tt.line != "" {
+				var err error
+				if f.expr, err = constraint.Parse(tt.line); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := isSonicFallback(f); got != tt.want {
+				t.Errorf("isSonicFallback(%s %q, imports %q) = %t, want %t", tt.name, tt.line, tt.imports, got, tt.want)
+			}
+		})
+	}
 }
 
 // namesRelease reports whether the constraint mentions a go1.N release tag.
@@ -762,7 +834,9 @@ func namesRelease(x constraint.Expr) bool {
 // the fallback in pairs of files per package: the root package (sonic.go and
 // compat.go), ast (api.go, api_compat.go), decoder and encoder
 // (*_native.go, *_compat.go) and internal/encoder/alg (spec.go,
-// spec_compat.go). For every sonic package that internal/codec compiles and
+// spec_compat.go); isSonicFallback recognises the fallback side by its
+// import and build line, not by these names. For every sonic package that
+// internal/codec compiles and
 // that has a fallback file, the test requires, on this host, that no
 // fallback file is compiled and every file with a Go-release constraint (the
 // JIT side) is; and for every GOARCH and Go release from the go directive up
@@ -792,7 +866,7 @@ func TestSeamSonicJITPath(t *testing.T) {
 		}
 	}
 	if len(withFallback) == 0 {
-		t.Fatal("no sonic package that internal/codec compiles has an encoding/json fallback file; sonic renamed them and the guard would pass vacuously")
+		t.Fatal("no sonic package that internal/codec compiles has an encoding/json fallback file (isSonicFallback); sonic changed its fallback and the guard would pass vacuously")
 	}
 	jitSide := map[string]int{}
 	for _, f := range files {
@@ -812,10 +886,7 @@ func TestSeamSonicJITPath(t *testing.T) {
 		case !fallback && !f.compiled:
 			t.Errorf("%s: does not compile %s, the JIT side, on this host", f.pkg, f.name)
 		}
-		if f.expr == nil {
-			t.Errorf("%s/%s: the fallback file carries no build line", f.pkg, f.name)
-			continue
-		}
+		// Both kinds of file have a build line naming a release here.
 		for minor := from; minor <= goMinor(d1Cutoff)+3; minor++ {
 			for _, arch := range []string{"amd64", "arm64", "386", "riscv64", "wasm"} {
 				tags := func(tag string) bool {
