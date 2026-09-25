@@ -15,6 +15,7 @@
 package typesafe
 
 import (
+	"fmt"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -51,27 +52,58 @@ func isCredential(name string, values []string, apiKey string) bool {
 
 // redactedHeaders is a header map as a log record shows it: a group with one
 // attribute per header, in name order, whose value is the header's values
-// joined by ", ", or "***" when they are a credential ([isCredential]).
+// joined by ", ", or "***" when they are a credential ([isCredential]). Build
+// it with [newRedactedHeaders].
 //
 // It is a [slog.LogValuer], so the map is walked and its values joined only
 // when a handler keeps the record. Boxing the value into an attribute still
 // allocates, so a request path that must not allocate with debug records off
 // checks [slog.Logger.Enabled] before it builds the attribute.
+//
+// No rendering prints the map or the key. Every fmt verb prints the redacted
+// form ([redactedHeaders.Format]), and so do an unresolved [slog.Value] and
+// [slog.Attr], whose String methods print a LogValuer through fmt. The map
+// and the key sit behind the one pointer field, so the two renderings fmt
+// makes without calling Format, the %p verb and a redactedHeaders held in an
+// unexported field of another value, print an address.
 type redactedHeaders struct {
+	p *headerLog
+}
+
+// headerLog is what a [redactedHeaders] renders.
+type headerLog struct {
 	header http.Header
 	apiKey string
 }
 
-// LogValue returns the redacted headers as a group value.
+// newRedactedHeaders returns header as a log record shows it, with any value
+// that holds apiKey redacted whatever its header's name.
+func newRedactedHeaders(header http.Header, apiKey string) redactedHeaders {
+	return redactedHeaders{p: &headerLog{header: header, apiKey: apiKey}}
+}
+
+// LogValue returns the redacted headers as a group value; the zero
+// redactedHeaders is an empty group.
 func (r redactedHeaders) LogValue() slog.Value {
-	attrs := make([]slog.Attr, 0, len(r.header))
-	for _, name := range slices.Sorted(maps.Keys(r.header)) {
-		values := r.header[name]
+	if r.p == nil {
+		return slog.GroupValue()
+	}
+	attrs := make([]slog.Attr, 0, len(r.p.header))
+	for _, name := range slices.Sorted(maps.Keys(r.p.header)) {
+		values := r.p.header[name]
 		value := redacted
-		if !isCredential(name, values, r.apiKey) {
+		if !isCredential(name, values, r.p.apiKey) {
 			value = strings.Join(values, ", ")
 		}
 		attrs = append(attrs, slog.String(name, value))
 	}
 	return slog.GroupValue(attrs...)
+}
+
+// Format writes the redacted form, LogValue().String(), such as
+// "[Accept=application/json Authorization=***]", whatever the verb and its
+// flags. A String method alone would not do: %d and %x bypass it and print
+// the fields.
+func (r redactedHeaders) Format(f fmt.State, _ rune) {
+	fmt.Fprint(f, r.LogValue().String())
 }

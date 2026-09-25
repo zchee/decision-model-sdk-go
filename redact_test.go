@@ -16,6 +16,8 @@ package typesafe
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -96,8 +98,8 @@ func TestRedactedHeadersSecretSpellings(t *testing.T) {
 
 			for handlerName, render := range renderers() {
 				out := render(func(logger *slog.Logger) {
-					logger.Debug("request", slog.Any("headers", redactedHeaders{header: c.systemOneHeader, apiKey: c.apiKey}))
-					logger.Debug("response", slog.Any("headers", redactedHeaders{header: response, apiKey: c.apiKey}))
+					logger.Debug("request", slog.Any("headers", newRedactedHeaders(c.systemOneHeader, c.apiKey)))
+					logger.Debug("response", slog.Any("headers", newRedactedHeaders(response, c.apiKey)))
 				})
 				for _, visible := range []string{"request-visible", "response-visible", "***"} {
 					if !strings.Contains(out, visible) {
@@ -190,7 +192,7 @@ func TestRedactedHeadersFlaggedValue(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			rec := testsupport.NewLogRecorder(nil)
-			rec.Logger().Debug("h", slog.Any("headers", redactedHeaders{header: tt.header, apiKey: tt.apiKey}))
+			rec.Logger().Debug("h", slog.Any("headers", newRedactedHeaders(tt.header, tt.apiKey)))
 			var got []string
 			for _, r := range rec.Records() {
 				got = append(got, r.String())
@@ -200,4 +202,118 @@ func TestRedactedHeadersFlaggedValue(t *testing.T) {
 			}
 		})
 	}
+}
+
+// printedKey is the API key TestRedactedHeadersNeverPrintKey must never see
+// printed.
+const printedKey = "ts_live_zzsecret"
+
+// rawValueHandler is a slog handler that prints each attribute's value with
+// %v and never resolves it, as a hand-written handler might.
+type rawValueHandler struct{ buf *bytes.Buffer }
+
+func (h rawValueHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h rawValueHandler) Handle(_ context.Context, r slog.Record) error {
+	r.Attrs(func(a slog.Attr) bool {
+		fmt.Fprintf(h.buf, "%s=%v;", a.Key, a.Value)
+		return true
+	})
+	return nil
+}
+
+func (h rawValueHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+
+func (h rawValueHandler) WithGroup(string) slog.Handler { return h }
+
+// TestRedactedHeadersNeverPrintKey pins that no rendering of a
+// redactedHeaders prints the API key (review W2.1 MINOR 1, ruling R66): every
+// fmt verb and an unresolved slog Value, Attr or handler print the redacted
+// form, while %p and a redactedHeaders held in an unexported field, the two
+// renderings fmt makes without calling Format, print an address. The key sits
+// under Authorization in one map and under a plain name in the other.
+func TestRedactedHeadersNeverPrintKey(t *testing.T) {
+	type holder struct{ h redactedHeaders }
+	headers := map[string]struct {
+		header http.Header
+		want   string // the redacted form
+	}{
+		"key under Authorization": {
+			header: http.Header{"Authorization": {"Bearer " + printedKey}, "X-Visible": {"visible"}},
+			want:   "[Authorization=*** X-Visible=visible]",
+		},
+		"key under a plain name": {
+			header: http.Header{"X-Forward": {printedKey}, "X-Visible": {"visible"}},
+			want:   "[X-Forward=*** X-Visible=visible]",
+		},
+	}
+	// Each rendering returns what it printed and what it must print: want is
+	// the redacted form, and an empty result from wrap means "an address, not
+	// the fields" (checked below).
+	renderings := map[string]struct {
+		render func(redactedHeaders) string
+		wrap   func(want string) string
+	}{
+		"%v":          {render: func(r redactedHeaders) string { return fmt.Sprintf("%v", r) }, wrap: same},
+		"%+v":         {render: func(r redactedHeaders) string { return fmt.Sprintf("%+v", r) }, wrap: same},
+		"%#v":         {render: func(r redactedHeaders) string { return fmt.Sprintf("%#v", r) }, wrap: same},
+		"%s":          {render: func(r redactedHeaders) string { return fmt.Sprintf("%s", r) }, wrap: same},
+		"%d":          {render: func(r redactedHeaders) string { return fmt.Sprintf("%d", r) }, wrap: same},
+		"%x":          {render: func(r redactedHeaders) string { return fmt.Sprintf("%x", r) }, wrap: same},
+		"%q":          {render: func(r redactedHeaders) string { return fmt.Sprintf("%q", r) }, wrap: same},
+		"%-60.3v":     {render: func(r redactedHeaders) string { return fmt.Sprintf("%-60.3v", r) }, wrap: same},
+		"Sprint":      {render: func(r redactedHeaders) string { return fmt.Sprint(r) }, wrap: same},
+		"in a slice":  {render: func(r redactedHeaders) string { return fmt.Sprintf("%v", []any{r}) }, wrap: func(w string) string { return "[" + w + "]" }},
+		"AnyValue":    {render: func(r redactedHeaders) string { return slog.AnyValue(r).String() }, wrap: same},
+		"Any":         {render: func(r redactedHeaders) string { return slog.Any("headers", r).String() }, wrap: func(w string) string { return "headers=" + w }},
+		"Resolve":     {render: func(r redactedHeaders) string { return slog.AnyValue(r).Resolve().String() }, wrap: same},
+		"raw handler": {render: rawHandlerOutput, wrap: func(w string) string { return "headers=" + w + ";" }},
+		"%p":          {render: func(r redactedHeaders) string { return fmt.Sprintf("%p", r) }, wrap: address},
+		"unexported field %+v": {
+			render: func(r redactedHeaders) string { return fmt.Sprintf("%+v", holder{h: r}) },
+			wrap:   address,
+		},
+		"unexported field %#v": {
+			render: func(r redactedHeaders) string { return fmt.Sprintf("%#v", holder{h: r}) },
+			wrap:   address,
+		},
+	}
+	for headerName, hc := range headers {
+		for renderName, rc := range renderings {
+			t.Run(headerName+" "+renderName, func(t *testing.T) {
+				got := rc.render(newRedactedHeaders(hc.header, printedKey))
+				if strings.Contains(got, printedKey) {
+					t.Fatalf("output %q contains the key", got)
+				}
+				want := rc.wrap(hc.want)
+				if want == "" {
+					if !strings.Contains(got, "0x") || strings.Contains(got, "map[") || strings.Contains(got, "visible") {
+						t.Errorf("output %q is not an address", got)
+					}
+					return
+				}
+				if got != want {
+					t.Errorf("output = %q, want %q", got, want)
+				}
+			})
+		}
+	}
+	if got := fmt.Sprintf("%v", redactedHeaders{}); got != "[]" {
+		t.Errorf("zero value prints %q, want %q", got, "[]")
+	}
+}
+
+// same returns the redacted form unchanged.
+func same(want string) string { return want }
+
+// address marks a rendering that must print an address rather than the
+// fields.
+func address(string) string { return "" }
+
+// rawHandlerOutput logs r through a rawValueHandler and returns what it
+// wrote.
+func rawHandlerOutput(r redactedHeaders) string {
+	var buf bytes.Buffer
+	slog.New(rawValueHandler{buf: &buf}).Debug("request", slog.Any("headers", r))
+	return buf.String()
 }
