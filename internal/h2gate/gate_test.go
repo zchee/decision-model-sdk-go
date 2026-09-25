@@ -70,10 +70,17 @@ func checkOrdering(b *barrier, srv *testsupport.LoopbackServer, cold []result) (
 	if got, want := b.firstFree(), "/cold/"+strconv.Itoa(leader); got != want {
 		problems = append(problems, fmt.Sprintf("(a) first request at the handler %q, want the leader's %q", got, want))
 	}
-	answered := cold[leader].FirstByte
+	// (b) reads the order of the client-side events by traceSeq: on a coarse
+	// clock (Windows) a waiter's HEADERS and the leader's first response byte
+	// can carry the same time although one follows the other (K29).
+	answered := cold[leader].FirstByteSeq
+	if answered == 0 {
+		problems = append(problems, "(b) the leader's first response byte was never traced")
+	}
 	for i, r := range cold {
-		if i != leader && !r.WroteHeaders.After(answered) {
-			problems = append(problems, fmt.Sprintf("(b) call %d wrote HEADERS at %v, not after the leader's first response byte at %v", i, r.WroteHeaders, answered))
+		if i != leader && r.WroteHeadersSeq <= answered {
+			problems = append(problems, fmt.Sprintf("(b) call %d wrote HEADERS (event %d, %v) before the leader's first response byte (event %d, %v)",
+				i, r.WroteHeadersSeq, r.WroteHeaders, answered, cold[leader].FirstByte))
 			break
 		}
 	}
@@ -377,6 +384,7 @@ func TestWaiterFallThrough(t *testing.T) {
 		l := calls[leader]
 		var minGap time.Duration = -1
 		lastWaiterDone := time.Time{}
+		var lastWaiterSeq uint64
 		for i, r := range calls {
 			if i == leader {
 				continue
@@ -387,6 +395,7 @@ func TestWaiterFallThrough(t *testing.T) {
 			if r.Done.After(lastWaiterDone) {
 				lastWaiterDone = r.Done
 			}
+			lastWaiterSeq = max(lastWaiterSeq, r.DoneSeq)
 		}
 		st := tr.Stats()
 		record(t, "case", "firsthold-bound", "hold_bound_ms", ms(tr.holdBound), "leader_write_to_first_waiter_write_ms", ms(minGap),
@@ -395,9 +404,11 @@ func TestWaiterFallThrough(t *testing.T) {
 			t.Errorf("classes %v (first error %v), accepts %d, held %q, leader %d; want 64 ok on 1 connection, the leader's request held",
 				cl, firstErr(calls), srv.Accepts(), heldPath, leader)
 		}
-		// 5 ms of slack: the Transport arms the bound in its WroteHeaders
-		// hook, which runs before the test's.
-		if minGap < tr.holdBound-5*time.Millisecond || !lastWaiterDone.Before(l.Done) {
+		// The Transport arms the bound in its WroteHeaders hook, which runs
+		// before the test's; the gap is measured on the clock, so it allows
+		// coarseClock. That every waiter returned before the leader is read
+		// by traceSeq (K29).
+		if minGap < tr.holdBound-coarseClock || lastWaiterSeq >= l.DoneSeq {
 			t.Errorf("first waiter HEADERS %v after the leader's (want at least the %v bound); last waiter done at %v, leader done at %v",
 				minGap, tr.holdBound, lastWaiterDone.Sub(l.Start), l.Done.Sub(l.Start))
 		}
@@ -478,7 +489,7 @@ func TestTLSSilentPeer(t *testing.T) {
 	if st.Leaders != 1 || st.Failures != 1 || st.ColdResets != 1 || st.FallThroughs != 0 {
 		t.Errorf("stats %+v, want 1 leader, 1 failure, 1 cold reset, no fall-through", st)
 	}
-	if elapsed < connect || elapsed > connect+time.Second {
+	if elapsed < connect-coarseClock || elapsed > connect+time.Second {
 		t.Errorf("elapsed %v, want about the %v connect timeout", elapsed, connect)
 	}
 }

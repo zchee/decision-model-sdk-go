@@ -28,6 +28,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -38,6 +39,21 @@ import (
 // Every loopback test here builds its own server and transport, so a test
 // that fails leaves nothing behind for the next. Timing assertions carry the
 // margins the W0.4 spike measured (docs/perf/ledger.md, W0.4 and W0.4b).
+//
+// Assertions about the order of client-side events read sequence numbers,
+// not timestamps: on Windows time.Now advances in ticks (about 15.6 ms at the
+// default timer resolution), so two events in a known order can carry the
+// same time (K29, R75). A lower bound on an elapsed time allows one such
+// tick, coarseClock.
+
+// coarseClock is the error a measured duration may carry on a host whose
+// clock and timers advance in ticks of up to about 15.6 ms (Windows).
+const coarseClock = 20 * time.Millisecond
+
+// traceSeq orders the client-side events the tests stamp: each stamp takes
+// the next number, so an event that happens after another, by a chain of
+// synchronisation, has the larger one whatever the clock's resolution.
+var traceSeq atomic.Uint64
 
 // mustURL parses a URL or fails the test.
 func mustURL(tb testing.TB, raw string) *url.URL {
@@ -69,6 +85,9 @@ func newTestTransport(tb testing.TB, cfg Config) *Transport {
 type result struct {
 	Path                                          string
 	Start, GotConn, WroteHeaders, FirstByte, Done time.Time
+	// WroteHeadersSeq, FirstByteSeq and DoneSeq order the same events by
+	// traceSeq; zero when the event did not happen.
+	WroteHeadersSeq, FirstByteSeq, DoneSeq uint64
 	// Reused is GotConnInfo.Reused of the call's first GotConn: in a cold
 	// burst only the leader's is false.
 	Reused     bool
@@ -84,6 +103,7 @@ type result struct {
 type timeline struct {
 	mu                               sync.Mutex
 	gotConn, wroteHeaders, firstByte time.Time
+	wroteSeq, firstSeq               uint64
 	reused, gotConnSet               bool
 }
 
@@ -101,18 +121,18 @@ func traced(ctx context.Context) (context.Context, *timeline) {
 			tl.mu.Unlock()
 		},
 		WroteHeaders: func() {
-			now := time.Now()
+			now, seq := time.Now(), traceSeq.Add(1)
 			tl.mu.Lock()
-			if tl.wroteHeaders.IsZero() {
-				tl.wroteHeaders = now
+			if tl.wroteSeq == 0 {
+				tl.wroteHeaders, tl.wroteSeq = now, seq
 			}
 			tl.mu.Unlock()
 		},
 		GotFirstResponseByte: func() {
-			now := time.Now()
+			now, seq := time.Now(), traceSeq.Add(1)
 			tl.mu.Lock()
-			if tl.firstByte.IsZero() {
-				tl.firstByte = now
+			if tl.firstSeq == 0 {
+				tl.firstByte, tl.firstSeq = now, seq
 			}
 			tl.mu.Unlock()
 		},
@@ -140,9 +160,10 @@ func do(ctx context.Context, rt http.RoundTripper, method, rawURL string, body [
 	} else {
 		res.Err = err
 	}
-	res.Done = time.Now()
+	res.Done, res.DoneSeq = time.Now(), traceSeq.Add(1)
 	tl.mu.Lock()
 	res.GotConn, res.WroteHeaders, res.FirstByte = tl.gotConn, tl.wroteHeaders, tl.firstByte
+	res.WroteHeadersSeq, res.FirstByteSeq = tl.wroteSeq, tl.firstSeq
 	res.Reused, res.GotConnSet = tl.reused, tl.gotConnSet
 	tl.mu.Unlock()
 	return res

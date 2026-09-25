@@ -121,9 +121,13 @@ func TestALPNHTTP1Only(t *testing.T) {
 	if n := len(srv.Requests()); n != 0 {
 		t.Errorf("the server saw %d requests, want none", n)
 	}
-	if conns := srv.Conns(); len(conns) != 1 || conns[0].HandshakeErr == "" {
-		t.Errorf("server connections %+v, want one refused handshake", conns)
-	}
+	// The server records its side of the refused handshake after its
+	// Handshake returns, which can be after the client read the alert and
+	// returned (K29): wait for the record instead of reading it at once.
+	waitUntil(t, "the server's record of the refused handshake", func() bool {
+		conns := srv.Conns()
+		return len(conns) == 1 && conns[0].HandshakeErr != ""
+	})
 	if tr.gateState() != stateCold {
 		t.Errorf("gate %v, want cold", tr.gateState())
 	}

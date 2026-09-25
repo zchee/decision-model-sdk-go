@@ -2071,6 +2071,8 @@ the whole host, and no other lane's timing run may overlap them.
 | W2.2-17 | 2026-09-25 16:14:31 UTC | W2.2 R69, after | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 8.72 → 14.15 (noisy) | `sh $C '(L)' $LO /tmp/ts-spike/bench.lock l-k21c-after 44 -count=20 -run 'TestTokenResidualK21/success:_GOAWAY' -v ./internal/h2gate/` (tree `9621f0e`, uncommitted then) | PASS, 5.5 s: 72/72 in 20 of 20 runs, refused streams 0; SettleHolds 1 in 18 runs, 0 in 2 | `results/l-k21c-after.txt` |
 | W2.2-18 | 2026-09-26 01:58:04 JST | W2.2 R72b: the replay's response clears its mark | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 4.73 → 14.13 (noisy) | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $C '(M)' $MO $SP/bench.lock m-k21c-r72b 16 -count=20 -run 'TestTokenResidualK21/success:_GOAWAY' -v ./internal/h2gate/` (the R72b commit's tree, uncommitted then) | PASS, 6.2 s: 72/72 in 20 of 20 runs, refused streams 0; SettleHolds 1 in 18 runs, 0 in 2 (W2.2-16: 19 and 1) | `results/m-k21c-r72b.txt` |
 | W2.2-19 | 2026-09-25 16:58:04 UTC | W2.2 R72b | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.15 → 6.89 (noisy) | `TREE=92ae350+r72b sh $C '(L)' $LO /tmp/ts-spike/bench.lock l-k21c-r72b 44 -count=20 -run 'TestTokenResidualK21/success:_GOAWAY' -v ./internal/h2gate/` | PASS, 5.6 s: 72/72 in 20 of 20 runs, refused streams 0; SettleHolds 1 in 19 runs, 0 in 1 (W2.2-17: 18 and 2) | `results/l-k21c-r72b.txt` |
+| W2.2-20 | 2026-09-26 02:17:20 JST | W2.2 K29 CI fix: the three CI failures, -race, 2 Ps, under contention | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 12.40 → 36.94 (noisy by design) | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $C '(M)' $MO $SP/bench.lock m-k29-race 16 -race -count=20 -cpu 2 -run '^(TestFanOut|TestWaiterFallThrough|TestALPNHTTP1Only)$' -v ./internal/h2gate/` (the K29 commit's tree, uncommitted then) | PASS, 91.7 s: the three tests 20/20, ordering 10/10 in all 20 runs | `results/m-k29-race.txt` |
+| W2.2-21 | 2026-09-25 17:19:14 UTC | W2.2 K29 CI fix | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.00 → 35.97 (noisy by design) | `TREE=7fd43ce+k29 sh $C '(L)' $LO /tmp/ts-spike/bench.lock l-k29-race 44 -race -count=20 -cpu 2 -run '^(TestFanOut|TestWaiterFallThrough|TestALPNHTTP1Only)$' -v ./internal/h2gate/` | PASS, 88.5 s: the three tests 20/20, ordering 10/10 in all 20 runs | `results/l-k29-race.txt` |
 
 ### W2.2 results
 
@@ -2200,3 +2202,28 @@ returning an unfinished handshake (`:1905-1910`, returned without `wrapErr`)
 The runners now print the tree in their header line (`tree=`): `TREE` when
 set (the (L) copies carry no `.git`), otherwise `git rev-parse --short HEAD`,
 with `+changes` when the worktree differs from it.
+
+### W2.2 K29: the CI failures on 7fd43ce (R75)
+
+CI run 36165341606 on `7fd43ce` failed three `internal/h2gate` tests under
+`-race`, none of them in the transport. On windows-2025 `TestFanOut`'s
+ordering check (b) failed in 4 of 10 bursts, and `TestWaiterFallThrough`'s
+"last waiter done before the leader" clause failed. In both, the two
+stamped events carried the same `time.Now` value (`m=+0.637313201` for a
+waiter's HEADERS and the leader's first response byte), although the test
+makes one follow the other: Windows advances the clock in ticks. On
+ubuntu-26.04 `TestALPNHTTP1Only` read the server's record of the refused
+handshake before the server's `Handshake` returned
+(`internal/testsupport/loopback.go:403-411`).
+
+The tests now read the order of client-side events from a sequence number
+each trace hook takes (`traceSeq`), which follows the order the hooks ran
+in whatever the clock's resolution; the timestamps stay as recorded
+values. R29c's client-side oracle is kept: the plain-token negative control
+still fails check (b) in 10 of 10 bursts, and a FirstHold-off mutant fails
+with the waiter's HEADERS about 180 events before the leader's first byte.
+Lower bounds on measured durations (the TLS-silent peers and the hold
+bound) allow one clock tick (`coarseClock`, 20 ms), and `TestALPNHTTP1Only`
+waits for the server's record. The runs above ran the three tests with 2 Ps,
+as on CI's runners, under contention (W2.2-20, -21). CI on the three images
+after landing is the proof on Windows.

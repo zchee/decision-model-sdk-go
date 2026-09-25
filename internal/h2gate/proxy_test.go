@@ -417,7 +417,7 @@ func TestProxyTLS(t *testing.T) {
 		if diff := gocmp.Diff(want, dialFlags(r.Err)); diff != "" {
 			t.Errorf("classification of %s (-want +got):\n%s", chain(r.Err), diff)
 		}
-		if el := time.Since(start); el < connect || el > connect+time.Second {
+		if el := time.Since(start); el < connect-coarseClock || el > connect+time.Second {
 			t.Errorf("elapsed %v, want about the %v handshake timeout", el, connect)
 		}
 		record(t, "case", "tls-silent-proxy", "chain", chain(r.Err))

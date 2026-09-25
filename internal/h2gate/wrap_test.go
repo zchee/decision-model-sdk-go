@@ -216,7 +216,7 @@ func TestCallerDialTLSRefused(t *testing.T) {
 			if diff := gocmp.Diff(want, dialFlags(r.Err)); diff != "" {
 				t.Errorf("classification of %s (-want +got):\n%s", chain(r.Err), diff)
 			}
-			if bound := 2 * connect; elapsed < bound || elapsed > bound+time.Second || l.Accepts() != 1 {
+			if bound := 2 * connect; elapsed < bound-coarseClock || elapsed > bound+time.Second || l.Accepts() != 1 {
 				t.Errorf("elapsed %v, accepts %d; want about the %v bound and 1 accept", elapsed, l.Accepts(), bound)
 			}
 		})
