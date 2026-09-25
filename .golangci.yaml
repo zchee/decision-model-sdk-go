@@ -34,6 +34,11 @@ linters:
     nolintlint:
       require-explanation: true
       require-specific: true
+    usetesting:
+      # Off by default; the house rule asks tests for t.Context() instead of
+      # context.Background() and context.TODO().
+      context-background: true
+      context-todo: true
   exclusions:
     generated: strict
     presets:
