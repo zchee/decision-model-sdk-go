@@ -21,7 +21,9 @@ import "github.com/zchee/typesafe-sdk-go/internal/wire"
 // their escape sequences and numbers their spelling.
 //
 // As a [RawQuestion] field value it is written as the value it holds; [JSON]
-// takes one to build structured [Content].
+// takes one to build structured [Content]. A member name repeated inside an
+// object (`{"a":1,"a":2}`) is passed through unchanged, which a Python dict
+// cannot produce; the server decides which one counts.
 type RawJSON []byte
 
 // Content is text, or a JSON object or array: what the API accepts as a
@@ -49,7 +51,8 @@ func Text(s string) Content {
 // without its insignificant whitespace; the caller must not modify it in
 // between. Anything but a single JSON object or array, with optional
 // whitespace around it, makes Prepare fail with a [*ConfigError]; text is
-// built with [Text], never from a JSON string.
+// built with [Text], never from a JSON string. As with [RawJSON], a repeated
+// member name inside an object is passed through for the server to decide.
 func JSON(raw []byte) Content {
 	if raw == nil {
 		// A nil JSON would read as text; keep the "not an object" failure.

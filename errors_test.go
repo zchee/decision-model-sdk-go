@@ -23,8 +23,9 @@ import (
 	gocmp "github.com/google/go-cmp/cmp"
 )
 
-// errSentinel stands for a sentinel error of this package that a
-// *ConfigError identifies its failure with (the port plan's section 6.3 pattern).
+// errSentinel stands for a sentinel error that a later wave may wrap in a
+// *ConfigError next to the cause (the port plan's section 6.3 pattern, W2.0
+// decides): Unwrap() []error must reach both.
 var errSentinel = errors.New("sentinel")
 
 // causeError is a cause with a type of its own, reached with errors.As.

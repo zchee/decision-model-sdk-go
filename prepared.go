@@ -31,7 +31,8 @@ type Prepared struct {
 	w wire.Prepared
 }
 
-// Len returns the number of questions in the set. It is never zero.
+// Len returns the number of questions in the set. It is never zero for a set
+// returned by [Questions.Prepare].
 func (p *Prepared) Len() int { return len(p.w.Entries()) }
 
 // Names returns the question names in the order they are sent.

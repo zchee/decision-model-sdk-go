@@ -19,9 +19,8 @@ package typesafe
 // returned before any request is sent, and retrying cannot fix it.
 //
 // Error returns the message. Unwrap returns the errors it wraps, if any: the
-// cause of the failure, and for some failures a sentinel error of this
-// package that identifies the failure; [errors.Is] and [errors.As] reach
-// both.
+// cause of the failure, such as the JSON syntax error behind rejected
+// content, which [errors.Is] and [errors.As] reach.
 type ConfigError struct {
 	msg  string
 	errs []error
