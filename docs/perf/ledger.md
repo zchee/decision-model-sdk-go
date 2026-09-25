@@ -1961,6 +1961,14 @@ is the pass alone over the same encoded bytes. The benchmark is
 `BenchmarkEncodeState` in `internal/codec/encode_bench_test.go`; the run held
 the bench lock.
 
+Finding for W5.3 (ruling R54): R48 stands, with W1.2-01 as the baseline, and
+the target is a validator that costs at most 1 × sonic's own encode on CJK
+text (0.346 ms at 6 MiB). The candidate is an ASCII word scan (8 bytes at a
+time) up to the first non-ASCII byte, then sonic's SIMD `utf8.Validate` for
+the rest: in an unlocked lane probe it read CJK text at 5.3 GiB/s against
+`utf8.Valid`'s 2.2 GiB/s, but ASCII at only 3.6 GiB/s against 72 GiB/s,
+hence the ASCII scan in front of it.
+
 | # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | W1.2-01 | 2026-09-25 22:04:45 JST | W1.2 R48 | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 7.43 → 7.59 | `flock bench.lock GOEXPERIMENT=nosimd,noruntimesecret go test -run '^$' -bench '^BenchmarkEncodeState$' -benchmem -count=10 ./internal/codec/` | medians of 10, check / encode: ASCII 1 KiB 17.74 ns / 150.6 ns (11.8 %), 64 KiB 828.7 ns / 4.728 µs (17.5 %), 6 MiB 81.85 µs / 445.0 µs (18.4 %); CJK 1 KiB 426.5 ns / 555.8 ns (76.7 %), 64 KiB 27.31 µs / 30.96 µs (88.2 %), 6 MiB 2.618 ms / 2.964 ms (88.3 %); every ± ≤ 2 %. The pass reads 52.1–73.6 GiB/s on ASCII and 2.21–2.24 GiB/s on CJK, and allocates nothing (`encode` 1 alloc/op, sonic's) | Against the AC-P6 time clause (q3 `call/sdk` 4.647 µs against `call/naive` 8.968 µs, W0.5-04), the pass adds 18 ns to a 1 KiB ASCII state (0.4 % of `call/sdk`) and 427 ns to a 1 KiB CJK state (9.2 %); the clause holds either way. On CJK text the pass costs about 7.6 × sonic's own encode (2.618 ms against 0.346 ms at 6 MiB). Base b227e5b plus the W1.2 working tree; raw: `_spikes/w1.2/results/bench-utf8-M.txt`, `benchstat-utf8-M.txt`, and `bench-utf8-M.meta.txt` (the run's `date`, load, `go version` and ToolTags lines) |
