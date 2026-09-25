@@ -896,36 +896,73 @@ func TestHeaderTemplate(t *testing.T) {
 	}
 }
 
-// TestHeaderDropsLogged pins the debug record for each dropped caller
-// header: the canonical name and the reason, never the value, and nothing
-// for a header that is kept.
+// TestHeaderDropsLogged pins every header a caller cannot set: each of the
+// 16 names is dropped from both templates or overwritten by the SDK's own
+// value, and its drop is one debug record with the canonical name and the
+// reason, never the value, while a header that is kept leaves no record. The
+// names and reasons are written out here rather than read from
+// sdkOwnedHeaders, and the map is compared with them whole, so removing a
+// name from it, adding one or changing a reason fails (review W2.1 MINOR 4).
 func TestHeaderDropsLogged(t *testing.T) {
-	rec := testsupport.NewLogRecorder(nil)
-	mustResolve(t, noEnv,
-		WithAPIKey("test-key"), WithLogger(rec.Logger()),
-		WithHeader("authorization", "injected-secret"),
-		WithHeader("x-typesafe-retry-count", "99"),
-		WithHeader("Host", "evil.test"),
-		WithHeader("content-type", "wrong/type"),
-		WithHeader("X-Team", "kept-value"),
+	const (
+		sdk       = "set by the SDK"
+		retry     = "set by the SDK on retries only"
+		transport = "belongs to the transport"
 	)
-	var got []string
-	for _, r := range rec.Records() {
-		got = append(got, r.String())
-		for _, secret := range []string{"injected-secret", "99", "evil.test", "wrong/type", "kept-value", "test-key"} {
-			if strings.Contains(r.String(), secret) {
-				t.Errorf("record %q contains the value %q", r.String(), secret)
+	tests := map[string]struct {
+		name   string // as a caller spells it
+		reason string
+	}{
+		"Authorization":          {name: "authorization", reason: sdk},
+		"Accept":                 {name: "accept", reason: sdk},
+		"User-Agent":             {name: "user-agent", reason: sdk},
+		"X-Typesafe-Sdk":         {name: "x-typesafe-sdk", reason: sdk},
+		"X-Typesafe-Runtime":     {name: "x-typesafe-runtime", reason: sdk},
+		"Content-Type":           {name: "content-type", reason: sdk},
+		"X-Typesafe-Retry-Count": {name: "x-typesafe-retry-count", reason: retry},
+		"Content-Length":         {name: "content-length", reason: transport},
+		"Transfer-Encoding":      {name: "transfer-encoding", reason: transport},
+		"Connection":             {name: "connection", reason: transport},
+		"Proxy-Connection":       {name: "proxy-connection", reason: transport},
+		"Keep-Alive":             {name: "keep-alive", reason: transport},
+		"Upgrade":                {name: "upgrade", reason: transport},
+		"Te":                     {name: "te", reason: transport},
+		"Trailer":                {name: "trailer", reason: transport},
+		"Host":                   {name: "host", reason: transport},
+	}
+	wantOwned := make(map[string]string, len(tests))
+	for canonical, tt := range tests {
+		wantOwned[canonical] = tt.reason
+	}
+	if diff := gocmp.Diff(wantOwned, sdkOwnedHeaders); diff != "" {
+		t.Errorf("sdkOwnedHeaders mismatch (-want +got):\n%s", diff)
+	}
+
+	const value = "caller-value"
+	for canonical, tt := range tests {
+		t.Run(canonical, func(t *testing.T) {
+			rec := testsupport.NewLogRecorder(nil)
+			c := mustResolve(t, noEnv,
+				WithAPIKey("test-key"), WithLogger(rec.Logger()),
+				WithHeader(tt.name, value), WithHeader("X-Kept", "kept-value"),
+			)
+			var got []string
+			for _, r := range rec.Records() {
+				got = append(got, r.String())
 			}
-		}
-	}
-	want := []string{
-		"DEBUG config: header dropped header=Authorization reason=set by the SDK",
-		"DEBUG config: header dropped header=X-Typesafe-Retry-Count reason=set by the SDK on retries only",
-		"DEBUG config: header dropped header=Host reason=belongs to the transport",
-		"DEBUG config: header dropped header=Content-Type reason=set by the SDK",
-	}
-	if diff := gocmp.Diff(want, got); diff != "" {
-		t.Errorf("records mismatch (-want +got):\n%s", diff)
+			want := []string{"DEBUG config: header dropped header=" + canonical + " reason=" + tt.reason}
+			if diff := gocmp.Diff(want, got); diff != "" {
+				t.Errorf("records mismatch (-want +got):\n%s", diff)
+			}
+			for _, h := range []http.Header{c.modelsHeader, c.systemOneHeader} {
+				if slices.Contains(h.Values(canonical), value) {
+					t.Errorf("template carries the caller's %s: %q", canonical, h.Values(canonical))
+				}
+				if h.Get("X-Kept") != "kept-value" {
+					t.Errorf("template lost the kept header X-Kept")
+				}
+			}
+		})
 	}
 }
 
