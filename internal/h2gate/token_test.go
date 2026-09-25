@@ -16,6 +16,7 @@ package h2gate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -175,9 +176,17 @@ func TestTokenResidualK21(t *testing.T) {
 			}
 
 			// A fresh 200-vs-8 burst on the same transport, with the server
-			// behaving again (a lowered limit is raised back to 8).
+			// behaving again (a lowered limit is raised back to 8). After
+			// GOAWAY the first connection closes once its last stream is
+			// done, which can be after every call returned: a connection
+			// whose close has begun serves no new stream, so it is skipped
+			// and counted.
+			restoreSkipped := 0
 			for _, c := range srv.LiveH2Conns() {
-				if err := c.SetMaxConcurrentStreams(k21Limit); err != nil {
+				switch err := c.SetMaxConcurrentStreams(k21Limit); {
+				case errors.Is(err, testsupport.ErrConnClosing):
+					restoreSkipped++
+				case err != nil:
 					t.Error(err)
 				}
 			}
@@ -191,7 +200,7 @@ func TestTokenResidualK21(t *testing.T) {
 			}
 			record(t, "case", "k21/"+strings.Fields(name)[1], "classes", fmt.Sprint(classes(calls)), "late", late, "bad", bad,
 				"accepts_scenario", scenarioAccepts, "accepts_total", srv.Accepts(), "refused_streams", refused,
-				"probe_headers_ms", ms(probe.WroteHeaders.Sub(probe.Start)), "fresh", fmt.Sprint(freshCl),
+				"probe_headers_ms", ms(probe.WroteHeaders.Sub(probe.Start)), "restore_skipped", restoreSkipped, "fresh", fmt.Sprint(freshCl),
 				"stats", fmt.Sprintf("%+v", tr.Stats()))
 		})
 	}

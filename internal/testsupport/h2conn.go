@@ -50,6 +50,14 @@ var (
 	errConnClosed  = errors.New("testsupport: connection closed")
 )
 
+// ErrConnClosing is what [H2Conn.SetMaxConcurrentStreams] returns, alone or
+// wrapped, when the connection's close had begun before its SETTINGS frame
+// could leave: GOAWAY drained it, the client closed it, or [H2Conn.Close] or
+// [H2Conn.Reset] ran. The limit was not delivered, and the connection serves
+// no new stream. [LoopbackServer.LiveH2Conns] lists a connection until its
+// reader has stopped, so a test that walks that list can meet one.
+var ErrConnClosing = errors.New("testsupport: connection closing")
+
 // H2Conn is one HTTP/2 connection of a [LoopbackServer], served by the
 // package's frame writer. Its methods are the connection-level knobs; they
 // are safe to call from any goroutine, including from
@@ -205,7 +213,9 @@ func (c *H2Conn) GoAway(lastStreamID uint32, code ErrCode) error {
 // counted by [LoopbackServer.OverLimit], even one the client opened before it
 // read the frame (RFC 9113 section 5.1.2 allows the refusal; a real server
 // may wait for the client's acknowledgement). Streams already open are left
-// alone. It lowers or raises a limit in the middle of a connection.
+// alone. It lowers or raises a limit in the middle of a connection. On a
+// connection whose close has begun it changes nothing and returns an error
+// matching [ErrConnClosing].
 func (c *H2Conn) SetMaxConcurrentStreams(n uint32) error {
 	if n == 0 {
 		return errors.New("testsupport: SetMaxConcurrentStreams needs a limit of at least 1")
@@ -213,14 +223,31 @@ func (c *H2Conn) SetMaxConcurrentStreams(n uint32) error {
 	// The write lock is taken first, as everywhere (wmu before mu), and held
 	// from the state change through the frame write, so the new limit and
 	// the frame that announces it cannot be reordered against another write.
+	// Under both locks the close cannot have begun unseen: maybeFinish sets
+	// closed before it waits for wmu to send close_notify.
 	c.wmu.Lock()
 	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		c.wmu.Unlock()
+		return ErrConnClosing
+	}
 	c.maxStreams = n
 	c.mu.Unlock()
 	err := c.fr.WriteSettings(http2.Setting{ID: http2.SettingMaxConcurrentStreams, Val: n})
 	c.wmu.Unlock()
 	if err != nil {
+		// Close does not take wmu (it must break a write stuck on a peer that
+		// stopped reading), so the reader's Close after the client closed the
+		// connection can land during the write; it sets closed before it
+		// closes the socket.
+		c.mu.Lock()
+		closing := c.closed
+		c.mu.Unlock()
 		c.Close()
+		if closing {
+			return fmt.Errorf("%w: %w", ErrConnClosing, err)
+		}
 		return fmt.Errorf("%w: %w", errConnClosed, err)
 	}
 	return nil

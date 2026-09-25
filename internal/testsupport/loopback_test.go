@@ -505,6 +505,69 @@ func TestLoopbackStreamLimit(t *testing.T) {
 	})
 }
 
+// TestLoopbackLimitOnClosingConn checks that SetMaxConcurrentStreams on a
+// connection whose close has begun writes nothing and reports ErrConnClosing,
+// while a live connection still receives the new limit.
+func TestLoopbackLimitOnClosingConn(t *testing.T) {
+	tests := map[string]struct {
+		// end begins the connection's close; nil leaves it live.
+		end  func(t *testing.T, srv *LoopbackServer, c *rawClient, conn *H2Conn)
+		want error
+		// after is what the client reads once the call returned; with eof,
+		// the connection then ends with no SETTINGS frame before its end.
+		after []frame
+		eof   bool
+	}{
+		"success: a live connection receives the new limit": {
+			after: []frame{{Type: "SETTINGS", MaxStreams: 2}},
+		},
+		"error: GOAWAY with no stream left to finish drained the connection": {
+			end: func(t *testing.T, _ *LoopbackServer, _ *rawClient, conn *H2Conn) {
+				if err := conn.GoAway(0, CodeNoError); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want:  ErrConnClosing,
+			after: []frame{{Type: "GOAWAY", LastID: 0, Code: CodeNoError}},
+			eof:   true,
+		},
+		"error: Close ran": {
+			end:  func(_ *testing.T, _ *LoopbackServer, _ *rawClient, conn *H2Conn) { conn.Close() },
+			want: ErrConnClosing,
+			eof:  true,
+		},
+		"error: the client closed the connection": {
+			end: func(t *testing.T, srv *LoopbackServer, c *rawClient, _ *H2Conn) {
+				_ = c.conn.Close()
+				// The reader closes its side once it reads the end, and the
+				// server forgets the connection after that.
+				waitFor(t, "the server to drop the connection", func() bool { return len(srv.LiveH2Conns()) == 0 })
+			},
+			want: ErrConnClosing,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			srv := NewLoopbackServer(t, ServerConfig{MaxConcurrentStreams: 8})
+			c := dialRaw(t, srv.Addr())
+			c.serverSettings() // the connection is listed before its first SETTINGS frame is written
+			conn := srv.LiveH2Conns()[0]
+			if tt.end != nil {
+				tt.end(t, srv, c, conn)
+			}
+			if err := conn.SetMaxConcurrentStreams(2); !errors.Is(err, tt.want) {
+				t.Fatalf("SetMaxConcurrentStreams(2) = %v, want %v", err, tt.want)
+			}
+			if len(tt.after) > 0 {
+				c.expect(tt.after...)
+			}
+			if tt.eof {
+				c.expectEOF()
+			}
+		})
+	}
+}
+
 // TestLoopbackGoAway checks GOAWAY with a LastStreamID below streams in
 // flight, frame by frame, and the replay it causes in net/http.
 func TestLoopbackGoAway(t *testing.T) {
