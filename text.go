@@ -279,9 +279,12 @@ func afterScheme(v string) (string, bool) {
 func quotedForm(q string) string { return q[1 : len(q)-1] }
 
 // jsonForm returns v as a JSON string holds it, without its quotes, escaped
-// as encoding/json escapes it by default: '"' and '\\' with a backslash,
-// the controls, '<', '>', '&', U+2028 and U+2029 as \u escapes (\n, \r and
-// \t as those), and a byte that is not UTF-8 as �.
+// as encoding/json escapes it by default on Go 1.27: '"' and '\\' with a
+// backslash, the controls, '<', '>', '&', U+2028 and U+2029 as \u escapes
+// (\n, \r and \t as those), and a byte that is not UTF-8 as U+FFFD itself,
+// unescaped. TestJSONFormMatchesEncodingJSON checks it against
+// encoding/json, whose spelling of that last case differs between
+// encoders.
 func jsonForm(v string) string {
 	const hex = "0123456789abcdef"
 	var b strings.Builder
@@ -298,8 +301,8 @@ func jsonForm(v string) string {
 		case r == '\t':
 			b.WriteString(`\t`)
 		case r == utf8.RuneError && size == 1:
-			b.WriteString(`�`)
-		case r < 0x20 || r == '<' || r == '>' || r == '&' || r == ' ' || r == ' ':
+			b.WriteString("\ufffd") // U+FFFD itself, unescaped
+		case r < 0x20 || r == '<' || r == '>' || r == '&' || r == '\u2028' || r == '\u2029':
 			b.WriteString(`\u`)
 			for shift := 12; shift >= 0; shift -= 4 {
 				b.WriteByte(hex[r>>shift&0xf])

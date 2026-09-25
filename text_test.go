@@ -31,6 +31,7 @@ import (
 	gocmp "github.com/google/go-cmp/cmp"
 
 	"github.com/zchee/typesafe-sdk-go/internal/codec"
+	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
 // TestAppendSafeText pins the escape and cut of text the SDK did not write
@@ -320,5 +321,38 @@ func TestCredentialsCause(t *testing.T) {
 	}
 	if got := creds.cause(nil); got != nil {
 		t.Errorf("cause(nil) = %v, want nil", got)
+	}
+}
+
+// TestJSONFormMatchesEncodingJSON checks jsonForm against the encoder a
+// caller's error text would carry, encoding/json (through
+// testsupport.StdlibMarshal: the root package's tests import no JSON
+// library), rather than against expected strings (review W2.5 NIT 8): for
+// each value, jsonForm writes what json.Marshal writes between the quotes.
+// The values cover obs-text bytes that are not UTF-8, a character above the
+// Basic Multilingual Plane, the HTML characters, quotes and backslashes,
+// controls, DEL, U+2028 and U+2029, and a header's own characters.
+func TestJSONFormMatchesEncodingJSON(t *testing.T) {
+	tests := map[string]string{ //nolint:gosec // G101: fake values that only exercise the escaper
+		"success: obs-text bytes that are not UTF-8": "k\x80\xfe\xff-credential",
+		"success: a truncated multi-byte sequence":   "k\xe2\x82-credential",
+		"success: above the BMP":                     "k\U0001f600\U00010348-credential",
+		"success: HTML characters":                   "a<b>&c-credential",
+		"success: quotes and backslashes":            `q"uo\te'%41-credential`,
+		"success: controls and DEL":                  "t\tab\x01\x1f\x7f\n\r-credential",
+		"success: line and paragraph separators":     "l\u2028p\u2029-credential",
+		"success: Latin-1 and BMP characters":        "t\u00f6k\u20acn\u00a0-credential",
+		"success: a plain token":                     "Bearer ts_live_0123456789abcdef",
+	}
+	for name, v := range tests {
+		t.Run(name, func(t *testing.T) {
+			b, err := testsupport.StdlibMarshal(v)
+			if err != nil {
+				t.Fatalf("StdlibMarshal: %v", err)
+			}
+			if diff := gocmp.Diff(string(b[1:len(b)-1]), jsonForm(v)); diff != "" {
+				t.Errorf("jsonForm(%q) (-encoding/json +got):\n%s", v, diff)
+			}
+		})
 	}
 }
