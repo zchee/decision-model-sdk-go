@@ -31,6 +31,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -284,21 +285,33 @@ func goList(t *testing.T, root string, args ...string) string {
 // depend, through any chain and including their tests, on neither the root
 // package nor internal/codec, which do not compile on gotip by design (PM1).
 // A package that does not exist yet is skipped.
+//
+// The root package is on the canary list only while it does not import
+// internal/codec. Its row fails the day it does (W1.2): remove the root
+// package from the "Build, vet and test with gotip" step of
+// .github/workflows/gotip.yaml and this row together.
 func TestSeamTransitiveImports(t *testing.T) {
 	mod := findModule(t)
 	tests := map[string]struct {
-		dir string
+		dir     string // slash-separated, from the module root
+		pattern string // the go list pattern
+		gotip   string // what to do when the row fails
 	}{
-		"internal/h2gate":      {dir: "internal/h2gate"},
-		"internal/testsupport": {dir: "internal/testsupport"},
-		"internal/wire":        {dir: "internal/wire"},
+		"root package (until it imports internal/codec, W1.2)": {
+			dir:     ".",
+			pattern: ".",
+			gotip:   "drop the root package from gotip.yaml's canary step and this row",
+		},
+		"internal/h2gate":      {dir: "internal/h2gate", pattern: "./internal/h2gate/..."},
+		"internal/testsupport": {dir: "internal/testsupport", pattern: "./internal/testsupport/..."},
+		"internal/wire":        {dir: "internal/wire", pattern: "./internal/wire/..."},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			if _, err := os.Stat(filepath.Join(mod.root, filepath.FromSlash(tt.dir))); err != nil {
 				t.Skipf("%s does not exist yet: %v", tt.dir, err)
 			}
-			out := goList(t, mod.root, "-deps", "-test", "-f", "{{.ImportPath}}", "./"+tt.dir+"/...")
+			out := goList(t, mod.root, "-deps", "-test", "-f", "{{.ImportPath}}", tt.pattern)
 			n := 0
 			for line := range strings.Lines(out) {
 				// Test variants print as "path [path.test]".
@@ -307,12 +320,60 @@ func TestSeamTransitiveImports(t *testing.T) {
 					continue
 				}
 				n++
-				if dep == modulePath || under(dep, codecPath) {
-					t.Errorf("%s depends on %s", tt.dir, dep)
+				// The root package lists itself among its own dependencies.
+				if (dep == modulePath && tt.dir != ".") || under(dep, codecPath) {
+					if tt.gotip != "" {
+						t.Errorf("%s depends on %s: %s", tt.pattern, dep, tt.gotip)
+					} else {
+						t.Errorf("%s depends on %s", tt.pattern, dep)
+					}
 				}
 			}
 			if n == 0 {
-				t.Fatalf("go list printed no dependencies for ./%s/...", tt.dir)
+				t.Fatalf("go list printed no dependencies for %s", tt.pattern)
+			}
+		})
+	}
+}
+
+// TestSeamD1IdentifierSites checks that every site naming the D1 identifier
+// names the same token (ruling R10): the Go 1.28 bump renames it in several
+// files at once, and a site left behind would either print a stale range to
+// consumers or grep CI output for an identifier the compiler no longer prints.
+func TestSeamD1IdentifierSites(t *testing.T) {
+	mod := findModule(t)
+	token := regexp.MustCompile(`typesafe_sdk_go_requires\w*`)
+	tests := map[string]struct {
+		path string   // slash-separated, from the module root
+		also []string // further text the site must contain
+	}{
+		"internal/codec/unsupported.go": {path: "internal/codec/unsupported.go"},
+		"ci.yaml AC-Q4 refusal check": {
+			path: ".github/workflows/ci.yaml",
+			also: []string{"GOFLAGS=-tags=" + d1Cutoff},
+		},
+		"gotip.yaml D1 probe": {path: ".github/workflows/gotip.yaml"},
+		"docs/support.md":     {path: "docs/support.md"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			data, err := os.ReadFile(filepath.Join(mod.root, filepath.FromSlash(tt.path)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := token.FindAllString(string(data), -1)
+			if len(found) == 0 {
+				t.Fatalf("%s names no D1 identifier, want %s", tt.path, d1Identifier)
+			}
+			for _, got := range found {
+				if got != d1Identifier {
+					t.Errorf("%s names %s, want %s (d1Cutoff %s)", tt.path, got, d1Identifier, d1Cutoff)
+				}
+			}
+			for _, want := range tt.also {
+				if !strings.Contains(string(data), want) {
+					t.Errorf("%s does not contain %q (d1Cutoff %s)", tt.path, want, d1Cutoff)
+				}
 			}
 		})
 	}

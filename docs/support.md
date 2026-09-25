@@ -69,27 +69,31 @@ On Go 1.28 GA day every consumer on Go 1.28 gets the compile error above until
 sonic and the SDK both move. The weekly `gotip` workflow lists the files of
 sonic that `gotip` compiles, for the version in `go.mod` and for the newest
 release. While `sonic.go` carries `!go1.28`, `gotip` compiles `compat.go`
-instead; the day either version compiles `sonic.go`, the canary fails and opens
-or updates its tracking issue, which is the signal to start the steps below.
-The probe keys on sonic's files rather than on the Go version because `gotip`
-always reports a development version, never a release candidate.
+instead; the day either version compiles `sonic.go`, the workflow opens or
+updates the issue "Go 1.28: waiting on sonic" (separate from its "gotip canary
+failing" issue), which is the signal to start the steps below. The probe keys
+on sonic's files rather than on the Go version because `gotip` always reports a
+development version, never a release candidate.
 
 When a sonic tag without `!go1.28` exists:
 
 1. Bump sonic: `go get github.com/bytedance/sonic@<tag> && go mod tidy`.
-2. In **one** edit, move every `internal/codec` constraint:
+2. In **one** commit, edit every site that names the supported range:
    - `unsupported.go` → `//go:build go1.29 || !(amd64 || arm64)`;
    - every other file, tests included → `//go:build !go1.29 && (amd64 || arm64)`;
-   - the identifier in `unsupported.go` →
-     `typesafe_sdk_go_requires_go1_17_to_go1_28_on_amd64_or_arm64`;
-   - the `d1Cutoff` constant of `internal/codec/seam_test.go` → `"go1.29"`
-     (the seam test derives both expected lines and the identifier from it);
-   - the refusal checks of `.github/workflows/ci.yaml` and
-     `.github/workflows/gotip.yaml` (`D1_IDENTIFIER`, and `-tags=go1.29`).
+   - the identifier, renamed to the new range (its `go1_27` part becomes
+     `go1_28`), in `unsupported.go`, in the `D1_IDENTIFIER` of
+     `.github/workflows/ci.yaml` and `.github/workflows/gotip.yaml`, and in
+     this document;
+   - the stand-in tag of the ci.yaml refusal check → `-tags=go1.29`;
+   - the `d1Cutoff` constant of `internal/codec/seam_test.go` → `"go1.29"`.
 
-   Moving only `unsupported.go` would be wrong: the other files would keep
-   `!go1.28`, exclude themselves on Go 1.28, and leave the package empty on a
-   supported release.
+   The seam tests are the guard for this edit: they derive both constraint
+   lines and the identifier from `d1Cutoff`, check every file's line, and fail
+   when any of the sites above names another identifier
+   (`TestSeamD1IdentifierSites`). Moving only `unsupported.go` would be wrong:
+   the other files would keep `!go1.28`, exclude themselves on Go 1.28, and
+   leave the package empty on a supported release.
 3. Re-run the refusal checks (`GOARCH=386`, `GOARCH=riscv64`, and the
    next-release stand-in tag, now `-tags go1.29`; `go vet` and `go build`).
 4. Wait for the CI matrix to pass, then release a minor version.

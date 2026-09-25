@@ -8,45 +8,65 @@ on:
 permissions:
   contents: read
 
+# One canary at a time: a manual dispatch neither cancels nor races the weekly
+# run while both look up and update the same tracking issues.
+concurrency:
+  group: gotip
+  cancel-in-progress: false
+
 jobs:
   gotip:
     name: gotip canary
     runs-on: ubuntu-26.04
+    # A job that hits this limit is cancelled and skips its `if: failure()`
+    # steps, so every step below carries a tighter limit of its own: a hung
+    # step fails, and the tracking issue is still opened.
+    timeout-minutes: 60
     permissions:
       contents: read
-      issues: write # open or update the tracking issue on failure
+      issues: write # open or update the tracking issues
     env:
       # gotip must build with itself; never switch to the go.mod toolchain.
       GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@v7
+        timeout-minutes: 5
         with:
           persist-credentials: false
 
       # Bootstrap toolchain for building gotip.
       - uses: actions/setup-go@v7
+        timeout-minutes: 5
         with:
           go-version-file: go.mod
 
       - name: Install gotip
         id: install
+        timeout-minutes: 30
         run: |
           go install golang.org/dl/gotip@latest
           gotip download
 
       # gotip carries the go1.28 release tag, so internal/codec refuses to build
-      # there by design (D1), and so does every package that imports it (the
-      # root package from W1.2 on). The canary builds and tests only the
-      # packages the seam test keeps free of both (PM1).
-      - name: Vet and test internal/wire with gotip
-        run: gotip version && gotip vet ./internal/wire/... && gotip test ./internal/wire/...
-      # W2.2 adds: gotip test ./internal/h2gate/...
+      # there by design (D1), and so does every package that imports it. The
+      # canary builds only the packages the seam test keeps free of both (PM1).
+      # The root package leaves this list when it first imports internal/codec
+      # (W1.2); TestSeamTransitiveImports fails until it does.
+      # W2.2 adds: ./internal/h2gate/...
+      - name: Build, vet and test with gotip
+        timeout-minutes: 15
+        run: |
+          gotip version
+          gotip build . ./internal/wire/...
+          gotip vet . ./internal/wire/...
+          gotip test . ./internal/wire/...
 
       # The D1 refusal must stay deliberate: gotip vet and gotip build of
       # internal/codec must both fail and name the D1 identifier. A pass, or a
       # failure for any other reason, fails the canary.
       - name: D1 refusal with gotip
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        timeout-minutes: 10
         env:
           D1_IDENTIFIER: typesafe_sdk_go_requires_go1_17_to_go1_27_on_amd64_or_arm64
         run: |
@@ -66,15 +86,18 @@ jobs:
           done
 
       # PM5: which sonic files gotip compiles, for the go.mod version and for
-      # the newest release. While sonic.go (the JIT path) carries !go1.28 gotip
+      # the newest release. While sonic.go (the JIT path) carries !go1.28, gotip
       # compiles compat.go instead. The day either version selects sonic.go,
-      # sonic supports the next Go release: the step fails, the tracking issue
-      # below fires, and the bump procedure in docs/support.md starts.
+      # sonic supports the next Go release: the step sets `selected`, and the
+      # step after it opens or updates the PM5 issue, separate from the canary
+      # failure issue, so that the bump procedure in docs/support.md starts.
       - name: PM5 sonic support probe
+        id: sonic
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        timeout-minutes: 10
         run: |
           tip="$(gotip version)"
-          selected=0
+          detail=""
           probe() { # $1: label, $2: module directory
             local version files
             version="$(cd "$2" && gotip list -m -f '{{.Version}}' github.com/bytedance/sonic)"
@@ -82,8 +105,8 @@ jobs:
             echo "$1 sonic ${version} under ${tip}: ${files}"
             echo "| $1 | ${version} | ${files} |" >>"$GITHUB_STEP_SUMMARY"
             if [[ " ${files} " == *" sonic.go "* ]]; then
-              echo "::error title=PM5 sonic support probe::sonic ${version} ($1) compiles its JIT path (sonic.go) under ${tip}: start the Go 1.28 bump procedure in docs/support.md"
-              selected=1
+              echo "::warning title=PM5 sonic support probe::sonic ${version} ($1) compiles its JIT path (sonic.go) under ${tip}"
+              detail="${detail:+${detail}; }sonic ${version} ($1) compiles its JIT path (sonic.go) under ${tip}"
             fi
           }
           {
@@ -96,19 +119,44 @@ jobs:
           newest="$(mktemp -d)"
           (cd "$newest" && gotip mod init sonicprobe && gotip get github.com/bytedance/sonic@latest)
           probe "newest" "$newest"
-          exit "$selected"
+          if [ -n "${detail}" ]; then
+            echo "selected=true" >>"$GITHUB_OUTPUT"
+            echo "detail=${detail}" >>"$GITHUB_OUTPUT"
+          fi
 
-      - name: Open or update the tracking issue
+      - name: Open or update the PM5 sonic issue
+        if: ${{ !cancelled() && steps.sonic.outputs.selected == 'true' }}
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: "Go 1.28: waiting on sonic"
+          DETAIL: ${{ steps.sonic.outputs.detail }}
+        run: |
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          body="$(date -u '+%Y-%m-%d %H:%M:%S UTC'): ${DETAIL}. Start the Go 1.28 bump procedure in docs/support.md. Run: ${run_url}"
+          # The search index lags behind new issues; list the open ones and
+          # match the exact title instead.
+          number="$(gh issue list --repo "${GITHUB_REPOSITORY}" --state open --limit 200 \
+            --json number,title --jq '.[] | select(.title == env.TITLE) | .number' | head -n 1)"
+          if [ -n "${number}" ]; then
+            gh issue comment "${number}" --repo "${GITHUB_REPOSITORY}" --body "${body}"
+          else
+            gh issue create --repo "${GITHUB_REPOSITORY}" --title "${TITLE}" --body "${body}"
+          fi
+
+      - name: Open or update the canary failure issue
         if: failure()
+        timeout-minutes: 5
         env:
           GH_TOKEN: ${{ github.token }}
           TITLE: "gotip canary failing"
         run: |
           run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           body="The gotip canary failed at $(date -u '+%Y-%m-%d %H:%M:%S UTC'): ${run_url}"
-          number="$(gh issue list --repo "${GITHUB_REPOSITORY}" --state open \
-            --search "in:title \"${TITLE}\"" --json number,title \
-            --jq ".[] | select(.title == env.TITLE) | .number" | head -n 1)"
+          # The search index lags behind new issues; list the open ones and
+          # match the exact title instead.
+          number="$(gh issue list --repo "${GITHUB_REPOSITORY}" --state open --limit 200 \
+            --json number,title --jq '.[] | select(.title == env.TITLE) | .number' | head -n 1)"
           if [ -n "${number}" ]; then
             gh issue comment "${number}" --repo "${GITHUB_REPOSITORY}" --body "${body}"
           else
