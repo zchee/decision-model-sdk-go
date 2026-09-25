@@ -436,12 +436,13 @@ func (t *transport) stats() h2gate.Stats {
 // a failure to speak HTTP/2 is a *ConfigError wrapping
 // [ErrHTTP2NotNegotiated]; a dial or TLS handshake that timed out is a
 // *TimeoutError; any other failure before a connection is a
-// *ConnectionError.
+// *ConnectionError. Each wraps the transport's error unless its text holds
+// URL userinfo, which no text of a mapped error repeats (scrubbedCause).
 func transportError(err error, timeout time.Duration) error {
 	de, isDial := errors.AsType[*h2gate.DialError](err)
 	switch {
 	case isDial && de.Proxy && de.Timeout:
-		return newProxyTimeoutError(timeout, err)
+		return newProxyTimeoutError(timeout, scrubbedCause(err))
 	case isDial && de.Proxy:
 		text, cause := connectionText(de.Err, err)
 		return newConnectionError(text, cause, true)
@@ -450,11 +451,15 @@ func transportError(err error, timeout time.Duration) error {
 		if isDial {
 			detail = de.Err.Error()
 		}
-		detail = strings.TrimPrefix(detail, h2gate.ErrNotNegotiated.Error()+": ")
-		return newConfigError("The API host did not negotiate HTTP/2, which HTTP2Only requires ("+
-			safeMessage(detail)+"); WithHTTPVersion(HTTPAuto) allows HTTP/1.1.", ErrHTTP2NotNegotiated, err)
+		detail, _ = scrubUserinfo(strings.TrimPrefix(detail, h2gate.ErrNotNegotiated.Error()+": "))
+		msg := "The API host did not negotiate HTTP/2, which HTTP2Only requires (" + safeMessage(detail) +
+			"); WithHTTPVersion(HTTPAuto) allows HTTP/1.1."
+		if cause := scrubbedCause(err); cause != nil {
+			return newConfigError(msg, ErrHTTP2NotNegotiated, cause)
+		}
+		return newConfigError(msg, ErrHTTP2NotNegotiated)
 	case isDial && de.Timeout:
-		return newTimeoutError(timeout, err)
+		return newTimeoutError(timeout, scrubbedCause(err))
 	case isDial:
 		text, cause := connectionText(de.Err, err)
 		return newConnectionError(text, cause, false)
@@ -464,17 +469,24 @@ func transportError(err error, timeout time.Duration) error {
 }
 
 // connectionText returns the text a *ConnectionError shows for the
-// transport's error inner, and the error it unwraps to: err, or nil when the
-// text held a credential. A URL with userinfo (a proxy URL's
-// user:password@) is the one credential a transport error's text can carry
-// here, so its userinfo is replaced with "***"; the scrub of the rest of a
-// transport error's text is the attempt classification's (W2.5).
+// transport's error inner, with any URL userinfo replaced, and the error it
+// unwraps to, by scrubbedCause.
 func connectionText(inner, err error) (string, error) {
-	text, scrubbed := scrubUserinfo(inner.Error())
-	if scrubbed {
-		return text, nil
+	text, _ := scrubUserinfo(inner.Error())
+	return text, scrubbedCause(err)
+}
+
+// scrubbedCause returns err as the cause a mapped SDK error unwraps to, or
+// nil when err's text holds a credential, so that no printed form of the
+// SDK error's chain holds one. A URL with userinfo (a proxy URL's
+// user:password@) is the one credential a transport error's text can carry
+// here; the scrub of the rest of a transport error's text is the attempt
+// classification's (W2.5).
+func scrubbedCause(err error) error {
+	if _, scrubbed := scrubUserinfo(err.Error()); scrubbed {
+		return nil
 	}
-	return text, err
+	return err
 }
 
 // scrubUserinfo replaces the userinfo of every URL in s ("scheme://user@" or

@@ -365,6 +365,18 @@ func TestDialErrorsMapToSDKErrors(t *testing.T) {
 			err:  &h2gate.DialError{Proxy: true, Err: errors.New("proxyconnect tcp: http://user:hunter2@proxy.test:3128: refused")},
 			want: want{kind: "connection", text: "Connection error: proxyconnect tcp: http://***@proxy.test:3128: refused", proxy: true},
 		},
+		"success: a proxy-hop timeout drops a cause holding a proxy password": {
+			err:  &h2gate.DialError{Proxy: true, Timeout: true, Err: errors.New("proxyconnect tcp: http://user:hunter2@proxy.test:3128: i/o timeout")},
+			want: want{kind: "timeout", text: "Request timed out on the proxy hop (timeout=10s).", proxy: true},
+		},
+		"success: a dial timeout drops a cause holding a password": {
+			err:  &h2gate.DialError{Timeout: true, Err: errors.New("dial http://user:hunter2@proxy.test:3128: i/o timeout")},
+			want: want{kind: "timeout", text: "Request timed out (timeout=10s)."},
+		},
+		"success: a not-negotiated detail has its userinfo scrubbed and its cause dropped": {
+			err:  &h2gate.DialError{Err: fmt.Errorf("%w: via http://user:hunter2@proxy.test:3128", h2gate.ErrNotNegotiated)},
+			want: want{kind: "config", text: "The API host did not negotiate HTTP/2, which HTTP2Only requires (via http://***@proxy.test:3128); WithHTTPVersion(HTTPAuto) allows HTTP/1.1."},
+		},
 		"success: a URL without userinfo keeps its text and cause": {
 			err:  &h2gate.DialError{Err: errors.New("dial http://proxy.test:8080: refused")},
 			want: want{kind: "connection", text: "Connection error: dial http://proxy.test:8080: refused", unwrapsErr: true},
@@ -547,11 +559,15 @@ func assertMapped(t *testing.T, got, err error, kind, text string, proxy, unwrap
 		if !ok {
 			t.Fatalf("transportError = %T, want *ConfigError", got)
 		}
-		if u := ce.Unwrap(); len(u) != 2 || u[0] != ErrHTTP2NotNegotiated { //nolint:errorlint // the sentinel itself comes first
-			t.Errorf("Unwrap() = %v, want {ErrHTTP2NotNegotiated, cause}", u)
+		wantLen := 1 // the sentinel alone when the cause held a credential
+		if unwrapsErr {
+			wantLen = 2
 		}
-		if !errors.Is(got, ErrHTTP2NotNegotiated) || !errors.Is(got, h2gate.ErrNotNegotiated) {
-			t.Errorf("errors.Is: ErrHTTP2NotNegotiated %t, the cause's sentinel %t; want both", errors.Is(got, ErrHTTP2NotNegotiated), errors.Is(got, h2gate.ErrNotNegotiated))
+		if u := ce.Unwrap(); len(u) != wantLen || u[0] != ErrHTTP2NotNegotiated { //nolint:errorlint // the sentinel itself comes first
+			t.Errorf("Unwrap() = %v, want ErrHTTP2NotNegotiated first, %d in all", u, wantLen)
+		}
+		if !errors.Is(got, ErrHTTP2NotNegotiated) || errors.Is(got, h2gate.ErrNotNegotiated) != unwrapsErr {
+			t.Errorf("errors.Is: ErrHTTP2NotNegotiated %t, the cause's sentinel %t; want true, %t", errors.Is(got, ErrHTTP2NotNegotiated), errors.Is(got, h2gate.ErrNotNegotiated), unwrapsErr)
 		}
 	}
 	if gotProxy != proxy {
