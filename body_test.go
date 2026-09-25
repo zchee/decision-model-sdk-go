@@ -688,7 +688,7 @@ func TestMapSliceStructStates(t *testing.T) {
 		"success: an array":                                  {state: [2]any{"a", nil}, want: `["a",null]`},
 		"success: []int":                                     {state: []int{1, 2}, want: `[1,2]`},
 		"success: a slice of maps":                           {state: []map[string]any{{"k": nil}}, want: `[{"k":null}]`},
-		"success: map[string]string, sorted order":           {state: map[string]string{"k": "v"}, want: `{"k":"v"}`},
+		"success: map[string]string with one member":         {state: map[string]string{"k": "v"}, want: `{"k":"v"}`},
 		"deviation: a nested []byte is sent as base64 (R49)": {state: map[string]any{"b": []byte("hi")}, want: `{"b":"aGk="}`},
 	}
 	for name, tt := range tests {
@@ -861,84 +861,93 @@ func TestNestedContentEncodesAsContent(t *testing.T) {
 		P *Content `json:"p"`
 	}
 	text := Text("a\bb")
+	body := func(state, extra string) string {
+		return `{"state":` + state + `,"model":"jev-latest","questions":` + probeQuestions + extra + `}`
+	}
 	tests := map[string]struct {
-		state any
-		extra []bodyMember
-		want  string // the body, on success; a substring of the message otherwise
-		cause error  // errors.Is target, on failure
+		state   any
+		extra   []bodyMember
+		want    []string // the accepted bodies, when it encodes (a Go map has no member order)
+		wantErr string   // a substring of the *InvalidRequestError message, when it does not
+		wantIs  error    // errors.Is target of a refusal, if any
 	}{
 		"success: text in a map state": {
 			state: map[string]any{"c": text},
-			want:  `{"state":{"c":"a\bb"},"model":"jev-latest","questions":` + probeQuestions + `}`,
+			want:  []string{body(`{"c":"a\bb"}`, "")},
 		},
 		"success: JSON content in a map state, bytes as given": {
 			state: map[string]any{"c": JSON([]byte(` { "a" : [1, null] } `))},
-			want:  `{"state":{"c": { "a" : [1, null] } },"model":"jev-latest","questions":` + probeQuestions + `}`,
+			want:  []string{body(`{"c": { "a" : [1, null] } }`, "")},
 		},
 		"success: unset Content in a map state is null": {
 			state: map[string]any{"c": Content{}},
-			want:  `{"state":{"c":null},"model":"jev-latest","questions":` + probeQuestions + `}`,
+			want:  []string{body(`{"c":null}`, "")},
 		},
 		"success: Content and *Content struct fields": {
 			state: holder{C: Text("x"), P: &text},
-			want:  `{"state":{"c":"x","p":"a\bb"},"model":"jev-latest","questions":` + probeQuestions + `}`,
+			want:  []string{body(`{"c":"x","p":"a\bb"}`, "")},
 		},
 		"success: a nil *Content field is null": {
 			state: holder{C: JSON([]byte(`[]`))},
-			want:  `{"state":{"c":[],"p":null},"model":"jev-latest","questions":` + probeQuestions + `}`,
+			want:  []string{body(`{"c":[],"p":null}`, "")},
 		},
 		"success: Content nested in an extra member's value": {
 			state: "hi",
 			extra: []bodyMember{{"ctx", map[string]any{"c": text, "u": Content{}}}},
-			want:  `,"ctx":{`, // map order varies; the members are checked below
+			want: []string{
+				body(`"hi"`, `,"ctx":{"c":"a\bb","u":null}`),
+				body(`"hi"`, `,"ctx":{"u":null,"c":"a\bb"}`),
+			},
 		},
 		"error: invalid JSON content nested in the state": {
-			state: map[string]any{"c": JSON([]byte(`{"a":}`))},
-			want:  "state: a MarshalJSON method returned invalid JSON (syntax error at position 5)",
+			state:   map[string]any{"c": JSON([]byte(`{"a":}`))},
+			wantErr: "state: a MarshalJSON method returned invalid JSON (syntax error at position 5)",
 		},
 		"error: JSON content that is not an object or an array": {
-			state: []any{JSON([]byte(`3`))},
-			want:  "state: JSON content must be an object or an array",
-			cause: wire.ErrContentShape,
+			state:   []any{JSON([]byte(`3`))},
+			wantErr: "state: JSON content must be an object or an array",
+			wantIs:  wire.ErrContentShape,
 		},
 		"error: nested text that is not UTF-8, in an extra member": {
-			state: "hi",
-			extra: []bodyMember{{"ctx", []any{Text("\xff")}}},
-			want:  `extra body member "ctx": string is not valid UTF-8`,
-			cause: wire.ErrInvalidUTF8,
+			state:   "hi",
+			extra:   []bodyMember{{"ctx", []any{Text("\xff")}}},
+			wantErr: `extra body member "ctx": string is not valid UTF-8`,
+			wantIs:  wire.ErrInvalidUTF8,
 		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			got, err := bodyOf(t, tt.state, "jev-latest", probeSet(t), tt.extra...)
-			if strings.HasPrefix(name, "error: ") {
-				_ = invalidRequest(t, err, tt.want)
+			if tt.wantErr != "" {
+				_ = invalidRequest(t, err, tt.wantErr)
 				if _, ok := errors.AsType[*codec.EncodeError](err); !ok {
 					t.Errorf("err = %v, want a chain through *codec.EncodeError", err)
 				}
-				if tt.cause != nil && !errors.Is(err, tt.cause) {
-					t.Errorf("err = %v, want errors.Is %v", err, tt.cause)
+				if tt.wantIs != nil && !errors.Is(err, tt.wantIs) {
+					t.Errorf("err = %v, want errors.Is %v", err, tt.wantIs)
 				}
 				return
 			}
 			if err != nil {
 				t.Fatalf("encodeBody: %v", err)
 			}
-			if tt.extra == nil {
-				if diff := gocmp.Diff(tt.want, got); diff != "" {
-					t.Errorf("body (-want +got):\n%s", diff)
-				}
-				return
-			}
-			prefix := `{"state":"hi","model":"jev-latest","questions":` + probeQuestions + tt.want
-			members := []string{`"c":"a\bb"`, `"u":null`}
-			one := prefix + members[0] + "," + members[1] + "}}"
-			other := prefix + members[1] + "," + members[0] + "}}"
-			if got != one && got != other {
-				t.Errorf("body =\n%s\nwant\n%s\nor\n%s", got, one, other)
+			if diff := gocmp.Diff(closest(tt.want, got), got); diff != "" {
+				t.Errorf("body (-want +got):\n%s", diff)
 			}
 		})
 	}
+}
+
+// closest returns the entry of want equal to got, or the first one when
+// none is, so that gocmp can diff a body against the member orders a Go map
+// may take.
+func closest(want []string, got string) string {
+	for _, w := range want {
+		if w == got {
+			return w
+		}
+	}
+	return want[0]
 }
 
 // TestNestedRawJSONEncodesAsJSON checks ruling R57: RawJSON nested in a state

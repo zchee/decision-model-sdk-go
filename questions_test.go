@@ -764,8 +764,8 @@ func TestArrayContentEverywhere(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			got := mustBody(t, tt.state, "jev-latest", qs)
 			want := `{"state":[{"message":"Classify"},null],"model":"jev-latest","questions":` + typed.want + `}`
-			if got != want {
-				t.Errorf("body =\n%s\nwant\n%s", got, want)
+			if diff := gocmp.Diff(want, got); diff != "" {
+				t.Errorf("body (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -828,12 +828,13 @@ func TestNullInsideContentSurvives(t *testing.T) {
 	for name, tt := range states {
 		t.Run(name, func(t *testing.T) {
 			got := mustBody(t, tt.state, "jev-latest", qs)
-			for _, w := range tt.want {
-				if got == `{"state":`+w+`,"model":"jev-latest","questions":`+typed.want+`}` {
-					return
-				}
+			bodies := make([]string, len(tt.want))
+			for i, w := range tt.want {
+				bodies[i] = `{"state":` + w + `,"model":"jev-latest","questions":` + typed.want + `}`
 			}
-			t.Errorf("body =\n%s\nwant the state as one of %q, then the typed questions\n%s", got, tt.want, typed.want)
+			if diff := gocmp.Diff(closest(bodies, got), got); diff != "" {
+				t.Errorf("body (-want +got):\n%s", diff)
+			}
 		})
 	}
 }
