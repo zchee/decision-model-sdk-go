@@ -2063,7 +2063,9 @@ and `BASE=8686b40`.
   neither a question set nor a model: every string is a miss, copied into
   one arena. The lazy pass alone is `internal/codec`'s
   `TestLazyPassAllocations`, and AC-P8's ratios are `TestLinearityFlood`
-  (time: the minimum of 21 runs each).
+  (time: in W2.0-01 and -04 the minimum of 21 single decodes each; since
+  K30, the minimum over five spans of at least 250 ms each, see
+  [W2.0 K30](#w20-k30-the-linearity-test-on-a-coarse-clock)).
 - Time: `BenchmarkDecode` (the production decode, warm pool, fresh result,
   interned) and `BenchmarkDecodeNaiveSonic` (owner decision G3:
   `sonic.Unmarshal` into a `map[string]any`), `for b.Loop()`,
@@ -2179,6 +2181,50 @@ Decode time, medians of five, against the sonic-naive comparator (`bench-{M,L}.t
 | W2.0-05 | 2026-09-25 16:11:05 UTC | W2.0 AC-P8 lazy pass | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.06 → 0.06 | `BASE=$BASE sh $R '(L)' $O /tmp/ts-spike/bench.lock alloc-codec-L -count=1 -run '^TestLazyPassAllocations$' -v ./internal/codec/` | identical to W2.0-02 | `results/alloc-codec-L.txt` |
 | W2.0-06 | 2026-09-25 16:11:05 UTC | W2.0 decode vs sonic-naive time | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.06 → 1.06 | `BASE=$BASE MAXLOAD=44 sh $R '(L)' $O /tmp/ts-spike/bench.lock bench-L -run '^$' -bench '^Benchmark(Decode\|DecodeNaiveSonic)$' -benchmem -count=5 ./internal/codec/` | `result.json` 3.321 µs against 2.764 µs (1.20 ×); [W2.0 tables](#w20-tables) | `results/bench-L.txt`, `results/benchstat-L.txt` |
 | W2.0-07 | 2026-09-26 01:12:00 JST | W2.0 fuzz, 30 s each | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 55.67 → 175.45 | `GOEXPERIMENT=nosimd,noruntimesecret go test -run '^$' -fuzz '^<target>$' -fuzztime 30s ./internal/codec/` | `FuzzDecodeResponse` 1 691 917 execs, `FuzzErrorBody` 347 194, `FuzzAppendJSON` (R44 differential) 2 507 433; no failure | not a measurement; exec counts depend on load; `results/fuzz-M.txt` |
+| W2.0-08 | 2026-09-26 02:48:37 JST | W2.0 K30 AC-P8 linearity in spans, ×20 | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 4.66 → 5.11 | `BASE=0dce9d6+k30 GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock MAXLOAD=16 sh $R '(M)' $O $SP/bench.lock m-k30-linearity -count=20 -run '^TestLinearityFlood$' -v .` | 20/20 PASS; time ratio 9.40–9.65 (median 9.55); per decode 664.1–679.4 µs (10³) and 6.349–6.460 ms (10⁴); 342–377 and 36–40 decodes per span; allocation ratio 7.61 (90 → 685) in 20/20 | [W2.0 K30](#w20-k30-the-linearity-test-on-a-coarse-clock); base 0dce9d6 plus the K30 change; `results/m-k30-linearity.txt` |
+| W2.0-09 | 2026-09-25 17:48:47 UTC | W2.0 K30 AC-P8 linearity in spans, ×20 | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.00 → 0.60 | `BASE=0dce9d6+k30 sh $R '(L)' $O /tmp/ts-spike/bench.lock l-k30-linearity -count=20 -run '^TestLinearityFlood$' -v .` | 20/20 PASS; time ratio 9.20–9.26 (median 9.23); per decode 632.5–634.4 µs (10³) and 5.832–5.861 ms (10⁴); 381–396 and 43 decodes per span; allocation ratio 7.61 (90 → 685) in 20/20 | the tree copied to `/tmp/ts-spike/w20cifix/wt-w2.0-cifix`, removed after; `results/l-k30-linearity.txt` |
+
+### W2.0 K30: the linearity test on a coarse clock
+
+CI run 36167751804 on `0dce9d6` failed `TestLinearityFlood` on
+windows-2025 only: `LINEARITY 1k 0s 90 allocs, 10k 4.0323ms 685 allocs,
+time ratio +Inf (bound 15)`. The test took each flood's time as the
+minimum of 21 single decodes. On Windows `time.Now` advances in ticks
+(about 15.6 ms by default), so a 10³ decode, under a millisecond, that
+starts and ends within one tick measures 0 s, and the minimum picks it.
+The 10⁴ minimum, 4.0323 ms, is not a multiple of 15.6 ms, so that runner's
+clock was finer than the default at the time; the fix does not depend on
+the tick's size.
+
+The test now times spans. A span repeats one flood's decode until at least
+250 ms have elapsed on the host's clock, and a decode's time is the span's
+length divided by its decodes, the minimum over five spans per flood. At a
+15.6 ms tick a span covers at least 16 ticks, so its reading is within
+about 6% of its length. The count is adaptive because a fixed count would
+have to be sized for the slowest runner. The two floods' spans alternate,
+so a change in the host's load reaches both; on (M), spans in blocks per
+flood gave 9.42–9.56 and alternating spans 9.50–9.56 (three runs each,
+unlocked, load 6.39), so the order does not bias the ratio. The collector
+stays off, as `QuietRuntime` sets it, and runs once before each span to
+free the last span's garbage (about 65 MB per span on (M) and (L)). A
+span that measures 0 s fails the test, naming the flood, the span and its
+decode count. The allocation half is
+unchanged. Two throwaway mutants fail the test on (M): a 10⁴ decode run
+twice for each one counted gives ratio 19.15, and a clock that never
+advances ends the first span at the decode cap with that diagnostic.
+
+The spans read lower than the single-decode minimum: 9.40–9.65 on (M) and
+9.20–9.26 on (L) over 20 runs each (W2.0-08, -09), against 9.98–10.33 for
+the minimum of 21 single decodes (W2.0-01, -04 and the W2.0 review's
+runs). The single 10³ minimum was further below its flood's typical decode
+than the 10⁴ minimum was: on (L), 569.6 µs against 632.5–634.4 µs per
+decode in a span, and 5.683 ms against 5.832–5.861 ms. The bound of 15 is
+unchanged. The test takes about 2.6 s instead of 0.2 s. No other test in
+the root or `internal/codec` forms a ratio of measured durations; the one
+other duration there, `TestDecodeDepthBound`'s elapsed time
+(`stackGrowth`), is compared only against a 2 s ceiling, which one tick
+cannot cross. CI on the three images after landing is the proof on
+Windows.
 
 ## W2.2: `internal/h2gate` (AC-P4, K21b, K22)
 

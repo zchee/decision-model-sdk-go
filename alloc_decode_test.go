@@ -17,6 +17,7 @@
 package typesafe
 
 import (
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -154,49 +155,97 @@ func TestAllocDecodeFixtures(t *testing.T) {
 	}
 }
 
+// Timing spans of TestLinearityFlood. A span repeats one flood's decode
+// until the clock has advanced by at least linearitySpan, so it holds as
+// many decodes as the host needs for its clock to resolve it: Windows
+// advances time.Now in ticks (about 15.6 ms by default), under which one
+// 10^3 decode, well under a millisecond, can measure 0 s and make the ratio
+// +Inf (K30), while a 250 ms span covers at least 16 such ticks, so its
+// reading is within about 6% of its length. Each flood gets linearitySpans
+// spans. linearityMaxDecodes only ends a span on a clock that never
+// advances, which the test then reports: a 10^3 decode would have to take
+// under 4 µs to reach it before 250 ms.
+const (
+	linearitySpan       = 250 * time.Millisecond
+	linearitySpans      = 5
+	linearityMaxDecodes = 1 << 16
+)
+
 // TestLinearityFlood checks AC-P8's time and allocation ratios on the
-// structured-legend floods: the 10^4 decode takes at most 15 times the 10^3
-// decode (the minimum of 21 runs each, which filters scheduler noise), and
-// allocates at most 12 times as often. The lazy pass's own bound is
+// structured-legend floods: one 10^4 decode takes at most 15 times as long
+// as one 10^3 decode, and allocates at most 12 times as often. A decode's
+// time is a span's length divided by the decodes it holds, the minimum over
+// the flood's spans, which filters scheduler noise. The number of decodes
+// is not fixed in advance, since a fixed count would have to be sized for
+// the slowest runner; each span runs until linearitySpan has elapsed on the
+// host's own clock. The two floods' spans alternate, so a change in the
+// host's load reaches both. The collector stays off (QuietRuntime) and is
+// run once before each span, to free the last span's garbage, which keeps
+// the pooled decoder (sync.Pool keeps it through one collection); a warm
+// decode then precedes the span. The lazy pass's own bound is
 // internal/codec's TestLazyPassAllocations.
 func TestLinearityFlood(t *testing.T) {
 	testsupport.QuietRuntime(t)
 	type flood struct {
-		meta   *wire.ResponseMeta
-		qs     *Prepared
-		model  string
-		time   time.Duration
-		allocs uint64
+		name    string
+		meta    *wire.ResponseMeta
+		qs      *Prepared
+		model   string
+		decodes []int           // per span
+		each    []time.Duration // per span: its length divided by its decodes
+		time    time.Duration
+		allocs  uint64
 	}
-	floods := map[string]*flood{}
+	decode := func(f *flood, res *wire.SystemOneResult) {
+		if err := decodeSystemOne(t.Context(), nil, f.meta, "", f.qs, f.model, res); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var floods []*flood
 	for _, name := range []string{"structured-legend-flood-1k.json", "structured-legend-flood-10k.json"} {
-		f := &flood{meta: &wire.ResponseMeta{Status: 200, Body: []byte(testsupport.FixtureString(t, name))}}
+		f := &flood{name: name, meta: &wire.ResponseMeta{Status: 200, Body: []byte(testsupport.FixtureString(t, name))}}
 		var first wire.SystemOneResult
 		if err := decodeSystemOne(t.Context(), nil, f.meta, "", nil, "", &first); err != nil {
 			t.Fatal(err)
 		}
 		f.qs, f.model = questionsFor(t, &first), first.Model
-		runs := make([]time.Duration, 21)
-		for i := range runs {
-			var res wire.SystemOneResult
-			start := time.Now()
-			if err := decodeSystemOne(t.Context(), nil, f.meta, "", f.qs, f.model, &res); err != nil {
-				t.Fatal(err)
-			}
-			runs[i] = time.Since(start)
-		}
-		f.time = slices.Min(runs)
+		decode(f, new(wire.SystemOneResult))
 		f.allocs = testsupport.MeasureMin(t, name, func() *wire.SystemOneResult { return new(wire.SystemOneResult) }, func(res *wire.SystemOneResult) {
-			if err := decodeSystemOne(t.Context(), nil, f.meta, "", f.qs, f.model, res); err != nil {
-				t.Fatal(err)
-			}
+			decode(f, res)
 		}).Mallocs
-		floods[name] = f
+		floods = append(floods, f)
 	}
-	small, large := floods["structured-legend-flood-1k.json"], floods["structured-legend-flood-10k.json"]
+	for span := range linearitySpans {
+		for _, f := range floods {
+			runtime.GC()
+			decode(f, new(wire.SystemOneResult))
+			n, start := 0, time.Now()
+			var elapsed time.Duration
+			for elapsed < linearitySpan && n < linearityMaxDecodes {
+				var res wire.SystemOneResult
+				decode(f, &res)
+				n++
+				elapsed = time.Since(start)
+			}
+			if elapsed <= 0 {
+				t.Fatalf("%s span %d: %d decodes measured %v: the clock did not advance, so no time ratio can be formed", f.name, span, n, elapsed)
+			}
+			each := elapsed / time.Duration(n)
+			t.Logf("span %d %-32s %5d decodes in %v, %v each", span, f.name, n, elapsed, each)
+			f.decodes = append(f.decodes, n)
+			f.each = append(f.each, each)
+		}
+	}
+	for _, f := range floods {
+		f.time = slices.Min(f.each)
+	}
+	small, large := floods[0], floods[1]
+	if small.time <= 0 {
+		t.Fatalf("1k decode time = %v over spans %v of %v decodes: want > 0", small.time, small.each, small.decodes)
+	}
 	timeRatio := float64(large.time) / float64(small.time)
 	allocRatio := float64(large.allocs) / float64(small.allocs)
-	t.Logf("LINEARITY 1k %v %d allocs, 10k %v %d allocs, time ratio %.2f (bound 15), allocation ratio %.2f (bound 12)", small.time, small.allocs, large.time, large.allocs, timeRatio, allocRatio)
+	t.Logf("LINEARITY 1k %v %d allocs, 10k %v %d allocs, time ratio %.2f (bound 15), allocation ratio %.2f (bound 12), decodes per span 1k %v 10k %v, %d spans of at least %v", small.time, small.allocs, large.time, large.allocs, timeRatio, allocRatio, small.decodes, large.decodes, linearitySpans, linearitySpan)
 	if timeRatio > 15 {
 		t.Errorf("10^4 : 10^3 time ratio = %.2f, want at most 15", timeRatio)
 	}
