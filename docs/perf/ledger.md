@@ -2279,6 +2279,14 @@ the whole host, and no other lane's timing run may overlap them.
 | W2.2-19 | 2026-09-25 16:58:04 UTC | W2.2 R72b | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.15 → 6.89 (noisy) | `TREE=92ae350+r72b sh $C '(L)' $LO /tmp/ts-spike/bench.lock l-k21c-r72b 44 -count=20 -run 'TestTokenResidualK21/success:_GOAWAY' -v ./internal/h2gate/` | PASS, 5.6 s: 72/72 in 20 of 20 runs, refused streams 0; SettleHolds 1 in 19 runs, 0 in 1 (W2.2-17: 18 and 2) | `results/l-k21c-r72b.txt` |
 | W2.2-20 | 2026-09-26 02:17:20 JST | W2.2 K29 CI fix: the three CI failures, -race, 2 Ps, under contention | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 12.40 → 36.94 (noisy by design) | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $C '(M)' $MO $SP/bench.lock m-k29-race 16 -race -count=20 -cpu 2 -run '^(TestFanOut|TestWaiterFallThrough|TestALPNHTTP1Only)$' -v ./internal/h2gate/` (the K29 commit's tree, uncommitted then) | PASS, 91.7 s: the three tests 20/20, ordering 10/10 in all 20 runs | `results/m-k29-race.txt` |
 | W2.2-21 | 2026-09-25 17:19:14 UTC | W2.2 K29 CI fix | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.00 → 35.97 (noisy by design) | `TREE=7fd43ce+k29 sh $C '(L)' $LO /tmp/ts-spike/bench.lock l-k29-race 44 -race -count=20 -cpu 2 -run '^(TestFanOut|TestWaiterFallThrough|TestALPNHTTP1Only)$' -v ./internal/h2gate/` | PASS, 88.5 s: the three tests 20/20, ordering 10/10 in all 20 runs | `results/l-k29-race.txt` |
+| W2.2-22 | 2026-09-25 22:26:31 UTC | W2.2 F-3 (R86), before: `TestProxyModes` under contention | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 1.25 → 18.74 (44 loops; the 1-min average lags a 23 s run) | `TREE=45fd018 sh $C '(L)' $FO /tmp/ts-spike/bench.lock l-flake-before-proxy 44 -race -count=200 -cpu 1,4 -run '^TestProxyModes$' -v ./internal/testsupport/` (the old tests) | FAIL, 23.0 s: 30 of 400 runs, every one in the strict-ALPN case at `proxy_test.go:71` (`HandshakeErr` empty); the other four cases 400/400 | `results/l-flakefix-before-proxy.txt` (the host's `l-flake-before-proxy.txt`) |
+| W2.2-23 | 2026-09-25 22:27:11 UTC | W2.2 F-3, before: `TestTokenResidualK21` | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 16.00 → 44.39 (noisy by design) | `TREE=45fd018 sh $C '(L)' $FO /tmp/ts-spike/bench.lock l-flake-before-k21 44 -race -count=60 -cpu 1,4 -run '^TestTokenResidualK21$' -v ./internal/h2gate/` (the old tests) | PASS, 355.4 s: 0 of 120 runs failed; each scenario 120/120 with late 0, bad 0, fresh 200/200 and at most 2 accepts; GOAWAY 72 ok and 0 refused in all 120 | `results/l-flakefix-before-k21.txt` (the host's `l-flake-before-k21.txt`) |
+| W2.2-24 | 2026-09-25 22:46:07 UTC | W2.2 F-3, after: both tests under contention | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 31.81 → 44.20 (noisy by design) | `TREE=a885fee sh $C '(L)' $FO /tmp/ts-spike/bench.lock l-flakefix-after-two 44 -timeout 60m -race -count=200 -cpu 1,4 -run '^(TestProxyModes\|TestTokenResidualK21)$' -v ./internal/testsupport/ ./internal/h2gate/` | PASS: `TestProxyModes` 400/400 (24.3 s), `TestTokenResidualK21` 400/400 (1182.7 s); each scenario 400/400 with late 0, bad 0, fresh 200/200 and at most 2 accepts; GOAWAY 72 ok and 0 refused in all 400; `restore_skipped` 0 in all 1200 | `results/l-flakefix-after-two.txt` |
+| W2.2-25 | 2026-09-26 07:46:11 JST | W2.2 F-3, after | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 20.07 → 29.41 (noisy by design) | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=$FL TREE=a885fee $FL $SPV/bench.lock sh $C '(M)' $MO $SP/bench.lock m-flakefix-after-two 16 -timeout 60m -race -count=200 -cpu 1,4 -run '^(TestProxyModes\|TestTokenResidualK21)$' -v ./internal/testsupport/ ./internal/h2gate/` | PASS: `TestProxyModes` 400/400 (24.4 s), `TestTokenResidualK21` 400/400 (1235.6 s); each scenario 400/400 with late 0, bad 0, fresh 200/200 and at most 2 accepts; GOAWAY 72 ok and 0 refused in 399 runs, one run 26 ok and 46 timeouts with 9 refused (the K21c residual, SettleHolds 1; recorded, not asserted); `restore_skipped` 0 in all 1200 | `results/m-flakefix-after-two.txt` |
+| W2.2-26 | 2026-09-25 23:05:55 UTC | W2.2 F-3, after: both packages under contention (the verifier's F-3 run) | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 44.20 → 44.79 (noisy by design) | `TREE=a885fee sh $C '(L)' $FO /tmp/ts-spike/bench.lock l-flakefix-after-pkgs 44 -timeout 60m -race -count=30 -cpu 1,4 ./internal/h2gate/ ./internal/testsupport/` | PASS, exit 0: `internal/h2gate` 622.6 s, `internal/testsupport` 107.9 s, every test 60 times (the verifier's run at 45fd018 failed 2 + 2) | `results/l-flakefix-after-pkgs.txt` |
+| W2.2-27 | 2026-09-25 23:16:24 UTC | W2.2 F-3, after: both packages without load | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 44.79 → 0.08 (W2.2-26's 1-min average decaying; no loop ran) | `TREE=a885fee sh $C '(L)' $FO /tmp/ts-spike/bench.lock l-flakefix-after-pkgs-quiet 0 -timeout 60m -race -count=30 -cpu 1,4 ./internal/h2gate/ ./internal/testsupport/` | PASS, exit 0: `internal/h2gate` 585.8 s, `internal/testsupport` 80.6 s | `results/l-flakefix-after-pkgs-quiet.txt` |
+| W2.2-28 | 2026-09-26 08:08:20 JST | W2.2 F-3: the injected-delay proof, I1 to I3 | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 9.96 → 6.46 | `GOEXPERIMENT=nosimd,noruntimesecret $FL $SPV/bench.lock $FL $SP/bench.lock sh _spikes/w2.2/flakefix-inject.sh '(M)' $MO $SP/bench.lock 45fd018 a885fee` (its first two runs) | the old tests at 45fd018: strict-ALPN case 0/20 (`proxy_test.go:71`, `HandshakeErr` empty), GOAWAY scenario 0/20 (`token_test.go:181`: `testsupport: connection closed: use of closed network connection`, the verifier's failure); a885fee: 20/20 and 20/20, `restore_skipped=1` in all 20 | `results/m-flakefix-inject-before.txt`, `results/m-flakefix-inject-after.txt` |
+| W2.2-29 | 2026-09-26 08:09:13 JST | W2.2 F-3: a close during the SETTINGS write, I4 | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.46 → 5.19 | the W2.2-28 command (its last two runs) | a885fee: 20/20, `SetMaxConcurrentStreams` returns `testsupport: connection closing: use of closed network connection` (matches `ErrConnClosing`); mutant M2 (no check after a failed write): 0/20, `testsupport: connection closed: use of closed network connection` | `results/m-flakefix-inject-write-after.txt`, `results/m-flakefix-inject-write-m2.txt` |
 
 ### W2.2 results
 
@@ -2433,6 +2441,89 @@ bound) allow one clock tick (`coarseClock`, 20 ms), and `TestALPNHTTP1Only`
 waits for the server's record. The runs above ran the three tests with 2 Ps,
 as on CI's runners, under contention (W2.2-20, -21). CI on the three images
 after landing is the proof on Windows.
+
+### W2.2 F-3: two harness races under contention (R86)
+
+The Phase 2 verifier found two test failures under CPU contention on (L)
+(finding F-3), both races in the test harness, not in the transport:
+
+- `TestProxyModes`' strict-ALPN case read the proxy's record of the
+  refused handshake before the proxy wrote it. The proxy writes the record
+  after its own `Handshake` returns
+  (`internal/testsupport/proxy.go:216-222`), and the client can read alert
+  120 and return first: the K29 race that R75 (2) fixed for the loopback
+  server's record. The case keeps the client-side oracle first (a
+  proxyconnect error naming no application protocol, no connection to the
+  API server) and then waits up to 5 s for the proxy's record with the
+  package's `waitFor`, as `TestLoopbackALPNModes` and h2gate's
+  `TestALPNHTTP1Only` do (d9bf0a9).
+- `TestTokenResidualK21`'s GOAWAY scenario raised the limit back to 8 on
+  every connection `LiveH2Conns` listed before its fresh burst. After
+  GOAWAY the first connection closes once its last stream is done, which
+  can be after every call returned, and the server lists it until its
+  reader has stopped, so the SETTINGS write met a closed connection; every
+  scenario assertion held in the failing runs. `SetMaxConcurrentStreams`
+  now returns `ErrConnClosing` without writing when the close has begun
+  (read under `wmu`, then `mu`: the D-TSflake order), and reports a failed
+  write the same way when the reader's `Close`, which does not take `wmu`,
+  landed during it. The test counts those skips (`restore_skipped` in its
+  `RESULT` line) and fails on any other error; the SETTINGS scenario's
+  8 → 2 change still fails on any error, so it must reach the live
+  connection. `TestLoopbackLimitOnClosingConn` pins the skip after GOAWAY,
+  `Close` and a client close, and a live connection's new limit (0cdbd83).
+
+W2.2-22 and -23 ran the old tests at 45fd018 on (L) under 44 loops:
+`TestProxyModes` failed 30 times in 400 runs (the verifier saw 4 in 200 on
+(L) and 1 in 600 on (M)); `TestTokenResidualK21` did not fail in 120 runs,
+as in the verifier's targeted 0 in 100: its 2 failures came from the
+package-level run that W2.2-26 repeats. W2.2-24 to -27 ran a885fee (the
+two fixes and the F-4 docs commit). No targeted run needed the skip
+(`restore_skipped` 0 in 2400 scenario runs), so the injected-delay proof
+(W2.2-28 and -29, `_spikes/w2.2/flakefix-inject.sh`: throwaway sleeps in
+detached worktrees, never committed) shows each race and its fix
+deterministically. I1 delays the proxy's record write by 200 ms; I2 keeps
+a stopped connection listed for 500 ms, and I3 lets its close finish
+before the limit is raised; I4 puts 300 ms between the closed check and
+the write while a harness test closes the client side. Against I1 to I3
+the old tests fail 20 of 20 with the verifier's two messages and the fixed
+ones pass 20 of 20. Against I4 the fixed code reports `ErrConnClosing` 20
+of 20, and mutant M2, without the check after a failed write, returns the
+verifier's error 20 of 20. A mutant without the check before the write
+passes all of these: every closing path it misses also fails the write
+with the close already recorded, so the check after the write reports it
+the same way; the check before the write leaves the limit and the socket
+untouched.
+
+The other record reads in both packages' tests were audited (grep
+`HandshakeErr`, `LiveH2Conns`, `Conns()`, `Accepts()`, `Protocol`,
+`Dropped`, `Connects()`): each reads a record written before the frame,
+response or alert the client had already read, waits for the record, or
+asserts an absence that cannot change. The one exception is ordered by
+time only: the TLS-silent listener's accept count, read at least 200 ms
+after the client connected, once the handshake timeout has passed. The
+lane report has the table.
+
+W2.2-25 recorded one GOAWAY run on (M), with the host's 5-minute load at
+about 60, that had 26 ok, 46 timeouts and 9 refused streams, every
+assertion holding: the K21c residual after R69's settle hold. It is
+recorded here and reported, not changed by this fix (h2gate is
+production code).
+
+Row variables: `C=_spikes/w2.2/contend.sh`;
+`FO=/tmp/ts-spike/src-p2-flakefix/out` on (L), where 45fd018 and a885fee
+are copied with the section 11 tar pipe to
+`/tmp/ts-spike/src-p2-flakefix/base/` and `head/`, with the W0.4
+environment and no `GOEXPERIMENT`;
+`SP=/private/tmp/claude-501/-Users-zchee-go-src-github-com-zchee-typesafe-sdk-go/40cb0f1f-c8a9-422c-a3e8-b3afc329b5cb/scratchpad`,
+the (M) lock of these rows; `SPV`, the `SP` of the rows above, whose lock
+was held as well; `MO=$SP/out-M`, copied to `results/`;
+`FL=/opt/homebrew/opt/util-linux/bin/flock`. The first runs of W2.2-24 and
+-25, without `-timeout`, were cut by `go test`'s default 10 minutes in
+`internal/h2gate` ((M) after 193 runs of `TestTokenResidualK21`, all
+passing; (L) stopped by hand before it) and were run again; their files
+are not kept. In W2.2-28 and -29 `contend.sh` found no `flock` binary
+(`FLOCK` unset) and took no lock itself; the two outer `$FL` calls held
+both (M) locks for the whole script.
 
 ## W2.3: the client (AC-P6, AC-P5)
 
