@@ -7,17 +7,19 @@
 | 1.27.x | `amd64`, `arm64` | any GOOS the Go release supports on that architecture | supported |
 | 1.27.x | any other (`386`, `riscv64`, `wasm`, …) | any | refused at compile time |
 | 1.28 and later | any | any | refused at compile time until the bump below |
-| 1.26 and earlier | any | any | switches to a Go 1.27 toolchain, or refuses the module (below) |
+| 1.26 and earlier | any | any | from 1.21, switches to a Go 1.27 toolchain or refuses the module; 1.17 to 1.20 fail the build (below) |
 
 CI runs the tests on `ubuntu-26.04` (linux/amd64), `xcode-27` (darwin/arm64)
 and `windows-2025` (windows/amd64).
 
 Off the matrix there are two outcomes:
 
-- An older `go` command never compiles the SDK itself. `go.mod` requires
-  `go 1.27`, so with `GOTOOLCHAIN=auto` (the default) it switches to a Go 1.27
-  toolchain (in this repository `go1.27.1`, from the `toolchain` line) and
-  builds with that; with `GOTOOLCHAIN=local` it refuses the module.
+- A `go` command from Go 1.21 to 1.26 never compiles the SDK itself.
+  `go.mod` requires `go 1.27`, so with `GOTOOLCHAIN=auto` (the default) it
+  switches to a Go 1.27 toolchain (in this repository `go1.27.1`, from the
+  `toolchain` line) and builds with that; with `GOTOOLCHAIN=local` it refuses
+  the module. Go 1.17 to 1.20 predate toolchain switching: they attempt the
+  build and print `note: module requires Go 1.27` when it fails.
 - On a GOARCH other than `amd64` and `arm64`, or on Go 1.28 and later, the
   build fails with the D1 identifier described below.
 

@@ -8,10 +8,11 @@ the port proceeds wave by wave, and
 test on its way to a Go test or a documented deviation.
 
 - The SDK supports Go 1.27.x on `amd64` and `arm64`, the releases the newest
-  `github.com/bytedance/sonic` tag supports. An older `go` command switches
-  to a Go 1.27 toolchain through the `go.mod` line (with `GOTOOLCHAIN=auto`,
-  the default); on any other GOARCH, or on Go 1.28 and later, the build fails
-  on purpose with the error
+  `github.com/bytedance/sonic` tag supports. A `go` command from Go 1.21 to
+  1.26 switches to a Go 1.27 toolchain through the `go.mod` line (with
+  `GOTOOLCHAIN=auto`, the default); Go 1.17 to 1.20 attempt the build and
+  print `note: module requires Go 1.27` when it fails. On any other GOARCH,
+  or on Go 1.28 and later, the build fails on purpose with the error
   `undefined: typesafe_sdk_go_requires_go1_17_to_go1_27_on_amd64_or_arm64`
   ([`docs/support.md`](docs/support.md) explains why and holds the Go 1.28
   bump procedure).
