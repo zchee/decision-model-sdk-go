@@ -534,6 +534,155 @@ returned again, `:1539-1561` `awaitOpenSlotForStreamLocked`, `:1875-1889`
 `processSettings`. `net/http/internal/http2/client_conn_pool.go`: `:51-69`,
 `:258`. `net/http/internal/http2/server.go`: `:1905-1916`.
 
+### W0.4b: FirstHold and the reworded AC-P4 ordering clause
+
+At W0.6 the owner chose F1 option (iv-b) (G2): strict mode, the gate, and a
+header-write token that the first request on each new connection holds
+until its response headers (`WriteToken.FirstHold`). AC-P4's ordering
+clause becomes "the leader's request is answered first; then the 63
+waiters' requests are all on the wire, on the same connection, before any
+waiter's response (the handler answers the leader at once and holds every
+other response until the 63 waiters' requests have arrived; 5 s guard)".
+"Cold 64 → 1 connection", "warm → 0 new" and "200 vs limit 8 → 1
+connection" stay. W0.4b measures the reworded clause before W0.6 freezes
+it.
+
+Code (`_spikes/s-t/`, base `b36af4f`; the rows were produced by the tree
+at the commit that adds them):
+
+- `TestST1FanOut` gains two variants. The three W0.4 variants run as before;
+  their RESULT lines only gain the `lead_to_waiter_write_*` fields.
+  `gate+token-first` is (iv-b). The reworded handler (`barrier.free`) serves
+  its cold burst: it answers the first request to reach it at once and holds
+  every other response until the 63 requests after that one have arrived
+  (5 s guard). A burst passes the reworded clause only if all of these
+  hold:
+  - (a) the first request the handler saw is the leader's (the path carries
+    the caller index; the gate reports the role);
+  - (b) the client received the leader's first response byte before any
+    other caller's `WroteHeaders` (`GotFirstResponseByte` fires in
+    `processHeaders`, `internal/http2/transport.go:2128`, before
+    `close(cs.respHeaderRecv)` at `:2156` lets `RoundTrip` return);
+  - (c) the guard released nothing;
+  - (d) every request arrived on connection 0;
+  - every call returned 200, and the cold burst opened exactly 1
+    connection.
+
+  Its warm burst keeps the original clause (all 64 requests on the wire
+  before any response). Any violation fails the test.
+- `control:gate+token` runs the same handler and checks over the plain
+  token (iv-a) and asserts nothing. It shows that the checks can fail.
+- For every gated variant, `lead_to_waiter_write` is the gap from the
+  leader's `WroteHeaders` to the first other caller's `WroteHeaders` in a
+  burst (p50 and max over the 10 bursts of a run). The difference between
+  token-first and the plain token is the cost of the hold.
+- `TestST1bFirstHold` runs four S-T1b cases through `runF1`, which holds
+  `TestST1bStreamLimit`'s per-case body, moved unchanged: 200 vs 8 and 64
+  vs 4 with token-first, and 64 cold calls at 50 ms service time with the
+  gate alone and with token-first. It fails unless every call succeeds on
+  one connection.
+
+Commands use W0.4's `R`, `MO` and `SP`. On (L) the tree is copied with the
+tar pipe to `/tmp/ts-spike/src-w0.4b/wt-w0.4-firsthold` (the SHA-256 of
+its 193 files matched (M)'s), with `LO=/tmp/ts-spike/src-w0.4b/results` and
+W0.4's environment. Every row holds the shared lock and applies the
+quiet-host rule (`MAXLOAD` 16 on (M), 44 on (L)). No row had to wait.
+
+#### W0.4b rows
+
+| # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| W0.4b-01 | 2026-09-25 10:52:12 UTC | W0.4b S-T1 cold 64 fan-out, FirstHold | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.06 → 0.06 | `MAXLOAD=44 sh $R '(L)' $LO /tmp/ts-spike/bench.lock l-st1-fanout-w04b -count=5 -run '^TestST1FanOut$' -v ./_spikes/s-t/` | gate+token-first: 1 in 50/50 one-connection bursts, warm 0 in 50/50, reworded ordering 10/10 in 5/5 runs (leader first 50/50, leader answered before any waiter write 50/50), waiter wire p50 1.451 (1.424-1.638) / p99 2.537 (2.071-2.889) ms, leader write → first waiter write p50 0.1 (0.09-0.115) ms against 0.057 (0.048-0.08) with gate+token; control (plain token, not asserted): reworded ordering 37/50 | [W0.4b results](#w04b-results); `results/l-st1-fanout-w04b.txt` |
+| W0.4b-02 | 2026-09-25 10:52:14 UTC | W0.4b S-T1b FirstHold cases | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.06 → 0.06 | `MAXLOAD=44 sh $R '(L)' $LO /tmp/ts-spike/bench.lock l-st1b-firsthold -count=5 -run '^TestST1bFirstHold$' -v ./_spikes/s-t/` | 200 vs 8 token-first: ok 200 (200-200), accepts 1 (1-1), wall 271.7 ms; 64 vs 4 token-first: ok 64 (64-64), accepts 1 (1-1), wall 176.0 ms; 64 cold at 50 ms service: gate 52.7 ms, token-first 103.3 ms wall | [W0.4b results](#w04b-results); `results/l-st1b-firsthold.txt` |
+| W0.4b-03 | 2026-09-25 19:52:18 JST | W0.4b S-T1 cold 64 fan-out, FirstHold | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 9.82 → 9.82 | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock MAXLOAD=16 sh $R '(M)' $MO $SP/bench.lock m-st1-fanout-w04b -count=5 -run '^TestST1FanOut$' -v ./_spikes/s-t/` | gate+token-first: 1 in 50/50 one-connection bursts, warm 0 in 50/50, reworded ordering 10/10 in 5/5 runs (leader first 50/50, leader answered before any waiter write 50/50), waiter wire p50 1.064 (1.004-1.214) / p99 1.928 (1.747-2.29) ms, leader write → first waiter write p50 0.084 (0.076-0.095) ms against 0.039 (0.034-0.075) with gate+token; control (plain token, not asserted): reworded ordering 22/50 | [W0.4b results](#w04b-results); `results/m-st1-fanout-w04b.txt` |
+| W0.4b-04 | 2026-09-25 19:52:19 JST | W0.4b S-T1b FirstHold cases | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 9.82 → 9.43 | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock MAXLOAD=16 sh $R '(M)' $MO $SP/bench.lock m-st1b-firsthold -count=5 -run '^TestST1bFirstHold$' -v ./_spikes/s-t/` | 200 vs 8 token-first: ok 200 (200-200), accepts 1 (1-1), wall 293.0 ms; 64 vs 4 token-first: ok 64 (64-64), accepts 1 (1-1), wall 190.4 ms; 64 cold at 50 ms service: gate 53.2 ms, token-first 103.9 ms wall | [W0.4b results](#w04b-results); `results/m-st1b-firsthold.txt` |
+| W0.4b-05 | 2026-09-25 19:53:58 JST | W0.4b spike package under -race | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 5.91 → 6.91 | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock MAXLOAD=16 sh $R '(M)' $MO $SP/bench.lock m-race-w04b -race -count=1 -timeout 900s ./_spikes/s-t/` | `ok` in 47.917s | not a measurement; locked so it cannot overlap one; `results/m-race-w04b.txt` |
+
+#### W0.4b results
+
+Cold 64-way fan-out, 10 bursts per run, 5 runs; each latency cell is the
+median of the 5 runs' values (range in parentheses), as in the S-T1 table.
+"Ordering" is the original clause for the W0.4 variants and the reworded
+clause (cold burst) plus the original clause (warm burst) for the other
+two. The last column is the leader's `WroteHeaders` to the first other
+caller's `WroteHeaders`, p50 over a run's bursts (range) / max over a run's
+bursts, both medians of 5 runs.
+
+| Host | Variant | Cold: one connection | Warm: no new | Ordering | Wire p50 ms | Wire p99 ms | Span p50 ms | Warm wire p50 / p99 ms | Leader write → first waiter write ms |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| (L) | gate (waiters) | 1 in 50/50 | 0 in 50/50 | 10/10 in 5/5 | 1.241 (1.23-1.778) | 2.392 (1.732-4.123) | 1.496 | 0.355 / 1.325 | 0.011 (0.01-0.012) / 0.035 |
+| (L) | no gate (all callers) | 1 in 50/50 | 0 in 50/50 | 10/10 in 5/5 | 1.304 (1.222-1.776) | 2.498 (1.886-2.817) | 1.509 | 0.343 / 1.556 | n/a |
+| (L) | gate + write token (waiters) | 1 in 50/50 | 0 in 50/50 | 10/10 in 5/5 | 1.51 (1.438-1.547) | 2.447 (2.282-3.755) | 1.939 | 0.606 / 2.118 | 0.057 (0.048-0.08) / 0.107 |
+| (L) | gate + token-first, FirstHold (waiters) | 1 in 50/50 | 0 in 50/50 | reworded: 10/10 in 5/5 | 1.451 (1.424-1.638) | 2.537 (2.071-2.889) | 1.892 | 0.54 / 1.514 | 0.1 (0.09-0.115) / 0.15 |
+| (L) | control: gate + write token, reworded handler (waiters) | 1 in 50/50 | 0 in 50/50 | reworded: 8, 8, 8, 7, 6 of 10 | 1.46 (1.435-1.578) | 2.639 (2.023-3.162) | 1.889 | 0.545 / 1.845 | 0.068 (0.048-0.081) / 0.114 |
+| (M) | gate (waiters) | 1 in 50/50 | 0 in 50/50 | 10/10 in 5/5 | 1.071 (0.85-1.363) | 1.972 (1.117-2.44) | 1.306 | 0.363 / 1.059 | 0.013 (0.007-0.018) / 0.028 |
+| (M) | no gate (all callers) | 1 in 50/50 | 0 in 50/50 | 10/10 in 5/5 | 0.923 (0.873-1.397) | 1.292 (1.232-1.942) | 1.184 | 0.36 / 1.039 | n/a |
+| (M) | gate + write token (waiters) | 1 in 50/50 | 0 in 50/50 | 10/10 in 5/5 | 1.034 (0.935-1.405) | 1.857 (1.482-2.271) | 1.362 | 0.435 / 1.128 | 0.039 (0.034-0.075) / 0.118 |
+| (M) | gate + token-first, FirstHold (waiters) | 1 in 50/50 | 0 in 50/50 | reworded: 10/10 in 5/5 | 1.064 (1.004-1.214) | 1.928 (1.747-2.29) | 1.443 | 0.425 / 1.189 | 0.084 (0.076-0.095) / 0.162 |
+| (M) | control: gate + write token, reworded handler (waiters) | 1 in 50/50 | 0 in 50/50 | reworded: 6, 6, 5, 4, 1 of 10 | 1.014 (0.891-1.123) | 2.129 (1.809-2.246) | 1.284 | 0.45 / 1.156 | 0.03 (0.013-0.032) / 0.109 |
+
+The reworded clause, part by part. Each count covers 50 bursts: 5 runs of
+10. The last column is the leader's first response byte to the first
+other caller's `WroteHeaders`: the minimum over a run's bursts / the p50
+over a run's bursts, both medians of 5 runs with the range. A negative
+value means that a waiter wrote before the leader's response arrived.
+For the control, (c) and (d) come from the raw files: no guard fired (a
+guard release adds 5 s, and every run of `TestST1FanOut` took 0.15 to
+0.24 s), and each server accepted one connection, so connection 0 was the
+only one.
+
+| Host | Variant | Reworded clause | (a) first request at the handler is the leader's | (b) leader's response before any other HEADERS | (c) guard released nothing, (d) connection 0 | Leader's response → first other HEADERS, min / p50 ms |
+| --- | --- | --- | --- | --- | --- | --- |
+| (L) | gate + token-first | 50/50 | 50/50 | 50/50 | 50/50 | 0.04 (0.036-0.045) / 0.059 (0.048-0.071) |
+| (L) | control: gate + write token | 37/50 | 48/50 | 37/50 | 50/50 | -0.054 (-1.432 to -0.015) / 0.021 (0.008-0.041) |
+| (M) | gate + token-first | 50/50 | 50/50 | 50/50 | 50/50 | 0.018 (0.016-0.027) / 0.035 (0.024-0.046) |
+| (M) | control: gate + write token | 22/50 | 39/50 | 22/50 | 50/50 | -0.94 (-1.313 to -0.838) / -0.017 (-0.032 to 0.001) |
+
+S-T1b cases with FirstHold, 5 runs each; each cell is the median
+(min-max). The W0.4 column holds the medians of the F1 tables. The
+server's stream high-water mark was 8, 4, 64 and 63 in the four cases, and
+refused streams were 0 in every run on both hosts.
+
+| Case | (L) ok, accepts, wall ms | (M) ok, accepts, wall ms | W0.4 wall ms (L) / (M) |
+| --- | --- | --- | --- |
+| 200 vs 8, token-first | 200 (200-200), 1 (1-1), 271.7 (271.4-275.4) | 200 (200-200), 1 (1-1), 293.0 (291.9-296.4) | 271.5 / 291.8 |
+| 64 vs 4, token-first | 64 (64-64), 1 (1-1), 176.0 (175.7-177.8) | 64 (64-64), 1 (1-1), 190.4 (185.0-192.9) | 175.5 / 192.1 |
+| 64 cold, 50 ms service, gate alone (`64vs0/strict/service50ms`) | 64 (64-64), 1 (1-1), 52.7 (51.9-53.4) | 64 (64-64), 1 (1-1), 53.2 (52.7-58.1) | 52.2 / 52.8 |
+| 64 cold, 50 ms service, token-first | 64 (64-64), 1 (1-1), 103.3 (102.8-103.8) | 64 (64-64), 1 (1-1), 103.9 (102.7-108.0) | 103.4 / 104.4 |
+
+Findings for W0.6:
+
+1. The reworded clause held on both hosts in every burst (50/50; 10/10 in
+   5/5 runs), with one connection per cold burst and none new per warm
+   burst. The warm burst also kept the original clause (all 64 requests on
+   the wire before any response) in 50/50. The clause can be frozen as
+   worded in G2.
+2. Check (b) is the one that discriminates. With the plain token, (a) alone
+   passed 48/50 (L) and 39/50 (M), and the whole clause passed 37/50 (L)
+   and 22/50 (M). On loopback the leader's round trip is about as long as
+   the token's hand-over to the first waiter. Estimated from the medians
+   as token-first's gap minus its answer-to-HEADERS gap, the round trip is
+   0.1 - 0.059 ≈ 0.041 ms (L) and 0.084 - 0.035 ≈ 0.049 ms (M); the
+   plain token's gap is 0.068 ms (L) and 0.03 ms (M). Against a remote server the round trip is
+   milliseconds, so the plain token would fail (b) in nearly every burst.
+   That is an inference, not a measurement. W2.2's AC-P4 test should assert
+   (b) from client-side traces, not only what the handler sees. Under
+   FirstHold, (b) holds by construction, with a margin of at least
+   0.036 ms (L) and 0.016 ms (M) over 50 bursts.
+3. The hold costs one leader response time for each cold burst and for
+   each re-dialed connection. On loopback, where the leader is answered at
+   once, the first waiter's HEADERS go out 0.043 ms (L) and 0.045 ms (M)
+   later than with the plain token at p50 (0.1 vs 0.057; 0.084 vs 0.039).
+   That delay is within the spread of the waiter wire latency (p50 1.451
+   vs 1.51 ms (L), 1.064 vs 1.034 ms (M)). At 50 ms service time, 64 cold
+   calls take 103.3 vs 52.7 ms (L) and 103.9 vs 53.2 ms (M) against the
+   gate alone, as in W0.4 (103.4 vs 52.2, 104.4 vs 52.8).
+4. "200 vs limit 8 → 1 connection" and 64 vs 4 hold with FirstHold at this
+   base: every call succeeded on one connection, with 0 refused streams,
+   and the wall times are within 1 % of W0.4's rows. K21 (stdlib-internal
+   replays bypass the token) was not exercised: no stream was refused or
+   replayed.
+
 ## W0.3: S-E1 (encode) and S-D1 (decode)
 
 Spike code: `_spikes/s-e1/` and `_spikes/s-d1/` (throwaway; the leading
