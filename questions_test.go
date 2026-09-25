@@ -363,28 +363,45 @@ func TestUnsetMembersLeftOffWire(t *testing.T) {
 
 // TestEachKindWritesItsTypeTag ports test_discriminators_are_automatic: each
 // typed question writes its own "type" without the caller naming it, and its
-// members stay assignable after construction.
+// members stay assignable after construction. The Go counterpart of assigning
+// question.instructions goes through the public API: the caller changes the
+// question value it holds and adds it to a new set. The set it was added to
+// before keeps the old value, since adding a question copies it.
 func TestEachKindWritesItsTypeTag(t *testing.T) {
 	tests := map[string]struct {
-		add      func(qs *Questions, instructions Content) *Questions
+		// sets adds a question built with the instructions "Spam?" to a
+		// first set, assigns "Updated?" to the same question variable's
+		// Instructions and adds it to a second set.
+		sets     func() (first, second *Questions)
 		tag      string
 		wantKind wire.Kind
 	}{
 		"success: noul": {
-			add:      func(qs *Questions, in Content) *Questions { return qs.Noul("q", Noul{Instructions: in}) },
+			sets: func() (first, second *Questions) {
+				q := Noul{Instructions: Text("Spam?")}
+				first = NewQuestions().Noul("q", q)
+				q.Instructions = Text("Updated?")
+				return first, NewQuestions().Noul("q", q)
+			},
 			tag:      "noul",
 			wantKind: wire.KindNoul,
 		},
 		"success: choice": {
-			add: func(qs *Questions, in Content) *Questions {
-				return qs.Choice("q", Choice{Instructions: in, Options: Options{{Label: "calm"}}})
+			sets: func() (first, second *Questions) {
+				q := Choice{Instructions: Text("Spam?"), Options: Options{{Label: "calm"}}}
+				first = NewQuestions().Choice("q", q)
+				q.Instructions = Text("Updated?")
+				return first, NewQuestions().Choice("q", q)
 			},
 			tag:      "choice",
 			wantKind: wire.KindChoice,
 		},
 		"success: score": {
-			add: func(qs *Questions, in Content) *Questions {
-				return qs.Score("q", Score{Instructions: in, Levels: []Content{Text("good")}})
+			sets: func() (first, second *Questions) {
+				q := Score{Instructions: Text("Spam?"), Levels: []Content{Text("good")}}
+				first = NewQuestions().Score("q", q)
+				q.Instructions = Text("Updated?")
+				return first, NewQuestions().Score("q", q)
 			},
 			tag:      "score",
 			wantKind: wire.KindScore,
@@ -392,31 +409,22 @@ func TestEachKindWritesItsTypeTag(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			qs := tt.add(NewQuestions(), Text("Spam?"))
-			p, err := qs.Prepare()
+			first, second := tt.sets()
+			p, err := first.Prepare()
 			if err != nil {
 				t.Fatalf("Prepare: %v", err)
-			}
-			prefix := `{"q":{"type":"` + tt.tag + `","instructions":"Spam?"`
-			if got := string(p.w.Questions); !strings.HasPrefix(got, prefix) {
-				t.Errorf("questions = %s, want the prefix %s", got, prefix)
 			}
 			if got := p.w.Entries()[0].Kind; got != tt.wantKind {
 				t.Errorf("kind = %v, want %v", got, tt.wantKind)
 			}
-			// The Go counterpart of assigning question.instructions: the
-			// member is a plain field, read when the set is prepared.
-			switch e := &qs.entries[0]; e.form {
-			case formNoul:
-				e.noul.Instructions = Text("Updated?")
-			case formChoice:
-				e.choice.Instructions = Text("Updated?")
-			case formScore:
-				e.score.Instructions = Text("Updated?")
-			}
-			updated := `{"q":{"type":"` + tt.tag + `","instructions":"Updated?"`
-			if got := mustPrepare(t, qs); !strings.HasPrefix(got, updated) {
-				t.Errorf("after the update questions = %s, want the prefix %s", got, updated)
+			for _, c := range []struct {
+				qs           *Questions
+				instructions string
+			}{{first, "Spam?"}, {second, "Updated?"}} {
+				prefix := `{"q":{"type":"` + tt.tag + `","instructions":"` + c.instructions + `"`
+				if got := mustPrepare(t, c.qs); !strings.HasPrefix(got, prefix) {
+					t.Errorf("questions = %s, want the prefix %s", got, prefix)
+				}
 			}
 		})
 	}

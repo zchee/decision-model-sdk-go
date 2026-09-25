@@ -105,8 +105,16 @@ type RawQuestion struct {
 // sent.
 //
 // Nothing is checked until [Questions.Prepare], which validates and
-// serialises the whole set once; a question's values are read at that point,
-// not when it is added. The zero Questions is an empty set ready to use.
+// serialises the whole set once. The zero Questions is an empty set ready to
+// use.
+//
+// Adding a question copies the question value: a later change to the Noul,
+// Choice, Score or RawQuestion variable that was added, such as assigning
+// its Instructions, does not reach the set. The copy shares what the value
+// refers to: the Options and Levels slices, the Fields map and the maps and
+// slices inside it, and the bytes behind [JSON] content and [RawJSON]. Those
+// are read by Prepare and must not change between adding the question and
+// the return of Prepare; the prepared set shares none of them.
 type Questions struct {
 	entries []questionEntry
 }
@@ -134,25 +142,29 @@ type questionEntry struct {
 // NewQuestions returns an empty question set.
 func NewQuestions() *Questions { return &Questions{} }
 
-// Noul adds the yes/no question q under name and returns the set.
+// Noul adds a copy of the yes/no question q under name and returns the set;
+// [Questions] says what the copy shares with q.
 func (qs *Questions) Noul(name string, q Noul) *Questions {
 	qs.entries = append(qs.entries, questionEntry{name: name, form: formNoul, noul: q})
 	return qs
 }
 
-// Choice adds the choice question q under name and returns the set.
+// Choice adds a copy of the choice question q under name and returns the set;
+// [Questions] says what the copy shares with q.
 func (qs *Questions) Choice(name string, q Choice) *Questions {
 	qs.entries = append(qs.entries, questionEntry{name: name, form: formChoice, choice: q})
 	return qs
 }
 
-// Score adds the score question q under name and returns the set.
+// Score adds a copy of the score question q under name and returns the set;
+// [Questions] says what the copy shares with q.
 func (qs *Questions) Score(name string, q Score) *Questions {
 	qs.entries = append(qs.entries, questionEntry{name: name, form: formScore, score: q})
 	return qs
 }
 
-// Raw adds the raw question q under name and returns the set.
+// Raw adds a copy of the raw question q under name and returns the set;
+// [Questions] says what the copy shares with q.
 func (qs *Questions) Raw(name string, q RawQuestion) *Questions {
 	qs.entries = append(qs.entries, questionEntry{name: name, form: formRaw, raw: q})
 	return qs
