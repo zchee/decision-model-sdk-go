@@ -233,16 +233,32 @@ func TestBuilderRawValues(t *testing.T) {
 			v:    []any{uint(1), uint8(8), uint16(16), uint32(32), uint64(math.MaxUint64)},
 			want: `[1,8,16,32,18446744073709551615]`,
 		},
-		// encoding/json's spelling, which sonic shares; Python writes 3.0
-		// and 1e-6 for the third and sixth, the same numbers.
-		"success: float64 spellings": {
-			v:    []any{1.5, -7.0, 3.0, 1e21, 1e-7, 0.000001, 123456789.0, math.Copysign(0, -1), 1e20},
-			want: `[1.5,-7,3,1e+21,1e-7,0.000001,123456789,-0,100000000000000000000]`,
+		// Floats in the layout of pydantic-core's writer (zmij), one case per
+		// branch of appendFloat; the root package's
+		// TestPreparedBytesMatchPython pins these layouts against Python's
+		// own output.
+		"success: zero keeps its sign": {v: []any{0.0, math.Copysign(0, -1)}, want: `[0.0,-0.0]`},
+		"success: integral values below 1e16 end in .0": {
+			v:    []any{3.0, -7.0, 123456789.0, 1e15, 9999999999999998.0},
+			want: `[3.0,-7.0,123456789.0,1000000000000000.0,9999999999999998.0]`,
 		},
-		"success: float32 spellings":               {v: []any{float32(0.1), float32(1e21), float32(1e-7)}, want: `[0.1,1e+21,1e-7]`},
-		"success: a three-digit negative exponent": {v: 1e-100, want: `1e-100`},
-		"success: []string":                        {v: []string{"a", "b\n"}, want: `["a","b\n"]`},
-		"success: an empty []any":                  {v: []any{}, want: `[]`},
+		"success: a point inside the digits": {v: []any{1.5, -123.456, 999999999999999.9}, want: `[1.5,-123.456,999999999999999.9]`},
+		"success: fixed notation down to 1e-5": {
+			v:    []any{0.1, 0.00001, 0.00001234, -0.00001},
+			want: `[0.1,0.00001,0.00001234,-0.00001]`,
+		},
+		"success: exponent form below 1e-5": {v: []any{9.99e-6, 1e-6, -1e-7, 5e-324}, want: `[9.99e-6,1e-6,-1e-7,5e-324]`},
+		"success: exponent form from 1e16": {
+			v:    []any{1e16, 1e20, 1e21, 12345678901234567168.0, 1.7976931348623157e308},
+			want: `[1e+16,1e+20,1e+21,1.2345678901234567e+19,1.7976931348623157e+308]`,
+		},
+		"success: three-digit exponents": {v: []any{1e-100, 1e100}, want: `[1e-100,1e+100]`},
+		"success: float32 from its own shortest digits": {
+			v:    []any{float32(0.1), float32(1e21), float32(1e-7), float32(3), float32(16777216)},
+			want: `[0.1,1e+21,1e-7,3.0,16777216.0]`,
+		},
+		"success: []string":       {v: []string{"a", "b\n"}, want: `["a","b\n"]`},
+		"success: an empty []any": {v: []any{}, want: `[]`},
 		"success: map[string]any in sorted key order": {
 			v:    map[string]any{"b": 1, "a": map[string]any{"d": nil, "c": []any{"x"}}},
 			want: `{"a":{"c":["x"],"d":null},"b":1}`,

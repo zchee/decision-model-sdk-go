@@ -79,14 +79,15 @@ type Score struct {
 // sorted key order.
 //
 // Type must not be empty, and Fields must not name "type". A field value is
-// nil, a bool, a string, an integer or float kind (a float must be finite;
-// floats are spelled as encoding/json spells them), []any, []string,
-// map[string]any, map[string]string, [Content] (unset Content is null) or
-// [RawJSON], nested in maps and slices to any depth up to 1000 levels. Map
-// members are sent in sorted key order, as a Go map has no order of its own.
-// A value of any other type, such as []int, a named string type or a struct,
-// makes Prepare fail: encode it first and pass the bytes as [RawJSON], which
-// is checked and sent without its insignificant whitespace but never decoded.
+// nil, a bool, a string, an integer or float kind (a float must be finite, and
+// is spelled as the Python SDK spells it: 3.0, 0.00001, 1e-6, 1e+16), []any,
+// []string, map[string]any, map[string]string, [Content] (unset Content is
+// null) or [RawJSON], nested in maps and slices to any depth up to 1000
+// levels. Map members are sent in sorted key order, as a Go map has no order
+// of its own. A value of any other type, such as []int, a named string type or
+// a struct, makes Prepare fail: encode it first and pass the bytes as
+// [RawJSON], which is checked and sent without its insignificant whitespace
+// but never decoded.
 //
 // [Questions.Prepare] applies the checks the Python SDK applies to a raw
 // question: a "choice" or "score" has a "criteria" field, and a "score"'s

@@ -61,8 +61,8 @@ func js(s string) Content { return JSON([]byte(s)) }
 // TestPreparedBytesMatchPython pins the "questions" bytes of question sets
 // that typesafe-sdk-python 0.7.1 can express as well: want is what its
 // to_json wrote for the same questions (probe of the upstream venv,
-// pydantic-core 2.46.5, 2026-09-25 20:36:06 JST), member order and
-// separators included.
+// pydantic-core 2.46.5, 2026-09-25 20:36:06 JST; the raw floats
+// 2026-09-25 21:16:58 JST), member order and separators included.
 func TestPreparedBytesMatchPython(t *testing.T) {
 	var ctl strings.Builder
 	for c := range 0x20 {
@@ -126,6 +126,25 @@ func TestPreparedBytesMatchPython(t *testing.T) {
 				Raw("nulls", RawQuestion{Type: "noul", Fields: map[string]any{"criteria": nil, "instructions": nil}}),
 			want: `{"raw":{"type":"noul","criteria":{"future":"kept"},"instructions":"Spam?","weight":3},` +
 				`"future":{"type":"future","nested":{"k":null}},"nulls":{"type":"noul","criteria":null,"instructions":null}}`,
+		},
+		// R42: every float the lead's and the reviewer's sweeps named, laid
+		// out as pydantic-core writes them (zmij: fixed notation for
+		// exponents -5 to 15 with ".0" when integral, else e+NN / e-N).
+		"success: raw floats": {
+			questions: NewQuestions().Raw("floats", RawQuestion{Type: "future", Fields: map[string]any{"f": []any{
+				1e-05, 9.99e-06, 0.0001, 0.1, 1.5, 3.0, -7.0, 123456789.0, 9999999999999998.0, 1e+16,
+				1e+20, 1e+21, 1e+22, 5e-324, 1.7976931348623157e+308, math.Copysign(0, -1), 0.0,
+				float64(1<<53 + 1), 1.2345678901234567e+19, 1.0, 1e-06, 1e-07, 1.5e-07, 1.5e+21, 1e+300,
+				2.2250738585072014e-308, 1000000000000000.0, 5e-07, 999999999999999.9, 9.9999e-06,
+				1.234e-05, 1.0000000000000002, 123.456, -1e-05, 2.5e-05, 2.225073858507201e-308, 1e+100,
+				1e-100, 1.5e+300, 0.3, 1.5e-323,
+			}}}),
+			want: `{"floats":{"type":"future","f":[0.00001,9.99e-6,0.0001,0.1,1.5,3.0,-7.0,123456789.0,` +
+				`9999999999999998.0,1e+16,1e+20,1e+21,1e+22,5e-324,1.7976931348623157e+308,-0.0,0.0,` +
+				`9007199254740992.0,1.2345678901234567e+19,1.0,1e-6,1e-7,1.5e-7,1.5e+21,1e+300,` +
+				`2.2250738585072014e-308,1000000000000000.0,5e-7,999999999999999.9,9.9999e-6,0.00001234,` +
+				`1.0000000000000002,123.456,-0.00001,0.000025,2.225073858507201e-308,1e+100,1e-100,1.5e+300,0.3,` +
+				`1.5e-323]}}`,
 		},
 		"success: raw scalars": {
 			questions: NewQuestions().Raw("n", RawQuestion{Type: "future", Fields: map[string]any{

@@ -467,29 +467,92 @@ func appendValue(dst []byte, v any, leaf Leaf, depth int) ([]byte, *valueError) 
 	return dst, nil
 }
 
-// appendFloat appends f as encoding/json and sonic spell a float: the
-// shortest representation that reads back as f, in exponent form below 1e-6
-// and from 1e21 on. Python's to_json spells some of those values differently
-// (3.0 for 3, 1e-6 for 0.000001); the numbers are equal. NaN and the
-// infinities are not JSON and fail with [ErrUnsupportedValue].
+// appendFloat appends f as typesafe-sdk-python's request path writes a
+// float: its serialize calls pydantic-core's to_json, whose serializer hands
+// every finite float to serde_json's Formatter::write_f64, which writes
+// zmij::Buffer::format_finite (pydantic-core 2.46.5,
+// src/serializers/ser.rs PythonSerializer::serialize_f64; serde_json 1.0.149,
+// src/ser.rs Formatter::write_f64; zmij 1.0.6, src/lib.rs write). zmij's
+// layout, with d the shortest decimal digits that read back as f and E the
+// exponent of the first digit:
+//
+//   - zero is 0.0, or -0.0 when the sign bit is set;
+//   - for -5 <= E <= 15, fixed notation, with ".0" appended when f is
+//     integral: 0.00001, 0.1, 3.0, 123456789.0, 9999999999999998.0;
+//   - otherwise d with a point after its first digit when it has more than
+//     one, then e, the sign (+ or -) and E without leading zeros: 9.99e-6,
+//     1e+16, 1.2345678901234567e+19, 5e-324.
+//
+// A float32 is laid out the same way from its own shortest digits, so
+// float32(0.1) is written 0.1; Python has no float32 to compare with. NaN and
+// the infinities are not JSON and fail with [ErrUnsupportedValue]. It
+// allocates nothing beyond the growth of dst.
 func appendFloat(dst []byte, f float64, bits int) ([]byte, error) {
 	if math.IsNaN(f) || math.IsInf(f, 0) {
 		return dst, fmt.Errorf("%w: %v is not a JSON number", ErrUnsupportedValue, f)
 	}
-	format := byte('f')
-	if abs := math.Abs(f); abs != 0 {
-		if bits == 64 && (abs < 1e-6 || abs >= 1e21) || bits == 32 && (float32(abs) < 1e-6 || float32(abs) >= 1e21) {
-			format = 'e'
+	if f == 0 {
+		if math.Signbit(f) {
+			dst = append(dst, '-')
 		}
+		return append(dst, "0.0"...), nil
 	}
-	dst = strconv.AppendFloat(dst, f, format, -1, bits)
-	if format == 'e' {
-		// Shorten a two-digit negative exponent, e-07 to e-7, as
-		// encoding/json does.
-		if n := len(dst); n >= 4 && dst[n-4] == 'e' && dst[n-3] == '-' && dst[n-2] == '0' {
-			dst[n-2] = dst[n-1]
-			dst = dst[:n-1]
+	// strconv writes the shortest digits as -d.ddde+XX or -d.ddde-XX: the
+	// mantissa, then an exponent of at least two digits.
+	var buf [32]byte
+	sci := strconv.AppendFloat(buf[:0], f, 'e', -1, bits)
+	if sci[0] == '-' {
+		dst = append(dst, '-')
+		sci = sci[1:]
+	}
+	e := len(sci) - 1
+	for sci[e] != 'e' {
+		e--
+	}
+	mant := sci[:e] // d or d.ddd
+	exp := 0
+	for _, c := range sci[e+2:] {
+		exp = exp*10 + int(c-'0')
+	}
+	if sci[e+1] == '-' {
+		exp = -exp
+	}
+	var frac []byte // the digits after the first
+	if len(mant) > 1 {
+		frac = mant[2:]
+	}
+	switch {
+	case exp < -5 || exp > 15:
+		dst = append(dst, mant...)
+		dst = append(dst, 'e')
+		if exp < 0 {
+			dst = append(dst, '-')
+			exp = -exp
+		} else {
+			dst = append(dst, '+')
 		}
+		return strconv.AppendInt(dst, int64(exp), 10), nil
+	case exp < 0:
+		// 1.234e-3 -> 0.001234
+		dst = append(dst, '0', '.')
+		for range -exp - 1 {
+			dst = append(dst, '0')
+		}
+		dst = append(dst, mant[0])
+		return append(dst, frac...), nil
+	case len(frac) <= exp:
+		// 1.234e5 -> 123400.0
+		dst = append(dst, mant[0])
+		dst = append(dst, frac...)
+		for range exp - len(frac) {
+			dst = append(dst, '0')
+		}
+		return append(dst, '.', '0'), nil
+	default:
+		// 1.234e1 -> 12.34
+		dst = append(dst, mant[0])
+		dst = append(dst, frac[:exp]...)
+		dst = append(dst, '.')
+		return append(dst, frac[exp:]...), nil
 	}
-	return dst, nil
 }
