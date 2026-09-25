@@ -403,3 +403,86 @@ func TestConcurrentCalls(t *testing.T) {
 		t.Errorf("Stats().Attempts = %d, want %d", n, 16*8)
 	}
 }
+
+// netTimeout is a net.Error whose Timeout is true, as a dial or read
+// deadline reports.
+type netTimeout struct{}
+
+func (netTimeout) Error() string   { return "i/o timeout" }
+func (netTimeout) Timeout() bool   { return true }
+func (netTimeout) Temporary() bool { return true }
+
+// TestAttemptErrorClassification pins the attempt's classification of an
+// error that ended it without a response, which W2.5 refines (C13): the
+// attempt's own deadline is a *TimeoutError naming the attempt's timeout,
+// the caller's deadline one without it, a network timeout one too, and
+// anything else a *ConnectionError. Each wraps the transport's error, except
+// that a text holding the API key is shown with "***" and not wrapped.
+func TestAttemptErrorClassification(t *testing.T) {
+	const longKey = "ts_live_0123456789abcdef"
+	blockUntilDone := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		<-req.Context().Done()
+		return nil, req.Context().Err()
+	})
+	tests := map[string]struct {
+		rt     http.RoundTripper
+		client []ClientOption
+		ctx    func(t *testing.T) context.Context
+		call   []CallOption
+		check  func(t *testing.T, err error)
+	}{
+		"error: the attempt's deadline": {
+			rt: blockUntilDone, call: []CallOption{Timeout(30 * time.Millisecond)},
+			check: func(t *testing.T, err error) {
+				te, ok := errors.AsType[*TimeoutError](err)
+				if !ok || te.Timeout != 30*time.Millisecond || !errors.Is(err, context.DeadlineExceeded) || te.Error() != "Request timed out (timeout=0.03s)." {
+					t.Errorf("error = %v (%T), want a *TimeoutError of 30ms wrapping context.DeadlineExceeded", err, err)
+				}
+			},
+		},
+		"error: the caller's deadline": {
+			rt: blockUntilDone, client: []ClientOption{WithNoTimeout()},
+			ctx: func(t *testing.T) context.Context {
+				ctx, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
+				t.Cleanup(cancel)
+				return ctx
+			},
+			check: func(t *testing.T, err error) {
+				te, ok := errors.AsType[*TimeoutError](err)
+				if !ok || te.Timeout != 0 || !errors.Is(err, context.DeadlineExceeded) || te.Error() != "Request timed out." {
+					t.Errorf("error = %v (%T), want a *TimeoutError without a timeout", err, err)
+				}
+			},
+		},
+		"error: a network timeout": {
+			rt: &testsupport.Recorder{Replies: []testsupport.Reply{{Err: netTimeout{}}}},
+			check: func(t *testing.T, err error) {
+				if _, ok := errors.AsType[*TimeoutError](err); !ok || !errors.Is(err, netTimeout{}) {
+					t.Errorf("error = %v (%T), want a *TimeoutError wrapping the net.Error", err, err)
+				}
+			},
+		},
+		"error: a text that holds the key": {
+			rt: &testsupport.Recorder{Replies: []testsupport.Reply{{Err: errString("proxy said: Bearer " + longKey)}}},
+			check: func(t *testing.T, err error) {
+				ce, ok := errors.AsType[*ConnectionError](err)
+				if !ok || ce.Error() != "Connection error: proxy said: Bearer ***" || ce.Unwrap() != nil || ce.Proxy() {
+					t.Errorf("error = %v (%T), want a *ConnectionError with the key replaced and nothing wrapped", err, err)
+				}
+				assertNotPrinted(t, err, longKey)
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			clearEnv(t)
+			c := newEnvClient(t, tt.rt, append([]ClientOption{WithAPIKey(longKey)}, tt.client...)...)
+			ctx := t.Context()
+			if tt.ctx != nil {
+				ctx = tt.ctx(t)
+			}
+			_, err := c.Models().List(ctx, tt.call...)
+			tt.check(t, err)
+		})
+	}
+}
