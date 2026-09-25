@@ -232,12 +232,12 @@ func (qs *Questions) Prepare() (*Prepared, error) {
 			return nil, newConfigError(`Question "`+e.name+`": `+err.Error(), err)
 		}
 	}
-	p, err := b.Prepared()
-	if err != nil {
+	p := new(Prepared)
+	if err := b.Finish(&p.w); err != nil {
 		// Unreachable: the names were checked above.
 		return nil, newConfigError("Question set cannot be prepared: "+err.Error(), err)
 	}
-	return &Prepared{w: *p}, nil
+	return p, nil
 }
 
 // repeatScanLimit is the number of strings up to which a repeat is found by

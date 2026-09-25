@@ -285,9 +285,9 @@ func TestBuilderRawValues(t *testing.T) {
 			if err := b.Raw("r", "future", map[string]any{"v": tt.v}, testLeaf); err != nil {
 				t.Fatalf("Raw: %v", err)
 			}
-			p, err := b.Prepared()
-			if err != nil {
-				t.Fatalf("Prepared: %v", err)
+			var p Prepared
+			if err := b.Finish(&p); err != nil {
+				t.Fatalf("Finish: %v", err)
 			}
 			if want := `{"r":{"type":"future","v":` + tt.want + `}}`; string(p.Questions) != want {
 				t.Errorf("Questions = %s, want %s", p.Questions, want)

@@ -127,6 +127,9 @@ func TestPreparedTables(t *testing.T) {
 			if p.w.LevelHint != tt.wantHint {
 				t.Errorf("LevelHint = %d, want %d", p.w.LevelHint, tt.wantHint)
 			}
+			if cap(p.w.Questions) != len(p.w.Questions) {
+				t.Errorf("cap(Questions) = %d, want len %d", cap(p.w.Questions), len(p.w.Questions))
+			}
 			for _, e := range p.w.Entries() {
 				if _, ok := p.w.Lookup(e.Name); !ok {
 					t.Errorf("Lookup(%q) found nothing", e.Name)

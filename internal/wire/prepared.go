@@ -53,7 +53,8 @@ type PreparedQuestion struct {
 // Prepared is a question set serialised once and reused by every call that
 // asks it.
 //
-// It is read-only after NewPrepared returns and safe for concurrent use. The
+// It is read-only once NewPrepared or [Builder.Finish] has made it, and safe
+// for concurrent use. The
 // entries sit behind [Prepared.Entries] so that the lookup index built over
 // them cannot go stale.
 type Prepared struct {
@@ -75,28 +76,40 @@ type Prepared struct {
 // the set (the root package rejects a repeated name before it gets here). The
 // slices are kept, not copied: the caller must not modify them afterwards.
 func NewPrepared(questions []byte, entries []PreparedQuestion) (*Prepared, error) {
-	p := &Prepared{Questions: questions, entries: entries}
-	for i := range entries {
-		p.LevelHint = max(p.LevelHint, min(len(entries[i].Levels), MaxLevelHint))
+	p := new(Prepared)
+	if err := p.init(questions, entries); err != nil {
+		return nil, err
 	}
+	return p, nil
+}
+
+// init makes p the prepared set of questions and entries, see NewPrepared.
+// p is left unchanged when it fails.
+func (p *Prepared) init(questions []byte, entries []PreparedQuestion) error {
+	hint := 0
+	for i := range entries {
+		hint = max(hint, min(len(entries[i].Levels), MaxLevelHint))
+	}
+	var index map[string]int
 	if len(entries) <= linearLimit {
 		for i := range entries {
 			for j := range i {
 				if entries[j].Name == entries[i].Name {
-					return nil, fmt.Errorf("%w: %q", ErrDuplicateQuestion, entries[i].Name)
+					return fmt.Errorf("%w: %q", ErrDuplicateQuestion, entries[i].Name)
 				}
 			}
 		}
-		return p, nil
-	}
-	p.index = make(map[string]int, len(entries))
-	for i := range entries {
-		if _, ok := p.index[entries[i].Name]; ok {
-			return nil, fmt.Errorf("%w: %q", ErrDuplicateQuestion, entries[i].Name)
+	} else {
+		index = make(map[string]int, len(entries))
+		for i := range entries {
+			if _, ok := index[entries[i].Name]; ok {
+				return fmt.Errorf("%w: %q", ErrDuplicateQuestion, entries[i].Name)
+			}
+			index[entries[i].Name] = i
 		}
-		p.index[entries[i].Name] = i
 	}
-	return p, nil
+	*p = Prepared{Questions: questions, LevelHint: hint, entries: entries, index: index}
+	return nil
 }
 
 // Entries returns the questions in the order they were added. The slice is
@@ -341,15 +354,19 @@ func (b *Builder) Raw(name, typ string, fields map[string]any, leaf Leaf) error 
 	return nil
 }
 
-// Prepared closes the JSON object and returns the prepared set, see
-// [NewPrepared]. The Builder must not be used afterwards.
-func (b *Builder) Prepared() (*Prepared, error) {
+// Finish closes the JSON object and makes *p the prepared set, as
+// [NewPrepared] would, so that a caller holding a Prepared inside a larger
+// value does not pay a second allocation. Questions has no spare capacity: an
+// append to it copies instead of writing into memory the set shares. p is
+// left unchanged when Finish fails, and the Builder must not be used
+// afterwards.
+func (b *Builder) Finish(p *Prepared) error {
 	if len(b.buf) == 0 {
 		b.buf = append(b.buf, '{')
 	}
-	b.buf = append(b.buf, '}')
+	b.buf = slices.Clip(append(b.buf, '}'))
 	for _, s := range b.spans {
 		b.entries[s.entry].Levels[s.level].JSON = b.buf[s.start:s.end:s.end]
 	}
-	return NewPrepared(b.buf, b.entries)
+	return p.init(b.buf, b.entries)
 }

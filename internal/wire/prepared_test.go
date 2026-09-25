@@ -131,9 +131,9 @@ func TestBuilder(t *testing.T) {
 			if err := tt.build(&b); err != nil {
 				t.Fatalf("build: %v", err)
 			}
-			p, err := b.Prepared()
-			if err != nil {
-				t.Fatalf("Prepared: %v", err)
+			var p Prepared
+			if err := b.Finish(&p); err != nil {
+				t.Fatalf("Finish: %v", err)
 			}
 			if string(p.Questions) != tt.want {
 				t.Errorf("Questions =\n%s\nwant\n%s", p.Questions, tt.want)
@@ -143,6 +143,9 @@ func TestBuilder(t *testing.T) {
 			}
 			if p.LevelHint != tt.wantHint {
 				t.Errorf("LevelHint = %d, want %d", p.LevelHint, tt.wantHint)
+			}
+			if cap(p.Questions) != len(p.Questions) {
+				t.Errorf("cap(Questions) = %d, want len %d: spare capacity would be shared", cap(p.Questions), len(p.Questions))
 			}
 			// Every JSON level is a view of the finished object, capped so
 			// that nothing can append into it.
@@ -322,6 +325,41 @@ func TestBuilderErrors(t *testing.T) {
 			}
 			if me != nil && me.Member != tt.wantMember {
 				t.Errorf("Member = %q, want %q", me.Member, tt.wantMember)
+			}
+		})
+	}
+}
+
+// TestBuilderFinishRejectsRepeatedNames checks that Finish fails as
+// NewPrepared does on a repeated name, on both lookup paths, and leaves the
+// destination as it was.
+func TestBuilderFinishRejectsRepeatedNames(t *testing.T) {
+	tests := map[string]struct {
+		n        int // questions written, all named "q<i>" except the last
+		wantName string
+	}{
+		"error: a repeat in a small set":   {n: 3, wantName: "q0"},
+		"error: a repeat past linearLimit": {n: linearLimit + 3, wantName: "q0"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			var b Builder
+			for i := range tt.n {
+				qname := "q" + strconv.Itoa(i)
+				if i == tt.n-1 {
+					qname = tt.wantName
+				}
+				if err := b.Noul(qname, nil, nil, nil); err != nil {
+					t.Fatalf("Noul: %v", err)
+				}
+			}
+			p := Prepared{LevelHint: -1}
+			err := b.Finish(&p)
+			if !errors.Is(err, ErrDuplicateQuestion) {
+				t.Fatalf("Finish error = %v, want ErrDuplicateQuestion", err)
+			}
+			if p.LevelHint != -1 || p.Questions != nil || p.Entries() != nil {
+				t.Errorf("Finish changed its destination on failure: %+v", p)
 			}
 		})
 	}
