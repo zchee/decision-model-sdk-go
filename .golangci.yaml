@@ -1,0 +1,52 @@
+# golangci-lint v2 configuration: https://golangci-lint.run/docs/configuration/file/
+version: "2"
+
+run:
+  # livetests/ compiles only with -tags live; lint it like the rest.
+  build-tags:
+    - live
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - errorlint
+    - gocritic
+    - godot
+    - gosec
+    - intrange
+    - misspell
+    - modernize
+    - nolintlint
+    - perfsprint
+    - revive
+    - unconvert
+    - usestdlibvars
+    - whitespace
+  settings:
+    godot:
+      # Godoc comments end with a period (house rule).
+      scope: declarations
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+  exclusions:
+    generated: strict
+    presets:
+      - common-false-positives
+      - std-error-handling
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    gofumpt:
+      # The same rules as `gofumpt -extra` (the bare flag turns all of them on).
+      extra:
+        group-params: true
+        clothe-returns: true
+        balance-calls: true
+    goimports:
+      local-prefixes:
+        - github.com/zchee/typesafe-sdk-go
