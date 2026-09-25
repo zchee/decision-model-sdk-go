@@ -929,3 +929,108 @@ func TestNestedContentEncodesAsContent(t *testing.T) {
 		})
 	}
 }
+
+// TestNestedRawJSONEncodesAsJSON checks ruling R57: RawJSON nested in a state
+// or in a body member's value, where sonic writes it through
+// RawJSON.MarshalJSON, is sent as the JSON it holds (validated, whitespace
+// kept), never as the base64 string a plain byte slice would give; a nil one
+// is null. A top-level *RawJSON takes the verbatim path of the RawJSON it
+// points to, and a nil one is refused.
+func TestNestedRawJSONEncodesAsJSON(t *testing.T) {
+	type holder struct {
+		R RawJSON  `json:"r"`
+		P *RawJSON `json:"p"`
+	}
+	raw := RawJSON(` {"a" : [1, null]} `)
+	four := RawJSON(`4`)
+	body := func(state, extra string) string {
+		return `{"state":` + state + `,"model":"jev-latest","questions":` + probeQuestions + extra + `}`
+	}
+	tests := map[string]struct {
+		state   any
+		extra   []bodyMember
+		want    string // the body, when it encodes
+		wantErr string // a substring of the *InvalidRequestError message, when it does not
+		wantIs  error  // errors.Is target of a refusal, if any
+		sonic   bool   // the refusal comes from sonic (*codec.EncodeError)
+	}{
+		"success: RawJSON in a map state, whitespace kept": {
+			state: map[string]any{"r": raw},
+			want:  body(`{"r": {"a" : [1, null]} }`, ""),
+		},
+		"success: RawJSON as a struct field and through a pointer field": {
+			state: holder{R: RawJSON(`[1,2]`), P: &four},
+			want:  body(`{"r":[1,2],"p":4}`, ""),
+		},
+		"success: a nil RawJSON and a nil *RawJSON field are null": {
+			state: holder{},
+			want:  body(`{"r":null,"p":null}`, ""),
+		},
+		"success: RawJSON in a slice state": {
+			state: []any{RawJSON(`"text"`), RawJSON(`{}`)},
+			want:  body(`["text",{}]`, ""),
+		},
+		"success: a *RawJSON state takes the verbatim path": {
+			state: &raw,
+			want:  body(` {"a" : [1, null]} `, ""),
+		},
+		"success: RawJSON inside an extra member's value": {
+			state: "hi",
+			extra: []bodyMember{{"cfg", []any{RawJSON(`{"k":true}`), four}}},
+			want:  body(`"hi"`, `,"cfg":[{"k":true},4]`),
+		},
+		"success: a *RawJSON extra member takes the verbatim path": {
+			state: "hi",
+			extra: []bodyMember{{"p", &four}},
+			want:  body(`"hi"`, `,"p":4`),
+		},
+		"error: invalid RawJSON nested in the state": {
+			state:   map[string]any{"r": RawJSON(`{"a":`)},
+			wantErr: "state: ",
+			sonic:   true,
+		},
+		"error: RawJSON with trailing data nested in an extra member": {
+			state:   "hi",
+			extra:   []bodyMember{{"cfg", []any{RawJSON(`1 2`)}}},
+			wantErr: `extra body member "cfg": `,
+			sonic:   true,
+		},
+		"error: nested RawJSON that is not UTF-8": {
+			state:   map[string]any{"r": RawJSON("\"\xff\"")},
+			wantErr: "state: string is not valid UTF-8",
+			wantIs:  wire.ErrInvalidUTF8,
+		},
+		"error: a nil *RawJSON state": {
+			state:   (*RawJSON)(nil),
+			wantErr: "state: nil *RawJSON holds no JSON value, not a string, an array or an object",
+			wantIs:  codec.ErrStateShape,
+		},
+		"error: a nil *RawJSON extra member": {
+			state:   "hi",
+			extra:   []bodyMember{{"p", (*RawJSON)(nil)}},
+			wantErr: `extra body member "p": nil *RawJSON holds no JSON value, not a JSON value`,
+			wantIs:  codec.ErrRawValue,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := bodyOf(t, tt.state, "jev-latest", probeSet(t), tt.extra...)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("encodeBody: %v", err)
+				}
+				if diff := gocmp.Diff(tt.want, got); diff != "" {
+					t.Errorf("body (-want +got):\n%s", diff)
+				}
+				return
+			}
+			_ = invalidRequest(t, err, tt.wantErr)
+			if tt.wantIs != nil && !errors.Is(err, tt.wantIs) {
+				t.Errorf("err = %v, want errors.Is %v", err, tt.wantIs)
+			}
+			if _, ok := errors.AsType[*codec.EncodeError](err); ok != tt.sonic {
+				t.Errorf("errors.As *codec.EncodeError = %t, want %t (err %v)", ok, tt.sonic, err)
+			}
+		})
+	}
+}

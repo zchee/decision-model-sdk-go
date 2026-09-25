@@ -53,9 +53,10 @@ const (
 // written.
 //
 // The state, and an extra "state" too, must be text, a JSON object or an
-// array: sonic writes it (codec.EncodeState); a [RawJSON] state is written as
-// it is after codec.AppendRawState's check; [Content] is written as a
-// question writes it. model is written as a JSON string and qs's bytes as
+// array: sonic writes it (codec.EncodeState); a [RawJSON] state, or the
+// RawJSON a non-nil *RawJSON points to, is written as it is after
+// codec.AppendRawState's check; [Content] is written as a question writes
+// it. model is written as a JSON string and qs's bytes as
 // they are. Any other value may be any JSON value: sonic writes it
 // (codec.EncodeValue), a RawJSON value as it is after codec.AppendRawValue's
 // check, Content as a question writes it and unset Content as null.
@@ -195,6 +196,11 @@ func appendState(buf *[]byte, state any) error {
 	switch v := state.(type) {
 	case RawJSON:
 		return codec.AppendRawState(buf, v)
+	case *RawJSON:
+		if v == nil {
+			return fmt.Errorf("nil *RawJSON holds no JSON value, %w", codec.ErrStateShape)
+		}
+		return codec.AppendRawState(buf, *v)
 	case Content:
 		if !v.set {
 			return fmt.Errorf("unset Content encodes as null, %w", codec.ErrStateShape)
@@ -213,6 +219,11 @@ func appendValue(buf *[]byte, value any) error {
 	switch v := value.(type) {
 	case RawJSON:
 		return codec.AppendRawValue(buf, v)
+	case *RawJSON:
+		if v == nil {
+			return fmt.Errorf("nil *RawJSON holds no JSON value, %w", codec.ErrRawValue)
+		}
+		return codec.AppendRawValue(buf, *v)
 	case Content:
 		if !v.set {
 			*buf = append(*buf, "null"...)

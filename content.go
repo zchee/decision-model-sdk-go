@@ -28,10 +28,25 @@ import "github.com/zchee/typesafe-sdk-go/internal/wire"
 // the call adds to the request body, it is sent as it is, whitespace
 // included, after a check of its first byte only: a state must start a
 // string, an array or an object, a member any JSON value. That it is one
-// valid JSON value is then the caller's contract. A member name repeated
-// inside an object (`{"a":1,"a":2}`) is passed through unchanged, which a
-// Python dict cannot produce; the server decides which one counts.
+// valid JSON value is then the caller's contract. A *RawJSON there is sent
+// as the RawJSON it points to; a nil one is refused. Nested inside a state
+// or a member's value (a map value, a struct field, a slice element, through
+// a pointer too), it is written by [RawJSON.MarshalJSON]: validated by the
+// encoder, not compacted. A member name repeated inside an object
+// (`{"a":1,"a":2}`) is passed through unchanged, which a Python dict cannot
+// produce; the server decides which one counts.
 type RawJSON []byte
+
+// MarshalJSON returns r as it is, or null when r is nil, as
+// json.RawMessage does, so that RawJSON nested inside a state or a request
+// body member is sent as the JSON it holds, never as a base64 string. The
+// encoder validates the bytes and keeps their whitespace.
+func (r RawJSON) MarshalJSON() ([]byte, error) {
+	if r == nil {
+		return []byte("null"), nil
+	}
+	return r, nil
+}
 
 // Content is text, or a JSON object or array: what the API accepts as a
 // question's instructions, as the description of an outcome or an option,
