@@ -414,19 +414,30 @@ type TimeoutError struct {
 	// when the deadline came from the caller's context alone.
 	Timeout time.Duration
 
-	err error
+	err   error
+	proxy bool
 }
 
 // Error returns "Request timed out (timeout=<seconds>s).", or "Request timed
-// out." without a timeout. The Python SDK's str() prints the timeout as a
+// out." without a timeout, with " on the proxy hop" after "out" when the hop
+// to the proxy timed out. The Python SDK's str() prints the timeout as a
 // float without a unit ("timeout=10.0"); the Go port prints it with an "s"
 // and without a trailing ".0" ("timeout=10s"), as the Rust port does.
 func (e *TimeoutError) Error() string {
-	if e.Timeout <= 0 {
-		return "Request timed out."
+	msg := "Request timed out"
+	if e.proxy {
+		msg += " on the proxy hop"
 	}
-	return "Request timed out (timeout=" + strconv.FormatFloat(e.Timeout.Seconds(), 'f', -1, 64) + "s)."
+	if e.Timeout <= 0 {
+		return msg + "."
+	}
+	return msg + " (timeout=" + strconv.FormatFloat(e.Timeout.Seconds(), 'f', -1, 64) + "s)."
 }
+
+// Proxy reports whether the attempt timed out on the hop to the proxy (the
+// connection to it, or its TLS handshake) rather than to the API, as
+// [ConnectionError.Proxy] reports a proxy failure.
+func (e *TimeoutError) Proxy() bool { return e.proxy }
 
 // Unwrap returns the error that ended the attempt, such as
 // context.DeadlineExceeded, or nil.
@@ -438,6 +449,12 @@ func (*TimeoutError) typesafeError() {}
 // that ended with cause.
 func newTimeoutError(timeout time.Duration, cause error) *TimeoutError {
 	return &TimeoutError{Timeout: timeout, err: cause}
+}
+
+// newProxyTimeoutError returns the *TimeoutError for an attempt given
+// timeout whose hop to the proxy timed out with cause (R67 Q3).
+func newProxyTimeoutError(timeout time.Duration, cause error) *TimeoutError {
+	return &TimeoutError{Timeout: timeout, err: cause, proxy: true}
 }
 
 // renderResponseError renders an error about a response as the Python SDK's

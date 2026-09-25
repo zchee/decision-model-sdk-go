@@ -523,9 +523,11 @@ func TestErrorRenderings(t *testing.T) {
 			want:      `Connection error: proxyconnect tcp: \x1b[31m` + strings.Repeat("z", 200-len(`proxyconnect tcp: \x1b[31m`)) + "…",
 			wantCause: cause,
 		},
-		"success: timeout in seconds":     {err: newTimeoutError(1250*time.Millisecond, context.DeadlineExceeded), want: "Request timed out (timeout=1.25s).", wantCause: context.DeadlineExceeded},
-		"success: whole seconds":          {err: newTimeoutError(10*time.Second, nil), want: "Request timed out (timeout=10s)."},
-		"success: the context's deadline": {err: newTimeoutError(0, context.DeadlineExceeded), want: "Request timed out.", wantCause: context.DeadlineExceeded},
+		"success: timeout in seconds":              {err: newTimeoutError(1250*time.Millisecond, context.DeadlineExceeded), want: "Request timed out (timeout=1.25s).", wantCause: context.DeadlineExceeded},
+		"success: whole seconds":                   {err: newTimeoutError(10*time.Second, nil), want: "Request timed out (timeout=10s)."},
+		"success: the context's deadline":          {err: newTimeoutError(0, context.DeadlineExceeded), want: "Request timed out.", wantCause: context.DeadlineExceeded},
+		"success: the proxy hop":                   {err: newProxyTimeoutError(10*time.Second, cause), want: "Request timed out on the proxy hop (timeout=10s).", wantCause: cause},
+		"success: the proxy hop without a timeout": {err: newProxyTimeoutError(0, cause), want: "Request timed out on the proxy hop.", wantCause: cause},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -540,6 +542,9 @@ func TestErrorRenderings(t *testing.T) {
 	ce := newConnectionError("refused", nil, true)
 	if !ce.Proxy() || ce.Unwrap() != nil {
 		t.Errorf("Proxy() = %t, Unwrap() = %v", ce.Proxy(), ce.Unwrap())
+	}
+	if te, pte := newTimeoutError(time.Second, nil), newProxyTimeoutError(time.Second, nil); te.Proxy() || !pte.Proxy() {
+		t.Errorf("Proxy() = %t for an attempt timeout, %t for a proxy-hop timeout; want false, true", te.Proxy(), pte.Proxy())
 	}
 }
 
