@@ -174,8 +174,8 @@ jobs:
           files: coverage.out
           disable_search: true
           flags: ${{ matrix.os }}
-          # Until W2.0 produces coverage (plan section 12).
-          fail_ci_if_error: false
+          # W2.0 produces coverage (plan section 12, ruling R70).
+          fail_ci_if_error: true
 
   # W6.1 adds a fuzz job on ubuntu-26.04: FuzzDecodeResponse and FuzzErrorBody
   # (./internal/codec/), FuzzRetryAfter and FuzzTagGrammar (.), 60 s each, one
