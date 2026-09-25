@@ -225,10 +225,12 @@ type credentials []string
 // every header whose name marks a credential ([isSecretHeader]), and the
 // credential after the scheme of an Authorization or Proxy-Authorization
 // value, which for the SDK's own Authorization is the API key. Each is
-// looked for as it is, as Go's %q and %+q quote it, and as JSON escapes it
-// (the Python SDK's raw, repr and json.dumps forms). A value shorter than
-// [minKeyNeedleBytes] is not looked for, as the API key is not (ruling R68):
-// it would match ordinary text; the Python SDK looks for every value.
+// looked for as it is, as Go's %q and %+q quote it, and as encoding/json
+// escapes it: the Go analogues of the Python SDK's raw, repr and json.dumps
+// forms, which differ from them above the Basic Multilingual Plane and on
+// '<', '>' and '&'. A value shorter than [minKeyNeedleBytes] is not looked
+// for, as the API key is not (ruling R68): it would match ordinary text; the
+// Python SDK looks for every value.
 func requestCredentials(h http.Header) credentials {
 	var c credentials
 	add := func(v string) {
