@@ -90,6 +90,11 @@ func TestGoAway(t *testing.T) {
 		waitUntil(t, "the two replays", func() bool { return len(srv.Requests()) == 1+len(paths)+2 })
 		close(release)
 		wg.Wait()
+		// A replay that marked the new connection cleared its mark when its
+		// response arrived (R72b); none may outlive the calls.
+		if n := tr.nUnsettled.Load(); n != 0 {
+			t.Errorf("%d unsettled marks left after every replay was answered, want 0", n)
+		}
 		for i, r := range calls {
 			if r.Err != nil || r.Status != http.StatusOK || r.Body != "ok "+paths[i] {
 				t.Errorf("%s: %d %q %v", paths[i], r.Status, r.Body, r.Err)

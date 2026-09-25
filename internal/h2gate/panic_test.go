@@ -78,12 +78,19 @@ func afterPanic(t *testing.T, tr *Transport, rawURL string) {
 // that left (handover with waiters, cold without), so the next call does
 // not park or block (review W2.2A MAJOR 1, R72).
 func TestPanicUnwind(t *testing.T) {
-	// On a warm HTTP/2 connection the stock pool calls the GetConn hook with
-	// its own mutex held (internal/http2/client_conn_pool.go:52-61), so a
-	// panic there leaves net/http's pool locked and every later request
-	// blocks on it, which no wrapper can repair; the warm case panics in
-	// GotConn instead, which the stock transport calls with no lock held
-	// (internal/http2/transport.go:3151-3166).
+	// The stock transport is not panic-safe for a hook it calls after
+	// ReserveNewRequest (K28, K28b). On a warm HTTP/2 connection the pool
+	// calls GetConn with its mutex held (internal/http2/client_conn_pool.go:
+	// 52-61): a panic there leaves the pool locked and every later request
+	// blocks on it. GotConn runs with no lock held
+	// (internal/http2/transport.go:3151-3166) but after the stream was
+	// reserved, and only cc.RoundTrip releases the reservation (:423-425):
+	// each panic there leaks one stream slot, so with a server limit of 2,
+	// two recovered panics leave the client at the limit although the token
+	// is free. No wrapper around *http.Transport repairs either, and the
+	// root package's WithClientTrace shields every caller hook instead. This
+	// test pins what h2gate owns, the token and the gate, so its warm case
+	// panics in GotConn once, on a server without a limit.
 	t.Run("success: a panicking hook on a warm transport leaves the token free", func(t *testing.T) {
 		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{})
 		tr := newTestTransport(t, Config{APIURL: mustURL(t, srv.URL())})

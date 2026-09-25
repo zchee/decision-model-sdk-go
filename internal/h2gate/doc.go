@@ -81,6 +81,21 @@
 // window is a few instructions wide and cannot be closed from outside
 // net/http.
 //
+// # Caller hooks that panic
+//
+// A caller's httptrace hook, Proxy func or GetBody that panics inside
+// RoundTrip reaches the caller unchanged; the transport gives the token
+// back on the way out and resolves a leader's generation as a leader that
+// left. The stock transport is not panic-safe for a hook it calls after it
+// reserved a stream (K28, K28b): on a warm HTTP/2 connection it calls
+// GetConn with its pool mutex held (internal/http2/client_conn_pool.go:
+// 52-61), which a panic leaves locked, and GotConn after ReserveNewRequest,
+// whose reservation only cc.RoundTrip releases
+// (internal/http2/transport.go:423-425), so a panic there leaks a stream
+// slot. No wrapper repairs either; the root package's WithClientTrace
+// wraps every caller hook, recovers inside it and panics again on the
+// calling goroutine once RoundTrip has returned.
+//
 // # Goroutines
 //
 // The package starts none of its own. Its hooks run on the transport's
