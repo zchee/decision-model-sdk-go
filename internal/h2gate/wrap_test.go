@@ -239,8 +239,8 @@ func TestCallerDialTLSRefused(t *testing.T) {
 		base := &http.Transport{TLSNextProto: map[string]func(string, *tls.Conn) http.RoundTripper{
 			"h2": func(string, *tls.Conn) http.RoundTripper { return nil },
 		}}
-		if _, err := Wrap(base, Config{APIURL: mustURL(t, exampleURL)}); !errors.Is(err, errCallerH2) {
-			t.Errorf("Wrap under HTTP2Only: %v, want errCallerH2", err)
+		if _, err := Wrap(base, Config{APIURL: mustURL(t, exampleURL)}); !errors.Is(err, ErrCallerHTTP2) {
+			t.Errorf("Wrap under HTTP2Only: %v, want ErrCallerHTTP2", err)
 		}
 		if _, err := Wrap(base, Config{APIURL: mustURL(t, exampleURL), Mode: HTTPAuto}); err != nil {
 			t.Errorf("Wrap under HTTPAuto: %v, want no refusal", err)
@@ -469,8 +469,8 @@ func TestNewTransport(t *testing.T) {
 			"no URL":                    {cfg: Config{}, want: errBadURL},
 			"ftp scheme":                {cfg: Config{APIURL: mustURL(t, "ftp://example.com")}, want: errBadURL},
 			"no host":                   {cfg: Config{APIURL: mustURL(t, "https:///v1")}, want: errBadURL},
-			"non-ASCII host, HTTP2Only": {cfg: Config{APIURL: mustURL(t, "https://bücher.example")}, want: errNonASCIIHost},
-			"non-ASCII host over http":  {cfg: Config{APIURL: mustURL(t, "http://bücher.example")}, want: errNonASCIIHost},
+			"non-ASCII host, HTTP2Only": {cfg: Config{APIURL: mustURL(t, "https://bücher.example")}, want: ErrNonASCIIHost},
+			"non-ASCII host over http":  {cfg: Config{APIURL: mustURL(t, "http://bücher.example")}, want: ErrNonASCIIHost},
 		}
 		for name, tt := range tests {
 			t.Run(name, func(t *testing.T) {

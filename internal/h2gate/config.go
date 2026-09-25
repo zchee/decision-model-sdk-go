@@ -130,13 +130,25 @@ type Config struct {
 }
 
 // Build-time refusals. Every error NewTransport or Wrap returns is a
-// configuration error; these name the cases a test tells apart.
+// configuration error. The exported ones are those a caller's settings can
+// cause, which the root package words for the option that caused them; the
+// others follow from a Config the root package never builds.
 var (
-	errBadURL       = errors.New("h2gate: the API URL needs an http or https scheme and a host")
-	errNonASCIIHost = errors.New("h2gate: HTTP2Only needs an ASCII API host")
-	errCallerH2     = errors.New("h2gate: HTTP2Only cannot use a transport whose TLSNextProto carries its own h2")
-	errWrapConfig   = errors.New("h2gate: Wrap keeps the caller transport's dialer, TLS configuration and proxy")
-	errProxy        = errors.New("h2gate: the proxy func failed for the API URL")
+	// ErrNonASCIIHost refuses an API host with a non-ASCII byte under
+	// HTTP2Only: the API hop's SNI and the dial key are built from its IDNA
+	// form, which this package cannot compute without x/net/idna.
+	ErrNonASCIIHost = errors.New("h2gate: HTTP2Only needs an ASCII API host")
+	// ErrCallerHTTP2 refuses, under HTTP2Only, a caller transport whose
+	// TLSNextProto carries its own "h2" entry (an x/net install), which the
+	// stock h2 selection and the ALPN check would not see.
+	ErrCallerHTTP2 = errors.New("h2gate: HTTP2Only cannot use a transport whose TLSNextProto carries its own h2")
+	// ErrProxyEnvironment reports that http.ProxyFromEnvironment failed for
+	// the API URL at build: a proxy variable holds an unusable URL. The
+	// error wraps the failure, whose text may hold that URL.
+	ErrProxyEnvironment = errors.New("h2gate: the proxy environment failed for the API URL")
+
+	errBadURL     = errors.New("h2gate: the API URL needs an http or https scheme and a host")
+	errWrapConfig = errors.New("h2gate: Wrap keeps the caller transport's dialer, TLS configuration and proxy")
 )
 
 // alpnScope says which TLS handshakes the ALPN check applies to.
@@ -184,7 +196,7 @@ func resolveTarget(cfg Config) (target, error) {
 		// IDNA form (transport.go:2217-2219, :3187-3202); this package does
 		// not import x/net/idna, so the SNI rule and the thin check could
 		// never match the host.
-		return target{}, fmt.Errorf("%w: %q", errNonASCIIHost, host)
+		return target{}, fmt.Errorf("%w: %q", ErrNonASCIIHost, host)
 	}
 	port := u.Port()
 	if port == "" {
@@ -270,7 +282,7 @@ func proxyMayApply(proxy func(*http.Request) (*url.URL, error), api *url.URL) (b
 	case isProxyFromEnvironment(proxy):
 		u, err := proxy(&http.Request{URL: api, Header: http.Header{}})
 		if err != nil {
-			return false, fmt.Errorf("%w: %w", errProxy, err)
+			return false, fmt.Errorf("%w: %w", ErrProxyEnvironment, err)
 		}
 		return u != nil, nil
 	default:
@@ -442,7 +454,7 @@ func Wrap(base *http.Transport, cfg Config) (*Transport, error) {
 	connect := connectTimeout(cfg)
 	tr := base.Clone()
 	if _, ok := tr.TLSNextProto["h2"]; ok && cfg.Mode == HTTP2Only && tg.scheme == "https" {
-		return nil, errCallerH2
+		return nil, ErrCallerHTTP2
 	}
 	if tr.Protocols == nil {
 		tr.Protocols = protocols(cfg.Mode, tg.scheme)
