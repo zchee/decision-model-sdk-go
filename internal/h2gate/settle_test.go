@@ -59,8 +59,9 @@ func take(t *testing.T, tr *Transport) *call {
 }
 
 // replay is a request that wrote its HEADERS on the warm connection old,
-// gave the token back, and was replayed by the stock transport onto conn.
-func replay(t *testing.T, tr *Transport, old, conn net.Conn, reused bool) {
+// gave the token back, and was replayed by the stock transport onto conn;
+// its response has not arrived (see call.responded).
+func replay(t *testing.T, tr *Transport, old, conn net.Conn, reused bool) *call {
 	t.Helper()
 	c := take(t, tr)
 	c.gotConn(httptrace.GotConnInfo{Conn: old, Reused: true})
@@ -68,6 +69,7 @@ func replay(t *testing.T, tr *Transport, old, conn net.Conn, reused bool) {
 	c.gotConn(httptrace.GotConnInfo{Conn: conn, Reused: reused})
 	c.wroteHeaders()
 	c.giveBack(false)
+	return c
 }
 
 // holder sends a request on conn (Reused, as a warm connection is) and
@@ -143,6 +145,55 @@ func TestSettleHold(t *testing.T) {
 		}
 		if n := tr.nUnsettled.Load(); n != 1 {
 			t.Errorf("unsettled connections %d, want the other connection's mark kept", n)
+		}
+	})
+
+	t.Run("success: a replay's own response clears its mark; a later holder is not held", func(t *testing.T) {
+		tr := settleTransport(t, true, time.Minute)
+		cs := fakeConns(t, 3)
+		old, a, b := cs[0], cs[1], cs[2]
+		ra := replay(t, tr, old, a, false)
+		replay(t, tr, old, b, false) // b's replay has not been answered yet
+		ra.responded()
+		if n := tr.nUnsettled.Load(); n != 1 {
+			t.Fatalf("marks %d after a's replay was answered, want b's alone", n)
+		}
+		if holder(t, tr, a) {
+			t.Error("a holder on a kept the token after the replay's response cleared the mark")
+		}
+		if !holder(t, tr, b) {
+			t.Error("the holder on b gave the token back: its mark was cleared too")
+		}
+		if st := tr.Stats(); st.SettleHolds != 1 || tr.nUnsettled.Load() != 0 {
+			t.Errorf("stats %+v, marks %d; want the one settle hold on b and no mark left", st, tr.nUnsettled.Load())
+		}
+	})
+
+	t.Run("success: a replay answered after a holder took its mark changes nothing", func(t *testing.T) {
+		tr := settleTransport(t, true, time.Minute)
+		cs := fakeConns(t, 3)
+		old, a, b := cs[0], cs[1], cs[2]
+		ra := replay(t, tr, old, a, false)
+		if !holder(t, tr, a) {
+			t.Fatal("the holder on a gave the token back")
+		}
+		replay(t, tr, old, b, false)
+		ra.responded() // a's mark is gone already; b's must stay
+		if n := tr.nUnsettled.Load(); n != 1 || !holder(t, tr, b) {
+			t.Errorf("marks %d, want b's kept for its holder", n)
+		}
+	})
+
+	t.Run("success: a replay that marks nothing clears nothing", func(t *testing.T) {
+		tr := settleTransport(t, true, time.Minute)
+		cs := fakeConns(t, 3)
+		old, a, b := cs[0], cs[1], cs[2]
+		replay(t, tr, old, a, false)
+		rb := replay(t, tr, old, a, true) // a is marked already; this replay found it in the pool
+		replay(t, tr, old, b, false)
+		rb.responded()
+		if n := tr.nUnsettled.Load(); n != 2 {
+			t.Errorf("marks %d, want a's and b's kept", n)
 		}
 	})
 

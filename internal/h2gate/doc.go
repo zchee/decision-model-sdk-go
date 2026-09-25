@@ -73,7 +73,13 @@
 // callers queued behind a GOAWAY could exceed the server's limit on the
 // re-dialed connection and be refused into the stock retry backoff. The
 // cost is one response time on each re-dial after a GOAWAY, as K22 is on a
-// cold burst.
+// cold burst. The replay's own response clears a mark no holder has taken.
+// The mark is set in the replay's GotConn hook, after the stock transport
+// has already recorded the connection as used (its Reused flag is a
+// compare-and-swap before the hook, internal/http2/transport.go:423-424),
+// so a holder whose GotConn falls between the two passes unheld; the
+// window is a few instructions wide and cannot be closed from outside
+// net/http.
 //
 // # Goroutines
 //

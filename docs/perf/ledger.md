@@ -2069,6 +2069,8 @@ the whole host, and no other lane's timing run may overlap them.
 | W2.2-15 | 2026-09-25 16:13:48 UTC | W2.2 R69, before | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 1.06 → 13.25 (noisy) | `sh $C '(L)' $LO /tmp/ts-spike/bench.lock l-k21c-before 44 -count=20 -run 'TestTokenResidualK21/success:_GOAWAY' -v ./internal/h2gate/` (tree `42b1253`, was `6d3f451`) | PASS, 11.5 s: 72/72 in 17 of 20 runs; refused streams 102 in 3 runs (11, 28, 63) | `results/l-k21c-before.txt` |
 | W2.2-16 | 2026-09-26 01:14:31 JST | W2.2 R69, after | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 67.54 → 64.38 (noisy) | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $C '(M)' <lane scratchpad> $SP/bench.lock m-k21c-after 16 -count=20 -run 'TestTokenResidualK21/success:_GOAWAY' -v ./internal/h2gate/` (tree `9621f0e`, uncommitted then) | PASS, 6.4 s: 72/72 in 20 of 20 runs, refused streams 0; SettleHolds 1 in 19 runs, 0 in 1 | `results/m-k21c-after.txt` |
 | W2.2-17 | 2026-09-25 16:14:31 UTC | W2.2 R69, after | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 8.72 → 14.15 (noisy) | `sh $C '(L)' $LO /tmp/ts-spike/bench.lock l-k21c-after 44 -count=20 -run 'TestTokenResidualK21/success:_GOAWAY' -v ./internal/h2gate/` (tree `9621f0e`, uncommitted then) | PASS, 5.5 s: 72/72 in 20 of 20 runs, refused streams 0; SettleHolds 1 in 18 runs, 0 in 2 | `results/l-k21c-after.txt` |
+| W2.2-18 | 2026-09-26 01:58:04 JST | W2.2 R72b: the replay's response clears its mark | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 4.73 → 14.13 (noisy) | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $C '(M)' $MO $SP/bench.lock m-k21c-r72b 16 -count=20 -run 'TestTokenResidualK21/success:_GOAWAY' -v ./internal/h2gate/` (the R72b commit's tree, uncommitted then) | PASS, 6.2 s: 72/72 in 20 of 20 runs, refused streams 0; SettleHolds 1 in 18 runs, 0 in 2 (W2.2-16: 19 and 1) | `results/m-k21c-r72b.txt` |
+| W2.2-19 | 2026-09-25 16:58:04 UTC | W2.2 R72b | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.15 → 6.89 (noisy) | `TREE=92ae350+r72b sh $C '(L)' $LO /tmp/ts-spike/bench.lock l-k21c-r72b 44 -count=20 -run 'TestTokenResidualK21/success:_GOAWAY' -v ./internal/h2gate/` | PASS, 5.6 s: 72/72 in 20 of 20 runs, refused streams 0; SettleHolds 1 in 19 runs, 0 in 1 (W2.2-17: 18 and 2) | `results/l-k21c-r72b.txt` |
 
 ### W2.2 results
 
@@ -2178,6 +2180,14 @@ re-dialed connection still held the token itself (a plain FirstHold).
 The cost is K22's, once per re-dial after a GOAWAY: the callers queued
 behind the settle hold wait for one response on the new connection before
 their HEADERS go out.
+
+Review W2.2A MINOR 4 (R72b): a mark no holder took stayed until 8 newer
+marks evicted it, so a much later holder paid a hold for nothing and a dead
+connection stayed referenced. The replay that set a mark now clears it when
+its own response arrives (the client has read the connection's SETTINGS by
+then); `TestSettleHold` pins it. The GOAWAY scenario is unchanged by it
+(W2.2-18, -19): 72/72 in 40 of 40 runs, no refusal, SettleHolds 1 in 37 of
+40 runs, as in W2.2-16 and -17.
 
 For W7 (K16, Appendix B): two proxy-path failures reach the classification
 without the `proxyconnect` wrapper, and so as `DialError{Proxy: false}`: a

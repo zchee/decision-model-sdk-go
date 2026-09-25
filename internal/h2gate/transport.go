@@ -405,6 +405,9 @@ func (t *Transport) send(req *http.Request, gen *generation) (*http.Response, er
 	c.trace = httptrace.ClientTrace{GetConn: c.getConn, GotConn: c.gotConn, WroteHeaders: c.wroteHeaders}
 	resp, err := t.base.RoundTrip(req.WithContext(httptrace.WithClientTrace(ctx, &c.trace)))
 	c.finish()
+	if err == nil {
+		c.responded()
+	}
 	if err != nil {
 		if c.lookedUp.Load() && !c.connected.Load() && ctx.Err() == nil {
 			de := classify(err)
@@ -440,6 +443,9 @@ type call struct {
 	connected atomic.Bool // the transport handed over a connection (GotConn)
 	first     atomic.Bool // FirstHold engaged
 	hold      atomic.Pointer[time.Timer]
+	// marked is the connection this request, a stock replay, marked
+	// unsettled; its own response clears the mark (responded).
+	marked atomic.Pointer[net.Conn]
 }
 
 // finish ends the call's hold on the token: it gives the token back, if it
@@ -448,6 +454,18 @@ func (c *call) finish() {
 	c.giveBack(false)
 	if tm := c.hold.Load(); tm != nil {
 		tm.Stop()
+	}
+}
+
+// responded clears the unsettled mark this request set, if a holder has not
+// taken it: the replay's response came over the connection, so the client
+// has read the connection's SETTINGS and a later holder need not wait
+// (review W2.2A MINOR 4, R72b). A mark left to a later holder would make it
+// pay a hold for nothing, and one on a dead connection would keep the
+// connection referenced and the marks' fast path off.
+func (c *call) responded() {
+	if conn := c.marked.Load(); conn != nil {
+		c.t.takeUnsettled(*conn)
 	}
 }
 
@@ -489,8 +507,9 @@ func (c *call) gotConn(info httptrace.GotConnInfo) {
 	case !h2:
 		c.giveBack(false)
 	case c.given.Load():
-		if !info.Reused {
-			t.markUnsettled(info.Conn)
+		if !info.Reused && t.markUnsettled(info.Conn) {
+			conn := info.Conn
+			c.marked.Store(&conn)
 		}
 	case !t.firstHold:
 	case !info.Reused:
@@ -535,11 +554,12 @@ func (c *call) wroteHeaders() {
 }
 
 // markUnsettled remembers conn as a connection a replay opened without the
-// token. A connection whose type is not comparable cannot be looked up and
-// is not remembered (the stock types and their wrappers are pointers).
-func (t *Transport) markUnsettled(conn net.Conn) {
+// token, and reports whether it did. A connection whose type is not
+// comparable cannot be looked up and is not remembered (the stock types
+// and their wrappers are pointers).
+func (t *Transport) markUnsettled(conn net.Conn) bool {
 	if conn == nil || !reflect.ValueOf(conn).Comparable() {
-		return
+		return false
 	}
 	t.settleMu.Lock()
 	defer t.settleMu.Unlock()
@@ -548,6 +568,7 @@ func (t *Transport) markUnsettled(conn net.Conn) {
 	}
 	t.unsettled = append(t.unsettled, conn)
 	t.nUnsettled.Store(int64(len(t.unsettled)))
+	return true
 }
 
 // takeUnsettled reports whether conn was marked unsettled, and clears the
