@@ -343,7 +343,7 @@ func TestDialErrorsMapToSDKErrors(t *testing.T) {
 		kind       string // "timeout", "connection", "config" or "" for unmapped
 		text       string
 		proxy      bool
-		unwrapsErr bool // the SDK error unwraps to the transport's error
+		unwrapsErr bool // the SDK error unwraps to the transport's error, else to its stand-in
 	}
 	tests := map[string]struct {
 		err  error
@@ -361,19 +361,19 @@ func TestDialErrorsMapToSDKErrors(t *testing.T) {
 			err:  &h2gate.DialError{Proxy: true, Err: fmt.Errorf("proxyconnect tcp: %w", notNegotiated)},
 			want: want{kind: "connection", text: `Connection error: proxyconnect tcp: h2gate: HTTP/2 not negotiated: the API host's TLS handshake negotiated "http/1.1"`, proxy: true, unwrapsErr: true},
 		},
-		"success: a proxy URL's userinfo is scrubbed and the cause dropped": {
+		"success: a proxy URL's userinfo is scrubbed and the cause replaced": {
 			err:  &h2gate.DialError{Proxy: true, Err: errors.New("proxyconnect tcp: http://user:hunter2@proxy.test:3128: refused")},
 			want: want{kind: "connection", text: "Connection error: proxyconnect tcp: http://***@proxy.test:3128: refused", proxy: true},
 		},
-		"success: a proxy-hop timeout drops a cause holding a proxy password": {
+		"success: a proxy-hop timeout replaces a cause holding a proxy password": {
 			err:  &h2gate.DialError{Proxy: true, Timeout: true, Err: errors.New("proxyconnect tcp: http://user:hunter2@proxy.test:3128: i/o timeout")},
 			want: want{kind: "timeout", text: "Request timed out on the proxy hop (timeout=10s).", proxy: true},
 		},
-		"success: a dial timeout drops a cause holding a password": {
+		"success: a dial timeout replaces a cause holding a password": {
 			err:  &h2gate.DialError{Timeout: true, Err: errors.New("dial http://user:hunter2@proxy.test:3128: i/o timeout")},
 			want: want{kind: "timeout", text: "Request timed out (timeout=10s)."},
 		},
-		"success: a not-negotiated detail has its userinfo scrubbed and its cause dropped": {
+		"success: a not-negotiated detail has its userinfo scrubbed and its cause replaced": {
 			err:  &h2gate.DialError{Err: fmt.Errorf("%w: via http://user:hunter2@proxy.test:3128", h2gate.ErrNotNegotiated)},
 			want: want{kind: "config", text: "The API host did not negotiate HTTP/2, which HTTP2Only requires (via http://***@proxy.test:3128); WithHTTPVersion(HTTPAuto) allows HTTP/1.1."},
 		},
@@ -410,7 +410,7 @@ func TestDialErrorsMapToSDKErrors(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := transportError(tt.err, attempt)
+			got := transportError(tt.err, attempt, nil)
 			assertMapped(t, got, tt.err, tt.want.kind, tt.want.text, tt.want.proxy, tt.want.unwrapsErr)
 			if tt.want.kind == "" && got != nil {
 				t.Errorf("transportError = %T %v, want nil", got, got)
@@ -419,7 +419,7 @@ func TestDialErrorsMapToSDKErrors(t *testing.T) {
 		})
 	}
 	t.Run("success: a dial error without an attempt timeout", func(t *testing.T) {
-		got := transportError(&h2gate.DialError{Timeout: true, Err: timeoutCause}, 0)
+		got := transportError(&h2gate.DialError{Timeout: true, Err: timeoutCause}, 0, nil)
 		if got == nil || got.Error() != "Request timed out." {
 			t.Errorf("transportError = %v, want %q", got, "Request timed out.")
 		}
@@ -559,12 +559,8 @@ func assertMapped(t *testing.T, got, err error, kind, text string, proxy, unwrap
 		if !ok {
 			t.Fatalf("transportError = %T, want *ConfigError", got)
 		}
-		wantLen := 1 // the sentinel alone when the cause held a credential
-		if unwrapsErr {
-			wantLen = 2
-		}
-		if u := ce.Unwrap(); len(u) != wantLen || u[0] != ErrHTTP2NotNegotiated { //nolint:errorlint // the sentinel itself comes first
-			t.Errorf("Unwrap() = %v, want ErrHTTP2NotNegotiated first, %d in all", u, wantLen)
+		if u := ce.Unwrap(); len(u) != 2 || u[0] != ErrHTTP2NotNegotiated { //nolint:errorlint // the sentinel itself comes first
+			t.Errorf("Unwrap() = %v, want ErrHTTP2NotNegotiated, then the cause", u)
 		}
 		if !errors.Is(got, ErrHTTP2NotNegotiated) || errors.Is(got, h2gate.ErrNotNegotiated) != unwrapsErr {
 			t.Errorf("errors.Is: ErrHTTP2NotNegotiated %t, the cause's sentinel %t; want true, %t", errors.Is(got, ErrHTTP2NotNegotiated), errors.Is(got, h2gate.ErrNotNegotiated), unwrapsErr)
@@ -575,6 +571,11 @@ func assertMapped(t *testing.T, got, err error, kind, text string, proxy, unwrap
 	}
 	if u := errors.Is(got, err); u != unwrapsErr {
 		t.Errorf("errors.Is(mapped, transport error) = %t, want %t", u, unwrapsErr)
+	}
+	// A cause that printed a credential is replaced by a stand-in, which
+	// errors.As finds in its place.
+	if _, standIn := errors.AsType[*scrubbedError](got); standIn == unwrapsErr {
+		t.Errorf("the cause is a *scrubbedError stand-in: %t, want %t", standIn, !unwrapsErr)
 	}
 	if _, ok := got.(Error); !ok { //nolint:errorlint // the mapped value itself must be an SDK error
 		t.Errorf("transportError = %T, not a typesafe.Error", got)

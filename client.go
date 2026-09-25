@@ -26,7 +26,6 @@ import (
 	"os"
 	"reflect"
 	"strconv"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -382,7 +381,7 @@ func (c *Client) attempt(ctx context.Context, rq *request, attempt int) (wire.Re
 	c.attempts.Add(1)
 	resp, err := c.cfg.transport.roundTrip(req, rq.timeout)
 	if err != nil {
-		err = c.attemptError(ctx, rq.timeout, err)
+		err = c.attemptError(ctx, rq.timeout, h, err)
 		c.logFailure(ctx, rq, attempt, start, err)
 		return wire.ResponseMeta{}, err
 	}
@@ -400,7 +399,7 @@ func (c *Client) attempt(ctx context.Context, rq *request, attempt int) (wire.Re
 		}
 		return meta, newAPIError(&meta, rq.endpoint)
 	case err != nil:
-		err = c.attemptError(ctx, rq.timeout, err)
+		err = c.attemptError(ctx, rq.timeout, h, err)
 		c.logFailure(ctx, rq, attempt, start, err)
 		return wire.ResponseMeta{}, err
 	}
@@ -417,14 +416,15 @@ func (c *Client) attempt(ctx context.Context, rq *request, attempt int) (wire.Re
 // dial, TLS or proxy failure, HTTP/2 not negotiated) is returned as it is;
 // any other is a *TimeoutError when the attempt's deadline or the caller's
 // (ctx) passed or the network reports a timeout, and a *ConnectionError
-// otherwise. Both wrap err,
-// so errors.Is reaches a context's error, unless err's text held the API
-// key, which the message replaces with "***" and the error then does not
-// wrap.
-func (c *Client) attemptError(ctx context.Context, timeout time.Duration, err error) error {
+// otherwise. h is the header the attempt sent: a *ConnectionError's text
+// shows none of its credentials and no URL's userinfo
+// ([credentials.redact]), and both types wrap err, or a stand-in for it
+// when its chain printed one ([credentials.cause]).
+func (c *Client) attemptError(ctx context.Context, timeout time.Duration, h http.Header, err error) error {
 	if _, ok := err.(Error); ok { //nolint:errorlint // only an error the transport returned as the SDK's own is kept.
 		return err
 	}
+	creds := requestCredentials(h)
 	var ne net.Error
 	if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout()) {
 		if ctx.Err() != nil {
@@ -432,15 +432,10 @@ func (c *Client) attemptError(ctx context.Context, timeout time.Duration, err er
 			// own to report.
 			timeout = 0
 		}
-		return newTimeoutError(timeout, err)
+		return newTimeoutError(timeout, creds.cause(err))
 	}
-	text := err.Error()
-	cause := err
-	if key := c.cfg.apiKey; keyNeedle(key) && strings.Contains(text, key) {
-		text = strings.ReplaceAll(text, key, redacted)
-		cause = nil
-	}
-	return newConnectionError(text, cause, false)
+	text, _ := creds.redact(err.Error())
+	return newConnectionError(text, creds.cause(err), false)
 }
 
 // errTooLarge ends a body read that passed the size limit.

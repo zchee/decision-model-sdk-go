@@ -374,8 +374,11 @@ func (*ResponseTooLargeError) typesafeError() {}
 //
 // Error returns "Connection error: <cause>", the cause's text escaped, cut
 // at 200 characters and with any credential of the request replaced. Unwrap
-// returns the transport's error, unless its text held a credential, when
-// there is none to return.
+// returns the transport's error, unless its text, or the text of an error
+// it wraps, held a credential: then it returns a stand-in whose text has the
+// credentials replaced and which unwraps only to the well-known errors the
+// transport's error matched, such as [context.DeadlineExceeded],
+// [io.ErrUnexpectedEOF] or a [syscall.Errno].
 type ConnectionError struct {
 	msg   string
 	err   error
@@ -384,11 +387,11 @@ type ConnectionError struct {
 
 // newConnectionError returns a *ConnectionError whose text is "Connection
 // error: " and text, escaped and cut. text is the transport error's text
-// with every credential already replaced by "***", by the rules of
-// redact.go (a secret header's value, a value that holds the API key); cause
-// is the error to unwrap to, nil when its own text held a credential. proxy
-// marks a failure of the proxy hop. The transport classification (W2.5)
-// does the redaction; this only renders.
+// with every credential already replaced by "***" ([credentials.redact]);
+// cause is the error to unwrap to, a stand-in for the transport's error
+// when its chain printed a credential ([credentials.cause]). proxy marks a
+// failure of the proxy hop. The transport classification (transportError,
+// Client.attemptError) does the redaction; this only renders.
 func newConnectionError(text string, cause error, proxy bool) *ConnectionError {
 	return &ConnectionError{msg: "Connection error: " + safeMessage(text), err: cause, proxy: proxy}
 }
@@ -396,7 +399,7 @@ func newConnectionError(text string, cause error, proxy bool) *ConnectionError {
 // Error returns "Connection error: <cause>".
 func (e *ConnectionError) Error() string { return e.msg }
 
-// Unwrap returns the transport's error, or nil.
+// Unwrap returns the transport's error, or its stand-in.
 func (e *ConnectionError) Unwrap() error { return e.err }
 
 // Proxy reports whether the failure was on the hop to the proxy rather than
@@ -440,7 +443,8 @@ func (e *TimeoutError) Error() string {
 func (e *TimeoutError) Proxy() bool { return e.proxy }
 
 // Unwrap returns the error that ended the attempt, such as
-// context.DeadlineExceeded, or nil.
+// context.DeadlineExceeded, or its stand-in when its chain printed a
+// credential of the request, as [ConnectionError] describes.
 func (e *TimeoutError) Unwrap() error { return e.err }
 
 func (*TimeoutError) typesafeError() {}

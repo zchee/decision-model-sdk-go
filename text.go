@@ -15,7 +15,17 @@
 package typesafe
 
 import (
+	"cmp"
+	"context"
+	"errors"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"slices"
 	"strconv"
+	"strings"
+	"syscall"
 	"unicode/utf8"
 
 	"github.com/zchee/typesafe-sdk-go/internal/codec"
@@ -198,3 +208,193 @@ func (t *pathText) name(s string) {
 	}
 	t.n += written
 }
+
+// credentials are the values a transport error's text must not show: the
+// credentials of the request that failed, each in the forms an error text
+// may quote it in, longest first. Build them with [requestCredentials].
+//
+// A transport's error text is written by code the SDK does not control (a
+// caller's RoundTripper or dialer, a proxy, net/http), which may repeat a
+// header value, and it reaches the SDK error's message, its log record and
+// the chain errors.Unwrap walks (Appendix B: "Transport error text verbatim
+// → escaped, cut at 200, credentials ***"; note N-W2.5).
+type credentials []string
+
+// requestCredentials returns the credentials of a request with header h, as
+// typesafe-sdk-python collects them (py:_core/logging.py:43-51): the value of
+// every header whose name marks a credential ([isSecretHeader]), and the
+// credential after the scheme of an Authorization or Proxy-Authorization
+// value, which for the SDK's own Authorization is the API key. Each is
+// looked for as it is, as Go's %q and %+q quote it, and as JSON escapes it
+// (the Python SDK's raw, repr and json.dumps forms). A value shorter than
+// [minKeyNeedleBytes] is not looked for, as the API key is not (ruling R68):
+// it would match ordinary text; the Python SDK looks for every value.
+func requestCredentials(h http.Header) credentials {
+	var c credentials
+	add := func(v string) {
+		if !keyNeedle(v) {
+			return
+		}
+		for _, form := range [...]string{v, quotedForm(strconv.Quote(v)), quotedForm(strconv.QuoteToASCII(v)), jsonForm(v)} {
+			if !slices.Contains(c, form) {
+				c = append(c, form)
+			}
+		}
+	}
+	for name, values := range h {
+		if !isSecretHeader(name) {
+			continue
+		}
+		scheme := strings.EqualFold(name, "Authorization") || strings.EqualFold(name, "Proxy-Authorization")
+		for _, v := range values {
+			add(v)
+			if cred, ok := afterScheme(v); scheme && ok {
+				add(cred)
+			}
+		}
+	}
+	// A whole value is replaced before a credential inside it; equal lengths
+	// in a fixed order, so the result does not depend on map order.
+	slices.SortFunc(c, func(a, b string) int { return cmp.Or(cmp.Compare(len(b), len(a)), strings.Compare(a, b)) })
+	return c
+}
+
+// afterScheme returns what follows the scheme of an authorization value,
+// "<scheme> <credential>", as Python's value.split(maxsplit=1) takes it
+// (py:_core/logging.py:45-48), and false when there is nothing after it.
+func afterScheme(v string) (string, bool) {
+	v = strings.TrimLeft(v, " \t")
+	i := strings.IndexAny(v, " \t")
+	if i < 0 {
+		return "", false
+	}
+	cred := strings.TrimLeft(v[i:], " \t")
+	return cred, cred != ""
+}
+
+// quotedForm returns q, a Go-quoted string, without its quotes.
+func quotedForm(q string) string { return q[1 : len(q)-1] }
+
+// jsonForm returns v as a JSON string holds it, without its quotes, escaped
+// as encoding/json escapes it by default: '"' and '\\' with a backslash,
+// the controls, '<', '>', '&', U+2028 and U+2029 as \u escapes (\n, \r and
+// \t as those), and a byte that is not UTF-8 as �.
+func jsonForm(v string) string {
+	const hex = "0123456789abcdef"
+	var b strings.Builder
+	for i := 0; i < len(v); {
+		r, size := utf8.DecodeRuneInString(v[i:])
+		switch {
+		case r == '"' || r == '\\':
+			b.WriteByte('\\')
+			b.WriteByte(byte(r))
+		case r == '\n':
+			b.WriteString(`\n`)
+		case r == '\r':
+			b.WriteString(`\r`)
+		case r == '\t':
+			b.WriteString(`\t`)
+		case r == utf8.RuneError && size == 1:
+			b.WriteString(`�`)
+		case r < 0x20 || r == '<' || r == '>' || r == '&' || r == ' ' || r == ' ':
+			b.WriteString(`\u`)
+			for shift := 12; shift >= 0; shift -= 4 {
+				b.WriteByte(hex[r>>shift&0xf])
+			}
+		default:
+			b.WriteString(v[i : i+size])
+		}
+		i += size
+	}
+	return b.String()
+}
+
+// redact returns s with every credential replaced by [redacted], then the
+// userinfo of every URL in it ([scrubUserinfo]), which may hold a proxy's
+// password, and reports whether it replaced anything.
+func (c credentials) redact(s string) (string, bool) {
+	found := false
+	for _, v := range c {
+		if strings.Contains(s, v) {
+			s, found = strings.ReplaceAll(s, v, redacted), true
+		}
+	}
+	if u, ok := scrubUserinfo(s); ok {
+		s, found = u, true
+	}
+	return s, found
+}
+
+// maxChainErrors bounds the errors [credentials.cause] reads in a chain; a
+// longer chain is treated as holding a credential.
+const maxChainErrors = 64
+
+// cause returns the error an SDK error made from the transport's error err
+// unwraps to: err itself, unless the text of err or of an error its chain
+// wraps (errors.Unwrap, both forms) holds a credential, in which case it
+// returns a [scrubbedError] standing in for err, so that no printed form of
+// the SDK error or of anything it unwraps to shows the credential.
+func (c credentials) cause(err error) error {
+	if err == nil || !c.inChain(err) {
+		return err
+	}
+	msg, _ := c.redact(err.Error())
+	s := &scrubbedError{msg: msg}
+	for _, sentinel := range causeSentinels {
+		if errors.Is(err, sentinel) {
+			s.sentinels = append(s.sentinels, sentinel)
+		}
+	}
+	if errno, ok := errors.AsType[syscall.Errno](err); ok {
+		s.sentinels = append(s.sentinels, errno)
+	}
+	return s
+}
+
+// inChain reports whether the text of err, or of an error its chain wraps,
+// holds a credential; a chain of more than [maxChainErrors] errors counts
+// as holding one.
+func (c credentials) inChain(err error) bool {
+	stack := []error{err}
+	for n := 0; len(stack) > 0 && n < maxChainErrors; n++ {
+		e := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if e == nil {
+			continue
+		}
+		if _, found := c.redact(e.Error()); found {
+			return true
+		}
+		switch u := e.(type) { //nolint:errorlint // visits each link of the chain as it is; errors.As would skip links.
+		case interface{ Unwrap() error }:
+			stack = append(stack, u.Unwrap())
+		case interface{ Unwrap() []error }:
+			stack = append(stack, u.Unwrap()...)
+		}
+	}
+	return len(stack) > 0
+}
+
+// causeSentinels are the errors a [scrubbedError] still matches with
+// errors.Is when the transport's error did: the ends of a deadline, a
+// cancellation, a connection or a stream a caller may branch on.
+var causeSentinels = [...]error{context.DeadlineExceeded, context.Canceled, os.ErrDeadlineExceeded, io.ErrUnexpectedEOF, io.EOF, net.ErrClosed}
+
+// scrubbedError stands in for a transport error whose chain printed a
+// credential of the request (Appendix B: "cause via errors.Unwrap unless it
+// printed a credential"). Its text is the transport error's with every
+// credential replaced by "***"; it unwraps to the [causeSentinels] and the
+// [syscall.Errno] the transport error matched, so errors.Is(err,
+// context.DeadlineExceeded) or errors.Is(err, syscall.ECONNRESET) still
+// answers as it would have, and to nothing else: errors.As cannot reach the
+// transport's error or any value inside it.
+type scrubbedError struct {
+	msg       string
+	sentinels []error
+}
+
+// Error returns the transport error's text with its credentials replaced.
+func (e *scrubbedError) Error() string { return e.msg }
+
+// Unwrap returns the sentinels the transport's error matched.
+func (e *scrubbedError) Unwrap() []error { return e.sentinels }

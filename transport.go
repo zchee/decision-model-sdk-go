@@ -367,7 +367,7 @@ func (t *transport) roundTrip(req *http.Request, timeout time.Duration) (*http.R
 		sh.done(resp)
 	}
 	if err != nil {
-		if mapped := transportError(err, timeout); mapped != nil {
+		if mapped := transportError(err, timeout, req.Header); mapped != nil {
 			return nil, mapped
 		}
 		return nil, err
@@ -449,63 +449,44 @@ func (t *transport) stats() h2gate.Stats {
 
 // transportError maps an error of the SDK's transport to the SDK's error
 // types, or returns nil for an error it leaves to the attempt's
-// classification (W2.5). The order is R67 Q3's: a proxy hop that timed out
-// is a *TimeoutError naming the proxy hop; any other proxy failure is a
+// classification ([Client.attemptError]). h is the header of the request
+// that failed. The order is R67 Q3's: a proxy hop that timed out is a
+// *TimeoutError naming the proxy hop; any other proxy failure is a
 // *ConnectionError with Proxy() true, even when the proxy refused h2 (R20);
 // a failure to speak HTTP/2 is a *ConfigError wrapping
 // [ErrHTTP2NotNegotiated]; a dial or TLS handshake that timed out is a
 // *TimeoutError; any other failure before a connection is a
-// *ConnectionError. Each wraps the transport's error unless its text holds
-// URL userinfo, which no text of a mapped error repeats (scrubbedCause).
-func transportError(err error, timeout time.Duration) error {
+// *ConnectionError. No text of a mapped error shows a credential of the
+// request or a URL's userinfo ([credentials.redact]), and each wraps the
+// transport's error, or a stand-in for it when its chain printed one
+// ([credentials.cause]).
+func transportError(err error, timeout time.Duration, h http.Header) error {
 	de, isDial := errors.AsType[*h2gate.DialError](err)
+	if !isDial && !errors.Is(err, h2gate.ErrNotNegotiated) {
+		return nil
+	}
+	creds := requestCredentials(h)
 	switch {
 	case isDial && de.Proxy && de.Timeout:
-		return newProxyTimeoutError(timeout, scrubbedCause(err))
+		return newProxyTimeoutError(timeout, creds.cause(err))
 	case isDial && de.Proxy:
-		text, cause := connectionText(de.Err, err)
-		return newConnectionError(text, cause, true)
+		text, _ := creds.redact(de.Err.Error())
+		return newConnectionError(text, creds.cause(err), true)
 	case errors.Is(err, h2gate.ErrNotNegotiated):
 		detail := err.Error()
 		if isDial {
 			detail = de.Err.Error()
 		}
-		detail, _ = scrubUserinfo(strings.TrimPrefix(detail, h2gate.ErrNotNegotiated.Error()+": "))
+		detail, _ = creds.redact(strings.TrimPrefix(detail, h2gate.ErrNotNegotiated.Error()+": "))
 		msg := "The API host did not negotiate HTTP/2, which HTTP2Only requires (" + safeMessage(detail) +
 			"); WithHTTPVersion(HTTPAuto) allows HTTP/1.1."
-		if cause := scrubbedCause(err); cause != nil {
-			return newConfigError(msg, ErrHTTP2NotNegotiated, cause)
-		}
-		return newConfigError(msg, ErrHTTP2NotNegotiated)
-	case isDial && de.Timeout:
-		return newTimeoutError(timeout, scrubbedCause(err))
-	case isDial:
-		text, cause := connectionText(de.Err, err)
-		return newConnectionError(text, cause, false)
+		return newConfigError(msg, ErrHTTP2NotNegotiated, creds.cause(err))
+	case de.Timeout:
+		return newTimeoutError(timeout, creds.cause(err))
 	default:
-		return nil
+		text, _ := creds.redact(de.Err.Error())
+		return newConnectionError(text, creds.cause(err), false)
 	}
-}
-
-// connectionText returns the text a *ConnectionError shows for the
-// transport's error inner, with any URL userinfo replaced, and the error it
-// unwraps to, by scrubbedCause.
-func connectionText(inner, err error) (string, error) {
-	text, _ := scrubUserinfo(inner.Error())
-	return text, scrubbedCause(err)
-}
-
-// scrubbedCause returns err as the cause a mapped SDK error unwraps to, or
-// nil when err's text holds a credential, so that no printed form of the
-// SDK error's chain holds one. A URL with userinfo (a proxy URL's
-// user:password@) is the one credential a transport error's text can carry
-// here; the scrub of the rest of a transport error's text is the attempt
-// classification's (W2.5).
-func scrubbedCause(err error) error {
-	if _, scrubbed := scrubUserinfo(err.Error()); scrubbed {
-		return nil
-	}
-	return err
 }
 
 // scrubUserinfo replaces the userinfo of every URL in s ("scheme://user@" or

@@ -443,7 +443,9 @@ func (netTimeout) Temporary() bool { return true }
 // attempt's own deadline is a *TimeoutError naming the attempt's timeout,
 // the caller's deadline one without it, a network timeout one too, and
 // anything else a *ConnectionError. Each wraps the transport's error, except
-// that a text holding the API key is shown with "***" and not wrapped.
+// that a text holding a credential of the request is shown with "***" and
+// the error unwraps to a stand-in: the whole Authorization value is
+// replaced, as typesafe-sdk-python collects it (py:_core/logging.py:43).
 func TestAttemptErrorClassification(t *testing.T) {
 	const longKey = "ts_live_0123456789abcdef"
 	blockUntilDone := roundTripFunc(func(req *http.Request) (*http.Response, error) {
@@ -489,11 +491,12 @@ func TestAttemptErrorClassification(t *testing.T) {
 			},
 		},
 		"error: a text that holds the key": {
-			rt: &testsupport.Recorder{Replies: []testsupport.Reply{{Err: errString("proxy said: Bearer " + longKey)}}},
+			rt: &testsupport.Recorder{Replies: []testsupport.Reply{{Err: errString("proxy said: Bearer " + longKey + "; key " + longKey)}}},
 			check: func(t *testing.T, err error) {
 				ce, ok := errors.AsType[*ConnectionError](err)
-				if !ok || ce.Error() != "Connection error: proxy said: Bearer ***" || ce.Unwrap() != nil || ce.Proxy() {
-					t.Errorf("error = %v (%T), want a *ConnectionError with the key replaced and nothing wrapped", err, err)
+				_, standIn := ce.Unwrap().(*scrubbedError) //nolint:errorlint // the direct cause is the stand-in
+				if !ok || ce.Error() != "Connection error: proxy said: ***; key ***" || !standIn || ce.Proxy() {
+					t.Errorf("error = %v (%T), want a *ConnectionError with the credentials replaced, wrapping a stand-in", err, err)
 				}
 				assertNotPrinted(t, err, longKey)
 			},
