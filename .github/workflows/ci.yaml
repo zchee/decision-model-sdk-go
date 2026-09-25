@@ -154,7 +154,9 @@ jobs:
       # body's NF1 counts (W1.2); W5.2 folds the names into the ALLOC list
       # above and this step into its own.
       - name: go test without -race (root allocation tests)
-        run: go test -count=1 -run '^(TestAllocPrepare|TestAllocBodyKinds)$' -v .
+        run: |
+          test "$(go test -list '^(TestAllocPrepare|TestAllocBodyKinds)$' . | grep -c '^Test')" -eq 2
+          go test -count=1 -run '^(TestAllocPrepare|TestAllocBodyKinds)$' -v .
 
       # OIDC authentication: the action exchanges the job's id-token (hence
       # `id-token: write` above) and ignores any token input. It needs the Codecov

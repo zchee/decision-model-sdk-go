@@ -1834,10 +1834,11 @@ The sets, by sub-benchmark name (`prepareCases` holds the code):
    44.8 % to 46.3 % of the time, on both hosts. Alone, the check takes
    1.194 µs on (M) and 2.089 µs on (L) for the 8-level array; under 32 bytes
    it allocates nothing and takes 27.90 ns on (M).
-6. **Not yet in CI.** `TestAllocPrepare` is not in §11's ALLOC list, which
-   belongs to W5.2, so no CI step runs it: the non-race step runs that list
-   only, and the `-race` step excludes the file by its build tag. The lead
-   rules whether it joins the list.
+6. **In CI since 0893f0c (R50).** `TestAllocPrepare` (and, since W1.2,
+   `TestAllocBodyKinds`) runs in `ci.yaml`'s "root allocation tests" step on
+   every image, behind a `-list` count guard so a rename cannot pass as "no
+   tests to run"; the `-race` step still excludes the file by its build tag.
+   W5.2 folds the names into §11's ALLOC list and the step into its own.
 
 ### Proposals for W5.3
 
