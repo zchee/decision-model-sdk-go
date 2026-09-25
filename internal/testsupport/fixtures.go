@@ -20,6 +20,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -59,11 +60,17 @@ func testdataDir() (string, error) {
 	return filepath.Join(root, "testdata"), nil
 }
 
+// errFixtureName reports a fixture name that is not a slash-separated path
+// inside testdata.
+var errFixtureName = errors.New("not a slash-separated path inside testdata")
+
 // readFixture returns the content of testdata/<name>, reading the file on
-// the first call for that name only.
+// the first call for that name only. A backslash is refused on every system:
+// Windows would read it as a separator and os.DirFS refuses it there, so
+// allowing it elsewhere would make a name's meaning depend on the system.
 func readFixture(name string) (string, error) {
-	if !fs.ValidPath(name) || name == "." {
-		return "", fmt.Errorf("testsupport: fixture name %q is not a slash-separated path inside testdata", name)
+	if !fs.ValidPath(name) || name == "." || strings.ContainsRune(name, '\\') {
+		return "", fmt.Errorf("testsupport: fixture name %q: %w", name, errFixtureName)
 	}
 	if v, ok := fixtureCache.Load(name); ok {
 		return v.(string), nil

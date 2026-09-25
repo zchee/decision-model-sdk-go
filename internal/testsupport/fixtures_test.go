@@ -19,6 +19,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"maps"
 	"slices"
 	"strconv"
@@ -52,6 +54,11 @@ type fixtureSpec struct {
 
 // resultJSON is the upstream RESULT body every trailing-data fixture extends.
 const resultJSON = `{"model":"jev-latest","usage":{"input_tokens":12,"output_tokens":3},"answers":{"spam":{"type":"noul","noul":0.98},"tone":{"type":"choice","choice":"friendly","confidence":0.9,"probabilities":{"friendly":0.9,"hostile":0.1}},"quality":{"type":"score","score":1.7,"confidence":0.8,"legend":{"0":"bad","1":"ok","2":"great"},"probabilities":{"0":0.1,"1":0.1,"2":0.8}}}}`
+
+// duplicatesLastWins is duplicates.json with every repeated member resolved
+// as Python 0.7.1 resolves it: the last one wins at every level, and a
+// repeated object replaces the earlier one whole (usage loses output_tokens).
+const duplicatesLastWins = `{"model":"jev-latest","usage":{"input_tokens":12},"answers":{"tone":{"type":"choice","choice":"friendly","confidence":0.9,"probabilities":{"friendly":0.9,"hostile":0.1}},"spam":{"type":"noul","noul":0.98},"quality":{"type":"score","score":1.7,"confidence":0.8,"legend":{"0":"bad","1":"fine","2":"great"},"probabilities":{"0":0.1,"1":0.1,"2":0.8}}}}`
 
 // fixtureManifest lists every file under testdata. testdata/README.md
 // documents the same rows for people.
@@ -166,6 +173,52 @@ var fixtureManifest = map[string]fixtureSpec{
 		}
 		return schemaOK(raw)
 	}},
+	"duplicates.json": {classValid, func(raw []byte) error {
+		objs, err := objectMembers(raw)
+		if err != nil {
+			return err
+		}
+		var dups []string
+		var answers [][]string // the member names of each top-level answers object
+		for _, o := range objs {
+			seen := make(map[string]bool, len(o.names))
+			for _, name := range o.names {
+				if seen[name] {
+					dups = append(dups, joinPath(o.path, name))
+				}
+				seen[name] = true
+			}
+			if o.path == "answers" {
+				answers = append(answers, o.names)
+			}
+		}
+		wantDups := []string{
+			"model", "answers", "usage",
+			"answers.tone",
+			"answers.spam.type", "answers.spam.noul",
+			"answers.tone.confidence", "answers.tone.probabilities",
+			"answers.tone.probabilities.friendly",
+			"answers.quality.legend", "answers.quality.legend.1",
+		}
+		if diff := gocmp.Diff(wantDups, dups); diff != "" {
+			return fmt.Errorf("repeated members (-want +got):\n%s", diff)
+		}
+		// The superseded answers object holds an answer that disappears, an
+		// invalid one and an unknown kind; the last one repeats tone, which
+		// keeps its first position.
+		wantAnswers := [][]string{{"gone", "broken", "mystery"}, {"tone", "spam", "tone", "quality"}}
+		if diff := gocmp.Diff(wantAnswers, answers); diff != "" {
+			return fmt.Errorf("answer names per answers object (-want +got):\n%s", diff)
+		}
+		// A first-wins decoder would read spam as a choice without its members.
+		if !bytes.Contains(raw, []byte(`"spam":{"type":"choice","noul":0.2,"type":"noul","noul":0.98}`)) {
+			return errors.New("answers.spam does not change its type from choice to noul")
+		}
+		if err := sameJSON(raw, []byte(duplicatesLastWins)); err != nil {
+			return err
+		}
+		return schemaOK(raw)
+	}},
 	"parity-big-exp-unknown.json": {classValid, func(raw []byte) error {
 		b, err := decodeBody(raw)
 		if err != nil {
@@ -202,8 +255,13 @@ var fixtureManifest = map[string]fixtureSpec{
 		return nil
 	}},
 	"malformed-whitespace.json": {classMalformed, func(raw []byte) error {
-		if len(raw) == 0 || len(bytes.Trim(raw, " \t\n\r")) != 0 || !bytes.ContainsRune(raw, '\r') || !bytes.ContainsRune(raw, '\t') {
-			return errors.New("not a body of the four JSON whitespace characters only")
+		if len(bytes.Trim(raw, " \t\n\r")) != 0 {
+			return errors.New("holds a byte other than the four JSON whitespace characters")
+		}
+		for _, ws := range []byte(" \t\n\r") {
+			if bytes.IndexByte(raw, ws) < 0 {
+				return fmt.Errorf("the JSON whitespace character %q is missing", ws)
+			}
 		}
 		return nil
 	}},
@@ -223,24 +281,12 @@ var fixtureManifest = map[string]fixtureSpec{
 		}
 		return nil
 	}},
-	"malformed-invalid-utf8.json": {classMalformed, func(raw []byte) error {
-		// encoding/json accepts invalid UTF-8, so the fault is checked
-		// with utf8.Valid and the rest of the body with schemaOK.
-		if utf8.Valid(raw) {
-			return errors.New("the body is valid UTF-8")
-		}
-		fixed := bytes.ReplaceAll(raw, []byte{0xff}, []byte("e"))
-		if !utf8.Valid(fixed) {
-			return errors.New("invalid UTF-8 other than the 0xff bytes")
-		}
-		return schemaOK(fixed)
-	}},
-	"malformed-control-char.json": {classMalformed, func(raw []byte) error {
-		if !bytes.Contains(raw, []byte("\"a\x01b\"")) {
-			return errors.New("no raw U+0001 inside a string")
-		}
-		return repaired(raw, bytes.ReplaceAll(raw, []byte{0x01}, []byte(" ")))
-	}},
+	// Each fault twice, in a string value and in a member name: a decoder
+	// that checks only one of the two accepts one file of each pair.
+	"malformed-invalid-utf8.json":       {classMalformed, badByte(0xff, "\"caf\xff\",", "e")},
+	"malformed-invalid-utf8-key.json":   {classMalformed, badByte(0xff, "\"caf\xff\":", "e")},
+	"malformed-control-char.json":       {classMalformed, badByte(0x01, "\"a\x01b\"}", " ")},
+	"malformed-control-char-key.json":   {classMalformed, badByte(0x01, "\"a\x01b\":", " ")},
 	"malformed-invalid-escape.json":     {classMalformed, replaceOnce(`\q`, `q`)},
 	"malformed-bad-literal.json":        {classMalformed, replaceOnce(`:tru}`, `:true}`)},
 	"malformed-double-comma.json":       {classMalformed, replaceOnce(`[1,,2]`, `[1,2]`)},
@@ -304,24 +350,27 @@ func TestFixtureLoader(t *testing.T) {
 	if a, b := FixtureString(t, "result.json"), FixtureString(t, "result.json"); a != b || a != resultJSON {
 		t.Fatalf("FixtureString returned different content")
 	}
+	// Every refused name fails the name check, never the file system, so a
+	// case cannot pass because a file happens to be absent.
 	tests := map[string]struct {
 		name    string
-		wantErr bool
+		wantErr error
 	}{
-		"success: top-level file":      {name: "models.json"},
-		"error: parent directory":      {name: "../go.mod", wantErr: true},
-		"error: absolute path":         {name: "/etc/hosts", wantErr: true},
-		"error: backslash separator":   {name: `sub\..\..\go.mod`, wantErr: true},
-		"error: the directory itself":  {name: ".", wantErr: true},
-		"error: file that is missing":  {name: "no-such-fixture.json", wantErr: true},
-		"error: empty name":            {name: "", wantErr: true},
-		"error: trailing slash in dir": {name: "result.json/", wantErr: true},
+		"success: top-level file":                {name: "models.json"},
+		"error: parent directory":                {name: "../go.mod", wantErr: errFixtureName},
+		"error: absolute path":                   {name: "/etc/hosts", wantErr: errFixtureName},
+		"error: backslash separator is refused":  {name: `sub\..\..\go.mod`, wantErr: errFixtureName},
+		"error: backslash in a file name":        {name: `result\.json`, wantErr: errFixtureName},
+		"error: the directory itself":            {name: ".", wantErr: errFixtureName},
+		"error: empty name":                      {name: "", wantErr: errFixtureName},
+		"error: trailing slash in dir":           {name: "result.json/", wantErr: errFixtureName},
+		"error: a valid name for a missing file": {name: "no-such-fixture.json", wantErr: fs.ErrNotExist},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			_, err := readFixture(tt.name)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("readFixture(%q) error = %v, wantErr %v", tt.name, err, tt.wantErr)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("readFixture(%q) error = %v, want %v", tt.name, err, tt.wantErr)
 			}
 		})
 	}
@@ -427,6 +476,34 @@ func replaceOnce(old, fixed string) func([]byte) error {
 	}
 }
 
+// badByte checks a fault of one byte, b, inside a string: raw holds b exactly
+// once, inside the text at (whose last byte after the closing quote says
+// whether b sits in a member name, ':', or in a value), the byte makes raw
+// invalid UTF-8 or invalid JSON, and replacing it with fix gives a valid
+// response. It does not use repaired: encoding/json accepts invalid UTF-8
+// inside strings, so schemaOK calls the faulty body valid.
+func badByte(b byte, at, fix string) func([]byte) error {
+	return func(raw []byte) error {
+		if n := bytes.Count(raw, []byte{b}); n != 1 {
+			return fmt.Errorf("byte %#x appears %d times, want once", b, n)
+		}
+		if strings.IndexByte(at, b) < 0 || !bytes.Contains(raw, []byte(at)) {
+			return fmt.Errorf("byte %#x is not inside %q", b, at)
+		}
+		if utf8.Valid(raw) && json.Valid(raw) {
+			return fmt.Errorf("byte %#x leaves the body valid UTF-8 and valid JSON", b)
+		}
+		fixed := bytes.Replace(raw, []byte{b}, []byte(fix), 1)
+		if !utf8.Valid(fixed) {
+			return errors.New("invalid UTF-8 other than the one byte")
+		}
+		if err := schemaOK(fixed); err != nil {
+			return fmt.Errorf("still invalid after removing the fault: %w", err)
+		}
+		return nil
+	}
+}
+
 // schemaFault checks a schema fault: raw is valid JSON holding old exactly
 // once, and becomes a valid response with old replaced by fixed.
 func schemaFault(old, fixed string) func([]byte) error {
@@ -451,10 +528,17 @@ func trailing(suffix string) func([]byte) error {
 	}
 }
 
-// floodCheck checks a committed flood fixture against the generator.
+// floodCheck checks a committed flood fixture against the generator. Under
+// -update, TestStructuredLegendFloodFixtures rewrites the file, perhaps after
+// this test read it, so the check takes the generator's output instead:
+// `go test -update` without -run then passes once the files are rewritten.
 func floodCheck(levels int) func([]byte) error {
 	return func(raw []byte) error {
-		if !bytes.Equal(raw, StructuredLegendFlood(levels)) {
+		want := StructuredLegendFlood(levels)
+		if *update {
+			raw = want
+		}
+		if !bytes.Equal(raw, want) {
 			return fmt.Errorf("differs from StructuredLegendFlood(%d)", levels)
 		}
 		return schemaOK(raw)
@@ -488,6 +572,74 @@ func sameJSON(a, b []byte) error {
 		return fmt.Errorf("decoded values differ (-want +got):\n%s", diff)
 	}
 	return nil
+}
+
+// objectNames is one JSON object's member names in wire order, repeats
+// included, with the object's path from the root: "" for the root,
+// "answers.tone" below it, and "[]" for an array element.
+type objectNames struct {
+	path  string
+	names []string
+}
+
+// objectMembers walks raw with encoding/json's tokenizer, which keeps the
+// repeated member names that a decode into a map merges, and returns every
+// object in the order it opens.
+func objectMembers(raw []byte) ([]*objectNames, error) {
+	type frame struct {
+		obj     *objectNames // nil for an array
+		path    string
+		wantKey bool   // the object's next token is a member name
+		name    string // the member whose value comes next
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	var objs []*objectNames
+	var stack []*frame
+	for {
+		tok, err := dec.Token()
+		if errors.Is(err, io.EOF) {
+			return objs, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		if tok == json.Delim('}') || tok == json.Delim(']') {
+			stack = stack[:len(stack)-1]
+			continue
+		}
+		path := ""
+		if n := len(stack); n > 0 {
+			top := stack[n-1]
+			switch {
+			case top.obj != nil && top.wantKey:
+				top.name, _ = tok.(string)
+				top.obj.names = append(top.obj.names, top.name)
+				top.wantKey = false
+				continue
+			case top.obj != nil:
+				path = joinPath(top.path, top.name)
+				top.wantKey = true
+			default:
+				path = joinPath(top.path, "[]")
+			}
+		}
+		switch tok {
+		case json.Delim('{'):
+			o := &objectNames{path: path}
+			objs = append(objs, o)
+			stack = append(stack, &frame{obj: o, path: path, wantKey: true})
+		case json.Delim('['):
+			stack = append(stack, &frame{path: path})
+		}
+	}
+}
+
+// joinPath appends name to a dotted path.
+func joinPath(path, name string) string {
+	if path == "" {
+		return name
+	}
+	return path + "." + name
 }
 
 // typeLast checks that every answer object ends with its type member.

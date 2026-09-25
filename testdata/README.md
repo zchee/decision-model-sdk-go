@@ -22,8 +22,11 @@ Conventions:
 - The "Python 0.7.1" columns are the output of
   `SystemOneResponse.from_http_response` (`ListModelsResponse` for
   `models.json`) in the upstream checkout at `0ffd094`, run with that
-  checkout's own `.venv`. Probed 2026-09-25 15:36:15 JST (time from `date`).
-  `''` is Python's root path, which Go spells `.` (Appendix B).
+  checkout's own `.venv`. Probed 2026-09-25 15:36:15 JST (time from `date`);
+  the two `-key` files, the value-only `malformed-invalid-utf8.json` and
+  `duplicates.json` were probed 2026-09-25 16:11:04 JST, and their single-fault
+  repairs were accepted. `''` is Python's root path, which Go spells `.`
+  (Appendix B).
 
 ## Ported byte-exact
 
@@ -63,11 +66,26 @@ but that test returns `RESULT`; the body comes from `test_rich_descriptions`.
 | `structured-legend-flood-1k.json`, `structured-legend-flood-10k.json` | the output of `testsupport.StructuredLegendFlood(1000)` and `(10000)`, 57,418 and 616,421 bytes. Answers are `spam`, `tone` and `flood`, a score answer with 10³ or 10⁴ structured levels (even levels are objects, odd levels are arrays) and as many probabilities. Used for AC-P8. | accepted |
 | `no-answers.json` | no `answers` member, so the answer set is empty (plan 6.2.3). | accepted, no answers |
 | `parity-big-exp-unknown.json` | `1e400` in an unknown top-level member (plan 6.2.2). | accepted |
+| `duplicates.json` | every duplicate rule of plan 6.2.4 in one body, for W2.0 and AC-F12. Top level: `model`, `usage` and `answers` twice each; the first `answers` holds `gone`, an invalid `broken` (no `noul`) and `mystery` of the unknown kind `aurora`. Inside the last `answers`: `tone` twice (the first copy is invalid); in `spam`, `type` (`choice`, then `noul`) and `noul` twice; in the second `tone`, `confidence`, `probabilities` and the probability key `friendly` twice; in `quality`, `legend` twice (a structured level, then text levels) and the level key `1` twice. | accepted, last wins at every level: the result below, no WARN |
+
+Python's result for `duplicates.json`, as a body without repeats
+(`duplicatesLastWins` in `fixtures_test.go`). The answers come in the order
+`tone`, `spam`, `quality`: a repeated name keeps its first position and takes
+its last value, as a Python dict does. The last `usage` replaces the first
+whole, so `output_tokens` is absent (`None`), not 99. `gone`, `broken` and
+`mystery` are gone with the superseded `answers`, and Python logs no WARN for
+`mystery`.
+
+```json
+{"model":"jev-latest","usage":{"input_tokens":12},"answers":{"tone":{"type":"choice","choice":"friendly","confidence":0.9,"probabilities":{"friendly":0.9,"hostile":0.1}},"spam":{"type":"noul","noul":0.98},"quality":{"type":"score","score":1.7,"confidence":0.8,"legend":{"0":"bad","1":"fine","2":"great"},"probabilities":{"0":0.1,"1":0.1,"2":0.8}}}}
+```
 
 To regenerate the flood files after an intended generator change, run
 `go test ./internal/testsupport -run TestStructuredLegendFloodFixtures -update`.
-Without `-update`, the same test fails when the files and the generator
-differ.
+Without `-update`, the same test and `TestFixtureManifest` fail when the
+files and the generator differ. Under `-update`, `TestFixtureManifest` checks
+the generator's output instead of the files, so running the whole package
+with `-update` also works.
 
 ## Deviations
 
@@ -90,8 +108,10 @@ Every file here must be rejected with `*ResponseValidationError`.
 | `malformed-trailing-nbsp.json` | `result.json` followed by U+00A0, which is not JSON whitespace | `''` | `.` |
 | `malformed-trailing-formfeed.json` | `result.json` followed by `\f`, which is not JSON whitespace | `''` | `.` |
 | `malformed-root-array.json` | `result.json` inside `[...]`: the root is not an object | `''` | `.` |
-| `malformed-invalid-utf8.json` | byte 0xFF inside a choice label (a known member) | `''` | `.` (per-string `utf8.ValidString`) |
-| `malformed-control-char.json` | a raw U+0001 inside a string of an unknown member | `''` | `.` (per-string control-character check) |
+| `malformed-invalid-utf8.json` | byte 0xFF inside a string value: the `choice` of a choice answer (a known member) | `''` | `.` (per-string `utf8.ValidString`) |
+| `malformed-invalid-utf8-key.json` | byte 0xFF inside a member name: a key of the same answer's `probabilities` | `''` | `.` (the same check on `OnObjectKey`) |
+| `malformed-control-char.json` | a raw U+0001 inside a string value of an unknown member | `''` | `.` (per-string control-character check) |
+| `malformed-control-char-key.json` | a raw U+0001 inside a member name of an unknown member | `''` | `.` (the same check on `OnObjectKey`) |
 | `malformed-invalid-escape.json` | `"\q"` inside an unknown member | `''` | `.` |
 | `malformed-bad-literal.json` | `tru` inside an unknown member | `''` | `.` |
 | `malformed-double-comma.json` | `[1,,2]` inside an unknown member | `''` | `.` |
@@ -105,8 +125,13 @@ Every file here must be rejected with `*ResponseValidationError`.
 
 The faults inside an unknown member sit in a top-level member, `meta`, that a
 decoder has no reason to read. They are the reason for plan 6.2.2's rule that
-nothing is skipped: sonic's skip path accepts all five. A duplicate member is
-not malformed (last wins, plan 6.2.4), and neither is an unknown answer kind
+nothing is skipped: sonic's skip path accepts the five syntax faults, and
+every sonic path accepts a raw control character in a string value (plan
+6.2.2). The invalid-UTF-8 and control-character faults come in pairs, one in
+a string value and one in a member name: a decoder that checks only values,
+or only names, accepts one file of each pair, and the `malformed-*.json`
+loops catch it. A duplicate member is not malformed (last wins, plan 6.2.4;
+`duplicates.json`), and neither is an unknown answer kind
 (`unknown-answer-type.json`).
 
 Two names differ from the plan's text:
