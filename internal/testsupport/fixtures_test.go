@@ -263,6 +263,31 @@ var fixtureManifest = map[string]fixtureSpec{
 		}
 		return schemaOK(raw)
 	}},
+	// NaN and the infinities: JSON has no such literal, the Python SDK's
+	// parser takes them (allow_inf_nan), and the Go port takes finite floats
+	// only, as for 1e400 (review W2.0 MINOR 1, ruling R73).
+	"deviation-nan-unknown.json": {classDeviation, func(raw []byte) error {
+		fixed := raw
+		for old, repl := range map[string]string{`"cost":NaN`: `"cost":1`, `"max":Infinity`: `"max":2`, `"min":-Infinity`: `"min":3`} {
+			if n := bytes.Count(raw, []byte(old)); n != 1 {
+				return fmt.Errorf("%q appears %d times, want once", old, n)
+			}
+			fixed = bytes.Replace(fixed, []byte(old), []byte(repl), 1)
+		}
+		if err := invalidJSON(raw); err != nil {
+			return err
+		}
+		return schemaOK(fixed)
+	}},
+	"deviation-nan-noul.json": {classDeviation, func(raw []byte) error {
+		if n := bytes.Count(raw, []byte(`"noul":NaN`)); n != 1 {
+			return fmt.Errorf(`"noul":NaN appears %d times, want once`, n)
+		}
+		if err := invalidJSON(raw); err != nil {
+			return err
+		}
+		return schemaOK(bytes.Replace(raw, []byte(`"noul":NaN`), []byte(`"noul":0.5`), 1))
+	}},
 	"deviation-lone-surrogate.json": {classDeviation, func(raw []byte) error {
 		if bytes.Count(raw, []byte(`\ud800"`)) != 2 {
 			return errors.New(`want two lone \ud800 escapes, one in a text level and one in a structured level`)

@@ -27,7 +27,8 @@ Conventions:
   probed 2026-09-25 16:11:04 JST, and their single-fault repairs were
   accepted; `duplicates.json` was probed again 2026-09-25 16:51:41 JST (time
   from `date`), after it gained the escaped `answers` and the `risk` answer.
-  `malformed-too-deep.json` was probed 2026-09-26 01:58:16 JST
+  `malformed-too-deep.json`, `deviation-nan-unknown.json` and
+  `deviation-nan-noul.json` were probed 2026-09-26 01:58:16 JST
   (`_spikes/w2.0/python_paths.py`, output in
   `_spikes/w2.0/results/python-paths.txt`).
   `''` is Python's root path, which Go spells `.` (Appendix B).
@@ -98,6 +99,8 @@ with `-update` also works.
 | --- | --- | --- | --- |
 | `deviation-big-exp-noul.json` | `"noul":1e400` | accepted, `noul == inf` | rejected with `*ResponseValidationError`: `strconv.ParseFloat` returns `ErrRange`, and ±Inf could not round-trip (AC-F10) |
 | `deviation-lone-surrogate.json` | a lone `\ud800` in a text legend level and inside a structured level | rejected at `''` | accepted: `Answers()` shows U+FFFD in the text level, and the lazy pass `Raw()` keeps `{"note":"\ud800"}` (Appendix B, AC-F7) |
+| `deviation-nan-unknown.json` | `NaN`, `Infinity` and `-Infinity` in an unknown member | accepted: pydantic-core's parser takes the three literals (`allow_inf_nan`) | rejected at `.`: JSON has no such literal, sonic's parser refuses them, and the port takes finite floats only, as for `1e400` (ruling R73) |
+| `deviation-nan-noul.json` | `"noul":NaN` | accepted, `noul` is `nan` | rejected at `.`, for the same reason |
 
 ## Malformed
 

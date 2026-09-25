@@ -70,6 +70,16 @@ func TestReadErrorBody(t *testing.T) {
 		"success: numbers keep their spelling":   {body: `{"n":1e400,"m":-0.0}`, want: ErrorBody{Message: `{"n":1e400,"m":-0.0}`}},
 		"success: trailing data is text":         {body: `{"message":"m"} x`, want: ErrorBody{Message: `{"message":"m"} x`}},
 
+		// Deviations (ruling R73): the two SDKs' JSON grammars differ in
+		// both directions. pydantic-core's parser takes NaN and the
+		// infinities and refuses a lone surrogate escape; wire's scanner
+		// refuses the literals and takes the escape (sonic reads it as
+		// U+FFFD). Python renders the first body "400 x" and the second as
+		// the whole body.
+		"success: deviation, NaN makes the body text":        {body: `{"message":"x","v":NaN}`, want: ErrorBody{Message: `{"message":"x","v":NaN}`}},
+		"success: deviation, a lone surrogate is still JSON": {body: `{"message":"a\ud800"}`, want: ErrorBody{Message: "a\ufffd"}},
+		"success: a bare NaN is text to both":                {body: "NaN", want: ErrorBody{Message: "NaN"}},
+
 		// Ill-formed UTF-8: one U+FFFD per maximal subpart, as Python.
 		"success: truncated three-byte sequence": {body: "\xe2\x82A", want: ErrorBody{Message: "\ufffdA"}},
 		"success: encoded surrogate":             {body: "\xed\xa0\x80", want: ErrorBody{Message: "\ufffd\ufffd\ufffd"}},
