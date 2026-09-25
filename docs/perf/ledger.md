@@ -62,8 +62,8 @@ experiment set are in [`../support.md`](../support.md#measurement-rule).
 | W0.3-12 | 2026-09-25 16:34:40 JST | W0.3 S-D1 decode allocations | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 21.46 → 20.86, noisy | `env GOEXPERIMENT=nosimd,noruntimesecret go test -count=1 -run ^TestAllocDecode$ -v ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/alloc-M.txt` | base 2305d02; util-linux flock on scratchpad bench.lock |
 | W0.3-13 | 2026-09-25 07:30:33 UTC | W0.3 S-D1 decode ns/op, primitives, scans, string checks | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.34 → 1.35 | `go test -run ^$ -bench . -benchmem -count=5 ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/bench-L.txt` | base 76ffd03; decoder, codec helpers and fixtures identical at 2305d02; flock /tmp/ts-spike/bench.lock |
 | W0.3-14 | 2026-09-25 17:12:23 JST | W0.3 S-D1 decode ns/op, primitives, scans, string checks | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.19 → 8.03 | `env GOEXPERIMENT=nosimd,noruntimesecret go test -run ^$ -bench . -benchmem -count=5 ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/bench-M.txt` | base cc1524a: the spike and `internal/codec` are unchanged since 2305d02 except codec tests (P0-fix-2); re-measured after the raw file was lost to the global `bench*.txt` ignore; original run of record 16:39:10 JST at base 2305d02 (load 11.96 → 9.76); against the first 267 of its 490 benchmark lines, which survived on (L) (not committed), the new medians are 2.7 % lower (geomean; 33 of 54 benchmarks differ at p < 0.05, none slower); util-linux flock on scratchpad bench.lock, quiet rule (MAXLOAD 16, waited 0 × 60 s) |
-| W0.3-15 | 2026-09-25 07:44:38 UTC | W0.3 S-D1 validity gate and correctness | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.54 → 0.54 | `go test -count=1 -run ^(TestValidityGate\|TestDecodedValues\|TestLastWins\|TestControlRule\|TestFastCheckParity\|TestDuplicatesFixture\|TestModuleDuplicates\|TestStringLengthMix)$ -v ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/gate-L.txt` | base 2305d02; flock /tmp/ts-spike/bench.lock |
-| W0.3-16 | 2026-09-25 16:34:39 JST | W0.3 S-D1 validity gate and correctness | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 21.46 → 21.46, noisy | `env GOEXPERIMENT=nosimd,noruntimesecret go test -count=1 -run ^(TestValidityGate\|TestDecodedValues\|TestLastWins\|TestControlRule\|TestFastCheckParity\|TestDuplicatesFixture\|TestModuleDuplicates\|TestStringLengthMix)$ -v ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/gate-M.txt` | base 2305d02; util-linux flock on scratchpad bench.lock |
+| W0.3-15 | 2026-09-25 07:44:38 UTC | W0.3 S-D1 validity gate and correctness | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.54 → 0.54 | `go test -count=1 -run ^(TestValidityGate\|TestDecodedValues\|TestLastWins\|TestControlRule\|TestFastCheckParity\|TestDuplicatesFixture\|TestModuleDuplicates\|TestStringLengthMix)$ -v ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/gate-L.txt` | base 2305d02; flock /tmp/ts-spike/bench.lock; gate run against the 693-byte duplicates.json at 2305d02; superseded for duplicates by W0.3-21/-22 |
+| W0.3-16 | 2026-09-25 16:34:39 JST | W0.3 S-D1 validity gate and correctness | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 21.46 → 21.46, noisy | `env GOEXPERIMENT=nosimd,noruntimesecret go test -count=1 -run ^(TestValidityGate\|TestDecodedValues\|TestLastWins\|TestControlRule\|TestFastCheckParity\|TestDuplicatesFixture\|TestModuleDuplicates\|TestStringLengthMix)$ -v ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/gate-M.txt` | base 2305d02; util-linux flock on scratchpad bench.lock; gate run against the 693-byte duplicates.json at 2305d02; superseded for duplicates by W0.3-21/-22 |
 | W0.3-17 | 2026-09-25 07:30:12 UTC | W0.3 S-D1 linearity (AC-P8) | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.08 → 0.08 | `go test -count=5 -run ^TestLinearity$ -v ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/linearity-L.txt` | base 76ffd03; decoder, codec helpers and fixtures identical at 2305d02; flock /tmp/ts-spike/bench.lock |
 | W0.3-18 | 2026-09-25 16:34:41 JST | W0.3 S-D1 linearity (AC-P8) | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 20.86 → 20.86, noisy | `env GOEXPERIMENT=nosimd,noruntimesecret go test -count=5 -run ^TestLinearity$ -v ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/linearity-M.txt` | base 2305d02; util-linux flock on scratchpad bench.lock |
 | W0.3-19 | 2026-09-25 07:44:39 UTC | W0.3 S-D1 R14 and primitive probes | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.54 → 0.54 | `go test -count=1 -run ^(TestProbeR14\|TestProbePrimitivesOnFixtures)$ -v ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/probe-L.txt` | base 2305d02; flock /tmp/ts-spike/bench.lock |
@@ -558,12 +558,19 @@ the [Rows](#rows) table, in the row format above.
   noisy S-E1 benchmark, and the pre-rebase gate, probe and decode runs that
   2305d02 repeated) are not committed.
 - (L): no experiment override; `flock /tmp/ts-spike/bench.lock`.
-- Base: the numbers of record are on `2305d02` (this branch was rebased
-  after P0-polish and W0.2b-fix landed). Exception: the (L) S-D1 benchmark
-  and linearity runs are on `76ffd03`. The decoder code,
-  `internal/codec/validate.go` and `nocopy.go`, and every benchmarked
-  fixture are byte-identical between the two commits, so those runs were
-  not repeated.
+- Base: each row's Notes name its base. The numbers of record are on
+  `2305d02` (this branch was rebased after P0-polish and W0.2b-fix landed),
+  except:
+  - W0.3-13 and W0.3-17, the (L) S-D1 benchmark and linearity runs, are on
+    `76ffd03`. The decoder code, `internal/codec/validate.go` and
+    `nocopy.go`, and every benchmarked fixture are byte-identical between
+    the two commits, so those runs were not repeated.
+  - W0.3-06 and W0.3-14, the (M) benchmarks, are on `cc1524a`: their raw
+    files were lost to a global `bench*.txt` ignore rule and re-measured.
+    The spikes and `internal/codec` are unchanged since `2305d02` except
+    codec tests.
+  - W0.3-21 and W0.3-22, the `duplicates.json` allocation runs, are on
+    `31f2986`, after 73af053 extended that fixture.
 - Allocations: `runtime.ReadMemStats` deltas (`Mallocs`, `TotalAlloc`) with
   the collector off and `GOMAXPROCS(1)` (`testsupport.QuietRuntime`), five
   runs. Each result is the minimum that at least three runs share.
@@ -699,13 +706,13 @@ same on both hosts except for the 1e400 and `"\q"` raw-member cases below.
      inside a string, tracking string boundaries, and remember the answer.
   3. Cost: nothing while no delivered string holds a control character. No
      valid fixture except `escaped-names.json` triggers the scan. When it
-     runs, the tracked scan takes 479 ns (M) / 695 ns (L) on
-     `escaped-names.json` (481 B) and 602 µs (M) / 834 µs (L) on 616 KB.
+     runs, the tracked scan takes 470.0 ns (M) / 695 ns (L) on
+     `escaped-names.json` (481 B) and 588.52 µs (M) / 834 µs (L) on 616 KB.
 - **Refinement for W2.0.** Test first for any byte below 0x20 with the
-  word-at-a-time (SWAR) check: 43 µs (M) / 65 µs (L) per 616 KB. Compact
+  word-at-a-time (SWAR) check: 41.94 µs (M) / 65 µs (L) per 616 KB. Compact
   server bodies contain no such byte, so the tracked scan would then run
   only on bodies with raw TAB, LF or CR whitespace. Running the same SWAR
-  pass unconditionally on every response would cost 7.5 % (M) / 9.0 % (L)
+  pass unconditionally on every response would cost 7.6 % (M) / 9.0 % (L)
   of a `decoder.Skip` on the 10k flood.
 
 **Validity gate**, by fixture class: the 38 module fixtures at 2305d02. The
@@ -734,15 +741,16 @@ landing: main's fixtures are the gate.
 **Ranking of the survivors, a1 and a2.**
 
 - Allocations: identical on every fixture, on both hosts.
-- Time: a2's median is between 2.2 % below and 3.4 % above a1's, and which
+- Time: a2's median is between 3.7 % below and 3.3 % above a1's, and which
   one is ahead depends on the fixture and the host (per-fixture table
   below).
 - The passes where they differ also tie: `decoder.Skip` against
-  `sonic.ValidString` measures 466 vs 481 ns (M) and 516 vs 504 ns (L) on
-  `result.json`, and 576 vs 577 µs (M) and 720 vs 678 µs (L) on the 10k
+  `sonic.ValidString` measures 457.9 vs 482.0 ns (M) and 516 vs 504 ns (L)
+  on `result.json`, and 551.59 vs 543.10 µs (M) and 720 vs 678 µs (L) on the
+  10k flood.
+- The visitor pass dominates both. A no-op `ast.Preorder` is 1.95 µs of
+  a1's 3.22 µs on `result.json` (M), and 289.44 µs of 668.98 µs on the 1k
   flood.
-- The visitor pass dominates both. A no-op `ast.Preorder` is 1.97 µs of
-  a1's 3.30 µs on `result.json` (M), and 298 µs of 678 µs on the 1k flood.
 
 **Winner: a1.** The two measured criteria tie, and two reasons decide:
 
@@ -758,11 +766,11 @@ does not affect any budget: failures are not budgeted.
 **Per-string check (W0.2 review input).** The strings the visitor checks
 average 5.6–7.0 bytes, with a maximum of 15 (string-mix table below).
 
-- On that mix, `utf8.ValidString(s) && !HasControlByte(s)` is 1.95–2.30 ×
+- On that mix, `utf8.ValidString(s) && !HasControlByte(s)` is 1.95–2.33 ×
   slower than `codec.ValidString` on both hosts.
-- Across a whole a1 decode it adds 1.6–8.8 %: `result.json` goes from 3.30 to
-  3.43 µs (M) and from 3.06 to 3.33 µs (L); the 10k flood from 6.71 to
-  7.01 ms (M) and from 5.95 to 6.32 ms (L).
+- Across a whole a1 decode it adds 3.0–10.0 %: `result.json` goes from 3.22
+  to 3.31 µs (M) and from 3.06 to 3.33 µs (L); the 10k flood from 6.437 to
+  6.745 ms (M) and from 5.95 to 6.32 ms (L).
 - The review's 2.9 × gain was measured on 4 KiB strings, which these bodies
   do not contain.
 - **W2.0 should keep `codec.ValidString`.**
@@ -1251,7 +1259,7 @@ CALL, STAGE and ITEM lines.
    both hosts: q3 4.647 µs vs 8.968 µs on (M) (0.52×) and 5.837 µs vs
    16.76 µs on (L) (0.35×); q20 23.28 vs 39.78 µs (0.59×) and 24.25 vs
    77.34 µs (0.31×). The decode is most of the call: S-D1 measured
-   `result.json` at 3.30 µs (M) / 3.09 µs (L) (W0.3-14, W0.3-13), so encode,
+   `result.json` at 3.22 µs (M) / 3.09 µs (L) (W0.3-14, W0.3-13), so encode,
    request, round trip and read together take about 1 µs (M) and 2.1 µs (L),
    of which the floor is 0.42 µs and 0.66 µs.
 
