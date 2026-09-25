@@ -1,0 +1,60 @@
+name: gotip
+
+on:
+  schedule:
+    - cron: "17 3 * * 1" # Mondays 03:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gotip:
+    name: gotip canary
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      issues: write # open or update the tracking issue on failure
+    env:
+      # gotip must build with itself; never switch to the go.mod toolchain.
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Bootstrap toolchain for building gotip.
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Install gotip
+        run: |
+          go install golang.org/dl/gotip@latest
+          gotip download
+
+      - name: Build and test with gotip
+        run: gotip version && gotip build ./... && gotip test ./...
+      # W0.2 adds: gotip test ./internal/wire/...; gotip vet and gotip build of
+      # ./internal/codec/ must both fail with
+      # typesafe_sdk_go_requires_go1_17_to_go1_27_on_amd64_or_arm64 (any other
+      # outcome fails the canary); once gotip version reports go1.28rc, the PM5
+      # sonic support probe (go mod download -json github.com/bytedance/sonic@latest).
+      # W2.2 adds: gotip test ./internal/h2gate/...
+
+      - name: Open or update the tracking issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: "gotip canary failing"
+        run: |
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          body="The gotip canary failed at $(date -u '+%Y-%m-%d %H:%M:%S UTC'): ${run_url}"
+          number="$(gh issue list --repo "${GITHUB_REPOSITORY}" --state open \
+            --search "in:title \"${TITLE}\"" --json number,title \
+            --jq ".[] | select(.title == env.TITLE) | .number" | head -n 1)"
+          if [ -n "${number}" ]; then
+            gh issue comment "${number}" --repo "${GITHUB_REPOSITORY}" --body "${body}"
+          else
+            gh issue create --repo "${GITHUB_REPOSITORY}" --title "${TITLE}" --body "${body}"
+          fi

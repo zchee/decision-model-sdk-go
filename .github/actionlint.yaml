@@ -1,0 +1,6 @@
+# actionlint's built-in runner label list predates these GitHub-hosted images
+# (actions/runner-images README: ubuntu-26.04; xcode-27, arm64, preview).
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04
+    - xcode-27

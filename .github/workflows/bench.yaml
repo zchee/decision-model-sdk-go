@@ -1,0 +1,39 @@
+name: Benchmarks
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+  id-token: write # CodSpeed upload through OIDC; no token secret.
+
+jobs:
+  codspeed:
+    name: CodSpeed (walltime)
+    # Plan decision D4: if CodSpeed refuses this image, pin the newest named
+    # image it supports and state the reason and retirement condition here.
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # No GOEXPERIMENT override: the runner's default is the Go 1.27 baseline.
+      - uses: CodSpeedHQ/action@v5
+        env:
+          CODSPEED_PERF_UNWINDING_MODE: fp
+        with:
+          mode: walltime
+          run: go test -bench=. -run '^$' ./...

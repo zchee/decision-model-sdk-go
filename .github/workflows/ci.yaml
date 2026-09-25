@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Check out typesafe-sdk-python at the pinned upstream commit
+        uses: actions/checkout@v7
+        with:
+          repository: typesafe-ai/typesafe-sdk-python
+          ref: 0ffd094c72ed9445223060b24ffd7a56aa781fb4
+          path: upstream
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+
+      - name: Install gofumpt, modernize, staticcheck and govulncheck
+        run: |
+          go install mvdan.cc/gofumpt@latest
+          go install golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: gofumpt, modernize, vet, staticcheck, govulncheck, go mod tidy
+        run: test -z "$(gofumpt -extra -l .)" && modernize -test ./... && go vet ./... && staticcheck ./... && govulncheck ./... && go mod tidy -diff
+
+      # W0.2 adds here: the internal/codec seam test and the D1 refusal greps
+      # (GOOS=linux GOARCH=386, GOOS=linux GOARCH=riscv64, -tags go1.28; go vet and
+      # go build of ./internal/codec/ must print
+      # typesafe_sdk_go_requires_go1_17_to_go1_27_on_amd64_or_arm64).
+
+      # setup-uv publishes no floating major tag (only vX.Y.Z tags since v8), so
+      # the major-only pin rule cannot apply; Dependabot bumps this full version.
+      - uses: astral-sh/setup-uv@v10.2.0
+
+      - name: Test the matrix checker
+        run: uvx pytest -q -p no:cacheprovider .github/scripts
+
+      - name: Check the port test matrix against the upstream tests
+        run: uv run --script .github/scripts/port-test-matrix.py --upstream upstream
+      # W6.3 adds: --no-planned on the step above, then
+      # .github/scripts/uncovered-lines.py --profile <coverage> --doc docs/uncovered-lines.md
+      # and .github/scripts/docs-snippets.py --readme README.md --docs docs --examples examples.
+
+      - name: Report available dependency updates
+        run: go list -m -u all
+
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-26.04
+          - xcode-27
+          - windows-2025
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write # Codecov upload through OIDC; no token secret.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: go test -race with coverage
+        run: go test -race -count=1 -coverprofile=coverage.out -covermode=atomic ./...
+
+      # W5.2 adds here a non-race step for every allocation budget: the section 11
+      # -list count guards (6 + 1), then
+      # go test -count=1 -run '^(TestAllocEncode|TestAllocDecodeFixtures|TestAllocTypedDecode|TestAllocWholeCall|TestMemStatsCap|TestLinearityFlood|TestAllocScratchSequence)$' .
+
+      - uses: codecov/codecov-action@v7
+        with:
+          files: coverage.out
+          flags: ${{ matrix.os }}
+          use_oidc: true
+          # Report-only until W2.0 produces coverage (plan section 12).
+          fail_ci_if_error: false
+
+  # W6.1 adds a fuzz job on ubuntu-26.04: FuzzDecodeResponse and FuzzErrorBody
+  # (./internal/codec/), FuzzRetryAfter and FuzzTagGrammar (.), 60 s each, one
+  # package per go test -fuzz invocation.

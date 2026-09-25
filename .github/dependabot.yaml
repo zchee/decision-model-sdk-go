@@ -1,0 +1,12 @@
+# Dependabot version updates: https://docs.github.com/en/code-security/dependabot/working-with-dependabot/dependabot-options-reference
+# Every dependency stays at its newest release (plan decision D5).
+version: 2
+updates:
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
