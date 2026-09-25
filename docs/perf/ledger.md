@@ -2433,3 +2433,110 @@ bound) allow one clock tick (`coarseClock`, 20 ms), and `TestALPNHTTP1Only`
 waits for the server's record. The runs above ran the three tests with 2 Ps,
 as on CI's runners, under contention (W2.2-20, -21). CI on the three images
 after landing is the proof on Windows.
+
+## W2.3: the client (AC-P6, AC-P5)
+
+W2.3 builds `Client.SystemOne` and `Models().List` on one attempt path
+(`client.go`) over W2.2 Part B's transport: the body is encoded once per
+call into a pooled `codec.Body`; each attempt copies the endpoint URL
+(ruling R66, NIT 5), sends the client's immutable header template on the
+first attempt (R28, R77) and a fresh map with `X-TypeSafe-Retry-Count` on
+a retry, runs under its own `context.WithTimeout`, goes through
+`transport.roundTrip`, and reads the response under the NF5 rules of
+section 6.2.1 and R27. The read's buffers before the one that can reach
+the end of the body (its declared length, or the cap) are exact powers of
+two; that last buffer has one spare byte, so the read that finds EOF, or
+the byte past the cap, needs no probe buffer. Measured at 504b201, the
+last commit before the documents of the branch as rewritten on main's
+cc585a2, where W2.2 Part B landed (review W2.3 MAJOR 1, R79); every
+later commit of the branch changes documents only. The same numbers were first measured on the branch before the
+rewrite (its client built its own transport), with identical allocation
+counts and times within 3 %. Raw outputs are in
+`_spikes/w2.3/results/`. Commands use `R=_spikes/s-c1/run.sh` (W0.5's
+runner), `O=_spikes/w2.3/results`,
+`SP=/private/tmp/claude-501/-Users-zchee-go-src-github-com-zchee-typesafe-sdk-go/c8084031-5323-4873-8c36-a19f65c9e6ff/scratchpad`
+and `BASE=504b201`.
+
+### How the numbers were taken
+
+- (M): `go1.27.1 darwin/arm64`, `GOEXPERIMENT=nosimd,noruntimesecret`,
+  under `/opt/homebrew/opt/util-linux/bin/flock` on `$SP/bench.lock`.
+- (L): the tree at 504b201, without `.git`, copied with the §11
+  `tar | ssh 'tar -x'` pipe to `/tmp/ts-spike/w2.3-meas/wt-w2.3`;
+  toolchain `/tmp/ts-spike/go/bin/go` with the §11 `GOPATH`, `GOMODCACHE`
+  and `GOCACHE` under `/tmp/ts-spike` and no `GOEXPERIMENT`, under
+  `flock /tmp/ts-spike/bench.lock`.
+- AC-P6: `TestAllocWholeCall` (root, `//go:build !race`) is S-C1's
+  `TestAllocCall` for the production client: the q3 questions, a 1 KiB
+  boxed-string state, the discarding `testsupport.Recorder` given with
+  `WithRoundTripper` and answering `result.json`, one attempt, no call
+  options, no logger. The floor is the Recorder's round trip of a request
+  built beforehand plus E_sonic (the state's encode into a presized buffer,
+  `codec.EncodeState`); SDK-own is the call minus the floor. Counts are
+  `runtime.ReadMemStats` deltas under `testsupport.QuietRuntime` (collector
+  off, `GOMAXPROCS(1)`), the minimum that three of five runs share (section
+  6.1.6); the test pins SDK-own at exactly 14 and the floor at 8/640 (R79).
+  The ITEM line measures the request side's allocations one at a time, in
+  the order a call makes them.
+- AC-P5: `TestMemStatsCap` (root, `//go:build !race`): one whole call with
+  `Retry(NoRetry())` and the default 16 MiB cap, TotalAlloc delta, with a
+  collection and one small warming call before each run, outside the
+  section (S-C1's harness).
+- Time: `BenchmarkCall/sdk` (the plan's `call/sdk`, the same q3 shape over
+  the discarding Recorder), `for b.Loop()`, `-count=10`, benchstat medians.
+  `call/naive` is W5.1's comparator, so no ratio is taken here.
+- Load (R17): (M) 4.91 → 4.83 on 16 cores; (L) 0.02 → 0.17 on 44.
+
+### W2.3 findings
+
+1. **AC-P6 holds on both hosts: SDK-own 14 allocations, 2 008 B**, against
+   the provisional N = 15 (target 12). The floor is 8, as in W0.5 (the
+   Recorder's round trip 7 and E_sonic 1), and the call makes 22.
+   Against W0.5's composition (R28: WithTimeout 4, header map 2, reader 1,
+   GetBody 1, request 1, body buffer 1, result 1, decode 4 = 15): the
+   header map is gone (0, the template itself on the first attempt, R28's
+   −2, R77), and the URL copy of R66 NIT 5 adds 1 (144 B). R77 (2) keeps
+   the URL copy and rejects R28's other −1, the first reader embedded in
+   the scratch, since a transport's late `Read`, `Close` or `GetBody` on an
+   earlier call's handle could then reach the scratch a later call reused,
+   which the generation check of `codec.Body` exists to prevent.
+2. **Where the 14 go, and W5.3's candidates** (review W2.3 NIT 3, a
+   `-memprofilerate=1` profile of `BenchmarkCall/sdk` with `GOGC=off` and
+   one P): `context.WithTimeout` 4 (the timerCtx, the `AfterFunc` closure
+   and its `*time.Timer`, the CancelFunc closure); `SystemOne` 2 (the
+   `body.GetBody` method value, `new(SystemOneResponse)`); the attempt's URL
+   copy 1; `codec.Body.Open` 1; `Request.WithContext` 1; `readBody` 1;
+   decode 4 (the three fold slices of the visitor and `wire.Answers.Grow`).
+   Candidates: (a) one slab for the three fold slices in the codec, −2
+   (AC-P2's exact `result.json` pin moves 4 → 2); (b) no attempt
+   `WithTimeout` when the caller's deadline is already earlier, −4 on such
+   calls, not on q3; (c) presize the answer entries from the question
+   count inside the response's allocation, −1, a layout change.
+3. **AC-P5 holds per attempt on both hosts, identically:** (i) 263 480 B
+   (bound 327 680), (ii) 1 288 B (bound 65 536), (iii) 33 559 816 B, (iv)
+   33 302 408 B and (v) 33 560 456 B (each bound 33 619 968; the smallest
+   margin is (v)'s 59 512 B). Against W0.5's measurements: (i) +32, (ii)
+   −40, (iii) +8 152, (iv) +8 016, (v) +8 016 B: the last buffer's spare
+   byte rounds that one large allocation up to the next 8 KiB page. A read
+   that gave every buffer the spare byte, the branch's first version before
+   `TestMemStatsCap` existed, measured (iii) 33 637 640 and (v) 33 638 280
+   B, over the bound; it did not survive into the branch as rewritten.
+   result.json costs 2 312 B declared and 6 024 B undeclared (W0.5: 2 488
+   and 6 200), recorded for W5.2.
+4. **`call/sdk` takes 4.742 µs on (M) and 6.100 µs on (L)** (22 allocs/op),
+   against the W0.5 prototype's 4.647 and 5.837 µs (+2 % and +4.5 %: the
+   logger checks, the per-attempt URL copy, interning in the decoder); the
+   (M) row spreads ± 3 % at load 4.9. Its about 2.93 KiB/op is more than `TestAllocWholeCall`'s 2 648 B
+   because the benchmark runs with the collector on and 16 or 44 Ps: a
+   collection empties the `sync.Pool`s, and an occasional call then pays
+   for a fresh scratch buffer, a fraction of an allocation per call that
+   the integer allocs/op hides. An unlocked check on (M) before the rewrite
+   measured 2 642 to 2 646 B/op with the collector on and one P, and 2 646
+   to 2 647 B/op with 16 Ps and `GOGC=off`.
+
+| # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| W2.3-01 | 2026-09-26 04:13:35 JST | W2.3 AC-P6 whole call and AC-P5 memstats | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 4.91 → 4.91 | `BASE=$BASE GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock alloc-M -count=1 -run '^(TestAllocWholeCall\|TestMemStatsCap)$' -v .` | q3: floor 8/640, call 22/2648, SDK-own 14/2008 (N 15, target 12); AC-P5 (i) 263480 B, (ii) 1288 B, (iii) 33559816 B, (iv) 33302408 B, (v) 33560456 B | mallocs/bytes, collector off, `GOMAXPROCS(1)`, 3 of 5 runs agree; `results/alloc-M.txt` |
+| W2.3-02 | 2026-09-26 04:13:35 JST | W2.3 `call/sdk` time | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 4.91 → 4.83 | `BASE=$BASE GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock MAXLOAD=16 sh $R '(M)' $O $SP/bench.lock bench-M -run '^$' -bench '^BenchmarkCall$' -benchmem -count=10 .` | `call/sdk` 4.742 µs ± 3 %, 22 allocs/op | `results/bench-M.txt`, `results/benchstat-M.txt` |
+| W2.3-03 | 2026-09-25 19:14:18 UTC | W2.3 AC-P6 whole call and AC-P5 memstats | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.02 → 0.10 | `BASE=$BASE sh $R '(L)' $O /tmp/ts-spike/bench.lock alloc-L -count=1 -run '^(TestAllocWholeCall\|TestMemStatsCap)$' -v .` | identical to W2.3-01 in every count | `results/alloc-L.txt` |
+| W2.3-04 | 2026-09-25 19:14:19 UTC | W2.3 `call/sdk` time | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.10 → 0.17 | `BASE=$BASE MAXLOAD=44 sh $R '(L)' $O /tmp/ts-spike/bench.lock bench-L -run '^$' -bench '^BenchmarkCall$' -benchmem -count=10 .` | `call/sdk` 6.100 µs ± 0 %, 22 allocs/op | `results/bench-L.txt`, `results/benchstat-L.txt` |
