@@ -26,25 +26,31 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
-// frozenDecodeAllocs is AC-P2's frozen allocation budget per fixture for the
-// decode of a System One body into its answers (docs/perf/frozen-budgets.md,
-// S-D1 variant a1; duplicates at 17 by the owner's G2 c). The plain 3-answer
-// fixture keeps the plan's ceiling of 8 as well, which 4 meets.
-var frozenDecodeAllocs = map[string]uint64{
-	"result.json":                      4,
-	"type-last.json":                   4,
-	"duplicates.json":                  17,
-	"result-20.json":                   24,
-	"score-flood-mini.json":            21,
-	"escaped-names.json":               10,
-	"escaped-member-names.json":        30,
-	"structured-legend.json":           12,
-	"deviation-lone-surrogate.json":    14,
-	"unknown-answer-type.json":         1,
-	"parity-big-exp-unknown.json":      1,
-	"no-answers.json":                  0,
-	"structured-legend-flood-1k.json":  91,
-	"structured-legend-flood-10k.json": 686,
+// decodeAllocs pins, per fixture, the allocations of one decode of a System
+// One body into its answers (want), measured identically on (M) and (L)
+// (ledger rows W2.0-01 and W2.0-04), next to AC-P2's frozen budget (frozen:
+// docs/perf/frozen-budgets.md, S-D1 variant a1; duplicates at 17 by the
+// owner's G2 c). The counts are pinned exactly, not as ceilings (ruling
+// R70), so that a sonic upgrade or a decoder change that moves one fails
+// here and is looked at, as the NF1 encode pins do. The five fixtures one
+// below their budget are those whose frozen count included the arena that
+// copied structured levels, which interning makes unnecessary. The plain
+// 3-answer fixture also keeps the plan's ceiling of 8 (NF2).
+var decodeAllocs = map[string]struct{ want, frozen uint64 }{
+	"result.json":                      {want: 4, frozen: 4},
+	"type-last.json":                   {want: 4, frozen: 4},
+	"duplicates.json":                  {want: 16, frozen: 17},
+	"result-20.json":                   {want: 24, frozen: 24},
+	"score-flood-mini.json":            {want: 21, frozen: 21},
+	"escaped-names.json":               {want: 10, frozen: 10},
+	"escaped-member-names.json":        {want: 29, frozen: 30},
+	"structured-legend.json":           {want: 11, frozen: 12},
+	"deviation-lone-surrogate.json":    {want: 13, frozen: 14},
+	"unknown-answer-type.json":         {want: 1, frozen: 1},
+	"parity-big-exp-unknown.json":      {want: 1, frozen: 1},
+	"no-answers.json":                  {want: 0, frozen: 0},
+	"structured-legend-flood-1k.json":  {want: 90, frozen: 91},
+	"structured-legend-flood-10k.json": {want: 685, frozen: 686},
 }
 
 // questionsFor returns the question set a response like res answers, built
@@ -94,22 +100,26 @@ func questionsFor(t *testing.T, res *wire.SystemOneResult) *Prepared {
 
 // TestAllocDecodeFixtures checks AC-P2: the allocations of one decode of
 // each fixture, as a call makes it (the pooled decoder warm, a fresh result,
-// the question set and model the response answers, no logger), are within
-// the frozen budget. Counts are runtime.ReadMemStats deltas, the minimum
-// that three of five runs share, with the collector off and GOMAXPROCS 1
-// (section 6.1.6). Each DECODE line is a ledger row; the misses column is
-// the same decode without a question set or model, where every string is a
-// copy into one arena (recorded, not budgeted).
+// the question set and model the response answers, no logger), equal the
+// pinned count, which is within the frozen budget. Counts are
+// runtime.ReadMemStats deltas, the minimum that three of five runs share,
+// with the collector off and GOMAXPROCS 1 (section 6.1.6). Each DECODE line
+// is a ledger row; the misses column is the same decode without a question
+// set or model, where every string is a copy into one arena (recorded, not
+// pinned).
 func TestAllocDecodeFixtures(t *testing.T) {
 	testsupport.QuietRuntime(t)
 	for _, name := range slices.Sorted(func(yield func(string) bool) {
-		for k := range frozenDecodeAllocs {
+		for k := range decodeAllocs {
 			if !yield(k) {
 				return
 			}
 		}
 	}) {
-		budget := frozenDecodeAllocs[name]
+		pin := decodeAllocs[name]
+		if pin.want > pin.frozen {
+			t.Fatalf("%s: pinned count %d exceeds the frozen budget %d", name, pin.want, pin.frozen)
+		}
 		t.Run(name, func(t *testing.T) {
 			meta := &wire.ResponseMeta{Status: 200, Body: []byte(testsupport.FixtureString(t, name))}
 			var first wire.SystemOneResult
@@ -131,9 +141,9 @@ func TestAllocDecodeFixtures(t *testing.T) {
 			}
 			got := measure("interned", qs, model)
 			misses := measure("misses", nil, "")
-			t.Logf("DECODE %-34s bytes=%-7d allocs=%-4d allocBytes=%-8d budget=%-4d misses=%s", strings.TrimSuffix(name, ".json"), len(meta.Body), got.Mallocs, got.Bytes, budget, misses)
-			if got.Mallocs > budget {
-				t.Errorf("decode allocations = %d, want at most the frozen %d", got.Mallocs, budget)
+			t.Logf("DECODE %-34s bytes=%-7d allocs=%-4d allocBytes=%-8d budget=%-4d misses=%s", strings.TrimSuffix(name, ".json"), len(meta.Body), got.Mallocs, got.Bytes, pin.frozen, misses)
+			if got.Mallocs != pin.want {
+				t.Errorf("decode allocations = %d, want exactly %d (frozen budget %d): a change in the decoder or in sonic moved the count", got.Mallocs, pin.want, pin.frozen)
 			}
 			if name == "result.json" && got.Mallocs > 8 {
 				t.Errorf("result.json decode allocations = %d, want at most 8 (NF2)", got.Mallocs)
