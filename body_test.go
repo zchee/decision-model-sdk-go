@@ -382,6 +382,11 @@ func TestExtraBodyShallowOverride(t *testing.T) {
 			extra: []bodyMember{{"model", 4}},
 			want:  `{"state":"hi","model":4,` + questions + `}`,
 		},
+		"deviation: a []byte nested in a member is sent as base64 (R56)": {
+			state: "hi",
+			extra: []bodyMember{{"blob", map[string]any{"b": []byte("hi")}}},
+			want:  `{"state":"hi","model":"jev-latest",` + questions + `,"blob":{"b":"aGk="}}`,
+		},
 		"success: an empty member name": {
 			state: "hi",
 			extra: []bodyMember{{"", 1}},
@@ -506,8 +511,20 @@ func TestUnencodableBodyFailsBeforeNetwork(t *testing.T) {
 		},
 		"error: a []byte state (R49)": {
 			state:   []byte(`{"a":1}`),
-			want:    []string{"state: a []byte state is ambiguous; send string(b) for text or RawJSON(b) for JSON"},
-			isCause: codec.ErrBytesState,
+			want:    []string{"state: a plain []byte is ambiguous; send string(b) for text or RawJSON(b) for JSON"},
+			isCause: codec.ErrPlainBytes,
+		},
+		"error: a []byte extra member (R56)": {
+			state:   "x",
+			extra:   []bodyMember{{"blob", []byte("hi")}},
+			want:    []string{`extra body member "blob": a plain []byte is ambiguous; send string(b) for text or RawJSON(b) for JSON`},
+			isCause: codec.ErrPlainBytes,
+		},
+		"error: a []byte replacing the model (R56)": {
+			state:   "x",
+			extra:   []bodyMember{{"model", []byte("m")}},
+			want:    []string{`extra body member "model": a plain []byte is ambiguous`},
+			isCause: codec.ErrPlainBytes,
 		},
 	}
 	for name, tt := range tests {

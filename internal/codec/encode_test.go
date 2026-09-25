@@ -87,7 +87,7 @@ type errKind int
 const (
 	errNone   errKind = iota
 	errShape          // ErrStateShape
-	errBytes          // ErrBytesState
+	errBytes          // ErrPlainBytes
 	errRaw            // ErrRawValue
 	errUTF8           // wire.ErrInvalidUTF8
 	errEncode         // *EncodeError wrapping sonic's error
@@ -111,7 +111,7 @@ func checkErr(t *testing.T, err error, want errKind, wantText string) {
 	case errShape:
 		sentinel = ErrStateShape
 	case errBytes:
-		sentinel = ErrBytesState
+		sentinel = ErrPlainBytes
 	case errRaw:
 		sentinel = ErrRawValue
 	case errUTF8:
@@ -191,7 +191,7 @@ func TestEncodeState(t *testing.T) {
 		"error: json.RawMessage number": {state: json.RawMessage("3"), err: errShape, wantText: "a number"},
 		"error: json.RawMessage null":   {state: json.RawMessage(" null"), err: errShape, wantText: "null"},
 		"error: marshaler number":       {state: scalarMarshaler{}, err: errShape, wantText: "a number"},
-		"error: []byte":                 {state: []byte(`{"a":1}`), err: errBytes, wantText: "[]byte"},
+		"error: []byte":                 {state: []byte(`{"a":1}`), err: errBytes, wantText: "a plain []byte is ambiguous"},
 		"success: a nested []byte is base64 (R49 deviation)": {state: map[string]any{"b": []byte("hi")}, want: `{"b":"aGk="}`},
 		"error: NaN":                      {state: []any{math.NaN()}, err: errEncode, wantText: "NaN"},
 		"error: +Inf in a map":            {state: map[string]any{"a": math.Inf(1)}, err: errEncode, wantText: "Infinite"},
@@ -230,16 +230,17 @@ func TestEncodeValue(t *testing.T) {
 		err      errKind
 		wantText string
 	}{
-		"success: nil":                {value: nil, want: `null`},
-		"success: int":                {value: 4, want: `4`},
-		"success: bool":               {value: false, want: `false`},
-		"success: string":             {value: "override-model", want: `"override-model"`},
-		"success: map":                {value: map[string]any{"x": map[string]any{"type": "noul"}}, want: `{"x":{"type":"noul"}}`},
-		"success: []byte as base64":   {value: []byte("hi"), want: `"aGk="`},
-		"success: json.RawMessage":    {value: json.RawMessage(`null`), want: `null`},
-		"error: NaN":                  {value: math.NaN(), err: errEncode, wantText: "NaN"},
-		"error: channel":              {value: make(chan int), err: errEncode, wantText: "chan int"},
-		"error: invalid UTF-8 string": {value: "\xff", err: errUTF8},
+		"success: nil":    {value: nil, want: `null`},
+		"success: int":    {value: 4, want: `4`},
+		"success: bool":   {value: false, want: `false`},
+		"success: string": {value: "override-model", want: `"override-model"`},
+		"success: map":    {value: map[string]any{"x": map[string]any{"type": "noul"}}, want: `{"x":{"type":"noul"}}`},
+		"success: a nested []byte as base64 (R56 deviation)": {value: map[string]any{"b": []byte("hi")}, want: `{"b":"aGk="}`},
+		"error: a plain []byte (R56)":                        {value: []byte("hi"), err: errBytes, wantText: "a plain []byte is ambiguous"},
+		"success: json.RawMessage":                           {value: json.RawMessage(`null`), want: `null`},
+		"error: NaN":                                         {value: math.NaN(), err: errEncode, wantText: "NaN"},
+		"error: channel":                                     {value: make(chan int), err: errEncode, wantText: "chan int"},
+		"error: invalid UTF-8 string":                        {value: "\xff", err: errUTF8},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {

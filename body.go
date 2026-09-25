@@ -65,7 +65,11 @@ const (
 // the owner's decision D1, not a choice of this function: 3.0 is written 3,
 // -0.0 as 0, and 1e16 <= |x| < 1e21 and 1e-6 <= |x| < 1e-5 in fixed digits,
 // where the Python SDK writes 3.0, -0.0 and e-notation. A state that needs an
-// exact spelling is sent as RawJSON, or carries the number as a string.
+// exact spelling is sent as RawJSON, or carries the number as a string. A
+// map's members go out in Go's iteration order, which changes from one call
+// to the next where Python keeps a dict's insertion order (ruling R55); the
+// body of one call, and so every attempt of it, is encoded once. A struct or
+// RawJSON gives stable bytes.
 //
 // It fails with a [*ConfigError] when qs is nil or holds no question (a
 // Prepared that [Questions.Prepare] did not return), or when model is not
@@ -226,7 +230,7 @@ func appendValue(buf *[]byte, value any) error {
 // not be encoded, named as the message names it.
 func encodeError(member string, err error) *InvalidRequestError {
 	msg := "The request body could not be encoded as JSON: " + member + ": " + err.Error()
-	if errors.Is(err, codec.ErrBytesState) {
+	if errors.Is(err, codec.ErrPlainBytes) {
 		msg += "; send string(b) for text or RawJSON(b) for JSON"
 	}
 	return newInvalidRequestError(msg, err)

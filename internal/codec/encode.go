@@ -40,9 +40,10 @@ var (
 	// null, booleans and numbers are refused before any request is sent.
 	ErrStateShape = errors.New("not a string, an array or an object")
 
-	// ErrBytesState reports a state that is a plain []byte: sonic would send
-	// it as a base64 string, which is rarely what the caller meant.
-	ErrBytesState = errors.New("a []byte state is ambiguous")
+	// ErrPlainBytes reports a state or a body member value that is a plain
+	// []byte: sonic would send it as a base64 string, which is rarely what
+	// the caller meant (text, or JSON that is already encoded).
+	ErrPlainBytes = errors.New("a plain []byte is ambiguous")
 
 	// ErrRawValue reports raw JSON that does not start a JSON value.
 	ErrRawValue = errors.New("not a JSON value")
@@ -68,20 +69,22 @@ func (e *EncodeError) Unwrap() error { return e.Err }
 // numbers, and nil maps, slices and pointers, which encode as null), and
 // valid UTF-8 ([wire.ErrInvalidUTF8] otherwise: sonic copies the bytes of a
 // Go string as they are, and a body with an invalid byte is not JSON text).
-// A plain []byte fails with [ErrBytesState]; a []byte nested inside the
+// A plain []byte fails with [ErrPlainBytes]; a []byte nested inside the
 // state is sent as a base64 string, as encoding/json does. A value sonic
 // cannot encode fails with an [*EncodeError].
 //
 // Floats keep sonic's spelling, which is encoding/json's (ruling R46): 3.0 is
 // written 3, -0.0 as 0, and 1e16 <= |x| < 1e21 and 1e-6 <= |x| < 1e-5 in
 // fixed digits. Raw JSON appended with [AppendRawState], or a number carried
-// as a string, keeps an exact spelling.
+// as a string, keeps an exact spelling. A map's members are written in Go's
+// iteration order, which changes from one encode to the next (ruling R55):
+// a struct or raw JSON gives stable bytes.
 //
 // On failure *buf keeps its length from before the call. The checks cost one
 // pass over the encoded bytes and allocate nothing.
 func EncodeState(buf *[]byte, state any) error {
 	if _, ok := state.([]byte); ok {
-		return ErrBytesState
+		return ErrPlainBytes
 	}
 	start := len(*buf)
 	if err := encoder.EncodeInto(buf, state, encodeOptions); err != nil {
@@ -107,11 +110,15 @@ func EncodeState(buf *[]byte, state any) error {
 
 // EncodeValue appends the JSON encoding of v, any JSON value, to *buf with
 // sonic's encoder.EncodeInto, for a member of the request body other than
-// the state. Unlike [EncodeState] it takes null, booleans, numbers and a
-// []byte (sent as a base64 string); the output must still be valid UTF-8.
-// A value sonic cannot encode fails with an [*EncodeError]. On failure *buf
-// keeps its length from before the call.
+// the state. Unlike [EncodeState] it takes null, booleans and numbers; the
+// output must still be valid UTF-8. A plain []byte fails with
+// [ErrPlainBytes], as for the state (ruling R56), and a []byte nested inside
+// v is sent as a base64 string. A value sonic cannot encode fails with an
+// [*EncodeError]. On failure *buf keeps its length from before the call.
 func EncodeValue(buf *[]byte, v any) error {
+	if _, ok := v.([]byte); ok {
+		return ErrPlainBytes
+	}
 	start := len(*buf)
 	if err := encoder.EncodeInto(buf, v, encodeOptions); err != nil {
 		*buf = (*buf)[:start]
