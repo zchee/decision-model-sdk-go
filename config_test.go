@@ -508,10 +508,10 @@ func TestBaseURL(t *testing.T) {
 			wantSystemOne: "http://localhost:8080/v1/systemone",
 			wantModels:    "http://localhost:8080/v1/models",
 		},
-		"success: https with the default port written": {
+		"success: https with the default port written, which is dropped (R70 Q2)": {
 			baseURL:       new("https://example.test:443"),
-			wantSystemOne: "https://example.test:443/v1/systemone",
-			wantModels:    "https://example.test:443/v1/models",
+			wantSystemOne: "https://example.test/v1/systemone",
+			wantModels:    "https://example.test/v1/models",
 		},
 		"success: IPv6 host with a port": {
 			baseURL:       new("https://[::1]:8443/"),

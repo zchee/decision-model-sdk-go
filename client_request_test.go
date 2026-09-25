@@ -700,3 +700,38 @@ func TestClientNeverPrintsKey(t *testing.T) {
 		}
 	}
 }
+
+// TestBaseURLDefaultPortDropped checks ruling R70 Q2: an explicit default
+// port in the base URL (:443 on https, :80 on http) is dropped when the
+// client is built, as httpx drops it, so the request URL, the Host it sends
+// and the endpoint an error names carry none; any other port is kept.
+func TestBaseURLDefaultPortDropped(t *testing.T) {
+	tests := map[string]struct {
+		base, wantURL, wantHost string
+	}{
+		"success: https with :443":            {base: "https://example.test:443", wantURL: "https://example.test/v1/systemone", wantHost: "example.test"},
+		"success: http with :80 and a prefix": {base: "http://example.test:80/p/", wantURL: "http://example.test/p/v1/systemone", wantHost: "example.test"},
+		"success: an upper-case scheme":       {base: "HTTPS://example.test:443", wantURL: "https://example.test/v1/systemone", wantHost: "example.test"},
+		"success: an IPv6 literal with :443":  {base: "https://[::1]:443", wantURL: "https://[::1]/v1/systemone", wantHost: "[::1]"},
+		"success: https with :8443 kept":      {base: "https://example.test:8443", wantURL: "https://example.test:8443/v1/systemone", wantHost: "example.test:8443"},
+		"success: http with :443 kept":        {base: "http://example.test:443", wantURL: "http://example.test:443/v1/systemone", wantHost: "example.test:443"},
+		"success: https with :80 kept":        {base: "https://example.test:80", wantURL: "https://example.test:80/v1/systemone", wantHost: "example.test:80"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			rec := replying(http.StatusBadRequest, []byte(`{"message":"no"}`))
+			c := newTestClient(t, rec, WithBaseURL(tt.base))
+			_, err := c.SystemOne(t.Context(), "x", noulQuestion(t))
+			ae, ok := errors.AsType[*APIError](err)
+			if !ok {
+				t.Fatalf("SystemOne error = %v (%T), want an *APIError", err, err)
+			}
+			req := onlyRequest(t, rec)
+			got := []string{req.URL, req.Host, ae.Endpoint}
+			want := []string{tt.wantURL, tt.wantHost, http.MethodPost + " " + tt.wantURL}
+			if diff := gocmp.Diff(want, got); diff != "" {
+				t.Errorf("URL, Host, error endpoint (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

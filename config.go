@@ -387,6 +387,7 @@ func resolveEndpoints(explicit *string, getenv func(string) string) (systemOne, 
 	if rule := baseURLRule(raw); rule != "" {
 		return nil, nil, newConfigError(source + " " + rule + ".")
 	}
+	raw = dropDefaultPort(raw)
 	// The API paths are appended to the text, as Python appends them
 	// (py:_core/transport.py:134), so the caller's own escaping of the prefix
 	// is kept. A valid base followed by a fixed path always parses.
@@ -428,6 +429,36 @@ func baseURLRule(raw string) string {
 		return "has an empty host"
 	}
 	return ""
+}
+
+// dropDefaultPort returns raw, an absolute http or https URL that
+// [baseURLRule] accepted, without an explicit default port: :443 on https,
+// :80 on http, as httpx normalises it (ruling R70 Q2), so the endpoints,
+// the Host a request sends and the errors name the URL without it. The rest
+// of the text is kept as written.
+func dropDefaultPort(raw string) string {
+	scheme, rest, ok := strings.Cut(raw, "://")
+	if !ok {
+		return raw
+	}
+	authority, _, _ := strings.Cut(rest, "/")
+	var port string
+	switch strings.ToLower(scheme) {
+	case "https":
+		port = ":443"
+	case "http":
+		port = ":80"
+	default:
+		return raw
+	}
+	host, found := strings.CutSuffix(authority, port)
+	// The suffix is the port only when what precedes it is a whole host: a
+	// name or an IPv6 literal's closing bracket, never an IPv6 address
+	// written without brackets.
+	if !found || host == "" || (strings.Contains(host, ":") && !strings.HasSuffix(host, "]")) {
+		return raw
+	}
+	return scheme + "://" + host + rest[len(authority):]
 }
 
 // resolveModel returns the model from explicit, or from [DefaultModelEnv]
