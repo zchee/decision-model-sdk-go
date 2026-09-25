@@ -86,11 +86,17 @@ func FuzzDecodeResponse(f *testing.F) {
 		if diff := gocmp.Diff(res.Answers.Entries(), interned.Answers.Entries()); diff != "" {
 			t.Fatalf("decode of %q against its questions differs (-without +with):\n%s", body, diff)
 		}
+		// The reference comes from a copy of the body that is never
+		// written, so an aliasing result cannot move it along with res.
+		var ref wire.SystemOneResult
+		if _, err := DecodeSystemOne(orig, nil, "", &ref); err != nil {
+			t.Fatalf("decode of a copy of %q: %v", orig, err)
+		}
 		for i := range body {
 			body[i] = 0
 		}
-		if diff := gocmp.Diff(again.Answers.Entries(), res.Answers.Entries()); diff != "" {
-			t.Fatalf("the result of %q changed with the body (-before +after):\n%s", orig, diff)
+		if diff := gocmp.Diff(ref.Answers.Entries(), res.Answers.Entries()); diff != "" || res.Model != ref.Model {
+			t.Fatalf("the result of %q changed with the body: model %q, answers (-reference +result):\n%s", orig, res.Model, diff)
 		}
 	})
 }
