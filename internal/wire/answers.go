@@ -107,7 +107,8 @@ type LegendEntry struct {
 	// Level is the score level, counted from zero.
 	Level uint32
 	// Description is the level's description: text, or a JSON object or
-	// array kept as the compact bytes it arrived as.
+	// array kept as the exact bytes it arrived as (the question's own bytes
+	// when they are equal).
 	Description Content
 }
 

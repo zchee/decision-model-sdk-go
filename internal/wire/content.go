@@ -21,14 +21,15 @@ import "bytes"
 // response echoes back.
 //
 // Text is held decoded (no quotes, no escape sequences). A JSON object or
-// array is held as its compact bytes, exactly as they were produced or
-// received, so that it can be spliced into a request or compared with a
-// response byte for byte.
+// array is held as bytes, so that it can be spliced into a request or
+// compared with a response byte for byte: the compact bytes a question set
+// produced, or the exact bytes a response carried, escapes and any
+// whitespace included.
 type Content struct {
 	// Text is the text when JSON is nil, and empty otherwise.
 	Text string
-	// JSON is the compact encoding of a JSON object or array, or nil when the
-	// content is text. An empty object is []byte("{}"), never nil.
+	// JSON is the encoding of a JSON object or array, or nil when the content
+	// is text. An empty object is []byte("{}"), never nil.
 	JSON []byte
 }
 
