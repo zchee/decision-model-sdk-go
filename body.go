@@ -61,16 +61,17 @@ const (
 // (codec.EncodeValue), a RawJSON value as it is after codec.AppendRawValue's
 // check, Content as a question writes it and unset Content as null.
 //
-// A float inside a state that sonic writes keeps sonic's spelling (ruling
-// R46), a consequence of section 6.1.2 encoding the state with sonic and of
-// the owner's decision D1, not a choice of this function: 3.0 is written 3,
-// -0.0 as 0, and 1e16 <= |x| < 1e21 and 1e-6 <= |x| < 1e-5 in fixed digits,
-// where the Python SDK writes 3.0, -0.0 and e-notation. A state that needs an
-// exact spelling is sent as RawJSON, or carries the number as a string. A
+// A float inside the state and the extra values that sonic writes keeps
+// sonic's spelling (rulings R46 and R59), a consequence of section 6.1.2
+// encoding them with sonic and of the owner's decision D1, not a choice of
+// this function: 3.0 is written 3, -0.0 as 0, and 1e16 <= |x| < 1e21 and
+// 1e-6 <= |x| < 1e-5 in fixed digits, where the Python SDK writes 3.0, -0.0
+// and e-notation. A value that needs an exact spelling is sent as RawJSON,
+// or carries the number as a string. In the state and the extra values, a
 // map's members go out in Go's iteration order, which changes from one call
-// to the next where Python keeps a dict's insertion order (ruling R55); the
-// body of one call, and so every attempt of it, is encoded once. A struct or
-// RawJSON gives stable bytes.
+// to the next where Python keeps a dict's insertion order (rulings R55 and
+// R59); the body of one call, and so every attempt of it, is encoded once. A
+// struct or RawJSON gives stable bytes.
 //
 // It fails with a [*ConfigError] when qs is nil or holds no question (a
 // Prepared that [Questions.Prepare] did not return), or when model is not

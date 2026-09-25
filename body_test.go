@@ -19,6 +19,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -204,7 +205,9 @@ func TestBodyBytesMatchPython(t *testing.T) {
 //   - R46: sonic spells floats as encoding/json does: integral floats without
 //     ".0", -0.0 as 0, fixed digits for 1e-6 <= |x| < 1e-5 and for
 //     1e16 <= |x| < 1e21. Every number reads back as the same float64 except
-//     the sign of -0.0.
+//     the sign of -0.0. R59 extends this to extra-body values, which take the
+//     same sonic path (the extra cases are from the probe run of 2026-09-25
+//     22:53:56 JST).
 func TestBodyDeviationsFromPython(t *testing.T) {
 	tail := `,"model":"jev-latest","questions":` + probeQuestions + `}`
 	var ctl strings.Builder
@@ -220,6 +223,7 @@ func TestBodyDeviationsFromPython(t *testing.T) {
 
 	tests := map[string]struct {
 		state  any
+		extra  []bodyMember
 		python string // what the Python SDK sends
 		want   string // what sonic sends
 		check  func(t *testing.T, python, got string)
@@ -259,35 +263,26 @@ func TestBodyDeviationsFromPython(t *testing.T) {
 				`5e-324,1.7976931348623157e+308,-0.0,0.0,9007199254740992.0,1.2345678901234567e+19]` + tail,
 			want: `{"state":[0.00001,0.00000999,0.0001,0.1,1.5,3,-7,9999999999999998,10000000000000000,100000000000000000000,` +
 				`1e+21,1e+22,5e-324,1.7976931348623157e+308,0,0,9007199254740992,12345678901234567000]` + tail,
-			check: func(t *testing.T, python, got string) {
-				numbers := func(body string) []string {
-					list, _ := strings.CutPrefix(body, `{"state":[`)
-					list, _, _ = strings.Cut(list, "]")
-					return strings.Split(list, ",")
-				}
-				py, gonums := numbers(python), numbers(got)
-				if len(py) != len(floats) || len(gonums) != len(floats) {
-					t.Fatalf("%d Python and %d Go numbers, want %d each", len(py), len(gonums), len(floats))
-				}
-				for i := range floats {
-					p, err1 := strconv.ParseFloat(py[i], 64)
-					g, err2 := strconv.ParseFloat(gonums[i], 64)
-					if err1 != nil || err2 != nil {
-						t.Fatalf("number %d: %v, %v", i, err1, err2)
-					}
-					if p != g { // -0.0 == 0 holds: only the sign differs
-						t.Errorf("number %d: Python %s reads as %v, Go %s as %v", i, py[i], p, gonums[i], g)
-					}
-					if math.Signbit(p) != math.Signbit(g) && py[i] != "-0.0" {
-						t.Errorf("number %d: sign differs: Python %s, Go %s", i, py[i], gonums[i])
-					}
-				}
-			},
+			check: sameNumbers,
+		},
+		"deviation: extra-value float spelling (R59)": {
+			state:  "hi",
+			extra:  []bodyMember{{"cfg", []any{0.5, 3.0, 1e16, math.Copysign(0, -1), 1e-6, 1e21}}},
+			python: `{"state":"hi","model":"jev-latest","questions":` + probeQuestions + `,"cfg":[0.5,3.0,1e+16,-0.0,1e-6,1e+21]}`,
+			want:   `{"state":"hi","model":"jev-latest","questions":` + probeQuestions + `,"cfg":[0.5,3,10000000000000000,0,0.000001,1e+21]}`,
+			check:  sameNumbers,
+		},
+		"deviation: nested extra-value float spelling (R59)": {
+			state:  "hi",
+			extra:  []bodyMember{{"cfg", map[string]any{"t": map[string]any{"x": 3.0}}}},
+			python: `{"state":"hi","model":"jev-latest","questions":` + probeQuestions + `,"cfg":{"t":{"x":3.0}}}`,
+			want:   `{"state":"hi","model":"jev-latest","questions":` + probeQuestions + `,"cfg":{"t":{"x":3}}}`,
+			check:  sameNumbers,
 		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := mustBody(t, tt.state, "jev-latest", probeSet(t))
+			got := mustBody(t, tt.state, "jev-latest", probeSet(t), tt.extra...)
 			if diff := gocmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("sonic's bytes changed (-pinned +go):\n%s", diff)
 			}
@@ -1156,5 +1151,32 @@ func TestEncodeErrorMessageIsBounded(t *testing.T) {
 				t.Errorf("the cause behind Unwrap is %d bytes, want the whole cause (at least %d)", len(cause), len(payload))
 			}
 		})
+	}
+}
+
+// jsonNumber matches the numbers of a JSON body whose strings hold no digits.
+var jsonNumber = regexp.MustCompile(`-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?`)
+
+// sameNumbers checks that the numbers of Python's body and Go's, in order,
+// read back as the same float64, their spelling aside; -0.0 may lose its
+// sign (R46).
+func sameNumbers(t *testing.T, python, got string) {
+	t.Helper()
+	py, gonums := jsonNumber.FindAllString(python, -1), jsonNumber.FindAllString(got, -1)
+	if len(py) == 0 || len(py) != len(gonums) {
+		t.Fatalf("Python's body has %d numbers %q, Go's %d %q", len(py), py, len(gonums), gonums)
+	}
+	for i := range py {
+		p, err1 := strconv.ParseFloat(py[i], 64)
+		g, err2 := strconv.ParseFloat(gonums[i], 64)
+		if err1 != nil || err2 != nil {
+			t.Fatalf("number %d: %v, %v", i, err1, err2)
+		}
+		if p != g { // -0.0 == 0 holds: only the sign differs
+			t.Errorf("number %d: Python %s reads as %v, Go %s as %v", i, py[i], p, gonums[i], g)
+		}
+		if math.Signbit(p) != math.Signbit(g) && py[i] != "-0.0" {
+			t.Errorf("number %d: sign differs: Python %s, Go %s", i, py[i], gonums[i])
+		}
 	}
 }

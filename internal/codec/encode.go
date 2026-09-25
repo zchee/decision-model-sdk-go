@@ -134,6 +134,12 @@ func EncodeState(buf *[]byte, state any) error {
 // [ErrPlainBytes], as for the state (ruling R56), and a []byte nested inside
 // v is sent as a base64 string. A value sonic cannot encode fails with an
 // [*EncodeError]. On failure *buf keeps its length from before the call.
+//
+// Floats and map members follow the state's rules (rulings R46, R55 and
+// R59): floats keep sonic's spelling, 3.0 written 3, -0.0 as 0, fixed digits
+// for 1e16 <= |x| < 1e21 and 1e-6 <= |x| < 1e-5; a map's members go out in
+// Go's iteration order. Raw JSON appended with [AppendRawValue], or a number
+// carried as a string, keeps an exact spelling.
 func EncodeValue(buf *[]byte, v any) error {
 	if _, ok := v.([]byte); ok {
 		return ErrPlainBytes
