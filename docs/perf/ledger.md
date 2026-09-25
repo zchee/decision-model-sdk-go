@@ -78,6 +78,11 @@ experiment set are in [`../support.md`](../support.md#measurement-rule).
 | W0.5-06 | 2026-09-25 08:07:52 UTC | W0.5 S-C1 correctness | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.00 → 1.28 | `sh $R '(L)' $O /tmp/ts-spike/bench.lock test-L -count=1 -v -run '^(TestSystemOneDecodes\|TestRequestShape\|TestGetBodyReplay\|TestReadBody\|TestSystemOneCap)$' ./_spikes/s-c1/` | `ok`, 26 tests and subtests PASS | not a measurement; `results/test-L.txt` |
 | W0.5-07 | 2026-09-25 08:07:53 UTC | W0.5 S-C1 under -race | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 1.28 → 1.26 | `sh $R '(L)' $O /tmp/ts-spike/bench.lock race-L -race -count=1 ./_spikes/s-c1/` | `ok` in 1.433s | not a measurement; `results/race-L.txt` |
 | W0.5-08 | 2026-09-25 08:08:07 UTC | W0.5 S-C1 ns/op | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 1.16 → 0.98 | `MAXLOAD=44 sh $R '(L)' $O /tmp/ts-spike/bench.lock bench-L -run '^$' -bench . -benchmem -count=5 ./_spikes/s-c1/` | q3: floor 564.8 ns, E_sonic 93.51 ns, call/sdk 5.837 µs, call/naive 16.76 µs; q20: floor 601.7 ns, call/sdk 24.25 µs, call/naive 77.34 µs (medians of 5); [W0.5 tables](#w05-tables) | `results/bench-L.txt`, `results/benchstat-L.txt` |
+| W1.3-01 | 2026-09-25 21:48:48 JST | W1.3 `Prepare()` allocations | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 8.06 → 7.90 | `BASE=$BASE GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock alloc-M-base95f3e4c -count=1 -run '^TestAllocPrepare$' -v .` | mallocs/B (5/5 runs agree): sketch 9/1 016, one noul 3/224, 20×10 choices 27/15 256, 20×8 text scores 27/17 176, 20×8 JSON scores 36/44 408, 100 raw 1 710/78 080, escapes 12/8 536; NIT 8 pairs 252 vs 132 and 1 215 vs 615; [W1.3 tables](#w13-tables) | base 95f3e4c (production code as b227e5b); `results/alloc-M-base95f3e4c.txt` |
+| W1.3-02 | 2026-09-25 21:48:55 JST | W1.3 `Prepare()` ns/op | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 8.39 → 5.29 | `BASE=$BASE GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock MAXLOAD=16 sh $R '(M)' $O $SP/bench.lock bench-M-base95f3e4c -run '^$' -bench '^Benchmark(Prepare\|FalsyJSON)$' -benchmem -count=5 .` | sketch 605.2 ns, one noul 99.30 ns, 20×10 choices 11.79 µs, 20×8 text scores 9.417 µs, 20×8 JSON scores 25.32 µs, 100 raw 73.01 µs, escapes 3.282 µs (medians of 5); `falsyJSON` on the array 1.194 µs; [W1.3 tables](#w13-tables) | base 95f3e4c; load gate 16, waited 0; `results/bench-M-base95f3e4c.txt`, `results/benchstat-M-base95f3e4c.txt` |
+| W1.3-03 | 2026-09-25 21:51:01 JST | W1.3 `Prepare()` allocation call sites | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 4.38 → 4.38 | `GOEXPERIMENT=nosimd,noruntimesecret sh _spikes/w1.3/breakdown.sh "$PWD" $SP/bench.lock $O/breakdown-M-base95f3e4c.txt <tmpdir>` | memprofile traces at rate 1 per case; [W1.3 findings](#w13-findings) item 3 | base 95f3e4c; the script (committed with the results) takes the lock itself; `results/breakdown-M-base95f3e4c.txt` |
+| W1.3-04 | 2026-09-25 12:49:07 UTC | W1.3 `Prepare()` allocations | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.04 → 0.04 | `BASE=$BASE sh $R '(L)' $O /tmp/ts-spike/bench.lock alloc-L-base95f3e4c -count=1 -run '^TestAllocPrepare$' -v .` | identical to W1.3-01 in every malloc and byte count and every prepared length | base 95f3e4c; `results/alloc-L-base95f3e4c.txt` |
+| W1.3-05 | 2026-09-25 12:49:08 UTC | W1.3 `Prepare()` ns/op | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.04 → 0.63 | `BASE=$BASE MAXLOAD=44 sh $R '(L)' $O /tmp/ts-spike/bench.lock bench-L-base95f3e4c -run '^$' -bench '^Benchmark(Prepare\|FalsyJSON)$' -benchmem -count=5 .` | sketch 1.155 µs, one noul 180.2 ns, 20×10 choices 20.28 µs, 20×8 text scores 16.09 µs, 20×8 JSON scores 44.48 µs, 100 raw 133.7 µs, escapes 5.384 µs (medians of 5); `falsyJSON` on the array 2.089 µs; [W1.3 tables](#w13-tables) | base 95f3e4c; `results/bench-L-base95f3e4c.txt`, `results/benchstat-L-base95f3e4c.txt` |
 
 ## W0.4 transport spikes (S-T1 to S-T5b, F1)
 
@@ -1670,3 +1675,275 @@ undeclared. Replies without headers (see above).
 | (v) undeclared 16 MiB | ok | 26/33 294 392 | 7/33 292 288 | 28/33 491 000 | 9/33 488 896 | 32/33 552 440 | 13/33 550 336 |
 | (vi) declared `result.json` | ok | 20/2 488 | 1/384 | 20/2 488 | 1/384 | 20/2 488 | 1/384 |
 | (vii) undeclared `result.json` | ok | 20/264 248 | 1/262 144 | 20/67 640 | 1/65 536 | 20/6 200 | 1/4 096 |
+
+## W1.3: Prepare() allocations
+
+`BenchmarkPrepare`, `BenchmarkFalsyJSON` and their question sets
+(`prepareCases`) are in `bench_prepare_test.go`; `TestAllocPrepare`
+(`//go:build !race`) is in `alloc_prepare_test.go`. Both landed in 95f3e4c on
+top of b227e5b (W1.1 as landed). 95f3e4c changes no production file, so every
+number here is b227e5b's `Prepare()`. The measured section is `qs.Prepare()`
+alone; `NewQuestions()` and the adding methods build the set outside it. Raw
+outputs: `_spikes/w1.3/results/`. The tables under
+[W1.3 tables](#w13-tables) were printed from those files by
+`_spikes/w1.3/render.py results 95f3e4c`, which also checks that (M) and (L)
+agree and that each row of the call-site table sums to the measured count.
+The runs are rows W1.3-01 to W1.3-05 of the [Rows](#rows) table. Commands use
+`R=_spikes/s-c1/run.sh` (W0.5's runner: `flock(1)` on the shared lock; a header
+with the date, the load from `uptime` and from the kernel, the base,
+`go version` and ToolTags; a footer with the exit status, date and load; all
+printed by the shell that runs the measurement), `O=_spikes/w1.3/results`,
+`SP=/private/tmp/claude-501/-Users-zchee-go-src-github-com-zchee-typesafe-sdk-go/c8084031-5323-4873-8c36-a19f65c9e6ff/scratchpad`
+and `BASE='95f3e4c (production code as b227e5b)'`.
+
+The sets, by sub-benchmark name (`prepareCases` holds the code):
+
+- `c1-sketch`: the plan's §5 sketch: a noul with instructions and a yes
+  outcome, a choice with instructions and two options (one described), a
+  score with three text levels, and a raw noul with one string field.
+- `c2-noul-short`: one noul, `Instructions: Text("Spam?")`.
+- `c3-choice-20x10`: 20 choices with instructions and 10 described options
+  each.
+- `c4a-score-20x8-text` and `c4b-score-20x8-json`: 20 scores with
+  instructions and 8 levels each; a level is text, or a JSON object
+  pretty-printed as `json.MarshalIndent` writes it (two-space indent), which
+  Prepare compacts.
+- `c5-raw-100x3`: 100 raw `noul` questions with three fields: `instructions`
+  (a string), `weight` (float64 0.5) and `meta` (a `map[string]any` holding a
+  string, a `[]any` of two strings and a `map[string]any` of two ints).
+- `c6-escapes`: `c1-sketch` with U+0000 to U+001F, U+2028, U+2029 and U+1F600
+  appended to every name and text.
+- The NIT 8 pairs: `n8a-array-score` is 20 raw `score` questions with
+  `instructions`, `weight` and a `criteria` that is `RawJSON` of `c4b`'s eight
+  levels as one pretty-printed array; `n8b-map-score` is 100 such questions
+  whose `criteria` is `JSON` content of a pretty-printed object with nested
+  objects and arrays. Each `-control` is the same set with the type `Score`:
+  `prepareRaw` compares the type with `"score"` (`questions.go:350`), so the
+  falsiness check does not run while the writer does the same work, and
+  score − control is the cost of the check.
+
+### How the numbers were taken
+
+- (M): `go1.27.1 darwin/arm64`, `GOEXPERIMENT=nosimd,noruntimesecret` (the
+  ToolTags in the rows are the Go 1.27 baseline). Every run, the profile
+  included, held `/opt/homebrew/opt/util-linux/bin/flock` on `$SP/bench.lock`.
+  First start 2026-09-25 21:48:48 JST, last end 21:51:03 JST (raw headers and
+  footers).
+- (L): the committed tree without `.git` and `_spikes/w1.3`, copied with the
+  §11 `tar | ssh 'tar -x'` pipe to `/tmp/ts-spike/src-w1.3/wt-w1.3`. Toolchain
+  `/tmp/ts-spike/go/bin/go` (`go1.27.1 linux/amd64`), with
+  `GOPATH=/tmp/ts-spike/gopath GOMODCACHE=/tmp/ts-spike/modcache
+  GOCACHE=/tmp/ts-spike/gocache` and no `GOEXPERIMENT`; each run held
+  `flock /tmp/ts-spike/bench.lock`. First start 2026-09-25 12:49:07 UTC, last
+  end 12:50:32 UTC.
+- Allocations: `testsupport.MeasureMin`, i.e. `runtime.ReadMemStats` deltas of
+  `Mallocs` and `TotalAlloc` under `testsupport.QuietRuntime` (collector off,
+  `GOMAXPROCS(1)`). Five runs, each on a fresh set from `prepareCases`; the
+  result is the minimum that at least three runs share in both counters.
+  Prepare uses no pool, so nothing is warmed first. In every case on both
+  hosts all five runs agreed in both counters, so each byte range is a single
+  value.
+- Time: `for b.Loop()` with `b.ReportAllocs()` and the collector on. The set
+  is built once, before the loop, because Prepare only reads it. `-count=5`;
+  the tables show the median of the five and half their min-to-max spread.
+  `benchstat` summaries are in `results/benchstat-{M,L}-base95f3e4c.txt`
+  (five samples print `± ∞`). `B/op` is within 8 bytes of the collector-off
+  count: the key iterator's 8-byte state word (finding 3) is a tiny
+  allocation, and in a loop it shares a 16-byte block with the next call's.
+- Call sites: `_spikes/w1.3/breakdown.sh`, committed with these results,
+  builds the test binary and runs each case of `TestAllocPrepare` with
+  `-test.memprofilerate=1`. For each case it prints
+  `go tool pprof -sample_index=alloc_objects -focus='Questions..Prepare$' -traces`,
+  with the testing frames dropped, into `results/breakdown-M-base95f3e4c.txt`;
+  the counts there cover MeasureMin's five calls. An 8-byte pointer-free
+  object that fits into the current tiny block counts in `MemStats.Mallocs`
+  but is never sampled. The call-site table was therefore reconciled with the
+  MemStats counts, not summed from the profile, and the renderer checks every
+  row. (L) was not profiled because its counts are identical.
+- Load (R17): on (M), 8.06 → 7.90 (allocations), 8.39 → 5.29 (time) and
+  4.38 → 4.38 (profile), on 16 cores; on (L), 0.04 → 0.04 and 0.04 → 0.63, on
+  44. No row is noisy. The W1.2 lane was working on (M) at the same time;
+  its measurements take the same lock.
+
+### W1.3 findings
+
+1. **Every count is identical on (M) and (L)**: mallocs, bytes and prepared
+   length, for all eleven sets, with 5/5 runs agreeing in each. So
+   `TestAllocPrepare` pins one number per case, not a table keyed by GOARCH.
+2. **The W1.1 lane's numbers reproduce.** `c1-sketch` makes 9 mallocs and
+   `c3-choice-20x10` 27, as the W1.1 handoff reports. The charter's 10 and 28,
+   from the lane's earlier probe, are one more each. That matches the shape
+   before the NIT 7 fix, which removed the second allocation of the
+   `Prepared` wrapper; this is inferred from the order of events, because the
+   probe is not in the tree. The fix holds: `*Prepared` is one
+   64-byte object (`new(Prepared)`, `questions.go:235`), and `Builder.Finish`
+   fills the embedded `wire.Prepared` in place (`-gcflags=-m`: `p does not
+   escape` in `(*Prepared).init`).
+3. **Where the allocations come from** (the call-site table; line numbers at
+   b227e5b):
+   - Fixed, 3 per set: `Builder.Grow` makes `buf` (`prepared.go:190`, sized
+     by `Questions.sizeHint`) and `entries` (`:191`), and `Prepare` makes the
+     `*Prepared`.
+   - Tables, 1 per `Choice` (`labels`, `questions.go:309`) and 1 per `Score`
+     (`levels`, `:324`). Each becomes the question's Options or Levels table
+     in the prepared set, which must not share memory with the caller's
+     values (R45).
+   - Raw map keys: `slices.Sorted(maps.Keys(m))`, once for a raw question's
+     `Fields` (`prepared.go:347`) and once for every nested `map[string]any`
+     and `map[string]string` (`json.go:425`, `:442`). Each call costs 3
+     allocations for the iterator plumbing (the 32-byte yield closure, the
+     24-byte slice header it captures and an 8-byte state word), plus 1 per
+     growth of the key slice from nil (1 key: 1; 2 keys: 2; 3 or 4 keys: 3).
+     `c5-raw-100x3` pays 6 + 6 + 5 = 17 per question for its three maps,
+     which is 1 700 of its 1 710 allocations.
+   - `spans` growth: `Builder.Score` appends one 32-byte `levelSpan` per
+     JSON level to a slice that `Grow` does not size. In
+     `c4b-score-20x8-json`, 160 spans take 9 growths (32 B up to 8 KiB).
+   - Lookup maps: for more than 8 questions (wire's `linearLimit`),
+     `(*Prepared).init` builds the `index` map in 4 allocations (header,
+     directory, table and groups), both at 20 and at 100 questions. For more
+     than 32 (`repeatScanLimit`), `Prepare` also builds its `seen` map, in 3
+     (the header stays on the stack).
+   - `buf` regrowth, when `sizeHint` falls short. `c6-escapes` regrows 3
+     times (1 → 1.5 → 2.25 → 3 KiB), because the hint counts bytes before
+     escaping and a control character is written as up to six bytes. Each n8
+     set regrows 5 times (3.1 → 16 KiB for `n8a`, 16 → 72 KiB for `n8b`),
+     because the hint counts 32 bytes per raw field whatever the field holds.
+   - `falsyJSON` copies: finding 5.
+
+   Nothing else allocates. Text, JSON content, JSON levels and floats are
+   written into `buf` directly, and the JSON compactor keeps its container
+   stack in a 32-byte array on the goroutine stack.
+4. **Time.** `c1-sketch` takes 605.2 ns on (M) and 1.155 µs on (L); the same
+   shape with every string escaped (`c6-escapes`) takes 3.282 µs and
+   5.384 µs. `c5-raw-100x3`, the largest set outside the NIT 8 pairs, takes
+   73.01 µs on (M) and 133.7 µs on (L), with 1 700 of its 1 710 allocations
+   spent sorting map keys.
+5. **NIT 8.** `falsyJSON` runs only for a raw question of type `score`
+   (`questions.go:350`). A typed `Score` (case 4) never reaches it, and
+   neither do case 5's raw `noul` questions; for a map value `falsy` only
+   checks the length and copies nothing. When the criteria are `RawJSON` or
+   `JSON` content that compact to more than 32 bytes, the check costs 6
+   allocations per question. `wire.AppendJSON` outgrows the 32-byte stack
+   buffer five times (objects of 64, 128, 256, 512 and 896 B), and
+   `string(compact)` copies the result once more, into a 704 B object for the
+   array and a 576 B one for the object: the compiler's stack buffer for that
+   conversion is 32 bytes too. The check compacts the whole value, and the
+   writer then compacts it again into `buf`. Across the two pairs this is
+   47.6 % and 49.4 % of the mallocs, 46.5 % and 47.2 % of the bytes, and
+   44.8 % to 46.3 % of the time, on both hosts. Alone, the check takes
+   1.194 µs on (M) and 2.089 µs on (L) for the 8-level array; under 32 bytes
+   it allocates nothing and takes 27.90 ns on (M).
+6. **Not yet in CI.** `TestAllocPrepare` is not in §11's ALLOC list, which
+   belongs to W5.2, so no CI step runs it: the non-race step runs that list
+   only, and the `-race` step excludes the file by its build tag. The lead
+   rules whether it joins the list.
+
+### Proposals for W5.3
+
+The estimates are arithmetic on the call-site table, not measurements.
+
+1. **Raw map keys (the largest).** In `Builder.Raw` and `appendValue`,
+   replace `slices.Sorted(maps.Keys(m))` with a key slice that the `Builder`
+   owns and uses as a stack: append the map's keys at its end, `slices.Sort`
+   that tail, write the members, then truncate. Once the slice has grown, no
+   further map allocates for its keys: `c5-raw-100x3` would fall from 1 710
+   to roughly 10 to 15 allocations, and `c1-sketch` from 9 to 5 or 6. A
+   smaller step, `make([]string, 0, len(m))` with a `for k := range m` loop
+   and `slices.Sort`, leaves 1 allocation per map (`c5` 310, `c1` 6).
+2. **NIT 8: decide falsiness from the first non-space byte.** After
+   `skipSpace`, the value is falsy when it starts with `n` or `f`, and truthy
+   when it starts with `t`. A value starting with `"` is falsy when the next
+   byte is `"`; one starting with `[` or `{` is falsy when the next non-space
+   byte closes it; one starting with `-` or a digit is falsy when its
+   mantissa has no digit from 1 to 9 before `e`, `E` or its end. Only a falsy
+   verdict then runs `wire.AppendJSON` into the 32-byte stack buffer, so that
+   invalid JSON still reads as not falsy and the writer reports its syntax
+   error, as today. That is the path on which the question is rejected, so
+   its cost does not matter. The success path then neither copies nor scans
+   the value: `n8a` would fall from 252 to 132 allocations and `n8b` from
+   1 215 to 615, saving about 1 to 2 µs per question.
+3. **Size the buffer for raw values.** `sizeHint` adds 32 bytes per raw field
+   (`questions.go:482`) whatever the field holds. Adding the length of a
+   top-level string, `RawJSON` or `Content` value removes the 5 regrowths of
+   both n8 sets (a 3.1 KiB buffer that ends at 16 KiB, and a 16 KiB one that
+   ends at 72 KiB).
+4. **Size `spans`.** Count the JSON levels in `sizeHint` and let `Grow`
+   reserve room for them: `c4b-score-20x8-json` would fall from 36 to 28.
+5. **One backing array per table kind.** Cut the choices' `labels` tables
+   from one slice and the scores' `levels` tables from another, sized from
+   the counts that `sizeHint` already walks: `c3-choice-20x10` and
+   `c4a-score-20x8-text` would fall from 27 to 8. Either way the tables live
+   exactly as long as the prepared set; the cost is a count that `sizeHint`
+   has to return.
+6. **Lookup maps.** For sets over 32 questions, hand `Prepare`'s `seen` map to
+   wire as the `index` (as a `map[string]int`) instead of building both: 3
+   fewer allocations for `c5`. Minor.
+7. **Escapes: no change.** `c6-escapes` regrows 3 times because `sizeHint`
+   counts bytes before escaping. Names and texts full of control characters
+   are rare.
+
+### W1.3 tables
+
+#### Allocations and prepared length (W1.3-01, W1.3-04)
+
+| Case | mallocs (M) | mallocs (L) | bytes (M), 5 runs | bytes (L), 5 runs | prepared bytes | pinned |
+| --- | --- | --- | --- | --- | --- | --- |
+| `c1-sketch` 1: the plan's §5 sketch (noul, choice of 2, score of 3, raw noul) | 9 (5/5) | 9 (5/5) | 1 016 | 1 016 | 340 | yes |
+| `c2-noul-short` 2: one noul, short text | 3 (5/5) | 3 (5/5) | 224 | 224 | 47 | yes |
+| `c3-choice-20x10` 3: 20 choices × 10 options | 27 (5/5) | 27 (5/5) | 15 256 | 15 256 | 8 411 | yes |
+| `c4a-score-20x8-text` 4a: 20 scores × 8 text levels | 27 (5/5) | 27 (5/5) | 17 176 | 17 176 | 7 611 |  |
+| `c4b-score-20x8-json` 4b: 20 scores × 8 JSON levels, pretty-printed input | 36 (5/5) | 36 (5/5) | 44 408 | 44 408 | 14 491 |  |
+| `c5-raw-100x3` 5: 100 raw noul × 3 fields (string, float, nested map) | 1 710 (5/5) | 1 710 (5/5) | 78 080 | 78 080 | 15 681 |  |
+| `c6-escapes` 6: the sketch, every name and text + U+0000–U+001F, U+2028, U+2029, U+1F600 | 12 (5/5) | 12 (5/5) | 8 536 | 8 536 | 2 888 |  |
+| `n8a-array-score` NIT 8a: 20 raw score, criteria `RawJSON` array (8 pretty levels) | 252 (5/5) | 252 (5/5) | 110 040 | 110 040 | 14 681 |  |
+| `n8a-array-control` NIT 8a control: the same, type `Score` (no falsiness check) | 132 (5/5) | 132 (5/5) | 58 840 | 58 840 | 14 681 |  |
+| `n8b-map-score` NIT 8b: 100 raw score, criteria `JSON` nested object (pretty) | 1 215 (5/5) | 1 215 (5/5) | 514 944 | 514 944 | 64 581 |  |
+| `n8b-map-control` NIT 8b control: the same, type `Score` (no falsiness check) | 615 (5/5) | 615 (5/5) | 271 744 | 271 744 | 64 581 |  |
+
+#### Allocations by call site (identical on (M) and (L); W1.3-03)
+
+| Case | fixed: `buf`, `entries`, `*Prepared` | tables: `labels` per choice, `levels` per score | raw map keys: `slices.Sorted(maps.Keys(m))` | `spans` growth | `index` map (> 8 questions) | `seen` map (> 32 questions) | `buf` regrowth | `falsyJSON` copies | total |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `c1-sketch` | 3 | 2 | 4 | 0 | 0 | 0 | 0 | 0 | 9 |
+| `c2-noul-short` | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 3 |
+| `c3-choice-20x10` | 3 | 20 | 0 | 0 | 4 | 0 | 0 | 0 | 27 |
+| `c4a-score-20x8-text` | 3 | 20 | 0 | 0 | 4 | 0 | 0 | 0 | 27 |
+| `c4b-score-20x8-json` | 3 | 20 | 0 | 9 | 4 | 0 | 0 | 0 | 36 |
+| `c5-raw-100x3` | 3 | 0 | 1 700 | 0 | 4 | 3 | 0 | 0 | 1 710 |
+| `c6-escapes` | 3 | 2 | 4 | 0 | 0 | 0 | 3 | 0 | 12 |
+| `n8a-array-score` | 3 | 0 | 120 | 0 | 4 | 0 | 5 | 120 | 252 |
+| `n8a-array-control` | 3 | 0 | 120 | 0 | 4 | 0 | 5 | 0 | 132 |
+| `n8b-map-score` | 3 | 0 | 600 | 0 | 4 | 3 | 5 | 600 | 1 215 |
+| `n8b-map-control` | 3 | 0 | 600 | 0 | 4 | 3 | 5 | 0 | 615 |
+
+#### Time (median of 5 ± half the min-to-max spread; W1.3-02, W1.3-05)
+
+| Case | (M) | (L) | B/op | allocs/op |
+| --- | --- | --- | --- | --- |
+| `c1-sketch` | 605.2 ns ± 5.3 ns | 1.155 µs ± 0.006 µs | 1 008 | 9 |
+| `c2-noul-short` | 99.30 ns ± 2.45 ns | 180.2 ns ± 0.7 ns | 224 | 3 |
+| `c3-choice-20x10` | 11.79 µs ± 0.18 µs | 20.28 µs ± 0.08 µs | 15 256 | 27 |
+| `c4a-score-20x8-text` | 9.417 µs ± 0.191 µs | 16.09 µs ± 0.08 µs | 17 176 | 27 |
+| `c4b-score-20x8-json` | 25.32 µs ± 0.41 µs | 44.48 µs ± 0.07 µs | 44 408 | 36 |
+| `c5-raw-100x3` | 73.01 µs ± 1.89 µs | 133.7 µs ± 0.3 µs | 78 080–78 081 | 1 710 |
+| `c6-escapes` | 3.282 µs ± 0.091 µs | 5.384 µs ± 0.030 µs | 8 528 | 12 |
+| `n8a-array-score` | 54.31 µs ± 0.81 µs | 99.61 µs ± 0.10 µs | 110 040 | 252 |
+| `n8a-array-control` | 30.00 µs ± 0.86 µs | 54.32 µs ± 0.18 µs | 58 840 | 132 |
+| `n8b-map-score` | 234.4 µs ± 5.3 µs | 435.7 µs ± 1.7 µs | 514 946–514 947 | 1 215 |
+| `n8b-map-control` | 127.1 µs ± 1.3 µs | 233.8 µs ± 1.4 µs | 271 745–271 746 | 615 |
+
+#### NIT 8: the falsiness check's share (score − control)
+
+| Pair | mallocs | share of mallocs | bytes | share of bytes | time (M), share | time (L), share |
+| --- | --- | --- | --- | --- | --- | --- |
+| `n8a-array` (20 questions) | 252 − 132 = 120 (6 per question) | 47.6% | 110 040 − 58 840 = 51 200 (2 560 per question) | 46.5% | 54.31 µs − 30.00 µs = 24.31 µs (1.216 µs per question), 44.8% | 99.61 µs − 54.32 µs = 45.29 µs (2.264 µs per question), 45.5% |
+| `n8b-map` (100 questions) | 1 215 − 615 = 600 (6 per question) | 49.4% | 514 944 − 271 744 = 243 200 (2 432 per question) | 47.2% | 234.4 µs − 127.1 µs = 107.3 µs (1.073 µs per question), 45.8% | 435.7 µs − 233.8 µs = 201.9 µs (2.019 µs per question), 46.3% |
+
+#### NIT 8: `falsyJSON` alone (`BenchmarkFalsyJSON`; W1.3-02, W1.3-05)
+
+| Input | (M) | (L) | B/op | allocs/op |
+| --- | --- | --- | --- | --- |
+| `small-14B` | 27.90 ns ± 0.55 ns | 48.06 ns ± 0.25 ns | 0 | 0 |
+| `array` | 1.194 µs ± 0.043 µs | 2.089 µs ± 0.006 µs | 2 560 | 6 |
+| `map` | 978.0 ns ± 24.9 ns | 1.769 µs ± 0.007 µs | 2 432 | 6 |
