@@ -74,14 +74,14 @@ IDs that the plan's waves cite.
 | F1 | `test_transport_and_http_client_mutually_exclusive` | deviation "one transport option, two kinds" + `TestTransportOptionsAreExclusive` | planned |
 | F2 | `test_model_override` | `TestModelOverridePerCall` | planned |
 | F3 | `test_resolution` | `TestConfigResolutionOrder` (default/env/explicit) | planned |
-| F4 | `test_missing_key` | `TestMissingAPIKey` | planned |
-| F5 | `test_api_key_whitespace` | `TestAPIKeyTrimmed` | planned |
-| F6 | `test_invalid_explicit_key_does_not_fall_back_to_env` | `TestInvalidExplicitKeyDoesNotFallBack` | planned |
-| F7 | `test_invalid_api_key` | `TestInvalidAPIKeyNeverEchoed` | planned |
-| F8 | `test_empty_env_unset` | `TestBlankEnvIsUnset` | planned |
-| F9 | `test_invalid_timeout` | `TestInvalidTimeout` | planned |
-| F10 | `test_timeout_object` | deviation "one deadline per attempt" | planned |
-| F11 | `test_http_client_timeout_precedence` | deviation "a custom transport owns its timeouts" | planned |
+| F4 | `test_missing_key` | `TestMissingAPIKey` | ported |
+| F5 | `test_api_key_whitespace` | `TestAPIKeyTrimmed` | ported |
+| F6 | `test_invalid_explicit_key_does_not_fall_back_to_env` | `TestInvalidExplicitKeyDoesNotFallBack` | ported |
+| F7 | `test_invalid_api_key` | `TestInvalidAPIKeyNeverEchoed` | ported |
+| F8 | `test_empty_env_unset` | `TestBlankEnvIsUnset` | ported |
+| F9 | `test_invalid_timeout` | `TestInvalidTimeout` | ported |
+| F10 | `test_timeout_object` | deviation "one deadline per attempt" + `TestTimeoutSettings` | deviation |
+| F11 | `test_http_client_timeout_precedence` | deviation "a custom transport owns its timeouts" | deviation |
 
 ### `tests/test_errors.py` (6)
 
