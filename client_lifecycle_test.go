@@ -15,6 +15,7 @@
 package typesafe
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -667,11 +668,16 @@ func TestAttemptErrorClassification(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			clearEnv(t)
 			c := newEnvClient(t, tt.rt, append([]ClientOption{WithAPIKey(longKey)}, tt.client...)...)
-			ctx := t.Context()
+			var ctx context.Context // nil: callWithin's own
 			if tt.ctx != nil {
 				ctx = tt.ctx(t)
 			}
-			_, err := c.Models().List(ctx, tt.call...)
+			// Bounded (K29, K30): a row whose deadline no longer ends the
+			// call fails by name instead of hanging the test binary.
+			_, err := callWithin(t, func(bounded context.Context) error {
+				_, err := c.Models().List(cmp.Or(ctx, bounded), tt.call...)
+				return err
+			})
 			tt.check(t, err)
 		})
 	}
@@ -719,10 +725,7 @@ func TestCloseIdlesSuppliedHTTPTransport(t *testing.T) {
 // here at once instead of at the test binary's timeout. The error's type
 // is W2.5's classification.
 func TestAttemptDeadlineEndsTheCall(t *testing.T) {
-	const (
-		timeout    = 200 * time.Millisecond
-		coarseTick = 20 * time.Millisecond
-	)
+	const timeout = span // at least 250 ms, less one coarseTick below (K30)
 	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		select {
