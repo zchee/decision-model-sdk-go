@@ -47,46 +47,55 @@ func recordsText(logs *testsupport.LogRecorder) string {
 // fields, the response Header among them, as it does for any Go struct. Each call makes one
 // attempt; the upstream 429 row's two retries are W3.3's (L1).
 func TestClientLogsNoCredential(t *testing.T) {
-	spellings := []string{"Authorization", "Proxy-Authorization", "X-API-Key", "API-Key", "Cookie", "Set-Cookie", "X-Access-Token", "X-Client-Secret", "x-MiXeD-ToKeN"}
-	for _, header := range spellings {
+	// The upstream parametrize grid, 9 spellings x 3 statuses, as a map.
+	type test struct {
+		header string
+		status int
+	}
+	tests := map[string]test{}
+	for _, header := range []string{"Authorization", "Proxy-Authorization", "X-API-Key", "API-Key", "Cookie", "Set-Cookie", "X-Access-Token", "X-Client-Secret", "x-MiXeD-ToKeN"} {
 		for _, status := range []int{http.StatusOK, http.StatusBadRequest, http.StatusTooManyRequests} {
-			t.Run(header+"/"+strconv.Itoa(status), func(t *testing.T) {
-				body := []byte(`{"models":[]}`)
-				if status != http.StatusOK {
-					body = []byte(`{"message":"failure"}`)
-				}
-				rec := replying(status, body, header, "response-credential", "X-Visible", "response-visible")
-				logs := testsupport.NewLogRecorder(LevelTrace)
-				clearEnv(t)
-				c := newEnvClient(t, rec, WithAPIKey("auth-credential"), WithHeader(header, "request-credential"), WithHeader("x-visible", "request-visible"), WithLogger(logs.Logger()))
-				_, err := c.Models().List(t.Context())
-				if (err == nil) != (status == http.StatusOK) {
-					t.Fatalf("List error = %v for status %d", err, status)
-				}
-				if rec.Count() != 1 {
-					t.Errorf("the transport saw %d requests, want 1", rec.Count())
-				}
-				text := recordsText(logs)
-				for _, visible := range []string{"request-visible", "response-visible", redacted} {
-					if !strings.Contains(text, visible) {
-						t.Errorf("the records lack %q:\n%s", visible, text)
-					}
-				}
-				for _, secret := range []string{"auth-credential", "request-credential", "response-credential"} {
-					if strings.Contains(text, secret) {
-						t.Errorf("the records hold %q:\n%s", secret, text)
-					}
-					if err == nil {
-						continue
-					}
-					for _, verb := range []string{"%v", "%+v", "%s", "%q"} {
-						if out := fmt.Sprintf(verb, err); strings.Contains(out, secret) {
-							t.Errorf("%s of the error holds %q: %s", verb, secret, out)
-						}
-					}
-				}
-			})
+			tests["success: "+header+"/"+strconv.Itoa(status)] = test{header: header, status: status}
 		}
+	}
+	for name, tt := range tests {
+		header, status := tt.header, tt.status
+		t.Run(name, func(t *testing.T) {
+			body := []byte(`{"models":[]}`)
+			if status != http.StatusOK {
+				body = []byte(`{"message":"failure"}`)
+			}
+			rec := replying(status, body, header, "response-credential", "X-Visible", "response-visible")
+			logs := testsupport.NewLogRecorder(LevelTrace)
+			clearEnv(t)
+			c := newEnvClient(t, rec, WithAPIKey("auth-credential"), WithHeader(header, "request-credential"), WithHeader("x-visible", "request-visible"), WithLogger(logs.Logger()))
+			_, err := c.Models().List(t.Context())
+			if (err == nil) != (status == http.StatusOK) {
+				t.Fatalf("List error = %v for status %d", err, status)
+			}
+			if rec.Count() != 1 {
+				t.Errorf("the transport saw %d requests, want 1", rec.Count())
+			}
+			text := recordsText(logs)
+			for _, visible := range []string{"request-visible", "response-visible", redacted} {
+				if !strings.Contains(text, visible) {
+					t.Errorf("the records lack %q:\n%s", visible, text)
+				}
+			}
+			for _, secret := range []string{"auth-credential", "request-credential", "response-credential"} {
+				if strings.Contains(text, secret) {
+					t.Errorf("the records hold %q:\n%s", secret, text)
+				}
+				if err == nil {
+					continue
+				}
+				for _, verb := range []string{"%v", "%+v", "%s", "%q"} {
+					if out := fmt.Sprintf(verb, err); strings.Contains(out, secret) {
+						t.Errorf("%s of the error holds %q: %s", verb, secret, out)
+					}
+				}
+			}
+		})
 	}
 }
 

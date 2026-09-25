@@ -387,32 +387,40 @@ func assertDeadline(t *testing.T, cp *capture, i int, before time.Time, d time.D
 // a key padded with whitespace, from the environment or from WithAPIKey,
 // reaches Authorization trimmed. TestAPIKeyTrimmed checks the resolution.
 func TestAPIKeyTrimmedOnTheWire(t *testing.T) {
+	// The upstream parametrize grid, 4 paddings x 2 sources, as a map.
+	type test struct {
+		padding string
+		env     bool
+	}
+	tests := map[string]test{}
 	for _, padding := range []string{"", "\n", "\r\n", " \t\r\n "} {
-		for _, source := range []string{"env", "option"} {
-			t.Run(fmt.Sprintf("success: %s padded %q", source, padding), func(t *testing.T) {
-				clearEnv(t)
-				key := padding + testKey + padding
-				var opts []ClientOption
-				if source == "env" {
-					t.Setenv(APIKeyEnv, key)
-				} else {
-					t.Setenv(APIKeyEnv, "env-key")
-					opts = append(opts, WithAPIKey(key))
-				}
-				rec := replying(http.StatusOK, []byte(`{"models":[]}`))
-				c := newEnvClient(t, rec, opts...)
-				resp, err := c.Models().List(t.Context())
-				if err != nil {
-					t.Fatalf("List: %v", err)
-				}
-				if n := len(resp.Models()); n != 0 {
-					t.Errorf("List returned %d models, want 0", n)
-				}
-				if diff := gocmp.Diff("Bearer "+testKey, onlyRequest(t, rec).Header.Get("Authorization")); diff != "" {
-					t.Errorf("Authorization (-want +got):\n%s", diff)
-				}
-			})
-		}
+		tests[fmt.Sprintf("success: env padded %q", padding)] = test{padding: padding, env: true}
+		tests[fmt.Sprintf("success: option padded %q", padding)] = test{padding: padding}
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			clearEnv(t)
+			key := tt.padding + testKey + tt.padding
+			var opts []ClientOption
+			if tt.env {
+				t.Setenv(APIKeyEnv, key)
+			} else {
+				t.Setenv(APIKeyEnv, "env-key")
+				opts = append(opts, WithAPIKey(key))
+			}
+			rec := replying(http.StatusOK, []byte(`{"models":[]}`))
+			c := newEnvClient(t, rec, opts...)
+			resp, err := c.Models().List(t.Context())
+			if err != nil {
+				t.Fatalf("List: %v", err)
+			}
+			if n := len(resp.Models()); n != 0 {
+				t.Errorf("List returned %d models, want 0", n)
+			}
+			if diff := gocmp.Diff("Bearer "+testKey, onlyRequest(t, rec).Header.Get("Authorization")); diff != "" {
+				t.Errorf("Authorization (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 

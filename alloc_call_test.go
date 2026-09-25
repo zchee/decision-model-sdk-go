@@ -142,9 +142,14 @@ func TestAllocWholeCall(t *testing.T) {
 	items := measureCallItems(t, c, state, qs)
 	t.Logf("ITEM q3 %s", items)
 
-	const n = 15
-	if own > n {
-		t.Errorf("SDK-own allocations of one call = %d, want at most N = %d (AC-P6, frozen-budgets.md)", own, n)
+	// Exact pins (R70 (3)'s precedent), so a regression inside the budget
+	// or a change of the floor fails loudly. The budget is N = 15,
+	// provisional until W3.4 (frozen-budgets.md); the target is 12.
+	if floor != (testsupport.Allocs{Mallocs: 8, Bytes: 640}) {
+		t.Errorf("the floor of one call = %s, want 8/640 (the Recorder's round trip 7/624 and E_sonic 1/16)", floor)
+	}
+	if own != 14 {
+		t.Errorf("SDK-own allocations of one call = %d, want exactly 14 (AC-P6, N = 15)", own)
 	}
 }
 

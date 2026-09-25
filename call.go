@@ -27,8 +27,12 @@ import (
 // [Timeout], [Header], [ExtraBody] and [Retry]. As with [ClientOption], an
 // option only records its setting; the call checks them all before it
 // encodes or sends anything and reports the first it cannot use as a
-// [*ConfigError]. Among options of one kind the last one wins, except that
-// every [Header] and every [ExtraBody] counts. A nil CallOption is ignored.
+// [*ConfigError], in a fixed order whatever the order of the options: a
+// System One call checks the model, then the timeout, then the headers; a
+// list-models call first refuses Model and ExtraBody, then checks the
+// timeout and the headers. Among options of one kind the last one wins,
+// except that every [Header] and every [ExtraBody] counts. A nil CallOption
+// is ignored.
 type CallOption func(*callOptions)
 
 // callOptions is what a list of [CallOption] values recorded. A nil pointer
@@ -66,10 +70,12 @@ func Timeout(d time.Duration) CallOption {
 // The rules of WithHeader apply: the SDK's own headers and the transport's
 // win, and a caller's value of any of them is dropped and logged at
 // [slog.LevelDebug] by name; X-TypeSafe-Retry-Count, which the SDK sets on
-// retries only, is dropped too (py:_core/transport.py:118). The name must be
-// a valid HTTP field name and the value a valid field value, and a name that
-// contains the API key is refused, when the key is at least 8 bytes long, or
-// the call fails before anything is sent. No error repeats a value.
+// retries only, is dropped too (py:_core/transport.py:118).
+//
+// The name must be a valid HTTP field name and the value a valid field
+// value. A name that contains the API key is refused, when the key is at
+// least 8 bytes long (ruling R68). Each of these failures fails the call
+// before anything is sent, and no error repeats a value.
 func Header(name, value string) CallOption {
 	return func(o *callOptions) { o.headers = append(o.headers, headerOption{name: name, value: value}) }
 }
