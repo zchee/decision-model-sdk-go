@@ -14,7 +14,10 @@
 
 package wire
 
-import "net/http"
+import (
+	"net/http"
+	"strings"
+)
 
 // RequestIDHeader is the canonical form of the response header that carries
 // the server's identifier for a request (x-typesafe-request-id on the wire).
@@ -57,16 +60,20 @@ type ResponseMeta struct {
 	Body []byte
 }
 
-// RequestID returns the server's identifier for the request, from the first
-// value of the x-typesafe-request-id header, and whether the header was
-// present. The value is the server's text as it arrived: a caller that puts
-// it into a log line or an error message escapes and cuts it first.
+// RequestID returns the server's identifier for the request, from the
+// x-typesafe-request-id header, and whether the header was present. A header
+// repeated in the response yields its values joined with ", " in the order
+// they arrived, as the Python SDK's request_id reads them (httpx's
+// Headers.get, py:_core/errors.py:115); a single value is returned as is,
+// without allocating. The value is the server's text as it arrived: a caller
+// that puts it into a log line or an error message escapes and cuts it
+// first.
 func (m *ResponseMeta) RequestID() (string, bool) {
 	values := m.Header[RequestIDHeader]
 	if len(values) == 0 {
 		return "", false
 	}
-	return values[0], true
+	return strings.Join(values, ", "), true
 }
 
 // ErrorData is what an unsuccessful response carried, as the lenient

@@ -15,9 +15,10 @@
 package wire
 
 import (
-	"reflect"
 	"strconv"
 	"testing"
+
+	gocmp "github.com/google/go-cmp/cmp"
 )
 
 func TestParseKind(t *testing.T) {
@@ -164,8 +165,8 @@ func TestAnswersPut(t *testing.T) {
 			for _, p := range tt.puts {
 				s.Put(p.name, p.answer)
 			}
-			if got := s.Entries(); !reflect.DeepEqual(got, tt.want) {
-				t.Fatalf("Entries() = %+v, want %+v", got, tt.want)
+			if diff := gocmp.Diff(tt.want, s.Entries()); diff != "" {
+				t.Fatalf("Entries() mismatch (-want +got):\n%s", diff)
 			}
 			if s.Len() != len(tt.want) {
 				t.Errorf("Len() = %d, want %d", s.Len(), len(tt.want))
@@ -175,8 +176,10 @@ func TestAnswersPut(t *testing.T) {
 			}
 			for _, e := range tt.want {
 				got, ok := s.Get(e.Name)
-				if !ok || !reflect.DeepEqual(got, e.Answer) {
-					t.Errorf("Get(%q) = %+v, %t; want %+v, true", e.Name, got, ok, e.Answer)
+				if !ok {
+					t.Errorf("Get(%q) not found, want %+v", e.Name, e.Answer)
+				} else if diff := gocmp.Diff(e.Answer, got); diff != "" {
+					t.Errorf("Get(%q) mismatch (-want +got):\n%s", e.Name, diff)
 				}
 			}
 			if got, ok := s.Get("never-put"); ok {
@@ -235,8 +238,8 @@ func TestAnswersDropUnknown(t *testing.T) {
 				s.Put(p.name, p.answer)
 			}
 			s.DropUnknown()
-			if got := s.Entries(); !reflect.DeepEqual(got, tt.want) {
-				t.Fatalf("Entries() after DropUnknown = %+v, want %+v", got, tt.want)
+			if diff := gocmp.Diff(tt.want, s.Entries()); diff != "" {
+				t.Fatalf("Entries() after DropUnknown mismatch (-want +got):\n%s", diff)
 			}
 			if (s.index != nil) != tt.wantIndex {
 				t.Errorf("index built = %t, want %t", s.index != nil, tt.wantIndex)
@@ -247,8 +250,10 @@ func TestAnswersDropUnknown(t *testing.T) {
 			for _, e := range tt.want {
 				kept[e.Name] = true
 				got, ok := s.Get(e.Name)
-				if !ok || !reflect.DeepEqual(got, e.Answer) {
-					t.Errorf("Get(%q) = %+v, %t; want %+v, true", e.Name, got, ok, e.Answer)
+				if !ok {
+					t.Errorf("Get(%q) not found after DropUnknown, want %+v", e.Name, e.Answer)
+				} else if diff := gocmp.Diff(e.Answer, got); diff != "" {
+					t.Errorf("Get(%q) mismatch (-want +got):\n%s", e.Name, diff)
 				}
 			}
 			for _, p := range tt.puts {
@@ -306,8 +311,8 @@ func TestAnswersReset(t *testing.T) {
 				s.Put(p.name, p.answer)
 				want.Put(p.name, p.answer)
 			}
-			if !reflect.DeepEqual(s.Entries(), want.Entries()) {
-				t.Errorf("Entries() after Reset and Put = %+v, want %+v", s.Entries(), want.Entries())
+			if diff := gocmp.Diff(want.Entries(), s.Entries()); diff != "" {
+				t.Errorf("Entries() after Reset and Put mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
