@@ -703,12 +703,12 @@ func TestRawQuestionKeepsExplicitNull(t *testing.T) {
 	}
 }
 
-// TestArrayContentEverywhere is the question half of test_array_inputs:
-// arrays with nested nulls as instructions, as an outcome or option
-// description and as a score level, typed and raw. The state half, an array
-// state, needs the request encoder (W1.2), which extends this test. A typed
-// Noul leaves the null "false" outcome off (Appendix B: "Typed noul sends
-// null outcomes / empty criteria"); the raw form sends it.
+// TestArrayContentEverywhere ports test_array_inputs (T3): arrays with nested
+// nulls as instructions, as an outcome or option description and as a score
+// level, typed and raw, and as the state, which the request body sends as is
+// next to the typed set. A typed Noul leaves the null "false" outcome off
+// (Appendix B: "Typed noul sends null outcomes / empty criteria"); the raw
+// form sends it.
 func TestArrayContentEverywhere(t *testing.T) {
 	const (
 		instructions = `["Read the message",{"context":null}]`
@@ -746,12 +746,34 @@ func TestArrayContentEverywhere(t *testing.T) {
 			}
 		})
 	}
+
+	typed := tests["success: typed"]
+	qs := prepared(t, typed.qs)
+	type message struct {
+		Message string `json:"message"`
+	}
+	states := map[string]struct {
+		state any
+	}{
+		"success: state as []any":                   {state: []any{map[string]any{"message": "Classify"}, nil}},
+		"success: state as a slice of pointers":     {state: []*message{{Message: "Classify"}, nil}},
+		"success: state as RawJSON":                 {state: RawJSON(`[{"message":"Classify"},null]`)},
+		"success: state as JSON content, compacted": {state: JSON([]byte(`[ {"message": "Classify"}, null ]`))},
+	}
+	for name, tt := range states {
+		t.Run(name, func(t *testing.T) {
+			got := mustBody(t, tt.state, "jev-latest", qs)
+			want := `{"state":[{"message":"Classify"},null],"model":"jev-latest","questions":` + typed.want + `}`
+			if got != want {
+				t.Errorf("body =\n%s\nwant\n%s", got, want)
+			}
+		})
+	}
 }
 
-// TestNullInsideContentSurvives is the question half of
-// test_explicitly_nullable_json_values: a null nested inside structured
-// content is sent. The state half needs the request encoder (W1.2), which
-// extends this test.
+// TestNullInsideContentSurvives ports test_explicitly_nullable_json_values
+// (T5): a null nested inside structured content is sent, in the questions
+// and in the state.
 func TestNullInsideContentSurvives(t *testing.T) {
 	const instructions = `{"text":"Classify","extra":null}`
 	tests := map[string]struct {
@@ -773,6 +795,45 @@ func TestNullInsideContentSurvives(t *testing.T) {
 			if got := mustPrepare(t, tt.qs); got != tt.want {
 				t.Errorf("questions =\n%s\nwant\n%s", got, tt.want)
 			}
+		})
+	}
+
+	typed := tests["success: typed questions of every kind"]
+	qs := prepared(t, typed.qs)
+	type nested struct {
+		Nested *string `json:"nested"`
+	}
+	type state struct {
+		Missing *string `json:"missing"`
+		Items   []any   `json:"items"`
+	}
+	const stateJSON = `{"missing":null,"items":[null,{"nested":null}]}`
+	states := map[string]struct {
+		state any
+		want  []string // the accepted state bytes: a Go map has no member order
+	}{
+		"success: state as a struct": {
+			state: state{Items: []any{nil, nested{}}},
+			want:  []string{stateJSON},
+		},
+		"success: state as RawJSON": {
+			state: RawJSON(stateJSON),
+			want:  []string{stateJSON},
+		},
+		"success: state as map[string]any, in either member order": {
+			state: map[string]any{"missing": nil, "items": []any{nil, map[string]any{"nested": nil}}},
+			want:  []string{stateJSON, `{"items":[null,{"nested":null}],"missing":null}`},
+		},
+	}
+	for name, tt := range states {
+		t.Run(name, func(t *testing.T) {
+			got := mustBody(t, tt.state, "jev-latest", qs)
+			for _, w := range tt.want {
+				if got == `{"state":`+w+`,"model":"jev-latest","questions":`+typed.want+`}` {
+					return
+				}
+			}
+			t.Errorf("body =\n%s\nwant the state as one of %q, then the typed questions\n%s", got, tt.want, typed.want)
 		})
 	}
 }
