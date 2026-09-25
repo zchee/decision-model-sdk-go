@@ -18,6 +18,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -332,10 +333,17 @@ func (c credentials) redact(s string) (string, bool) {
 const maxChainErrors = 64
 
 // cause returns the error an SDK error made from the transport's error err
-// unwraps to: err itself, unless the text of err or of an error its chain
-// wraps (errors.Unwrap, both forms) holds a credential, in which case it
-// returns a [scrubbedError] standing in for err, so that no printed form of
-// the SDK error or of anything it unwraps to shows the credential.
+// unwraps to: err itself, unless a printed form of err or of an error its
+// chain wraps (errors.Unwrap, both forms) holds a credential
+// ([credentials.printed]), in which case it returns a [scrubbedError]
+// standing in for err, so that no printed form of the SDK error or of
+// anything it unwraps to shows the credential.
+//
+// An error whose fields point to the request, such as a caller's error type
+// that keeps the *http.Request, is kept: fmt prints a pointer inside a value
+// as an address, so no printed form shows the credential, and errors.As
+// reaches the error with the request the caller's own RoundTripper, dialer
+// or body gave it (review W2.5 MINOR 2, ruling R82).
 func (c credentials) cause(err error) error {
 	if err == nil || !c.inChain(err) {
 		return err
@@ -353,9 +361,9 @@ func (c credentials) cause(err error) error {
 	return s
 }
 
-// inChain reports whether the text of err, or of an error its chain wraps,
-// holds a credential; a chain of more than [maxChainErrors] errors counts
-// as holding one.
+// inChain reports whether a printed form of err, or of an error its chain
+// wraps, holds a credential ([credentials.printed]); a chain of more than
+// [maxChainErrors] errors counts as holding one.
 func (c credentials) inChain(err error) bool {
 	stack := []error{err}
 	for n := 0; len(stack) > 0 && n < maxChainErrors; n++ {
@@ -364,7 +372,7 @@ func (c credentials) inChain(err error) bool {
 		if e == nil {
 			continue
 		}
-		if _, found := c.redact(e.Error()); found {
+		if c.printed(e) {
 			return true
 		}
 		switch u := e.(type) { //nolint:errorlint // visits each link of the chain as it is; errors.As would skip links.
@@ -375,6 +383,19 @@ func (c credentials) inChain(err error) bool {
 		}
 	}
 	return len(stack) > 0
+}
+
+// printed reports whether a form in which e can be printed holds a
+// credential: its text; %+v, which an fmt.Formatter may widen beyond the
+// text; and %#v, which shows the fields of an error held by value, a
+// request header among them. It runs on the error path only.
+func (c credentials) printed(e error) bool {
+	for _, form := range [...]string{e.Error(), fmt.Sprintf("%+v", e), fmt.Sprintf("%#v", e)} {
+		if _, found := c.redact(form); found {
+			return true
+		}
+	}
+	return false
 }
 
 // causeSentinels are the errors a [scrubbedError] still matches with

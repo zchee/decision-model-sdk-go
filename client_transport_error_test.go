@@ -15,6 +15,7 @@
 package typesafe
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -581,6 +582,88 @@ func TestCallerTransportOwnsItsTimeouts(t *testing.T) {
 			}
 			if elapsed < span-coarseTick || elapsed >= DefaultTimeout/2 {
 				t.Errorf("the call took %v, want the caller's %v timer to end it, not the SDK's %v", elapsed, span, DefaultTimeout)
+			}
+		})
+	}
+}
+
+// valueErr is a caller's error held by value, whose text is clean and whose
+// field holds the request's header: %#v shows the field.
+type valueErr struct{ h http.Header }
+
+func (valueErr) Error() string { return "boom" }
+
+// formatterErr is a caller's error whose text and %#v are clean and whose
+// %+v prints the request's header, as an fmt.Formatter may.
+type formatterErr struct{ h http.Header }
+
+func (formatterErr) Error() string { return "boom" }
+
+func (e formatterErr) Format(f fmt.State, verb rune) {
+	if verb == 'v' && f.Flag('+') {
+		fmt.Fprintf(f, "boom: %v", e.h)
+		return
+	}
+	_, _ = io.WriteString(f, "boom")
+}
+
+// reqErr is a caller's error that points to the request.
+type reqErr struct{ req *http.Request }
+
+func (*reqErr) Error() string { return "boom" }
+
+// TestTransportErrorFieldsHoldNoCredential pins the review's MINOR 2
+// (ruling R82 (b)) through the client: a transport error whose text is
+// clean but whose %#v (an error held by value) or %+v (an fmt.Formatter)
+// shows the request's header is replaced by a stand-in, so no printed form
+// of the SDK error or of anything it unwraps to holds the key; an error
+// that points to the request is kept, prints its pointer as an address, and
+// errors.As reaches the caller's own request through it, which the
+// ConnectionError godoc states.
+func TestTransportErrorFieldsHoldNoCredential(t *testing.T) {
+	const key = `ts_live_q"uo\te%41abcdef`
+	tests := map[string]struct {
+		fail   func(req *http.Request) error
+		text   string // the transport error's text; "boom" when empty
+		keptAs bool   // the error is kept, and errors.As reaches the request
+	}{
+		"error: a value-type error holding the header": {fail: func(req *http.Request) error { return valueErr{h: req.Header.Clone()} }},
+		"error: a Formatter that prints the header under %+v": {
+			fail: func(req *http.Request) error { return formatterErr{h: req.Header.Clone()} },
+		},
+		"error: an error wrapping one that holds the header by value": {
+			fail: func(req *http.Request) error { return fmt.Errorf("round trip: %w", valueErr{h: req.Header.Clone()}) },
+			text: "round trip: boom",
+		},
+		"error: an error pointing to the request is the caller's own": {
+			fail: func(req *http.Request) error { return &reqErr{req: req} }, keptAs: true,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			rt := roundTripFunc(func(req *http.Request) (*http.Response, error) { return nil, tt.fail(req) })
+			clearEnv(t)
+			c := newEnvClient(t, rt, WithAPIKey(key))
+			_, err := c.Models().List(t.Context())
+			text := cmp.Or(tt.text, "boom")
+			ce, ok := errors.AsType[*ConnectionError](err)
+			if !ok || ce.Error() != "Connection error: "+text {
+				t.Fatalf("List error = %T %v, want the *ConnectionError of the transport's text", err, err)
+			}
+			// Every printed form of err and of each error it unwraps to: no
+			// form of the key, raw or quoted, may appear, so the check is on
+			// its prefix.
+			assertNotPrinted(t, err, "ts_live_q")
+			_, standIn := ce.Unwrap().(*scrubbedError) //nolint:errorlint // the direct cause is the stand-in
+			re, reached := errors.AsType[*reqErr](err)
+			if tt.keptAs {
+				if standIn || !reached || !strings.Contains(re.req.Header.Get("Authorization"), key) {
+					t.Errorf("the cause = %T, errors.As reached the request %t; want the caller's error kept and its request reachable", ce.Unwrap(), reached)
+				}
+				return
+			}
+			if !standIn {
+				t.Errorf("the cause = %T, want a *scrubbedError stand-in", ce.Unwrap())
 			}
 		})
 	}

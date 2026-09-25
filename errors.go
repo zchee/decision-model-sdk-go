@@ -377,11 +377,14 @@ func (*ResponseTooLargeError) typesafeError() {}
 //
 // Error returns "Connection error: <cause>", the cause's text escaped, cut
 // at 200 characters and with any credential of the request replaced. Unwrap
-// returns the transport's error, unless its text, or the text of an error
-// it wraps, held a credential: then it returns a stand-in whose text has the
-// credentials replaced and which unwraps only to the well-known errors the
-// transport's error matched, such as [context.DeadlineExceeded],
-// [io.ErrUnexpectedEOF] or a [syscall.Errno].
+// returns the transport's error, unless it, or an error it wraps, showed a
+// credential of the request in its text, its %+v or its %#v: then it
+// returns a stand-in whose text has the credentials replaced and which
+// unwraps only to the well-known errors the transport's error matched, such
+// as [context.DeadlineExceeded], [io.ErrUnexpectedEOF] or a
+// [syscall.Errno]. An error that points to the request, which only a
+// caller's RoundTripper, dialer or response body can return, is kept, and
+// errors.As reaches the caller's own request through it.
 type ConnectionError struct {
 	msg   string
 	err   error
