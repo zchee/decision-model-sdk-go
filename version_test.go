@@ -39,12 +39,14 @@ func TestSDKIdentifier(t *testing.T) {
 }
 
 // TestRuntimeHeaderValue pins the X-TypeSafe-Runtime format, go/<release>
-// (<goos>; <goarch>), for the three shapes runtime.Version takes: a release,
-// a release built with experiments, whose "-X:" suffix is cut (ruling R63;
-// go1.27.1 on (M), darwin/arm64, without the repository's GOEXPERIMENT
-// reports "go1.27.1-X:simd,runtimesecret", and "go1.27.1" with it; probe
-// 2026-09-26 00:28:27 JST), and a development toolchain, whose string has
-// no "go" prefix and is kept whole.
+// (<goos>; <goarch>), for the three shapes runtime.Version takes: a release;
+// a release built with experiments, whose "-X:" or " X:" suffix is cut
+// (rulings R63, R63b); and a development toolchain, whose "devel ..." string
+// has no "go" prefix and is kept whole. The linker writes " X:" when the
+// version already holds a "-" (cmd/link/internal/ld/main.go:193-197).
+// go1.27.1 on (M), darwin/arm64, reports "go1.27.1-X:simd,runtimesecret"
+// without the repository's GOEXPERIMENT and "go1.27.1" with it (probe
+// 2026-09-26 00:28:27 JST).
 func TestRuntimeHeaderValue(t *testing.T) {
 	tests := map[string]struct {
 		version, goos, goarch string
@@ -66,6 +68,18 @@ func TestRuntimeHeaderValue(t *testing.T) {
 			version: "go1.27.1-X:nosimd", goos: "linux", goarch: "amd64",
 			want: "go/1.27.1 (linux; amd64)",
 		},
+		"success: experiments after a space are cut": {
+			version: "go1.27.1-bigcorp X:simd", goos: "linux", goarch: "amd64",
+			want: "go/1.27.1-bigcorp (linux; amd64)",
+		},
+		"success: the earlier of the two spellings wins": {
+			version: "go1.27.1-X:a X:b", goos: "linux", goarch: "amd64",
+			want: "go/1.27.1 (linux; amd64)",
+		},
+		"success: devel string with experiments is kept whole": {
+			version: "devel go1.28-4c3b2a1 Tue Sep 22 10:00:00 2026 +0000 X:simd", goos: "linux", goarch: "arm64",
+			want: "go/devel go1.28-4c3b2a1 Tue Sep 22 10:00:00 2026 +0000 X:simd (linux; arm64)",
+		},
 		"success: devel string is kept whole": {
 			version: "devel go1.28-4c3b2a1 Tue Sep 22 10:00:00 2026 +0000", goos: "linux", goarch: "arm64",
 			want: "go/devel go1.28-4c3b2a1 Tue Sep 22 10:00:00 2026 +0000 (linux; arm64)",
@@ -84,13 +98,15 @@ func TestRuntimeHeaderValue(t *testing.T) {
 	}
 
 	// The value this process sends, derived from the running toolchain by
-	// the same rule: a release loses "go" and any "-X:" suffix, a devel
-	// string is kept whole.
+	// the same rule: a release loses "go" and everything from the first
+	// "-X:" or " X:", a devel string is kept whole.
 	release := runtime.Version()
 	if r, ok := strings.CutPrefix(release, "go"); ok {
 		release = r
-		if i := strings.Index(release, "-X:"); i >= 0 {
-			release = release[:i]
+		for _, sep := range []string{"-X:", " X:"} {
+			if i := strings.Index(release, sep); i >= 0 {
+				release = release[:i]
+			}
 		}
 	}
 	want := "go/" + release + " (" + runtime.GOOS + "; " + runtime.GOARCH + ")"

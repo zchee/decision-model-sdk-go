@@ -41,13 +41,17 @@ var runtimeIdentifier = runtimeHeaderValue(runtime.Version(), runtime.GOOS, runt
 // [runtime.Version] string, as typesafe-sdk-python sends the plain
 // platform.python_version(): "go1.27.1" becomes "1.27.1", and so does
 // "go1.27.1-X:simd,runtimesecret", a toolchain built with experiments, whose
-// suffix names build settings rather than a release (ruling R63). A
-// development toolchain's "devel ..." string has no "go" prefix and is kept
-// whole.
+// suffix names build settings rather than a release (rulings R63, R63b). The
+// linker writes that suffix after " " instead of "-" when the version already
+// holds a "-" (cmd/link/internal/ld/main.go:193-197, go.dev/issue/75953), so
+// "go1.27.1-bigcorp X:simd" becomes "1.27.1-bigcorp"; the release ends at the
+// first "-X:" or " X:". A development toolchain's "devel ..." string has no
+// "go" prefix and is kept whole.
 func runtimeHeaderValue(version, goos, goarch string) string {
 	release, ok := strings.CutPrefix(version, "go")
 	if ok {
 		release, _, _ = strings.Cut(release, "-X:")
+		release, _, _ = strings.Cut(release, " X:")
 	}
 	return "go/" + release + " (" + goos + "; " + goarch + ")"
 }
