@@ -57,15 +57,15 @@ IDs that the plan's waves cite.
 | C10 | `test_validation_before_network` | `TestQuestionValidationBeforeNetwork` | ported |
 | C11 | `test_error_mapping` | `TestAPIErrorMapping` (11 statuses) | ported |
 | C12 | `test_error_messages` | `TestAPIErrorMessages` (8 bodies) | ported |
-| C13 | `test_transport_errors` | `TestTransportErrorsBecomeConnectionOrTimeout` | planned |
-| C14 | `test_system_one_timeout_override` | `TestPerCallTimeoutOverride` (deviation: one deadline per attempt; W2.5 flips the row, R79) | planned |
+| C13 | `test_transport_errors` | `TestTransportErrorsBecomeConnectionOrTimeout` (loopback failures through the client) + `TestAttemptErrorClassification` | ported |
+| C14 | `test_system_one_timeout_override` | deviation "one deadline per attempt" + `TestPerCallTimeoutOverride` | deviation |
 | C15 | `test_headers_timeout_and_logging` | `TestProtectedHeadersAndPrefixBaseURL` + `TestSystemOneOverHTTP2` (the prefix on the wire) | ported |
 | C16 | `test_http_client_settings` | `TestCallerTransportKeepsItsSettings` | ported |
 | C17 | `test_supplied_network_resources_closed` | `TestCloseClosesSuppliedTransport` + `TestCloseIdlesSuppliedHTTPTransport` (a `*http.Transport` through `WithRoundTripper`, R79) | ported |
 | C18 | `test_owned_http_client_closed` | `TestCloseClosesOwnedTransport` | ported |
 | C19 | `test_exceptional_context_closes_http_client` | `TestCloseAfterFailedCall` | ported |
-| C20 | `test_task_cancellation_closes_context` | `TestCancelInFlightRequest` (one attempt, wraps the context's error; the error type is W2.5's) | ported |
-| C21 | `test_cancellation_propagates` | `TestCancelledContextMakesOneAttempt` (the error type is W2.5's) | ported |
+| C20 | `test_task_cancellation_closes_context` | `TestCancelInFlightRequest` (one attempt; `context.Canceled` itself, not an SDK error, as upstream lets `CancelledError` through; the loopback server sees the stream reset) | ported |
+| C21 | `test_cancellation_propagates` | `TestCancelledContextMakesOneAttempt` (one attempt; `context.Canceled` itself) | ported |
 
 ### `tests/test_config.py` (11)
 
@@ -80,8 +80,8 @@ IDs that the plan's waves cite.
 | F7 | `test_invalid_api_key` | `TestInvalidAPIKeyNeverEchoed` | ported |
 | F8 | `test_empty_env_unset` | `TestBlankEnvIsUnset` + `TestBlankEnvIsUnsetOnTheWire` | ported |
 | F9 | `test_invalid_timeout` | `TestInvalidTimeout` + `TestCallOptionsRefused` (the per-call `Timeout`) | ported |
-| F10 | `test_timeout_object` | deviation "one deadline per attempt" + `TestTimeoutSettings` | deviation |
-| F11 | `test_http_client_timeout_precedence` | deviation "a custom transport owns its timeouts" | deviation |
+| F10 | `test_timeout_object` | deviation "one deadline per attempt" + `TestTimeoutSettings` + `TestPerCallTimeoutOverride` | deviation |
+| F11 | `test_http_client_timeout_precedence` | deviation "a custom transport owns its timeouts" + `TestCallerTransportOwnsItsTimeouts` | deviation |
 
 ### `tests/test_errors.py` (6)
 
