@@ -67,9 +67,14 @@ func TestProxyModes(t *testing.T) {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) || !strings.Contains(err.Error(), "proxyconnect") {
 					t.Fatalf("GET error = %v, want a proxyconnect error containing %q", err, tt.wantErr)
 				}
-				if conns := proxy.Conns(); len(conns) != 1 || conns[0].HandshakeErr == "" {
-					t.Errorf("proxy conns %+v, want one failed handshake", conns)
-				}
+				// The proxy records its side of the refused handshake after its
+				// Handshake returns, which can be after the client read the
+				// alert and returned (K29, as in TestLoopbackALPNModes): wait
+				// for the record instead of reading it at once.
+				waitFor(t, "the proxy's record of the refused handshake", func() bool {
+					conns := proxy.Conns()
+					return len(conns) == 1 && conns[0].HandshakeErr != ""
+				})
 				if srv.Accepts() != 0 {
 					t.Errorf("the API server accepted %d connections", srv.Accepts())
 				}
