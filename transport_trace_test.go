@@ -298,6 +298,30 @@ func TestClientTraceColdDialPanic(t *testing.T) {
 	}
 }
 
+// TestClientTraceMergeOrderAndCopy pins how roundTrip merges the two caller
+// traces: the option's hooks run before those of the trace on the call's
+// context, and the merge goes into a copy of the option's trace, so one
+// call's context hooks never reach a later call of the client.
+func TestClientTraceMergeOrderAndCopy(t *testing.T) {
+	var calls []string
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		httptrace.ContextClientTrace(req.Context()).GetConn("api.typesafe.ai:443")
+		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Request: req}, nil
+	})
+	c := mustResolve(t, noEnv, WithAPIKey(testKey), WithRoundTripper(rt),
+		WithClientTrace(&httptrace.ClientTrace{GetConn: func(string) { calls = append(calls, "option") }}))
+	traced := httptrace.WithClientTrace(t.Context(), &httptrace.ClientTrace{GetConn: func(string) { calls = append(calls, "context") }})
+	for i, ctx := range []context.Context{traced, t.Context(), traced} {
+		if r := getVia(ctx, c.transport, "https://api.typesafe.ai/v1/models", 0); r.err != nil || r.status != http.StatusOK {
+			t.Fatalf("call %d = %d %v", i, r.status, r.err)
+		}
+	}
+	want := []string{"option", "context", "option", "option", "context"}
+	if diff := gocmp.Diff(want, calls); diff != "" {
+		t.Errorf("GetConn hooks run (-want +got):\n%s", diff)
+	}
+}
+
 // TestUntracedContext pins the context roundTrip hands net/http when a
 // caller trace is shielded: it hides httptrace's values, so net/http cannot
 // compose the unshielded caller trace again, and keeps everything else of
