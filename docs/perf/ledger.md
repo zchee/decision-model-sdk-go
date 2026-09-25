@@ -2020,6 +2020,157 @@ D1 build line refuses anyway), per R62.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | W1.2-01 | 2026-09-25 22:04:45 JST | W1.2 R48 | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 7.43 → 7.59 | `flock bench.lock GOEXPERIMENT=nosimd,noruntimesecret go test -run '^$' -bench '^BenchmarkEncodeState$' -benchmem -count=10 ./internal/codec/` | medians of 10, check / encode: ASCII 1 KiB 17.74 ns / 150.6 ns (11.8 %), 64 KiB 828.7 ns / 4.728 µs (17.5 %), 6 MiB 81.85 µs / 445.0 µs (18.4 %); CJK 1 KiB 426.5 ns / 555.8 ns (76.7 %), 64 KiB 27.31 µs / 30.96 µs (88.2 %), 6 MiB 2.618 ms / 2.964 ms (88.3 %); every ± ≤ 2 %. The pass reads 52.1–73.6 GiB/s on ASCII and 2.21–2.24 GiB/s on CJK, and allocates nothing (`encode` 1 alloc/op, sonic's) | Against the AC-P6 time clause (q3 `call/sdk` 4.647 µs against `call/naive` 8.968 µs, W0.5-04), the pass adds 18 ns to a 1 KiB ASCII state (0.4 % of `call/sdk`) and 427 ns to a 1 KiB CJK state (9.2 %); the clause holds either way. On CJK text the pass costs about 7.6 × sonic's own encode (2.618 ms against 0.346 ms at 6 MiB). Base b227e5b plus the W1.2 working tree; raw: `_spikes/w1.2/results/bench-utf8-M.txt`, `benchstat-utf8-M.txt`, and `bench-utf8-M.meta.txt` (the run's `date`, load, `go version` and ToolTags lines) |
 
+## W2.0: the production decoder (AC-P2, AC-P8)
+
+W2.0 ports S-D1's winner a1 (ruling R24) into `internal/codec`
+(`DecodeSystemOne`, `DecodeModels`) behind the root's `decodeSystemOne`.
+Four changes from the spike bring the decoder to the Python SDK's
+failures (schema order per kind, the answer-type pre-pass, a null token
+count read as absent, and `models[i].<member>` paths; probe output
+`_spikes/w2.0/results/python-paths.txt`). A fifth change, the one that
+moves the numbers, is interning (plan 6.2.5): every string of the answers,
+and the model, is the request's own when it is equal to one, and a copy
+otherwise, all copies of one decode sharing one arena. So a result never
+aliases the body. Measured at 8686b40, whose production code is the
+decoder's as landed (4d748d1, 65fccfd, 1b45de6). Raw outputs are in
+`_spikes/w2.0/results/`. The tables under [W2.0 tables](#w20-tables) were
+printed from those files by `_spikes/w2.0/render.py`, which checks that
+(M) and (L) agree and that every count is within its budget.
+Commands use `R=_spikes/s-c1/run.sh` (W0.5's runner), `O=_spikes/w2.0/results`,
+`SP=/private/tmp/claude-501/-Users-zchee-go-src-github-com-zchee-typesafe-sdk-go/c8084031-5323-4873-8c36-a19f65c9e6ff/scratchpad`
+and `BASE=8686b40`.
+
+### How the numbers were taken
+
+- (M): `go1.27.1 darwin/arm64`, `GOEXPERIMENT=nosimd,noruntimesecret`. Every
+  run held `/opt/homebrew/opt/util-linux/bin/flock` on `$SP/bench.lock`.
+- (L): the tree at 8686b40, without `.git`, copied with the §11
+  `tar | ssh 'tar -x'` pipe to `/tmp/ts-spike/src-w2.0-meas/wt-meas-8686b40`.
+  Toolchain `/tmp/ts-spike/go/bin/go`, with the §11 `GOPATH`, `GOMODCACHE`
+  and `GOCACHE` under `/tmp/ts-spike` and no `GOEXPERIMENT`. Each run held
+  `flock /tmp/ts-spike/bench.lock`.
+- Allocations: `TestAllocDecodeFixtures` (root, `//go:build !race`) decodes
+  each fixture as a call does. The pooled decoder is warm and the result is
+  fresh. The question set and model are the ones the response answers,
+  built through the public API, so every string is interned; there is no
+  logger. The count is `testsupport.MeasureMin` (`runtime.ReadMemStats`
+  deltas under `QuietRuntime`: collector off, `GOMAXPROCS(1)`, three of five
+  runs agreeing). The "without questions" column is the same decode with
+  neither a question set nor a model: every string is a miss, copied into
+  one arena. The lazy pass alone is `internal/codec`'s
+  `TestLazyPassAllocations`, and AC-P8's ratios are `TestLinearityFlood`
+  (time: the minimum of 21 runs each).
+- Time: `BenchmarkDecode` (the production decode, warm pool, fresh result,
+  interned) and `BenchmarkDecodeNaiveSonic` (owner decision G3:
+  `sonic.Unmarshal` into a `map[string]any`), `for b.Loop()`,
+  `-count=5`, medians. The comparator has no row for
+  `parity-big-exp-unknown`: decoding into a map, sonic refuses `1e400` on
+  both architectures ("float infinity" on arm64, "float number is infinity"
+  on amd64), where the SDK and the Python SDK accept it.
+- Load (R17): (M) allocation rows at 20.95 (16 cores); **the (M) timing row
+  is noisy**, 176.97 at its start after the runner's five waits of 60 s
+  (other lanes were building and testing), so its times are recorded, not of
+  record, and a re-run on the lead's "M QUIET" is owed. (L) 0.06 → 1.06 on
+  44 cores.
+
+### W2.0 findings
+
+1. **AC-P2 holds on both hosts, and every count is identical on (M) and
+   (L).** Each fixture is at its frozen budget, or one allocation below it.
+   The four structured fixtures and `duplicates` are one below: the frozen
+   numbers include the one arena that copied structured levels, and a level
+   equal to the question's compact JSON is now the question's bytes. The
+   plain 3-answer fixture takes 4 allocations: the target of 4 and the
+   ceiling of 8.
+2. **Misses cost one allocation per decode**, whatever their number: every
+   fixture decoded without a question set costs its interned count + 1 (the
+   arena; `no-answers` 0 → 1 for the model), and more bytes. This is the
+   price of "a result never aliases the body" when the server echoes strings
+   the request did not send. It is recorded, not budgeted.
+3. **AC-P8 holds.** Lazy-pass allocations are 86 at 1 011 members and 681 at
+   10 011 (bounds 89 and 689), ratio 7.92 (bound 12). They equal S-D1's 87
+   and 682 minus the arena, which moved to interning. The whole decode takes
+   90 and 685 allocations, ratio 7.61 (bound 12). The 10⁴ : 10³ time ratio is
+   10.12 on (M) and 9.98 on (L) (bound 15).
+4. **AC-P2's "≤ 0.5 × naive", which applies to the plain 3-answer fixture,
+   holds in allocations**: 4 against 26 (M) and 40 (L), 0.15 and 0.10. W5.1
+   owns the clause and its comparator package. The other fixtures are
+   reported, as the plan says. The ratio is 0.03 to 0.29 for the rest,
+   except for three fixtures above 0.5 on (M):
+   `escaped-member-names` 29 / 41 = 0.71, `deviation-lone-surrogate`
+   13 / 24 = 0.54, and on (L) `escaped-member-names` 29 / 51 = 0.57. Their
+   cost is the lazy pass and sonic's unquoting of escaped keys (NF2). The
+   naive comparator itself allocates differently by architecture (26 on
+   arm64, 40 on amd64 for `result.json`).
+5. **K23 stands on arm64: the decode is slower than sonic's generic decode.**
+   On (L), with a quiet host, `result.json` takes 1.20 × the naive time (0.88
+   to 2.61 across fixtures; the floods 1.02 to 1.04). On (M) the ratio is
+   2.23 for `result.json` (1.35 to 4.06), in a noisy row: S-D1 measured 2.01
+   there. W5.3's target is ≤ 1.5 × on (M) (K23).
+
+<a id="w20-tables"></a>
+
+### W2.0 tables
+
+AC-P2 allocations per decode (`alloc-{M,L}.txt`, `bench-{M,L}.txt` for the naive column):
+
+| Fixture | Body bytes | Frozen budget | Allocations (M) | Allocations (L) | Bytes | Without questions (allocs/bytes) | Naive allocs/op (M / L) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `result` | 364 | 4 | 4 | 4 | 688 | 5/752 | 26 / 40 |
+| `type-last` | 364 | 4 | 4 | 4 | 688 | 5/752 | 26 / 40 |
+| `duplicates` | 825 | 17 | 16 | 16 | 5312 | 17/5408 | 55 / 89 |
+| `result-20` | 2253 | 24 | 24 | 24 | 6008 | 25/6520 | 94 / 214 |
+| `score-flood-mini` | 1495 | 21 | 21 | 21 | 4184 | 22/4312 | 96 / 137 |
+| `escaped-names` | 481 | 10 | 10 | 10 | 1224 | 11/1304 | 38 / 57 |
+| `escaped-member-names` | 425 | 30 | 29 | 29 | 5080 | 30/5192 | 41 / 51 |
+| `structured-legend` | 217 | 12 | 11 | 11 | 4464 | 12/4528 | 24 / 27 |
+| `deviation-lone-surrogate` | 219 | 14 | 13 | 13 | 4544 | 14/4592 | 24 / 27 |
+| `unknown-answer-type` | 145 | 1 | 1 | 1 | 144 | 2/160 | 18 / 20 |
+| `parity-big-exp-unknown` | 135 | 1 | 1 | 1 | 144 | 2/160 | no row / no row |
+| `no-answers` | 67 | 0 | 0 | 0 | 0 | 1/16 | 12 / 9 |
+| `structured-legend-flood-1k` | 57418 | 91 | 90 | 90 | 172936 | 91/213896 | 2036 / 6574 |
+| `structured-legend-flood-10k` | 616421 | 686 | 685 | 685 | 1604536 | 686/2005944 | 20095 / 65193 |
+
+AC-P8's lazy pass alone (`alloc-codec-{M,L}.txt`; the escaped keys are counted in `TestLazyPassAllocations`):
+
+| Fixture | Members iterated | Lazy-pass allocations (M = L) | Bytes | Bound 20 + ⌈members/15⌉ + escaped keys + 1 |
+| --- | --- | --- | --- | --- |
+| `escaped-member-names` | 12 | 13 | 4320 | 27 |
+| `duplicates` | 18 | 9 | 4272 | 24 |
+| `deviation-lone-surrogate` | 11 | 8 | 4256 | 22 |
+| `structured-legend-flood-1k` | 1011 | 86 | 106904 | 89 |
+| `structured-legend-flood-10k` | 10011 | 681 | 956872 | 689 |
+| `structured-legend` | 10 | 8 | 4256 | 22 |
+
+Decode time, medians of five, against the sonic-naive comparator (`bench-{M,L}.txt`, `benchstat-{M,L}.txt`; (M) noisy):
+
+| Fixture | (M) decode | (M) naive | (M) ratio | (L) decode | (L) naive | (L) ratio |
+| --- | --- | --- | --- | --- | --- | --- |
+| `result` | 3.323 µs | 1.49 µs | 2.23 | 3.321 µs | 2.764 µs | 1.20 |
+| `type-last` | 3.285 µs | 1.413 µs | 2.32 | 3.338 µs | 2.805 µs | 1.19 |
+| `duplicates` | 12.28 µs | 3.262 µs | 3.76 | 10.93 µs | 6.743 µs | 1.62 |
+| `result-20` | 21.74 µs | 7.271 µs | 2.99 | 21.25 µs | 16.64 µs | 1.28 |
+| `score-flood-mini` | 13.75 µs | 5.67 µs | 2.42 | 13.87 µs | 11.78 µs | 1.18 |
+| `escaped-names` | 4.867 µs | 1.981 µs | 2.46 | 4.911 µs | 4.047 µs | 1.21 |
+| `escaped-member-names` | 6.609 µs | 1.627 µs | 4.06 | 7.186 µs | 3.371 µs | 2.13 |
+| `structured-legend` | 4.053 µs | 1.011 µs | 4.01 | 4.647 µs | 1.926 µs | 2.41 |
+| `deviation-lone-surrogate` | 4.209 µs | 1.07 µs | 3.93 | 5.044 µs | 1.935 µs | 2.61 |
+| `unknown-answer-type` | 1.371 µs | 825.1 ns | 1.66 | 1.285 µs | 1.346 µs | 0.95 |
+| `parity-big-exp-unknown` | 1.274 µs | no row | - | 1.198 µs | no row | - |
+| `no-answers` | 575.2 ns | 426 ns | 1.35 | 525.1 ns | 598.2 ns | 0.88 |
+| `structured-legend-flood-1k` | 667.6 µs | 202.8 µs | 3.29 | 616.9 µs | 603.9 µs | 1.02 |
+| `structured-legend-flood-10k` | 6.828 ms | 1.722 ms | 3.97 | 6.01 ms | 5.804 ms | 1.04 |
+
+| # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| W2.0-01 | 2026-09-26 01:00:42 JST | W2.0 AC-P2, AC-P8 decode allocations and linearity | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 20.95 → 20.95 | `BASE=$BASE GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock alloc-M -count=1 -run '^(TestAllocDecodeFixtures\|TestLinearityFlood)$' -v .` | every fixture within its frozen budget; time ratio 10.12, allocation ratio 7.61; [W2.0 tables](#w20-tables) | `results/alloc-M.txt` |
+| W2.0-02 | 2026-09-26 01:00:42 JST | W2.0 AC-P8 lazy pass | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 20.95 → 20.95 | `BASE=$BASE GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock alloc-codec-M -count=1 -run '^TestLazyPassAllocations$' -v ./internal/codec/` | 86 / 681 allocations at 1 011 / 10 011 members, ratio 7.92 | `results/alloc-codec-M.txt` |
+| W2.0-03 | 2026-09-26 01:08:33 JST | W2.0 decode vs sonic-naive time | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 176.97 → 21.75 **noisy** | `BASE=$BASE GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock MAXLOAD=16 sh $R '(M)' $O $SP/bench.lock bench-M -run '^$' -bench '^Benchmark(Decode\|DecodeNaiveSonic)$' -benchmem -count=5 ./internal/codec/` | `result.json` 3.323 µs against 1.490 µs (2.23 ×); [W2.0 tables](#w20-tables) | waited 5 × 60 s, then ran; re-run owed on "M QUIET"; `results/bench-M.txt`, `results/benchstat-M.txt` |
+| W2.0-04 | 2026-09-25 16:11:04 UTC | W2.0 AC-P2, AC-P8 decode allocations and linearity | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.06 → 0.06 | `BASE=$BASE sh $R '(L)' $O /tmp/ts-spike/bench.lock alloc-L -count=1 -run '^(TestAllocDecodeFixtures\|TestLinearityFlood)$' -v .` | identical to W2.0-01 in every count; time ratio 9.98 | `results/alloc-L.txt` |
+| W2.0-05 | 2026-09-25 16:11:05 UTC | W2.0 AC-P8 lazy pass | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.06 → 0.06 | `BASE=$BASE sh $R '(L)' $O /tmp/ts-spike/bench.lock alloc-codec-L -count=1 -run '^TestLazyPassAllocations$' -v ./internal/codec/` | identical to W2.0-02 | `results/alloc-codec-L.txt` |
+| W2.0-06 | 2026-09-25 16:11:05 UTC | W2.0 decode vs sonic-naive time | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.06 → 1.06 | `BASE=$BASE MAXLOAD=44 sh $R '(L)' $O /tmp/ts-spike/bench.lock bench-L -run '^$' -bench '^Benchmark(Decode\|DecodeNaiveSonic)$' -benchmem -count=5 ./internal/codec/` | `result.json` 3.321 µs against 2.764 µs (1.20 ×); [W2.0 tables](#w20-tables) | `results/bench-L.txt`, `results/benchstat-L.txt` |
+| W2.0-07 | 2026-09-26 01:12:00 JST | W2.0 fuzz, 30 s each | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 55.67 → 175.45 | `GOEXPERIMENT=nosimd,noruntimesecret go test -run '^$' -fuzz '^<target>$' -fuzztime 30s ./internal/codec/` | `FuzzDecodeResponse` 1 691 917 execs, `FuzzErrorBody` 347 194, `FuzzAppendJSON` (R44 differential) 2 507 433; no failure | not a measurement; exec counts depend on load; `results/fuzz-M.txt` |
+
 ## W2.2: `internal/h2gate` (AC-P4, K21b, K22)
 
 Code: `internal/h2gate`, the production gate, token and default transport

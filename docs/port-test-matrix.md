@@ -87,12 +87,12 @@ IDs that the plan's waves cite.
 
 | ID | Upstream | Go test / deviation | status |
 | --- | --- | --- | --- |
-| E1 | `test_exception_reconstruction` | deviation "errors are values" + `TestErrorsAsRoundTrip` | planned |
-| E2 | `test_api_error_from_process_pool` | deviation "no process pools" | planned |
-| E3 | `test_api_error_request_context` | `TestAPIErrorRendersEndpointStatusMessageRequestID` | planned |
-| E4 | `test_api_error_endpoint_omits_url_credentials` | `TestEndpointOmitsCredentialsQueryFragment` | planned |
-| E5 | `test_message_override` | `TestAPIErrorMessageOverride` | planned |
-| E6 | `test_error_body_edge_cases` | `TestAPIErrorBodyEdgeCases` (8 exact) + deviation "plain-text body cut at 200" (`long-plain-message`) | planned |
+| E1 | `test_exception_reconstruction` | deviation "errors are values" + `TestErrorsAsRoundTrip` | deviation |
+| E2 | `test_api_error_from_process_pool` | deviation "no process pools" | deviation |
+| E3 | `test_api_error_request_context` | `TestAPIErrorRendersEndpointStatusMessageRequestID` | ported |
+| E4 | `test_api_error_endpoint_omits_url_credentials` | `TestEndpointOmitsCredentialsQueryFragment` | ported |
+| E5 | `test_message_override` | `TestAPIErrorMessageOverride` | ported |
+| E6 | `test_error_body_edge_cases` | `TestAPIErrorBodyEdgeCases` (8 exact) + deviation "plain-text body cut at 200" (`long-plain-message`) | ported |
 
 ### `tests/test_integration.py` (3)
 
@@ -145,19 +145,19 @@ IDs that the plan's waves cite.
 
 | ID | Upstream | Go test / deviation | status |
 | --- | --- | --- | --- |
-| R1 | `test_malformed_response_raises_validation_error` | `TestMalformedResponseFieldPaths` (8) | planned |
-| R2 | `test_nested_missing_field_path` | `TestModelsMissingMemberPath` | planned |
+| R1 | `test_malformed_response_raises_validation_error` | `TestMalformedResponseFieldPaths` (8) | ported |
+| R2 | `test_nested_missing_field_path` | `TestModelsMissingMemberPath` | ported |
 | R3 | `test_response_carries_request_id` | `TestResponseRequestID` | planned |
 | R4 | `test_response_carries_raw_http_response` | `TestResponseMeta` | planned |
 | R5 | `test_response_serialization_excludes_http_metadata` | `TestResponseJSONRoundTrip` (models and systemone) | planned |
 | R6 | `test_copied_response_preserves_metadata` | deviation "responses are values" + `TestResponseCopyKeepsMeta` | planned |
 | R7 | `test_missing_raw_raises_on_access` | deviation "empty `Meta()`" | planned |
 | R8 | `test_missing_request_id_raises_on_access` | `TestRequestIDAbsent` | planned |
-| R9 | `test_unknown_extra_fields_tolerated` | `TestUnknownMembersIgnored` | planned |
-| R10 | `test_unknown_answer_type_ignored` | `TestUnknownAnswerTypeSkipped` | planned |
-| R11 | `test_response_preserves_nested_json` | `TestStructuredLegendExactBytes` | planned |
+| R9 | `test_unknown_extra_fields_tolerated` | `codec.TestUnknownMembersIgnored` | ported |
+| R10 | `test_unknown_answer_type_ignored` | `TestUnknownAnswerTypeSkipped` | ported |
+| R11 | `test_response_preserves_nested_json` | `codec.TestStructuredLegendExactBytes` | ported |
 | R12 | `test_answer_attributes_and_dictionary_types` | `TestAnswerJSONShapes` | planned |
-| R13 | `test_public_response_types_ignore_unknown_fields` | `TestPublicTypesIgnoreUnknownMembers` (7 types) | planned |
+| R13 | `test_public_response_types_ignore_unknown_fields` | `codec.TestPublicTypesIgnoreUnknownMembers` (7 types) | ported |
 | R14 | `test_answer_fields_are_frozen` | deviation "unexported fields with getters" | planned |
 | R15 | `test_answer_groups_are_cached_and_not_serialized` | deviation "`iter.Seq2` filters" | planned |
 
