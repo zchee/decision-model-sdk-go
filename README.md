@@ -7,8 +7,10 @@ the port proceeds wave by wave, and
 [`docs/port-test-matrix.md`](docs/port-test-matrix.md) tracks every upstream
 test on its way to a Go test or a documented deviation.
 
-- Supported Go releases and platforms, and the Go 1.28 bump procedure:
-  [`docs/support.md`](docs/support.md).
+- The SDK supports Go 1.27.x on `amd64` and `arm64`, the releases the newest
+  `github.com/bytedance/sonic` tag supports, and refuses to compile anywhere
+  else ([`docs/support.md`](docs/support.md) explains why and holds the Go 1.28
+  bump procedure).
 - Behaviour that deliberately differs from the Python SDK: the deviation table
   (the port plan's Appendix B) is to come in `docs/`.
 
