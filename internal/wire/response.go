@@ -37,6 +37,24 @@ type Usage struct {
 	HasOutputTokens bool
 }
 
+// SystemOneResult is the decoded body of a System One response: the model
+// that answered, the token usage and the answers.
+type SystemOneResult struct {
+	// Model is the model that answered.
+	Model string
+	// Usage is the token usage the response reported.
+	Usage Usage
+	// Answers holds the answers, keyed by question name.
+	Answers Answers
+}
+
+// ModelList is the decoded body of a list-models response.
+type ModelList struct {
+	// Models lists the models the account can use, in the order the
+	// response lists them.
+	Models []ModelCard
+}
+
 // ModelCard describes one model the account can use, as GET /v1/models lists
 // it.
 type ModelCard struct {

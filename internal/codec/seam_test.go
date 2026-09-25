@@ -308,6 +308,31 @@ func TestSeamImports(t *testing.T) {
 	}
 }
 
+// TestSeamOneUnsafeFile checks NF6's "one unsafe.String bridge": of the
+// non-test files of internal/codec, exactly one imports unsafe, nocopy.go,
+// which holds NoCopyString. A second importer, even one that only uses
+// unsafe.Sizeof, fails; test files may use unsafe to check aliasing.
+func TestSeamOneUnsafeFile(t *testing.T) {
+	mod := findModule(t)
+	var importers []string
+	codecFiles := 0
+	for _, f := range moduleFiles(t, mod.root) {
+		if f.dir != "internal/codec" || f.test {
+			continue
+		}
+		codecFiles++
+		if slices.Contains(f.imports, "unsafe") {
+			importers = append(importers, f.rel)
+		}
+	}
+	if codecFiles == 0 {
+		t.Fatal("the module walk found no non-test file of internal/codec; the check would pass vacuously")
+	}
+	if want := []string{"internal/codec/nocopy.go"}; !slices.Equal(importers, want) {
+		t.Errorf("non-test files of internal/codec importing unsafe = %q, want %q", importers, want)
+	}
+}
+
 // goList runs the go command in the module root and returns its standard
 // output.
 func goList(t *testing.T, root string, args ...string) string {

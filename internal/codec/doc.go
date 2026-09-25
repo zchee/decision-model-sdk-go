@@ -26,8 +26,10 @@
 //
 // The package holds the request body's scratch pool ([Body]), the request
 // encoder that writes a state or a body member into it ([EncodeState],
-// [EncodeValue], [AppendRawState], [AppendRawValue]), the per-string check
-// the response decoder runs ([ValidString]) and the encoder's [Pretouch]
-// hook. The production decoder lands in a later wave of the port plan
-// (W2.0).
+// [EncodeValue], [AppendRawState], [AppendRawValue]), the response decoder
+// ([DecodeSystemOne], [DecodeModels]: one ast.Preorder traversal that
+// validates every token, a trailing-data check, and a lazy second pass for
+// structured legends), the per-string check the decoder runs
+// ([ValidString]) and the encoder's [Pretouch] hook. Decoded values are the
+// std-only types of internal/wire, which the root package wraps.
 package codec
