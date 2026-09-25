@@ -83,7 +83,9 @@ jobs:
                 echo "::error::env $t go $cmd ./internal/codec/ succeeded: the D1 refusal is gone"
                 exit 1
               fi
-              printf '%s\n' "$out"
+              # The prefix keeps setup-go's Go problem matcher from reporting
+              # the expected refusal as an error annotation.
+              while IFS= read -r line; do printf 'refused as expected | %s\n' "$line"; done <<<"$out"
               echo "::endgroup::"
               if ! grep -qF "$D1_IDENTIFIER" <<<"$out"; then
                 echo "::error::env $t go $cmd ./internal/codec/ failed without naming $D1_IDENTIFIER"
