@@ -2031,8 +2031,11 @@ count read as absent, and `models[i].<member>` paths; probe output
 moves the numbers, is interning (plan 6.2.5): every string of the answers,
 and the model, is the request's own when it is equal to one, and a copy
 otherwise, all copies of one decode sharing one arena. So a result never
-aliases the body. Measured at 8686b40, whose production code is the
-decoder's as landed (4d748d1, 65fccfd, 1b45de6). Raw outputs are in
+aliases the body. Measured at 8686b40, the branch before its rebase onto
+b88758c (W2.1). After the rebase the same commit is 508aae4, and the
+decoder's commits are ee3ed34, 9110dbe and a026e5b. W2.1's config,
+constants, redact and version files are not on the decode path, and the
+raw headers keep the measured SHA. Raw outputs are in
 `_spikes/w2.0/results/`. The tables under [W2.0 tables](#w20-tables) were
 printed from those files by `_spikes/w2.0/render.py`, which checks that
 (M) and (L) agree and that every count is within its budget.
