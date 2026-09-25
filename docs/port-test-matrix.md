@@ -149,17 +149,17 @@ IDs that the plan's waves cite.
 | R2 | `test_nested_missing_field_path` | `TestModelsMissingMemberPath` | ported |
 | R3 | `test_response_carries_request_id` | `TestResponseRequestID` | ported |
 | R4 | `test_response_carries_raw_http_response` | `TestResponseMeta` | ported |
-| R5 | `test_response_serialization_excludes_http_metadata` | `TestResponseJSONRoundTrip` (models and systemone) | planned |
+| R5 | `test_response_serialization_excludes_http_metadata` | `TestResponseJSONRoundTrip` (models and systemone) + `TestResponseJSONFixtures` | ported |
 | R6 | `test_copied_response_preserves_metadata` | deviation "responses are values" + `TestResponseCopyKeepsMeta` | deviation |
 | R7 | `test_missing_raw_raises_on_access` | deviation "empty `Meta()`" + `TestZeroResponseHasEmptyMeta` | deviation |
 | R8 | `test_missing_request_id_raises_on_access` | `TestRequestIDAbsent` | ported |
 | R9 | `test_unknown_extra_fields_tolerated` | `codec.TestUnknownMembersIgnored` + `TestUnknownMembersIgnoredThroughClient` | ported |
 | R10 | `test_unknown_answer_type_ignored` | `TestUnknownAnswerTypeSkipped` + `TestUnknownAnswerTypeThroughClient` | ported |
 | R11 | `test_response_preserves_nested_json` | `codec.TestStructuredLegendExactBytes` | ported |
-| R12 | `test_answer_attributes_and_dictionary_types` | `TestAnswerJSONShapes` | planned |
+| R12 | `test_answer_attributes_and_dictionary_types` | `TestAnswerJSONShapes` | ported |
 | R13 | `test_public_response_types_ignore_unknown_fields` | `codec.TestPublicTypesIgnoreUnknownMembers` (7 types) + `TestPublicTypesIgnoreUnknownMembersThroughClient` | ported |
-| R14 | `test_answer_fields_are_frozen` | deviation "unexported fields with getters" | planned |
-| R15 | `test_answer_groups_are_cached_and_not_serialized` | deviation "`iter.Seq2` filters" | planned |
+| R14 | `test_answer_fields_are_frozen` | deviation "unexported fields with getters" | deviation |
+| R15 | `test_answer_groups_are_cached_and_not_serialized` | deviation "`iter.Seq2` filters" + `TestResponseJSONRoundTrip` | deviation |
 
 ### `tests/test_retry.py` (25)
 

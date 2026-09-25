@@ -299,6 +299,9 @@ func TestResponseCopyKeepsMeta(t *testing.T) {
 	if diff := gocmp.Diff(upstreamAnswers["quality"], viewOf(quality)); diff != "" {
 		t.Errorf("copy's quality (-want +got):\n%s", diff)
 	}
+	if got, want := marshal(t, restored), marshal(t, resp); got != want {
+		t.Errorf("copy's payload = %s, want %s", got, want)
+	}
 }
 
 // TestZeroResponseHasEmptyMeta pins the deviation "empty Meta()" (R7): a

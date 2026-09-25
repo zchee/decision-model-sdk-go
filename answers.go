@@ -48,6 +48,10 @@ type NoulAnswer struct {
 // statement is true.
 func (a NoulAnswer) Noul() float64 { return a.w.Noul }
 
+// MarshalJSON returns the answer as the Python SDK's model_dump_json writes
+// it, such as {"type":"noul","noul":0.98}.
+func (a NoulAnswer) MarshalJSON() ([]byte, error) { return wire.AppendNoulAnswer(nil, &a.w) }
+
 // ChoiceAnswer is the answer to a choice question: the option picked and the
 // probability of every option. See the choice primitive
 // (https://docs.typesafe.ai/primitives/choice).
@@ -78,6 +82,12 @@ func (a ChoiceAnswer) Probabilities() iter.Seq2[string, float64] {
 		}
 	}
 }
+
+// MarshalJSON returns the answer as the Python SDK's model_dump_json writes
+// it, such as
+// {"type":"choice","choice":"billing","confidence":0.9,"probabilities":{"billing":0.9,"support":0.1}},
+// the probabilities in the order of Probabilities.
+func (a ChoiceAnswer) MarshalJSON() ([]byte, error) { return wire.AppendChoiceAnswer(nil, &a.w) }
 
 // ScoreAnswer is the answer to a score question: the expected score, the
 // question's rubric as the response echoes it, and the probability of every
@@ -135,6 +145,15 @@ func (a ScoreAnswer) Probabilities() iter.Seq2[uint32, float64] {
 	}
 }
 
+// MarshalJSON returns the answer as the Python SDK's model_dump_json writes
+// it, such as
+// {"type":"score","score":0.0,"confidence":1.0,"legend":{"0":"bad"},"probabilities":{"0":1.0}},
+// the legend and the probabilities in the order of Legend and
+// Probabilities, each level a decimal member name. A structured level is
+// written as the bytes the response carried ([ScoreAnswer.Description]),
+// where the Python SDK writes the value it parsed.
+func (a ScoreAnswer) MarshalJSON() ([]byte, error) { return wire.AppendScoreAnswer(nil, &a.w) }
+
 // Answer is one answer of any kind: Kind says which of Noul, Choice and
 // Score holds it.
 type Answer struct {
@@ -158,6 +177,10 @@ func (a Answer) Choice() (ChoiceAnswer, bool) {
 func (a Answer) Score() (ScoreAnswer, bool) {
 	return ScoreAnswer{a.w.Score}, a.w.Kind == wire.KindScore
 }
+
+// MarshalJSON returns the answer as the MarshalJSON of its kind writes it.
+// The zero Answer, which is none of the kinds, is written null.
+func (a Answer) MarshalJSON() ([]byte, error) { return wire.AppendAnswer(nil, &a.w) }
 
 // Answers is the answers of one response, keyed by the question names. It
 // reads as the Python SDK's answers dict: a name the response repeats keeps
@@ -266,6 +289,11 @@ func (a Answers) Scores() iter.Seq2[string, ScoreAnswer] {
 		}
 	}
 }
+
+// MarshalJSON returns the answers as the object the "answers" member of a
+// response payload holds, {"<name>":<answer>,…}, in the order of All, each
+// answer as its MarshalJSON writes it. The zero Answers is written {}.
+func (a Answers) MarshalJSON() ([]byte, error) { return wire.AppendAnswers(nil, a.s) }
 
 // entries returns the answers in order, nil for the zero Answers.
 func (a Answers) entries() []wire.AnswerEntry {
