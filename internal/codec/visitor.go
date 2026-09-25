@@ -75,6 +75,16 @@ const (
 // answers, one answer and its probabilities or legend.
 const maxDepth = 4
 
+// maxNesting is the deepest nesting of containers a body may have, the root
+// included: sonic's decoder.Skip, which the trailing-data check runs, takes
+// 4096 and refuses more. The visitor refuses a container past it as it
+// opens, so sonic's traversal, which recurses once per level on the
+// goroutine's stack, stops within that many frames: without the cap a body
+// of a few MiB nested millions deep exhausts the stack and kills the process
+// (review W2.0 MAJOR 1). The Python SDK refuses past 200 nested arrays; the
+// Go port is the more lenient (Appendix B).
+const maxNesting = 4096
+
 // mode is the kind of body a traversal reads.
 type mode uint8
 
@@ -323,7 +333,7 @@ func (v *visitor) checkString(s string) error {
 
 func (v *visitor) push(c ctr) error {
 	if v.sp == maxDepth {
-		return errDepth // unreachable: every readable container is at most maxDepth deep
+		return errReadDepth // unreachable: every readable container is at most maxDepth deep
 	}
 	v.stack[v.sp] = c
 	v.sp++
@@ -334,6 +344,9 @@ func (v *visitor) top() ctr { return v.stack[v.sp-1] }
 
 // begin handles an object (isObj) or an array starting in the current slot.
 func (v *visitor) begin(isObj bool) error {
+	if v.sp+v.ign >= maxNesting {
+		return errDepth
+	}
 	if v.ign > 0 {
 		v.ign++
 		return nil

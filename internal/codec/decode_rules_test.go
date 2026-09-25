@@ -18,11 +18,14 @@ package codec
 
 import (
 	"errors"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	gocmp "github.com/google/go-cmp/cmp"
 
+	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
@@ -504,4 +507,107 @@ func TestDecodeErrorText(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDecodeDepthBound checks the nesting cap of review W2.0 MAJOR 1 and
+// ruling R73: a body may nest 4096 containers in all, the root included,
+// as sonic's decoder.Skip takes, and a container past that is refused by the
+// visitor as it opens (errDepth at the root), so sonic's traversal, which
+// recurses once per level, never goes deeper. A body nested a million deep
+// is refused the same way, with the goroutine's stack growing by a few
+// hundred KiB rather than the 256 MiB it took before the cap (a body under
+// the 16 MiB size cap nested 4x10^6 deep killed the process). Objects stop
+// one level earlier, in Skip: it counts the innermost value of an object.
+func TestDecodeDepthBound(t *testing.T) {
+	arrays := func(n int) string { return strings.Repeat("[", n) + strings.Repeat("]", n) }
+	objects := func(n int) string { return strings.Repeat(`{"a":`, n) + "1" + strings.Repeat("}", n) }
+	systemOne := func(member string) string {
+		return `{"model":"m","usage":{},"answers":{"n":{"type":"noul","noul":1}},"x":` + member + `}`
+	}
+	legend := func(level string) string {
+		return `{"model":"m","usage":{},"answers":{"s":{"type":"score","score":0,"confidence":1,"legend":{"0":` + level + `},"probabilities":{}}}}`
+	}
+	models := func(member string) string {
+		return `{"models":[{"name":"n","description":"d","release_date":"r","x":` + member + `}]}`
+	}
+	tests := map[string]struct {
+		body      string
+		models    bool
+		wantErr   bool
+		wantDepth bool // refused by the visitor's cap, not by Skip
+		bounded   bool // assert bounded stack growth
+	}{
+		"success: 4095 arrays in a root member, 4096 in all":    {body: systemOne(arrays(4095))},
+		"error: 4096 arrays in a root member":                   {body: systemOne(arrays(4096)), wantErr: true, wantDepth: true},
+		"error: 4097 arrays in a root member":                   {body: systemOne(arrays(4097)), wantErr: true, wantDepth: true},
+		"success: 4092 arrays in a legend level, 4096 in all":   {body: legend(arrays(4092))},
+		"error: 4093 arrays in a legend level":                  {body: legend(arrays(4093)), wantErr: true, wantDepth: true},
+		"error: 4095 objects in a root member, refused by Skip": {body: systemOne(objects(4095)), wantErr: true},
+		"error: a million arrays in a root member":              {body: systemOne(arrays(1_000_000)), wantErr: true, wantDepth: true, bounded: true},
+		"success: models, 4093 arrays in a card member":         {body: models(arrays(4093)), models: true},
+		"error: models, 4094 arrays in a card member":           {body: models(arrays(4094)), models: true, wantErr: true, wantDepth: true},
+		"error: models, a million arrays in a card member":      {body: models(arrays(1_000_000)), models: true, wantErr: true, wantDepth: true, bounded: true},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			var err error
+			decode := func() {
+				if tt.models {
+					err = DecodeModels([]byte(tt.body), new(wire.ModelList))
+					return
+				}
+				_, err = DecodeSystemOne([]byte(tt.body), nil, "", new(wire.SystemOneResult))
+			}
+			growth, elapsed := stackGrowth(decode)
+			if !tt.wantErr {
+				if err != nil {
+					t.Fatalf("refused (%v), want accepted", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("accepted, want refused")
+			}
+			if got := pathOf(t, err); got != "." {
+				t.Errorf("path = %q, want %q", got, ".")
+			}
+			if got := errors.Is(err, errDepth); got != tt.wantDepth {
+				t.Errorf("errors.Is(err, errDepth) = %t, want %t (err %v)", got, tt.wantDepth, err)
+			}
+			if tt.bounded {
+				t.Logf("stack growth %d KiB, %v", growth>>10, elapsed)
+				if growth > 16<<20 || elapsed > 2*time.Second {
+					t.Errorf("stack grew by %d bytes in %v, want at most 16 MiB and 2 s", growth, elapsed)
+				}
+			}
+		})
+	}
+	var res wire.SystemOneResult
+	_, err := DecodeSystemOne(testsupport.Fixture(t, "malformed-too-deep.json"), nil, "", &res)
+	if !errors.Is(err, errDepth) {
+		t.Errorf("malformed-too-deep.json: err = %v, want errDepth", err)
+	}
+}
+
+// stackGrowth runs f on a goroutine of its own and returns how much the
+// stack memory in use grew by (runtime.MemStats.StackInuse, read on that
+// goroutine after f returns and before it exits, while its grown stack is
+// still held), which is how deep f recursed, and how long f took.
+func stackGrowth(f func()) (uint64, time.Duration) {
+	var before, after runtime.MemStats
+	var elapsed time.Duration
+	runtime.ReadMemStats(&before)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		start := time.Now()
+		f()
+		elapsed = time.Since(start)
+		runtime.ReadMemStats(&after)
+	}()
+	<-done
+	if after.StackInuse < before.StackInuse {
+		return 0, elapsed
+	}
+	return after.StackInuse - before.StackInuse, elapsed
 }

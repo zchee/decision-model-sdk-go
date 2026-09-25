@@ -267,6 +267,7 @@ func TestMalformedFixturesRefused(t *testing.T) {
 		"malformed-missing-usage.json":      "usage",
 		"malformed-answers-not-object.json": "answers",
 		"deviation-big-exp-noul.json":       "answers.spam.noul",
+		"malformed-too-deep.json":           ".",
 	}
 	for _, name := range testsupport.FixtureNames(t, "malformed-*.json") {
 		if _, ok := want[name]; !ok {

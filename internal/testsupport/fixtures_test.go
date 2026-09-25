@@ -320,6 +320,20 @@ var fixtureManifest = map[string]fixtureSpec{
 	"malformed-missing-model.json":      {classMalformed, schemaFault(`{"usage"`, `{"model":"jev-latest","usage"`)},
 	"malformed-missing-usage.json":      {classMalformed, schemaFault(`"jev-latest",`, `"jev-latest","usage":{},`)},
 	"malformed-answers-not-object.json": {classMalformed, schemaFault(`"answers":[]`, `"answers":{}`)},
+	// Nesting past sonic's limit: 4096 arrays in an unknown member, 4097
+	// containers with the root, where 4096 is the most the decoder and
+	// sonic's Skip take (review W2.0 MAJOR 1). encoding/json takes it, so
+	// the check is on the bytes.
+	"malformed-too-deep.json": {classMalformed, func(raw []byte) error {
+		deep := strings.Repeat("[", 4096) + strings.Repeat("]", 4096)
+		if n := bytes.Count(raw, []byte(deep)); n != 1 {
+			return fmt.Errorf("4096 nested arrays appear %d times, want once", n)
+		}
+		if n := bytes.Count(raw, []byte("[")); n != 4096 {
+			return fmt.Errorf("%d arrays, want the 4096 of the nesting only", n)
+		}
+		return schemaOK(bytes.Replace(raw, []byte(deep), []byte("[]"), 1))
+	}},
 }
 
 // TestFixtureManifest checks that testdata holds exactly the manifest's

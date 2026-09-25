@@ -52,6 +52,7 @@ var wantReject = map[string]string{
 	"malformed-missing-usage.json":      "usage",
 	"malformed-answers-not-object.json": "answers",
 	"deviation-big-exp-noul.json":       "answers.spam.noul",
+	"malformed-too-deep.json":           ".",
 }
 
 // decodeBody decodes body as a System One response against q and model, on

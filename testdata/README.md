@@ -27,6 +27,9 @@ Conventions:
   probed 2026-09-25 16:11:04 JST, and their single-fault repairs were
   accepted; `duplicates.json` was probed again 2026-09-25 16:51:41 JST (time
   from `date`), after it gained the escaped `answers` and the `risk` answer.
+  `malformed-too-deep.json` was probed 2026-09-26 01:58:16 JST
+  (`_spikes/w2.0/python_paths.py`, output in
+  `_spikes/w2.0/results/python-paths.txt`).
   `''` is Python's root path, which Go spells `.` (Appendix B).
 
 ## Ported byte-exact
@@ -124,6 +127,14 @@ Every file here must be rejected with `*ResponseValidationError`.
 | `malformed-missing-model.json` | no `model` member | `'model'` | `model` |
 | `malformed-missing-usage.json` | no `usage` member | `'usage'` | `usage` |
 | `malformed-answers-not-object.json` | `answers` is an array | `'answers'` | `answers` |
+| `malformed-too-deep.json` | 4096 arrays nested in an unknown member, `meta`: 4097 containers with the root | `''` | `.` (the decoder's depth cap, 4096 containers in all, sonic's own limit) |
+
+The two SDKs cap nesting differently, and the Go port is the lenient one:
+the Python SDK refuses a body nested more than 200 arrays deep inside the root
+object (201 fails at `''`), while the Go decoder takes up to 4096 containers
+in all, the root included, sonic's own limit, and refuses beyond it at `.`
+before its traversal recurses further (ruling R73). `malformed-too-deep.json`
+sits past both limits.
 
 The faults inside an unknown member sit in a top-level member, `meta`, that a
 decoder has no reason to read. They are the reason for plan 6.2.2's rule that
