@@ -22,6 +22,7 @@ import (
 	"io"
 	"math"
 	"net"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -208,7 +209,7 @@ func TestEncodeState(t *testing.T) {
 		"error: cyclic map":               {state: cyclicMap(), err: errEncode, wantText: "too deep"},
 		"error: cyclic pointer":           {state: cyclicPointer(), err: errEncode, wantText: "too deep"},
 		"error: cyclic slice":             {state: cyclicSlice(), err: errEncode, wantText: "too deep"},
-		"error: invalid marshaler output": {state: json.RawMessage(`{"a":`), err: errEncode, wantText: "a MarshalJSON method returned invalid JSON (syntax error at position 8)"},
+		"error: invalid marshaler output": {state: json.RawMessage(`{"a":`), err: errEncode, wantText: "a MarshalJSON method returned invalid JSON (syntax error at position "},
 		"error: invalid UTF-8 string":     {state: "a\xffb", err: errUTF8},
 		"error: surrogate bytes (WTF-8)":  {state: "a\xed\xa0\x80b", err: errUTF8},
 		"error: invalid UTF-8 map key":    {state: map[string]any{"k\xff": 1}, err: errUTF8},
@@ -284,7 +285,7 @@ func TestAppendRawState(t *testing.T) {
 		"error: null":                         {raw: ` null`, err: errShape, wantText: "starts with null"},
 		"error: boolean":                      {raw: `true`, err: errShape, wantText: "a boolean"},
 		"error: form feed is not whitespace":  {raw: "\f{}", err: errShape, wantText: `'\f'`},
-		"error: non-ASCII first byte":         {raw: " {}", err: errShape, wantText: "byte 0xc2"},
+		"error: non-ASCII first byte":         {raw: "\u00a0{}", err: errShape, wantText: "byte 0xc2"},
 		"error: a closing bracket is no open": {raw: `}`, err: errShape, wantText: `'}'`},
 	}
 	for name, tt := range tests {
@@ -467,26 +468,29 @@ func TestEncodeStateAllocations(t *testing.T) {
 }
 
 // TestEncodeErrorHidesMarshalerOutput checks that the message of a
-// json.Marshaler's invalid output keeps only the offset (ruling R58): sonic
+// json.Marshaler's invalid output keeps only the position (ruling R58): sonic
 // quotes the whole output, the caller's data, in its own message, which
 // Unwrap still gives. It also pins the shape of sonic's message, so that a
 // sonic upgrade that rewords it fails here instead of letting the output
 // through. Any other sonic message is kept as it is.
 func TestEncodeErrorHidesMarshalerOutput(t *testing.T) {
+	// sonic's position for a truncated output is not stable: 13 for this
+	// one in a normal build, other values under -race (it depends on the
+	// bytes after the output), so the patterns take any position.
 	tests := map[string]struct {
 		state     any
-		want      string // EncodeError's message
-		wantSonic string // a substring of sonic's own message
+		want      string // EncodeError's message, as a regular expression
+		wantSonic string // sonic's own message, as a regular expression
 	}{
 		"success: invalid json.Marshaler output keeps only its position": {
 			state:     json.RawMessage(`{"secret":`),
-			want:      "a MarshalJSON method returned invalid JSON (syntax error at position 13)",
-			wantSonic: sonicMarshalerSyntax + `13: "{\"secret\":"`,
+			want:      `^a MarshalJSON method returned invalid JSON \(syntax error at position [0-9]+\)$`,
+			wantSonic: `^` + regexp.QuoteMeta(sonicMarshalerSyntax) + `[0-9]+: "\{\\"secret\\":"$`,
 		},
 		"success: another sonic message is kept": {
 			state:     []any{make(chan int)},
-			want:      "json: unsupported type: chan int",
-			wantSonic: "json: unsupported type: chan int",
+			want:      `^json: unsupported type: chan int$`,
+			wantSonic: `^json: unsupported type: chan int$`,
 		},
 	}
 	for name, tt := range tests {
@@ -496,11 +500,11 @@ func TestEncodeErrorHidesMarshalerOutput(t *testing.T) {
 			if !ok {
 				t.Fatal("EncodeState did not fail with an *EncodeError")
 			}
-			if diff := gocmp.Diff(tt.want, ee.Error()); diff != "" {
-				t.Errorf("Error (-want +got):\n%s", diff)
+			if !regexp.MustCompile(tt.want).MatchString(ee.Error()) {
+				t.Errorf("Error = %q, want a match of %s", ee.Error(), tt.want)
 			}
-			if !strings.Contains(ee.Unwrap().Error(), tt.wantSonic) {
-				t.Errorf("sonic's message %q does not contain %q", ee.Unwrap().Error(), tt.wantSonic)
+			if !regexp.MustCompile(tt.wantSonic).MatchString(ee.Unwrap().Error()) {
+				t.Errorf("sonic's message %q does not match %s", ee.Unwrap().Error(), tt.wantSonic)
 			}
 		})
 	}

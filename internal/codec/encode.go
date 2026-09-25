@@ -69,8 +69,9 @@ const sonicMarshalerSyntax = "invalid Marshaler output json syntax at "
 // Error returns sonic's message, except for a json.Marshaler whose output is
 // not valid JSON, such as a nested RawJSON or JSON Content: sonic's message
 // quotes that output, which is the caller's data, so only the position sonic
-// reports is kept (it can lie past the end of a truncated output). Unwrap
-// still gives sonic's error.
+// reports is kept; for a truncated output it can lie past the end, and it
+// can differ from one build to another (-race). Unwrap still gives sonic's
+// error.
 func (e *EncodeError) Error() string {
 	msg := e.Err.Error()
 	if rest, ok := strings.CutPrefix(msg, sonicMarshalerSyntax); ok {

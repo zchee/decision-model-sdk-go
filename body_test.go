@@ -901,7 +901,7 @@ func TestNestedContentEncodesAsContent(t *testing.T) {
 		},
 		"error: invalid JSON content nested in the state": {
 			state:   map[string]any{"c": JSON([]byte(`{"a":}`))},
-			wantErr: "state: a MarshalJSON method returned invalid JSON (syntax error at position 5)",
+			wantErr: "state: a MarshalJSON method returned invalid JSON (syntax error at position ",
 		},
 		"error: JSON content that is not an object or an array": {
 			state:   []any{JSON([]byte(`3`))},
