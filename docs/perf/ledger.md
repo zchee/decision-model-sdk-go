@@ -48,6 +48,26 @@ experiment set are in [`../support.md`](../support.md#measurement-rule).
 | W0.4-15 | 2026-09-25 16:27:54 JST | W0.4 S-T1b / F1 matrix | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 13.21 → 40.23, noisy | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock MAXLOAD=16 sh $R '(M)' $MO $SP/bench.lock m-st1b -count=5 -timeout 900s -run '^TestST1bStreamLimit$' -v ./_spikes/s-t/` | 200 vs 8 strict: ok 8 (1-8), deadline 192 (192-199), accepts 1 (1-1); non-strict: ok 200 (200-200), accepts 22 (21-24), wall 50.5 ms; strict+token-first: ok 200 (200-200), accepts 1 (1-1), wall 291.8 ms | [F1 (M)](#f1-results-m); the live API's 1024 is cited, not measured; `results/m-st1b.txt` |
 | W0.4-16 | 2026-09-25 16:33:53 JST | W0.4 S-T1b stall rate | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 23.68 → 22.91, noisy | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock MAXLOAD=16 sh $R '(M)' $MO $SP/bench.lock m-st1b-stall -count=1 -timeout 900s -run '^TestST1bStallRate$' -v ./_spikes/s-t/` | reps (of 20) with a missed 500 ms deadline (refused streams in total): strict+token 5 (refused 109) and 7 (refused 294); strict+token-first 0 (refused 2) and 0 (refused 1); non-strict+limiter100 3 (refused 2702) and 15 (refused 1550) (64 vs 4, 200 vs 8) | `results/m-st1b-stall.txt` |
 | W0.4-17 | 2026-09-25 16:38:21 JST | W0.4 spike package under -race | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 15.73 → 11.96 | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock MAXLOAD=16 sh $R '(M)' $MO $SP/bench.lock m-race -race -count=1 -timeout 900s ./_spikes/s-t/` | `ok` in 47.288s | not a measurement; locked so it cannot overlap one; `results/m-race.txt` |
+| W0.3-01 | 2026-09-25 07:30:14 UTC | W0.3 S-E1 encode allocations, growth, AC-P1 sequence | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.08 → 0.28 | `go test -count=1 -run ^(TestAllocEncode\|TestGrowth\|TestSequence)$ -v ./_spikes/s-e1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-e1/results/alloc-L-base76ffd03.txt` | base 76ffd03; before the drop-path fix; AC-P1 before/after; flock /tmp/ts-spike/bench.lock |
+| W0.3-02 | 2026-09-25 07:44:40 UTC | W0.3 S-E1 encode allocations, growth, AC-P1 sequence | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.54 → 0.64 | `go test -count=1 -run ^(TestAllocEncode\|TestGrowth\|TestSequence)$ -v ./_spikes/s-e1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-e1/results/alloc-L.txt` | base 2305d02; flock /tmp/ts-spike/bench.lock |
+| W0.3-03 | 2026-09-25 16:28:52 JST | W0.3 S-E1 encode allocations, growth, AC-P1 sequence | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 40.23 → 36.54, noisy | `env GOEXPERIMENT=nosimd,noruntimesecret go test -count=1 -run ^(TestAllocEncode\|TestGrowth\|TestSequence)$ -v ./_spikes/s-e1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-e1/results/alloc-M-base76ffd03.txt` | base 76ffd03; before the drop-path fix; AC-P1 before/after; util-linux flock on scratchpad bench.lock |
+| W0.3-04 | 2026-09-25 16:34:27 JST | W0.3 S-E1 encode allocations, growth, AC-P1 sequence | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 22.91 → 21.46, noisy | `env GOEXPERIMENT=nosimd,noruntimesecret go test -count=1 -run ^(TestAllocEncode\|TestGrowth\|TestSequence)$ -v ./_spikes/s-e1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-e1/results/alloc-M.txt` | base 2305d02; util-linux flock on scratchpad bench.lock |
+| W0.3-05 | 2026-09-25 07:44:54 UTC | W0.3 S-E1 encode ns/op | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.64 → 3.35 | `go test -run ^$ -bench . -benchmem -count=5 ./_spikes/s-e1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-e1/results/bench-L.txt` | base 2305d02; flock /tmp/ts-spike/bench.lock |
+| W0.3-06 | 2026-09-25 16:49:47 JST | W0.3 S-E1 encode ns/op | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc goexperiment.simd goexperiment.runtimesecret arm64.v8.0]` | 7.57 → 8.71 | `env GOEXPERIMENT=nosimd,noruntimesecret go test -run ^$ -bench . -benchmem -count=5 ./_spikes/s-e1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-e1/results/bench-M.txt` | base 2305d02; util-linux flock on scratchpad bench.lock |
+| W0.3-07 | 2026-09-25 07:44:40 UTC | W0.3 S-E1 first call (JIT, Pretouch) | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.54 → 0.54 | `go test -count=1 -run ^TestFirstCall$ -v ./_spikes/s-e1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-e1/results/firstcall-L.txt` | base 2305d02; flock /tmp/ts-spike/bench.lock |
+| W0.3-08 | 2026-09-25 16:34:26 JST | W0.3 S-E1 first call (JIT, Pretouch) | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 22.91 → 22.91, noisy | `env GOEXPERIMENT=nosimd,noruntimesecret go test -count=1 -run ^TestFirstCall$ -v ./_spikes/s-e1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-e1/results/firstcall-M.txt` | base 2305d02; util-linux flock on scratchpad bench.lock |
+| W0.3-09 | 2026-09-25 07:30:29 UTC | W0.3 S-E1 AC-P1 sequence, lazy-buffer experiment | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.28 → 0.34 | `go test -count=1 -run ^TestSequence$ -v ./_spikes/s-e1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-e1/results/sequence-lazybuf-L-base76ffd03.txt` | base 76ffd03; with `lazybuf-experiment.diff` applied to internal/codec for the run only; flock /tmp/ts-spike/bench.lock |
+| W0.3-10 | 2026-09-25 16:31:52 JST | W0.3 S-E1 AC-P1 sequence, lazy-buffer experiment | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 30.19 → 29.29, noisy | `env GOEXPERIMENT=nosimd,noruntimesecret go test -count=1 -run ^TestSequence$ -v ./_spikes/s-e1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-e1/results/sequence-lazybuf-M-base76ffd03.txt` | base 76ffd03; with `lazybuf-experiment.diff` applied to internal/codec for the run only; util-linux flock on scratchpad bench.lock |
+| W0.3-11 | 2026-09-25 07:44:39 UTC | W0.3 S-D1 decode allocations | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.54 → 0.54 | `go test -count=1 -run ^TestAllocDecode$ -v ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/alloc-L.txt` | base 2305d02; flock /tmp/ts-spike/bench.lock |
+| W0.3-12 | 2026-09-25 16:34:40 JST | W0.3 S-D1 decode allocations | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 21.46 → 20.86, noisy | `env GOEXPERIMENT=nosimd,noruntimesecret go test -count=1 -run ^TestAllocDecode$ -v ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/alloc-M.txt` | base 2305d02; util-linux flock on scratchpad bench.lock |
+| W0.3-13 | 2026-09-25 07:30:33 UTC | W0.3 S-D1 decode ns/op, primitives, scans, string checks | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.34 → 1.35 | `go test -run ^$ -bench . -benchmem -count=5 ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/bench-L.txt` | base 76ffd03; decoder, codec helpers and fixtures identical at 2305d02; flock /tmp/ts-spike/bench.lock |
+| W0.3-14 | 2026-09-25 16:39:10 JST | W0.3 S-D1 decode ns/op, primitives, scans, string checks | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 11.96 → 9.76 | `env GOEXPERIMENT=nosimd,noruntimesecret go test -run ^$ -bench . -benchmem -count=5 ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/bench-M.txt` | base 2305d02; util-linux flock on scratchpad bench.lock |
+| W0.3-15 | 2026-09-25 07:44:38 UTC | W0.3 S-D1 validity gate and correctness | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.54 → 0.54 | `go test -count=1 -run ^(TestValidityGate\|TestDecodedValues\|TestLastWins\|TestControlRule\|TestFastCheckParity\|TestDuplicatesFixture\|TestModuleDuplicates\|TestStringLengthMix)$ -v ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/gate-L.txt` | base 2305d02; flock /tmp/ts-spike/bench.lock |
+| W0.3-16 | 2026-09-25 16:34:39 JST | W0.3 S-D1 validity gate and correctness | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 21.46 → 21.46, noisy | `env GOEXPERIMENT=nosimd,noruntimesecret go test -count=1 -run ^(TestValidityGate\|TestDecodedValues\|TestLastWins\|TestControlRule\|TestFastCheckParity\|TestDuplicatesFixture\|TestModuleDuplicates\|TestStringLengthMix)$ -v ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/gate-M.txt` | base 2305d02; util-linux flock on scratchpad bench.lock |
+| W0.3-17 | 2026-09-25 07:30:12 UTC | W0.3 S-D1 linearity (AC-P8) | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.08 → 0.08 | `go test -count=5 -run ^TestLinearity$ -v ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/linearity-L.txt` | base 76ffd03; decoder, codec helpers and fixtures identical at 2305d02; flock /tmp/ts-spike/bench.lock |
+| W0.3-18 | 2026-09-25 16:34:41 JST | W0.3 S-D1 linearity (AC-P8) | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 20.86 → 20.86, noisy | `env GOEXPERIMENT=nosimd,noruntimesecret go test -count=5 -run ^TestLinearity$ -v ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/linearity-M.txt` | base 2305d02; util-linux flock on scratchpad bench.lock |
+| W0.3-19 | 2026-09-25 07:44:39 UTC | W0.3 S-D1 R14 and primitive probes | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.54 → 0.54 | `go test -count=1 -run ^(TestProbeR14\|TestProbePrimitivesOnFixtures)$ -v ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/probe-L.txt` | base 2305d02; flock /tmp/ts-spike/bench.lock |
+| W0.3-20 | 2026-09-25 16:34:39 JST | W0.3 S-D1 R14 and primitive probes | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 21.46 → 21.46, noisy | `env GOEXPERIMENT=nosimd,noruntimesecret go test -count=1 -run ^(TestProbeR14\|TestProbePrimitivesOnFixtures)$ -v ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/probe-M.txt` | base 2305d02; util-linux flock on scratchpad bench.lock |
 
 ## W0.4 transport spikes (S-T1 to S-T5b, F1)
 
@@ -503,3 +523,609 @@ returned again, `:1539-1561` `awaitOpenSlotForStreamLocked`, `:1875-1889`
 `forgetStreamID`, `:2616-2618` GOAWAY `MarkDead`, `:2706`/`:2720`
 `processSettings`. `net/http/internal/http2/client_conn_pool.go`: `:51-69`,
 `:258`. `net/http/internal/http2/server.go`: `:1905-1916`.
+
+## W0.3: S-E1 (encode) and S-D1 (decode)
+
+Spike code: `_spikes/s-e1/` and `_spikes/s-d1/` (throwaway; the leading
+underscore keeps them out of `./...`, so run them by path, for example
+`go test ./_spikes/s-d1/`). Raw outputs: `_spikes/*/results/*.txt`. Each file
+opens with the lock, host, base commit, load average, `go version`, ToolTags
+and command, and closes with the load and end time, all printed by the same
+shell process that ran the measurement. The tables under
+[W0.3 tables](#w03-tables) were rendered from those files by a script, so no
+number in them was typed by hand. The runs are rows W0.3-01 to W0.3-20 of
+the [Rows](#rows) table, in the row format above.
+
+### How the numbers were taken
+
+- (M): `GOEXPERIMENT=nosimd,noruntimesecret`. Lock:
+  `/opt/homebrew/opt/util-linux/bin/flock` on the scratchpad `bench.lock`,
+  the same file lock as the other lanes (from 16:28 JST; before that this
+  lane's `mkdir` lock on the same path did not exclude `flock(1)` users, and
+  every run of that period was repeated). Files named `-base76ffd03` are
+  locked runs on the pre-rebase base, kept for the before/after comparison
+  of the drop-path fix. Superseded outputs (the runs before the lock rule, a
+  noisy S-E1 benchmark, and the pre-rebase gate, probe and decode runs that
+  2305d02 repeated) are not committed.
+- (L): no experiment override; `flock /tmp/ts-spike/bench.lock`.
+- Base: the numbers of record are on `2305d02` (this branch was rebased
+  after P0-polish and W0.2b-fix landed). Exception: the (L) S-D1 benchmark
+  and linearity runs are on `76ffd03`. The decoder code,
+  `internal/codec/validate.go` and `nocopy.go`, and every benchmarked
+  fixture are byte-identical between the two commits, so those runs were
+  not repeated.
+- Allocations: `runtime.ReadMemStats` deltas (`Mallocs`, `TotalAlloc`) with
+  the collector off and `GOMAXPROCS(1)` (`testsupport.QuietRuntime`), five
+  runs. Each result is the minimum that at least three runs share.
+  - S-D1 uses `testsupport.MeasureMin` with a warm `Decoder` whose scratch is
+    reused, as a pooled production decoder's would be; the `Response` is
+    fresh on every run.
+  - S-E1 applies the three-of-five rule to the malloc count only and prints
+    the byte range. A `map[string]any` state encodes in random iteration
+    order, and its byte count changes from run to run. The nested-map kind
+    also varies by ±1 malloc, so it is shown as a range. Before measuring,
+    the pool is emptied by two collections, then one call warms it.
+  - `testing.AllocsPerRun` is not used anywhere: its warm-up call would
+    consume pool state.
+- Time: `go test -bench . -benchmem -count=5` with `for b.Loop()`. The tables
+  show the median of the five runs and half their min-to-max spread.
+  `benchstat` reports the same medians; with five samples it prints `± ∞`.
+- Load: allocation counts do not depend on load. Rows are marked `noisy`
+  under the row format's rule. The two (M) timing runs of record, the S-D1
+  benchmark (W0.3-14) and the S-E1 benchmark (W0.3-06), stayed below the
+  core count from start to end.
+
+### S-E1 findings (encode)
+
+1. **Allocations of one steady-state encode** (warm pool, scratch within the
+   8 MiB ceiling). They are the same on (M) and (L) and do not depend on
+   size:
+   - bare `string`: 2 (B = 1 for boxing into `any` at the call site, plus
+     E = 1);
+   - boxed `any`: 1;
+   - `*struct`: 1;
+   - `json.RawMessage` through `EncodeInto`: 1;
+   - RawJSON appended verbatim: 0.
+   - flat `map[string]any`: 2 (E plus one map iterator).
+   - `map[string]any` with nested maps: 9, 471, 7 503 and 45 010 at 1 KiB,
+     64 KiB, 1 MiB and 6 MiB, about one more per map value (sonic allocates
+     an iterator per map).
+
+   NF1 as written (`E_sonic` = 1, B = 1 for a bare string) holds for every
+   kind except maps.
+2. **`*struct` and Pretouch.** Pretouch is not needed to reach the steady
+   state of 1 allocation. `codec.Pretouch` only moves the one-time compile
+   out of the first request:
+   - (M): 162 allocations and 58.9 µs without Pretouch; `Pretouch` 136
+     allocations and 30.7 µs, then a first call of 1 allocation.
+   - (L): 2 203 allocations and 941 µs without Pretouch; `Pretouch` 1 885
+     allocations and 957 µs, then 1.
+
+   These are single wall-clock readings.
+3. **The byte bound.** The clause "Bytes ≤ 1.05 × body + 4 KiB above sonic's
+   own" holds in the steady state (at most 112 B per call). A growth call
+   allocates the sum of its growth steps:
+   - string, boxed, RawJSON and RawMessage states reserve once, so a growth
+     call costs 1.00–1.13 × the body (the 1.13 is size-class rounding at
+     64 KiB);
+   - `*struct` and flat-map states grow in `runtime.growslice` steps: from
+     4 KiB to 6 MiB, 20 steps on (M) and 29 on (L) (g = 21 and 30 with E),
+     about 4.3 × (M) and 5.2 × (L) the body.
+4. **g₆ / g₉**: the allocations of one `EncodeInto` of a 6 MiB / 9 MiB body
+   into a fresh 4 KiB scratch, E and B included:
+   - string 3 / 3;
+   - boxed 2 / 2;
+   - RawJSON 1 / 1;
+   - RawMessage 2 / 2;
+   - `*struct` 21 / 22 on (M), 30 / 32 on (L);
+   - flat map 21 / 22 on (M), 31 / 33 on (L);
+   - nested map about 45 029 / 67 534, where the per-map allocations
+     dominate.
+
+   The plan's probe figures of 5 / 7 are not reproduced by any kind.
+5. **Scratch capacity after a 6 MiB encode.** On (M), `*struct` and flat-map
+   states end at 9.02 MiB and 9.18 MiB, above the 8 MiB ceiling, so the
+   scratch is dropped at call 11. On (L) the same encodes end at 6.75 MiB
+   and the scratch is pooled. The string kind reserves `len` + 2 KiB on (M)
+   and exactly `len` on (L).
+6. **The AC-P1 sequence** (calls 1..32 on 2305d02; the per-call table is
+   below):
+   - For string, boxed, RawJSON and RawMessage states the plan's shape holds
+     on both hosts. Boxed, for example: 8 | 1 ×9 | 2 | 1 ×10 | 2 | 2 | 1 ×9.
+   - Call 1 is the first call after two collections. It pays the `Body`, its
+     4 KiB buffer and the refill of sonic's own pools (143 688 B for the
+     boxed kind).
+     TestAllocScratchSequence should warm once rather than assert call 1.
+   - Call 23 was base + 2 on 76ffd03 (the `Body` struct plus the buffer). It
+     is base + 1 on 2305d02, after P0-polish's one-malloc drop path; this
+     lane's local experiment on 76ffd03 (`lazybuf-experiment.diff`) measured
+     the same. W0.6 should freeze call 23 = base + 1.
+   - For `*struct` and flat-map states on (M), calls 11 and 22 both drop
+     their scratch, and call 12 pays base + 1. "Exactly one scratch dropped"
+     holds for those kinds on (L) only.
+7. **Proposed NF1**: `E_sonic(kind) + B`, with:
+   - `E_sonic` = 1 for a boxed value, a pointer or a `json.RawMessage`;
+   - 0 for RawJSON;
+   - 1 + m for a map-shaped state holding m maps in total (a flat map has
+     m = 1, so it costs 2);
+   - B = 1 for a bare string.
+
+   The byte clause applies to warm-pool calls; growth calls are reported, not
+   budgeted. For AC-P1, the sequence test uses a boxed-string or RawJSON
+   state, the only kinds whose growth is exact on both architectures, and
+   `g₆ = g₉ = 2` for the boxed kind.
+
+### S-D1 findings (decode)
+
+**R14.** Evidence is in `probe-M.txt` and `probe-L.txt`; the verdicts are the
+same on both hosts except for the 1e400 and `"\q"` raw-member cases below.
+
+- **Raw control characters.** A raw U+0000–U+001F byte inside a string value,
+  a key or a nested object is accepted by `ast.Preorder` (with
+  `OnlyNumber`), `decoder.Skip`, `sonic.ValidString` and
+  `sonic.UnmarshalString` in its default configuration.
+- **`ValidateString`.** Only `sonic.Config{ValidateString: true}` rejects
+  them. It also rewrites invalid UTF-8 to U+FFFD, in keys and inside
+  `NoCopyRawMessage` members (`"caf\xff"` becomes `"caf�"`, and the raw
+  member is then a copy, not a view of the body). With that option,
+  `malformed-invalid-utf8.json` would be accepted, so it cannot be used.
+- **What `OnString` receives.**
+  - For `"a\nb"` written with an escape (backslash, `n`), `OnString`
+    receives `"a\nb"` containing a real LF.
+  - For a raw LF inside the string it receives the same bytes.
+  - For a raw U+0001 it receives `"x\x01y"` verbatim, as a substring of the
+    body.
+  - For `\u0001` it receives `"\x01"`.
+
+  So once a string holds an escape, a per-string check cannot tell an
+  escaped control character from a raw one.
+- **Outcome.** `malformed-control-char.json` and
+  `malformed-control-char-key.json` are rejected at `.` by a1, a2 and b on
+  both hosts, through the rule below.
+- **The rule (implemented and measured).**
+  1. Run `codec.ValidString` on every `OnString` and `OnObjectKey` value.
+  2. When it fails on valid UTF-8, the string holds a control character.
+     Decide once per body with a whole-body scan for a raw byte below 0x20
+     inside a string, tracking string boundaries, and remember the answer.
+  3. Cost: nothing while no delivered string holds a control character. No
+     valid fixture except `escaped-names.json` triggers the scan. When it
+     runs, the tracked scan takes 479 ns (M) / 695 ns (L) on
+     `escaped-names.json` (481 B) and 602 µs (M) / 834 µs (L) on 616 KB.
+- **Refinement for W2.0.** Test first for any byte below 0x20 with the
+  word-at-a-time (SWAR) check: 43 µs (M) / 65 µs (L) per 616 KB. Compact
+  server bodies contain no such byte, so the tracked scan would then run
+  only on bodies with raw TAB, LF or CR whitespace. Running the same SWAR
+  pass unconditionally on every response would cost 7.5 % (M) / 9.0 % (L)
+  of a `decoder.Skip` on the 10k flood.
+
+**Validity gate**, by fixture class: the 38 module fixtures at 2305d02. The
+full per-fixture matrix is in `gate-M.txt` and `gate-L.txt`. Those runs also
+covered spike-local copies of the key-position fixtures and
+`duplicates.json`, with the same verdicts. The copies were dropped at
+landing: main's fixtures are the gate.
+
+| Class | a1 (M) and (L) | a2 (M) and (L) | b (M) | b (L) |
+| --- | --- | --- | --- | --- |
+| 17 JSON-layer `malformed-*` (empty, whitespace, truncated, trailing ×4, root array, invalid UTF-8 in a value and in a key, control character in a value and in a key, invalid escape, bad literal, double comma, leading zero, trailing comma) | reject at `.` | reject at `.` | reject at `.` | reject at `.` |
+| 5 schema `malformed-*` (big-exp, usage-type, missing-model, missing-usage, answers-not-object) | reject, README path | reject, README path | reject; big-exp at `.` instead of `usage.input_tokens` | reject, README path |
+| `deviation-big-exp-noul.json` | reject at `answers.spam.noul` | same | reject at `.` | reject at `answers.spam.noul` |
+| `deviation-lone-surrogate.json` | accept (U+FFFD in text, `Raw()` keeps `\ud800`) | same | accept | accept |
+| `parity-big-exp-unknown.json` | accept | accept | **reject (wrong)** | accept |
+| 13 valid bodies, including `duplicates.json` (Python's last-wins result, no WARN) and `models.json` | accept | accept | accept | accept |
+
+- On arm64, variant b's `NoCopyRawMessage` decode refuses `1e400` anywhere
+  ("float infinity"); on amd64 it accepts it. The raw-member skip likewise
+  accepts `"\q"` on amd64 and rejects it on arm64.
+- So b's verdicts depend on the architecture, and it fails the gate on (M):
+  **disqualified**. It also had to use sonic's default configuration, since
+  `ValidateString` rewrites invalid UTF-8 (see R14).
+- (c) was disqualified by the plan and not measured.
+
+**Ranking of the survivors, a1 and a2.**
+
+- Allocations: identical on every fixture, on both hosts.
+- Time: a2's median is between 2.2 % below and 3.4 % above a1's, and which
+  one is ahead depends on the fixture and the host (per-fixture table
+  below).
+- The passes where they differ also tie: `decoder.Skip` against
+  `sonic.ValidString` measures 466 vs 481 ns (M) and 516 vs 504 ns (L) on
+  `result.json`, and 576 vs 577 µs (M) and 720 vs 678 µs (L) on the 10k
+  flood.
+- The visitor pass dominates both. A no-op `ast.Preorder` is 1.97 µs of
+  a1's 3.30 µs on `result.json` (M), and 298 µs of 678 µs on the 1k flood.
+
+**Winner: a1.** The two measured criteria tie, and two reasons decide:
+
+1. With a1, every failure the traversal meets keeps sonic's positioned parse
+   error, and `decoder.Skip` returns the offset of any trailing data. a2's
+   `sonic.ValidString` returns only a bool, so every JSON-layer refusal
+   would lose its position.
+2. a1 is the ADR's design, so choosing it changes nothing in the plan.
+
+a2's one advantage, refusing a malformed body before the visitor allocates,
+does not affect any budget: failures are not budgeted.
+
+**Per-string check (W0.2 review input).** The strings the visitor checks
+average 5.6–7.0 bytes, with a maximum of 15 (string-mix table below).
+
+- On that mix, `utf8.ValidString(s) && !HasControlByte(s)` is 1.95–2.30 ×
+  slower than `codec.ValidString` on both hosts.
+- Across a whole a1 decode it adds 1.6–8.8 %: `result.json` goes from 3.30 to
+  3.43 µs (M) and from 3.06 to 3.33 µs (L); the 10k flood from 6.71 to
+  7.01 ms (M) and from 5.95 to 6.32 ms (L).
+- The review's 2.9 × gain was measured on 4 KiB strings, which these bodies
+  do not contain.
+- **W2.0 should keep `codec.ValidString`.**
+
+**Proposed NF2** (variant a1; the same on (M) and (L)):
+
+- Traversal: 0 allocations for keys and strings without escapes (a no-op
+  `ast.Preorder` allocates 0 on the plain fixtures), and 1 per escaped key or
+  string. `escaped-names.json` has 6; `escaped-member-names.json` has 12.
+- Answers, as exact-size slices: noul 0; choice 1 (probabilities); score 2
+  (legend and probabilities; 0 when both are empty).
+- Per response: 1 for the entries, plus `wire.Answers`' index map when there
+  are more than 8 answers (4 at 16 and at 20 answers).
+- Structured legends: the lazy pass (AC-P8 below), plus 1 arena holding
+  every copied level. Copying each level on its own costs one allocation per
+  level: 10 685 against 686 on the 10k flood.
+- Unknown answer types: 0. The body scan: 0.
+- `result.json` = 1 + 1 + 2 = **4** on both hosts, which meets the plan's
+  target. The plan's ≤ 8 remains the ceiling if W2.0's API wrapper adds
+  allocations.
+
+**AC-P2 per-fixture proposal** (a1, exact and identical on both hosts):
+
+| Fixture | Allocations |
+| --- | --- |
+| `result` | 4 |
+| `type-last` | 4 |
+| `duplicates` | 4 |
+| `result-20` | 24 |
+| `score-flood-mini` | 21 |
+| `escaped-names` | 10 |
+| `escaped-member-names` | 30 |
+| `structured-legend` | 12 |
+| `deviation-lone-surrogate` | 14 |
+| `unknown-answer-type` | 1 |
+| `parity-big-exp-unknown` | 1 |
+| `no-answers` | 0 |
+| `structured-legend-flood-1k` | 91 |
+| `structured-legend-flood-10k` | 686 |
+
+The "≤ 0.5 × naive" clause waits for the naive decoder (W5).
+
+**AC-P8.** "Members visited" is root members, plus answers members, plus the
+flagged answers' members, plus their legend levels: 1 011 on the 1k flood and
+10 011 on the 10k flood.
+
+- Lazy-pass allocations are 86 / 681 on both hosts, plus 1 arena.
+- The fit gives c₁ = (681 − 86) / (10 011 − 1 011) = 0.066, about 1/15, since
+  sonic allocates an object's pairs in chunks, and c₀ ≈ 19.
+- Proposal: lazy-pass allocations ≤ 20 + ⌈members / 15⌉ + escaped keys
+  iterated + 1.
+- Every measured case fits the bound: `structured-legend` 9 (10 members),
+  `deviation-lone-surrogate` 9 (11), `escaped-member-names` 14 (12 members,
+  3 escaped keys), the 1k flood 87, the 10k flood 682.
+- The 10k : 1k ratio is 7.9 for the lazy pass and 7.54 for the whole decode
+  (bound 12).
+- Time: the 10k : 1k ratio is 9.70–10.57 across both hosts, all three
+  variants, and both the benchmark medians and the `TestLinearity` runs
+  (bound 15). Linearity table below.
+
+### Rulings on these proposals (lead, R22 to R24)
+
+- AC-P1: W5.2 runs the sequence with a RawJSON state and a boxed-string state
+  and asserts call 23 = base + 1. The `*struct` and map kinds are measured
+  and recorded per host, not asserted. Pre-growing the scratch in
+  power-of-two steps is a W5.3 candidate.
+- NF1 for map states: budgeted as 1 + m, the number of maps in the state.
+  The SDK documents the cost and recommends structs or RawJSON on hot paths.
+- AC-P2: the exact per-fixture numbers above are W2.0's budget
+  (`result.json` = 4); W0.6 confirms them.
+- R14 and the per-string check: W2.0 uses `codec.ValidString` per string.
+  When it fails on valid UTF-8, the SWAR test for any byte below 0x20 runs,
+  and only when that finds one does the memoised tracked scan decide.
+
+<a id="w03-tables"></a>
+
+### W0.3 tables
+
+#### S-E1 pooled encode by kind and size (warm pool)
+
+
+Sources: `s-e1/results/alloc-M.txt` = W0.3-04; `s-e1/results/bench-M.txt` = W0.3-06; `s-e1/results/alloc-L.txt` = W0.3-02; `s-e1/results/bench-L.txt` = W0.3-05.
+
+| kind | size | encoded B | (M) allocs/B | (M) ns/op | (M) cap after / pooled | (L) allocs/B | (L) ns/op | (L) cap after / pooled |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| string | 1KiB | 1024 | 2/32 | 155.9 ns (±1 %) | 4096 / true | 2/32 | 128.7 ns (±0 %) | 4096 / true |
+| string | 64KiB | 65536 | 2/32 | 3.79 µs (±1 %) | 67584 / true | 2/32 | 2.56 µs (±0 %) | 65536 / true |
+| string | 1MiB | 1048576 | 2/32 | 59.22 µs (±1 %) | 1050624 / true | 2/32 | 47.08 µs (±3 %) | 1048576 / true |
+| string | 6MiB | 6291456 | 2/32 | 355.39 µs (±1 %) | 6293504 / true | 2/32 | 1.341 ms (±0 %) | 6291456 / true |
+| string | 9MiB | 9437184 | 4/9449504 | 644.24 µs (±1 %) | 9439232 / false | 4/9441312 | 2.459 ms (±3 %) | 9437184 / false |
+| boxed | 1KiB | 1024 | 1/16 | 145.9 ns (±0 %) | 4096 / true | 1/16 | 109.9 ns (±0 %) | 4096 / true |
+| boxed | 64KiB | 65536 | 1/16 | 3.79 µs (±1 %) | 67584 / true | 1/16 | 2.55 µs (±0 %) | 65536 / true |
+| boxed | 1MiB | 1048576 | 1/16 | 59.59 µs (±1 %) | 1050624 / true | 1/16 | 45.79 µs (±1 %) | 1048576 / true |
+| boxed | 6MiB | 6291456 | 1/16 | 358.55 µs (±2 %) | 6293504 / true | 1/16 | 858.43 µs (±1 %) | 6291456 / true |
+| boxed | 9MiB | 9437184 | 3/9449488 | 719.38 µs (±3 %) | 9439232 / false | 3/9441296 | 2.043 ms (±3 %) | 9437184 / false |
+| map | 1KiB | 1024 | 9-9/784-784 | 5.62 µs (±0 %) | 4096 / true | 9-9/784-784 | 3.29 µs (±1 %) | 4096 / true |
+| map | 64KiB | 66018 | 471-471/45136-45136 | 368.57 µs (±1 %) | 70921 / true | 471-471/45136-45136 | 223.81 µs (±1 %) | 73728 / true |
+| map | 1MiB | 1074672 | 7503-7503/720208-720208 | 6.360 ms (±1 %) | 1540268 / true | 7503-7503/720208-720208 | 4.028 ms (±0 %) | 1114112 / true |
+| map | 6MiB | 6515697 | 45010-45010/4320880-4320880 | 46.911 ms (±1 %) | 8054798 / true | 45010-45010/4320880-4320880 | 25.663 ms (±1 %) | 6750208 / true |
+| map | 9MiB | 9801281 | 67535-67536/36970736-47980784 | 74.616 ms (±2 %) | 13812905 / false | 67546-67546/58736496-58736496 | 57.036 ms (±1 %) | 10559488 / false |
+| map-flat | 1KiB | 1055 | 2/112 | 1.84 µs (±0 %) | 4096 / true | 2/112 | 815.8 ns (±0 %) | 4096 / true |
+| map-flat | 64KiB | 65535 | 2/112 | 103.93 µs (±0 %) | 70752 / true | 2/112 | 39.06 µs (±0 %) | 73728 / true |
+| map-flat | 1MiB | 1048545 | 2/112 | 1.675 ms (±1 %) | 1209077 / true | 2/112 | 630.00 µs (±0 %) | 1114112 / true |
+| map-flat | 6MiB | 6291327 | 22/27597808 | 12.168 ms (±5 %) | 9181884 / false | 2/112 | 4.248 ms (±1 %) | 6750208 / true |
+| map-flat | 9MiB | 9437021 | 23/41376752 | 18.464 ms (±6 %) | 13772832 / false | 34/52255344 | 14.691 ms (±2 %) | 10559488 / false |
+| struct-ptr | 1KiB | 1066 | 1/16 | 2.85 µs (±1 %) | 4096 / true | 1/16 | 767.1 ns (±0 %) | 4096 / true |
+| struct-ptr | 64KiB | 65520 | 1/16 | 165.52 µs (±1 %) | 83304 / true | 1/16 | 40.94 µs (±0 %) | 73728 / true |
+| struct-ptr | 1MiB | 1056133 | 1/16 | 2.686 ms (±2 %) | 1187840 / true | 1/16 | 653.44 µs (±0 %) | 1114112 / true |
+| struct-ptr | 6MiB | 6379778 | 22/27601168 | 17.050 ms (±0 %) | 9020409 / false | 1/16 | 3.988 ms (±0 %) | 6750208 / true |
+| struct-ptr | 9MiB | 9575142 | 23/41134352 | 25.155 ms (±4 %) | 13530646 / false | 33/52255248 | 12.693 ms (±1 %) | 10559488 / false |
+| raw-verbatim | 1KiB | 1024 | 0/0 | 22.9 ns (±1 %) | 4096 / true | 0/0 | 35.8 ns (±1 %) | 4096 / true |
+| raw-verbatim | 64KiB | 66018 | 0/0 | 915.8 ns (±4 %) | 73728 / true | 0/0 | 1.68 µs (±0 %) | 73728 / true |
+| raw-verbatim | 1MiB | 1074672 | 0/0 | 13.82 µs (±3 %) | 1081344 / true | 0/0 | 33.06 µs (±4 %) | 1081344 / true |
+| raw-verbatim | 6MiB | 6515697 | 0/0 | 86.40 µs (±4 %) | 6520832 / true | 0/0 | 450.95 µs (±1 %) | 6520832 / true |
+| raw-verbatim | 9MiB | 9801281 | 2/9809920 | 504.48 µs (±3 %) | 9805824 / false | 2/9809920 | 1.063 ms (±1 %) | 9805824 / false |
+| raw-encodeinto | 1KiB | 1024 | 1/16 | 977.4 ns (±1 %) | 4096 / true | 1/16 | 1.02 µs (±1 %) | 4096 / true |
+| raw-encodeinto | 64KiB | 66018 | 1/16 | 67.59 µs (±1 %) | 73728 / true | 1/16 | 83.96 µs (±0 %) | 73728 / true |
+| raw-encodeinto | 1MiB | 1074672 | 1/16 | 1.100 ms (±0 %) | 1081344 / true | 1/16 | 1.369 ms (±0 %) | 1081344 / true |
+| raw-encodeinto | 6MiB | 6515697 | 1/16 | 6.640 ms (±1 %) | 6520832 / true | 1/16 | 8.421 ms (±0 %) | 6520832 / true |
+| raw-encodeinto | 9MiB | 9801281 | 3/9809936 | 10.151 ms (±1 %) | 9805824 / false | 3/9809936 | 13.335 ms (±1 %) | 9805824 / false |
+
+#### S-E1 growth from a 4 KiB scratch (g, incl. E_sonic and B)
+
+
+Sources: `s-e1/results/alloc-M.txt` = W0.3-04; `s-e1/results/alloc-L.txt` = W0.3-02.
+
+| kind | size | (M) g allocs/B | (M) cap after / pooled | (L) g allocs/B | (L) cap after / pooled |
+| --- | --- | --- | --- | --- | --- |
+| string | 64KiB | 3/73760 | 67584 / true | 3/65568 | 65536 / true |
+| string | 1MiB | 3/1056800 | 1050624 / true | 3/1048608 | 1048576 / true |
+| string | 6MiB | 3/6299680 | 6293504 / true | 3/6291488 | 6291456 / true |
+| string | 9MiB | 3/9445408 | 9439232 / false | 3/9437216 | 9437184 / false |
+| boxed | 64KiB | 2/73744 | 67584 / true | 2/65552 | 65536 / true |
+| boxed | 1MiB | 2/1056784 | 1050624 / true | 2/1048592 | 1048576 / true |
+| boxed | 6MiB | 2/6299664 | 6293504 / true | 2/6291472 | 6291456 / true |
+| boxed | 9MiB | 2/9445392 | 9439232 / false | 2/9437200 | 9437184 / false |
+| map | 64KiB | 478-479/252880-331088 | 71102 / true | 481-481/318032-318032 | 73728 / true |
+| map | 1MiB | 7517-7518/4122832-5171408 | 1207007 / true | 7524-7524/5949264-5949264 | 1114112 / true |
+| map | 6MiB | 45029-45029/25311088-32070128 | 6801579 / true | 45039-45039/37566576-37566576 | 6750208 / true |
+| map | 9MiB | 67534-67535/41234672-48819824 | 11477896 / false | 67545-67545/58732400-58732400 | 10559488 / false |
+| map-flat | 64KiB | 9/207856 | 70752 / true | 12/273008 | 73728 / true |
+| map-flat | 1MiB | 16/3648496 | 1209077 / true | 23/5229168 | 1114112 / true |
+| map-flat | 6MiB | 21/27593712 | 9181884 / false | 31/33245808 | 6750208 / true |
+| map-flat | 9MiB | 22/41372656 | 13772832 / false | 33/52251248 | 10559488 / false |
+| struct-ptr | 64KiB | 9/260368 | 83304 / true | 11/272912 | 73728 / true |
+| struct-ptr | 1MiB | 16/4069648 | 1187840 / true | 22/5229072 | 1114112 / true |
+| struct-ptr | 6MiB | 21/27597072 | 9020409 / false | 30/33245712 | 6750208 / true |
+| struct-ptr | 9MiB | 22/41130256 | 13530646 / false | 32/52251152 | 10559488 / false |
+| raw-verbatim | 64KiB | 1/73728 | 73728 / true | 1/73728 | 73728 / true |
+| raw-verbatim | 1MiB | 1/1081344 | 1081344 / true | 1/1081344 | 1081344 / true |
+| raw-verbatim | 6MiB | 1/6520832 | 6520832 / true | 1/6520832 | 6520832 / true |
+| raw-verbatim | 9MiB | 1/9805824 | 9805824 / false | 1/9805824 | 9805824 / false |
+| raw-encodeinto | 64KiB | 2/73744 | 73728 / true | 2/73744 | 73728 / true |
+| raw-encodeinto | 1MiB | 2/1081360 | 1081344 / true | 2/1081360 | 1081344 / true |
+| raw-encodeinto | 6MiB | 2/6520848 | 6520832 / true | 2/6520848 | 6520832 / true |
+| raw-encodeinto | 9MiB | 2/9805840 | 9805824 / false | 2/9805840 | 9805824 / false |
+
+#### S-E1 AC-P1 sequence, mallocs per call 1..32 (bytes in the raw files)
+
+
+(M), 2305d02, as is (one-malloc drop path landed) (`alloc-M.txt` = W0.3-04):
+
+| kind | calls 1..32 (mallocs) |
+| --- | --- |
+| string | 9 2 2 2 2 2 2 2 2 2 3 2 2 2 2 2 2 2 2 2 2 3 3 2 2 2 2 2 2 2 2 2 |
+| boxed | 8 1 1 1 1 1 1 1 1 1 2 1 1 1 1 1 1 1 1 1 1 2 2 1 1 1 1 1 1 1 1 1 |
+| map | 22-22 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 45029-45030 9-10 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 67515-67534 10-10 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 |
+| map-flat | 12 2 2 2 2 2 2 2 2 2 21 3 2 2 2 2 2 2 2 2 2 22 3 2 2 2 2 2 2 2 2 2 |
+| struct-ptr | 8 1 1 1 1 1 1 1 1 1 21 2 1 1 1 1 1 1 1 1 1 22 2 1 1 1 1 1 1 1 1 1 |
+| raw-verbatim | 4 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 1 1 0 0 0 0 0 0 0 0 0 |
+| raw-encodeinto | 11 1 1 1 1 1 1 1 1 1 2 1 1 1 1 1 1 1 1 1 1 2 2 1 1 1 1 1 1 1 1 1 |
+
+(L), 2305d02, as is (one-malloc drop path landed) (`alloc-L.txt` = W0.3-02):
+
+| kind | calls 1..32 (mallocs) |
+| --- | --- |
+| string | 9 2 2 2 2 2 2 2 2 2 3 2 2 2 2 2 2 2 2 2 2 3 3 2 2 2 2 2 2 2 2 2 |
+| boxed | 8 1 1 1 1 1 1 1 1 1 2 1 1 1 1 1 1 1 1 1 1 2 2 1 1 1 1 1 1 1 1 1 |
+| map | 22-22 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 45039-45039 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 67516-67516 10-10 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 |
+| map-flat | 12 2 2 2 2 2 2 2 2 2 31 2 2 2 2 2 2 2 2 2 2 4 3 2 2 2 2 2 2 2 2 2 |
+| struct-ptr | 8 1 1 1 1 1 1 1 1 1 30 1 1 1 1 1 1 1 1 1 1 3 2 1 1 1 1 1 1 1 1 1 |
+| raw-verbatim | 4 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 1 1 0 0 0 0 0 0 0 0 0 |
+| raw-encodeinto | 11 1 1 1 1 1 1 1 1 1 2 1 1 1 1 1 1 1 1 1 1 2 2 1 1 1 1 1 1 1 1 1 |
+
+(M), 76ffd03, before the drop-path fix (`alloc-M-base76ffd03.txt` = W0.3-03):
+
+| kind | calls 1..32 (mallocs) |
+| --- | --- |
+| string | 9 2 2 2 2 2 2 2 2 2 3 2 2 2 2 2 2 2 2 2 2 3 4 2 2 2 2 2 2 2 2 2 |
+| boxed | 8 1 1 1 1 1 1 1 1 1 2 1 1 1 1 1 1 1 1 1 1 2 3 1 1 1 1 1 1 1 1 1 |
+| map | 22-22 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 45029-45030 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 67515-67515 11-11 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 |
+| map-flat | 12 2 2 2 2 2 2 2 2 2 21 4 2 2 2 2 2 2 2 2 2 22 4 2 2 2 2 2 2 2 2 2 |
+| struct-ptr | 8 1 1 1 1 1 1 1 1 1 21 3 1 1 1 1 1 1 1 1 1 22 3 1 1 1 1 1 1 1 1 1 |
+| raw-verbatim | 4 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 1 2 0 0 0 0 0 0 0 0 0 |
+| raw-encodeinto | 11 1 1 1 1 1 1 1 1 1 2 1 1 1 1 1 1 1 1 1 1 2 3 1 1 1 1 1 1 1 1 1 |
+
+(L), 76ffd03, before the drop-path fix (`alloc-L-base76ffd03.txt` = W0.3-01):
+
+| kind | calls 1..32 (mallocs) |
+| --- | --- |
+| string | 9 2 2 2 2 2 2 2 2 2 3 2 2 2 2 2 2 2 2 2 2 3 4 2 2 2 2 2 2 2 2 2 |
+| boxed | 8 1 1 1 1 1 1 1 1 1 2 1 1 1 1 1 1 1 1 1 1 2 3 1 1 1 1 1 1 1 1 1 |
+| map | 22-22 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 45039-45039 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 67516-67516 11-11 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 |
+| map-flat | 12 2 2 2 2 2 2 2 2 2 31 2 2 2 2 2 2 2 2 2 2 4 4 2 2 2 2 2 2 2 2 2 |
+| struct-ptr | 8 1 1 1 1 1 1 1 1 1 30 1 1 1 1 1 1 1 1 1 1 3 3 1 1 1 1 1 1 1 1 1 |
+| raw-verbatim | 4 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 1 2 0 0 0 0 0 0 0 0 0 |
+| raw-encodeinto | 11 1 1 1 1 1 1 1 1 1 2 1 1 1 1 1 1 1 1 1 1 2 3 1 1 1 1 1 1 1 1 1 |
+
+(M), 76ffd03 with the local lazy-buffer experiment (lazybuf-experiment.diff) (`sequence-lazybuf-M-base76ffd03.txt` = W0.3-10):
+
+| kind | calls 1..32 (mallocs) |
+| --- | --- |
+| string | 9 2 2 2 2 2 2 2 2 2 3 2 2 2 2 2 2 2 2 2 2 3 3 2 2 2 2 2 2 2 2 2 |
+| boxed | 8 1 1 1 1 1 1 1 1 1 2 1 1 1 1 1 1 1 1 1 1 2 2 1 1 1 1 1 1 1 1 1 |
+| map | 22-22 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 45029-45030 9-10 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 67515-67534 10-10 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 |
+| map-flat | 12 2 2 2 2 2 2 2 2 2 21 3 2 2 2 2 2 2 2 2 2 22 3 2 2 2 2 2 2 2 2 2 |
+| struct-ptr | 8 1 1 1 1 1 1 1 1 1 21 2 1 1 1 1 1 1 1 1 1 22 2 1 1 1 1 1 1 1 1 1 |
+| raw-verbatim | 4 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 1 1 0 0 0 0 0 0 0 0 0 |
+| raw-encodeinto | 11 1 1 1 1 1 1 1 1 1 2 1 1 1 1 1 1 1 1 1 1 2 2 1 1 1 1 1 1 1 1 1 |
+
+(L), 76ffd03 with the local lazy-buffer experiment (lazybuf-experiment.diff) (`sequence-lazybuf-L-base76ffd03.txt` = W0.3-09):
+
+| kind | calls 1..32 (mallocs) |
+| --- | --- |
+| string | 9 2 2 2 2 2 2 2 2 2 3 2 2 2 2 2 2 2 2 2 2 3 3 2 2 2 2 2 2 2 2 2 |
+| boxed | 8 1 1 1 1 1 1 1 1 1 2 1 1 1 1 1 1 1 1 1 1 2 2 1 1 1 1 1 1 1 1 1 |
+| map | 22-22 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 45039-45039 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 67516-67516 10-10 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 9-9 |
+| map-flat | 12 2 2 2 2 2 2 2 2 2 31 2 2 2 2 2 2 2 2 2 2 4 3 2 2 2 2 2 2 2 2 2 |
+| struct-ptr | 8 1 1 1 1 1 1 1 1 1 30 1 1 1 1 1 1 1 1 1 1 3 2 1 1 1 1 1 1 1 1 1 |
+| raw-verbatim | 4 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 1 1 0 0 0 0 0 0 0 0 0 |
+| raw-encodeinto | 11 1 1 1 1 1 1 1 1 1 2 1 1 1 1 1 1 1 1 1 1 2 2 1 1 1 1 1 1 1 1 1 |
+
+#### S-D1 per variant and fixture
+
+
+Sources: `s-d1/results/alloc-M.txt` = W0.3-12; `s-d1/results/bench-M.txt` = W0.3-14; `s-d1/results/alloc-L.txt` = W0.3-11; `s-d1/results/bench-L.txt` = W0.3-13.
+
+| variant | fixture | body B | (M) allocs/B | (M) ns/op median (±half-spread) | (L) allocs/B | (L) ns/op median (±half-spread) | lazy allocs | members | notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| a1 | deviation-lone-surrogate | 219 | 14/4568 | 4.54 µs (±1 %) | 14/4568 | 4.73 µs (±0 %) | 8 | 11 | per-level copy: 14/4568 |
+| a1 | duplicates | 693 | 4/768 | – | 4/768 | – | 0 | 0 |  |
+| a1 | escaped-member-names | 425 | 30/5144 | 6.91 µs (±3 %) | 30/5144 | 6.86 µs (±0 %) | 13 | 12 | per-level copy: 30/5144 |
+| a1 | escaped-names | 481 | 10/1224 | 5.33 µs (±1 %) | 10/1224 | 5.33 µs (±0 %) | 0 | 0 | body scan ran |
+| a1 | no-answers | 67 | 0/0 | 515.0 ns (±2 %) | 0/0 | 404.3 ns (±0 %) | 0 | 0 |  |
+| a1 | parity-big-exp-unknown | 135 | 1/144 | 1.23 µs (±2 %) | 1/144 | 1.09 µs (±0 %) | 0 | 0 |  |
+| a1 | result | 364 | 4/688 | 3.30 µs (±1 %) | 4/688 | 3.09 µs (±0 %) | 0 | 0 |  |
+| a1 | result-20 | 2253 | 24/6008 | 20.98 µs (±0 %) | 24/6008 | 20.03 µs (±0 %) | 0 | 0 |  |
+| a1 | score-flood-mini | 1495 | 21/4184 | 13.96 µs (±1 %) | 21/4184 | 13.21 µs (±0 %) | 0 | 0 |  |
+| a1 | structured-legend | 217 | 12/4528 | 4.11 µs (±4 %) | 12/4528 | 4.33 µs (±0 %) | 8 | 10 | per-level copy: 12/4528 |
+| a1 | structured-legend-flood-10k | 616421 | 686/2005944 | 6.719 ms (±1 %) | 686/2005944 | 5.945 ms (±0 %) | 681 | 10011 | per-level copy: 10685/2083736 |
+| a1 | structured-legend-flood-1k | 57418 | 91/213896 | 678.44 µs (±1 %) | 91/213896 | 609.55 µs (±0 %) | 86 | 1011 | per-level copy: 1090/220136 |
+| a1 | type-last | 364 | 4/688 | 3.33 µs (±1 %) | 4/688 | 3.11 µs (±0 %) | 0 | 0 |  |
+| a1 | unknown-answer-type | 145 | 1/144 | 1.35 µs (±8 %) | 1/144 | 1.17 µs (±0 %) | 0 | 0 |  |
+| a2 | deviation-lone-surrogate | 219 | 14/4568 | 4.70 µs (±1 %) | 14/4568 | 4.73 µs (±0 %) | 8 | 11 | per-level copy: 14/4568 |
+| a2 | duplicates | 693 | 4/768 | – | 4/768 | – | 0 | 0 |  |
+| a2 | escaped-member-names | 425 | 30/5144 | 6.79 µs (±2 %) | 30/5144 | 6.90 µs (±0 %) | 13 | 12 | per-level copy: 30/5144 |
+| a2 | escaped-names | 481 | 10/1224 | 5.44 µs (±23 %) | 10/1224 | 5.28 µs (±0 %) | 0 | 0 | body scan ran |
+| a2 | no-answers | 67 | 0/0 | 526.5 ns (±1 %) | 0/0 | 395.7 ns (±0 %) | 0 | 0 |  |
+| a2 | parity-big-exp-unknown | 135 | 1/144 | 1.22 µs (±0 %) | 1/144 | 1.12 µs (±0 %) | 0 | 0 |  |
+| a2 | result | 364 | 4/688 | 3.32 µs (±0 %) | 4/688 | 3.11 µs (±0 %) | 0 | 0 |  |
+| a2 | result-20 | 2253 | 24/6008 | 21.28 µs (±1 %) | 24/6008 | 19.88 µs (±0 %) | 0 | 0 |  |
+| a2 | score-flood-mini | 1495 | 21/4184 | 14.01 µs (±1 %) | 21/4184 | 12.99 µs (±0 %) | 0 | 0 |  |
+| a2 | structured-legend | 217 | 12/4528 | 4.08 µs (±2 %) | 12/4528 | 4.33 µs (±0 %) | 8 | 10 | per-level copy: 12/4528 |
+| a2 | structured-legend-flood-10k | 616421 | 686/2005944 | 6.749 ms (±1 %) | 686/2005944 | 5.932 ms (±0 %) | 681 | 10011 | per-level copy: 10685/2083736 |
+| a2 | structured-legend-flood-1k | 57418 | 91/213896 | 691.03 µs (±5 %) | 91/213896 | 596.06 µs (±0 %) | 86 | 1011 | per-level copy: 1090/220136 |
+| a2 | type-last | 364 | 4/688 | 3.33 µs (±1 %) | 4/688 | 3.12 µs (±0 %) | 0 | 0 |  |
+| a2 | unknown-answer-type | 145 | 1/144 | 1.35 µs (±5 %) | 1/144 | 1.21 µs (±0 %) | 0 | 0 |  |
+| b | deviation-lone-surrogate | 219 | 18/3848 | 4.05 µs (±2 %) | 14/3576 | 4.26 µs (±0 %) | 7 | 8 | per-level copy: 18/3848 |
+| b | duplicates | 693 | 12/1544 | – | 5/800 | – | 0 | 0 |  |
+| b | escaped-member-names | 425 | 31/4568 | 5.96 µs (±1 %) | 27/4120 | 6.32 µs (±0 %) | 9 | 9 | per-level copy: 31/4568 |
+| b | escaped-names | 481 | 15/1800 | 5.40 µs (±1 %) | 11/1256 | 5.51 µs (±0 %) | 0 | 0 | body scan ran |
+| b | no-answers | 67 | 4/160 | 648.8 ns (±2 %) | 1/32 | 550.0 ns (±0 %) | 0 | 0 |  |
+| b | parity-big-exp-unknown | 135 | – | – | 2/176 | 1.27 µs (±0 %) | 0 | 0 |  |
+| b | result | 364 | 9/1136 | 3.52 µs (±1 %) | 5/720 | 3.31 µs (±0 %) | 0 | 0 |  |
+| b | result-20 | 2253 | 29/8472 | 21.41 µs (±1 %) | 25/6040 | 20.09 µs (±0 %) | 0 | 0 |  |
+| b | score-flood-mini | 1495 | 26/5880 | 14.24 µs (±1 %) | 22/4216 | 13.37 µs (±0 %) | 0 | 0 |  |
+| b | structured-legend | 217 | 16/3808 | 3.77 µs (±3 %) | 12/3536 | 3.89 µs (±0 %) | 7 | 7 | per-level copy: 16/3808 |
+| b | structured-legend-flood-10k | 616421 | 691/4765784 | 6.688 ms (±0 %) | 686/2004952 | 5.898 ms (±0 %) | 680 | 10008 | per-level copy: 10690/4843576 |
+| b | structured-legend-flood-1k | 57418 | 95/270376 | 676.85 µs (±1 %) | 91/212904 | 595.33 µs (±0 %) | 85 | 1008 | per-level copy: 1094/276616 |
+| b | type-last | 364 | 9/1136 | 3.42 µs (±2 %) | 5/720 | 3.31 µs (±0 %) | 0 | 0 |  |
+| b | unknown-answer-type | 145 | 6/384 | 1.51 µs (±1 %) | 2/176 | 1.38 µs (±0 %) | 0 | 0 |  |
+
+#### S-D1 primitives, control scans and per-string checks (ns/op, median of 5)
+
+
+Sources: `s-d1/results/bench-M.txt` = W0.3-14; `s-d1/results/bench-L.txt` = W0.3-13.
+
+| benchmark | (M) ns/op | (L) ns/op | (M) allocs | (L) allocs |
+| --- | --- | --- | --- | --- |
+| ControlScan/escaped-names/rule | 35.9 ns (±1 %) | 56.6 ns (±0 %) | 0 | 0 |
+| ControlScan/escaped-names/swar | 35.3 ns (±0 %) | 54.3 ns (±0 %) | 0 | 0 |
+| ControlScan/escaped-names/tracked | 479.3 ns (±0 %) | 694.5 ns (±3 %) | 0 | 0 |
+| ControlScan/escaped-names/utf8 | 13.8 ns (±2 %) | 28.3 ns (±1 %) | 0 | 0 |
+| ControlScan/result-20/rule | 167.9 ns (±1 %) | 252.2 ns (±0 %) | 0 | 0 |
+| ControlScan/result-20/swar | 166.4 ns (±1 %) | 250.8 ns (±0 %) | 0 | 0 |
+| ControlScan/result-20/tracked | 2.27 µs (±0 %) | 3.14 µs (±2 %) | 0 | 0 |
+| ControlScan/result-20/utf8 | 34.7 ns (±1 %) | 61.5 ns (±0 %) | 0 | 0 |
+| ControlScan/result/rule | 28.6 ns (±0 %) | 46.9 ns (±3 %) | 0 | 0 |
+| ControlScan/result/swar | 28.3 ns (±1 %) | 44.5 ns (±0 %) | 0 | 0 |
+| ControlScan/result/tracked | 365.0 ns (±0 %) | 521.0 ns (±4 %) | 0 | 0 |
+| ControlScan/result/utf8 | 12.4 ns (±0 %) | 20.3 ns (±0 %) | 0 | 0 |
+| ControlScan/structured-legend-flood-10k/rule | 43.37 µs (±0 %) | 64.78 µs (±0 %) | 0 | 0 |
+| ControlScan/structured-legend-flood-10k/swar | 43.21 µs (±0 %) | 64.97 µs (±0 %) | 0 | 0 |
+| ControlScan/structured-legend-flood-10k/tracked | 601.84 µs (±0 %) | 833.83 µs (±3 %) | 0 | 0 |
+| ControlScan/structured-legend-flood-10k/utf8 | 7.98 µs (±1 %) | 17.76 µs (±0 %) | 0 | 0 |
+| ControlScan/structured-legend-flood-1k/rule | 4.01 µs (±1 %) | 6.03 µs (±0 %) | 0 | 0 |
+| ControlScan/structured-legend-flood-1k/swar | 4.02 µs (±1 %) | 6.04 µs (±0 %) | 0 | 0 |
+| ControlScan/structured-legend-flood-1k/tracked | 55.27 µs (±0 %) | 74.69 µs (±2 %) | 0 | 0 |
+| ControlScan/structured-legend-flood-1k/utf8 | 736.2 ns (±1 %) | 1.68 µs (±0 %) | 0 | 0 |
+| DecodeCheck/codec/escaped-member-names | 7.01 µs (±2 %) | 6.83 µs (±0 %) | 30 | 30 |
+| DecodeCheck/codec/result | 3.30 µs (±2 %) | 3.06 µs (±0 %) | 4 | 4 |
+| DecodeCheck/codec/result-20 | 21.28 µs (±0 %) | 19.74 µs (±0 %) | 24 | 24 |
+| DecodeCheck/codec/structured-legend-flood-10k | 6.711 ms (±1 %) | 5.946 ms (±0 %) | 687 | 687 |
+| DecodeCheck/codec/structured-legend-flood-1k | 690.37 µs (±0 %) | 600.19 µs (±0 %) | 91 | 91 |
+| DecodeCheck/utf8+swar/escaped-member-names | 7.12 µs (±2 %) | 7.11 µs (±0 %) | 30 | 30 |
+| DecodeCheck/utf8+swar/result | 3.43 µs (±0 %) | 3.33 µs (±0 %) | 4 | 4 |
+| DecodeCheck/utf8+swar/result-20 | 22.14 µs (±1 %) | 21.34 µs (±0 %) | 24 | 24 |
+| DecodeCheck/utf8+swar/structured-legend-flood-10k | 7.005 ms (±1 %) | 6.320 ms (±0 %) | 687 | 687 |
+| DecodeCheck/utf8+swar/structured-legend-flood-1k | 707.27 µs (±1 %) | 640.62 µs (±0 %) | 91 | 91 |
+| Primitive/escaped-names/preorder-noop | 2.86 µs (±0 %) | 1.41 µs (±0 %) | 6 | 6 |
+| Primitive/escaped-names/skip | 722.7 ns (±0 %) | 807.8 ns (±0 %) | 0 | 0 |
+| Primitive/escaped-names/unmarshal-rawmap | 900.6 ns (±3 %) | 1.04 µs (±0 %) | 8 | 4 |
+| Primitive/escaped-names/validstring | 744.3 ns (±1 %) | 799.2 ns (±0 %) | 0 | 0 |
+| Primitive/result-20/preorder-noop | 11.75 µs (±1 %) | 5.45 µs (±1 %) | 0 | 0 |
+| Primitive/result-20/skip | 2.94 µs (±0 %) | 3.32 µs (±0 %) | 0 | 0 |
+| Primitive/result-20/unmarshal-rawmap | 2.79 µs (±0 %) | 3.58 µs (±1 %) | 8 | 4 |
+| Primitive/result-20/validstring | 2.98 µs (±1 %) | 3.27 µs (±0 %) | 0 | 0 |
+| Primitive/result/preorder-noop | 1.97 µs (±1 %) | 896.2 ns (±0 %) | 0 | 0 |
+| Primitive/result/skip | 466.0 ns (±1 %) | 516.1 ns (±0 %) | 0 | 0 |
+| Primitive/result/unmarshal-rawmap | 775.1 ns (±1 %) | 766.5 ns (±0 %) | 8 | 4 |
+| Primitive/result/validstring | 480.5 ns (±0 %) | 504.4 ns (±0 %) | 0 | 0 |
+| Primitive/structured-legend-flood-10k/preorder-noop | 3.026 ms (±4 %) | 1.332 ms (±0 %) | 0 | 0 |
+| Primitive/structured-legend-flood-10k/skip | 575.50 µs (±1 %) | 720.02 µs (±1 %) | 0 | 0 |
+| Primitive/structured-legend-flood-10k/unmarshal-rawmap | 636.23 µs (±2 %) | 721.10 µs (±0 %) | 9 | 4 |
+| Primitive/structured-legend-flood-10k/validstring | 577.21 µs (±1 %) | 677.58 µs (±0 %) | 0 | 0 |
+| Primitive/structured-legend-flood-1k/preorder-noop | 298.38 µs (±0 %) | 130.95 µs (±0 %) | 0 | 0 |
+| Primitive/structured-legend-flood-1k/skip | 55.98 µs (±0 %) | 71.19 µs (±1 %) | 0 | 0 |
+| Primitive/structured-legend-flood-1k/unmarshal-rawmap | 60.36 µs (±2 %) | 73.31 µs (±1 %) | 8 | 4 |
+| Primitive/structured-legend-flood-1k/validstring | 56.92 µs (±1 %) | 68.58 µs (±0 %) | 0 | 0 |
+| StringCheck/escaped-member-names/codec | 153.3 ns (±0 %) | 265.4 ns (±0 %) | 0 | 0 |
+| StringCheck/escaped-member-names/utf8+swar | 335.6 ns (±0 %) | 531.7 ns (±2 %) | 0 | 0 |
+| StringCheck/result-20/codec | 911.3 ns (±0 %) | 1.43 µs (±0 %) | 0 | 0 |
+| StringCheck/result-20/utf8+swar | 2.09 µs (±1 %) | 3.00 µs (±1 %) | 0 | 0 |
+| StringCheck/result/codec | 153.2 ns (±0 %) | 253.5 ns (±0 %) | 0 | 0 |
+| StringCheck/result/utf8+swar | 345.5 ns (±1 %) | 527.0 ns (±1 %) | 0 | 0 |
+| StringCheck/structured-legend-flood-10k/codec | 241.66 µs (±1 %) | 386.62 µs (±0 %) | 0 | 0 |
+| StringCheck/structured-legend-flood-10k/utf8+swar | 491.12 µs (±1 %) | 752.70 µs (±2 %) | 0 | 0 |
+| StringCheck/structured-legend-flood-1k/codec | 22.53 µs (±3 %) | 35.08 µs (±0 %) | 0 | 0 |
+| StringCheck/structured-legend-flood-1k/utf8+swar | 50.09 µs (±4 %) | 74.16 µs (±1 %) | 0 | 0 |
+
+#### S-D1 linearity (AC-P8): structured-legend floods, 10³ vs 10⁴ levels
+
+
+Sources: `s-d1/results/alloc-M.txt` = W0.3-12; `s-d1/results/bench-M.txt` = W0.3-14; `s-d1/results/linearity-M.txt` = W0.3-18; `s-d1/results/alloc-L.txt` = W0.3-11; `s-d1/results/bench-L.txt` = W0.3-13; `s-d1/results/linearity-L.txt` = W0.3-17.
+
+| host | variant | allocs 1k → 10k (ratio) | lazy-pass allocs 1k → 10k | members 1k → 10k | bench median 1k → 10k (ratio) | TestLinearity ratios, 5 runs (min of 21 each) |
+| --- | --- | --- | --- | --- | --- | --- |
+| (M) | a1 | 91 → 686 (7.54) | 86 → 681 | 1011 → 10011 | 678.44 µs → 6.719 ms (9.90) | 9.70, 10.07, 10.00, 9.79, 10.02 |
+| (M) | a2 | 91 → 686 (7.54) | 86 → 681 | 1011 → 10011 | 691.03 µs → 6.749 ms (9.77) | 9.96, 10.15, 10.08, 9.82, 10.05 |
+| (M) | b | 95 → 691 (7.27) | 85 → 680 | 1008 → 10008 | 676.85 µs → 6.688 ms (9.88) | 10.02, 10.23, 10.33, 10.27, 10.57 |
+| (L) | a1 | 91 → 686 (7.54) | 86 → 681 | 1011 → 10011 | 609.55 µs → 5.945 ms (9.75) | 9.98, 10.26, 10.17, 9.99, 10.11 |
+| (L) | a2 | 91 → 686 (7.54) | 86 → 681 | 1011 → 10011 | 596.06 µs → 5.932 ms (9.95) | 10.19, 10.31, 9.92, 10.11, 10.17 |
+| (L) | b | 91 → 686 (7.54) | 85 → 680 | 1008 → 10008 | 595.33 µs → 5.898 ms (9.91) | 9.83, 9.89, 10.20, 10.11, 10.03 |
+
+#### Strings the visitor checks, per body
+
+
+Sources: `s-d1/results/gate-M.txt` = W0.3-16.
+
+| body | strings | bytes | mean | p50 | p90 | max |
+| --- | --- | --- | --- | --- | --- | --- |
+| result.json | 35 | 200 | 5.7 | 5 | 12 | 13 |
+| result-20.json | 212 | 1189 | 5.6 | 5 | 10 | 14 |
+| escaped-member-names.json | 32 | 223 | 7.0 | 6 | 13 | 15 |
+| structured-legend-flood-1k.json | 5026 | 29787 | 5.9 | 5 | 9 | 13 |
+| structured-legend-flood-10k.json | 50026 | 331287 | 6.6 | 5 | 10 | 13 |
