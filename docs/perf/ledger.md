@@ -2019,3 +2019,91 @@ D1 build line refuses anyway), per R62.
 | # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | W1.2-01 | 2026-09-25 22:04:45 JST | W1.2 R48 | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 7.43 → 7.59 | `flock bench.lock GOEXPERIMENT=nosimd,noruntimesecret go test -run '^$' -bench '^BenchmarkEncodeState$' -benchmem -count=10 ./internal/codec/` | medians of 10, check / encode: ASCII 1 KiB 17.74 ns / 150.6 ns (11.8 %), 64 KiB 828.7 ns / 4.728 µs (17.5 %), 6 MiB 81.85 µs / 445.0 µs (18.4 %); CJK 1 KiB 426.5 ns / 555.8 ns (76.7 %), 64 KiB 27.31 µs / 30.96 µs (88.2 %), 6 MiB 2.618 ms / 2.964 ms (88.3 %); every ± ≤ 2 %. The pass reads 52.1–73.6 GiB/s on ASCII and 2.21–2.24 GiB/s on CJK, and allocates nothing (`encode` 1 alloc/op, sonic's) | Against the AC-P6 time clause (q3 `call/sdk` 4.647 µs against `call/naive` 8.968 µs, W0.5-04), the pass adds 18 ns to a 1 KiB ASCII state (0.4 % of `call/sdk`) and 427 ns to a 1 KiB CJK state (9.2 %); the clause holds either way. On CJK text the pass costs about 7.6 × sonic's own encode (2.618 ms against 0.346 ms at 6 MiB). Base b227e5b plus the W1.2 working tree; raw: `_spikes/w1.2/results/bench-utf8-M.txt`, `benchstat-utf8-M.txt`, and `bench-utf8-M.meta.txt` (the run's `date`, load, `go version` and ToolTags lines) |
+
+## W2.2: `internal/h2gate` (AC-P4, K21b, K22)
+
+Code: `internal/h2gate` at `9c9a2b3` (the production gate, token and
+default transport of section 6.3 under option (iv-b), G2, R29, R29b, R29c),
+with `internal/testsupport` at `92461a7` (which adds
+`H2Conn.SetMaxConcurrentStreams` for K21b). The rows run the committed
+tests: `TestFanOut` (AC-P4: 10 bursts a run, each on a fresh server and
+transport), `TestTokenResidualK21` (K21b) and `TestRecordFanOut` (K22 and the
+negative control; it runs only with `H2GATE_RECORD=1` and asserts nothing).
+They print `RESULT` lines through `t.Log`; the numbers below are
+`_spikes/s-t/median.py` over those lines (`sed -n 's/.*RESULT /RESULT /p'`
+first), as median (min-max) over the runs of a row.
+
+Row commands use `R=_spikes/s-t/run.sh` (the W0.4 runner),
+`C=_spikes/w2.2/contend.sh` (the same header and footer, with `LOOPS`
+`nice -n 19 yes` loops started and killed inside the lock; the footer checks
+that `pgrep -x yes` prints nothing), `MO=_spikes/w2.2/results`, and
+`SP=/private/tmp/claude-501/-Users-zchee-go-src-github-com-zchee-typesafe-sdk-go/c8084031-5323-4873-8c36-a19f65c9e6ff/scratchpad`;
+on (L) the tree is copied with the section 11 tar pipe to
+`/tmp/ts-spike/w22/src/wt-w2.2`, `LO=/tmp/ts-spike/w22/results`, with the
+W0.4 environment and no `GOEXPERIMENT`. Every row holds the shared lock. The
+contention rows hold it too, although they measure no time: their loops load
+the whole host, and no other lane's timing run may overlap them.
+
+| # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| W2.2-01 | 2026-09-26 00:45:18 JST | W2.2 AC-P4 `TestFanOut` ×5 | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.64 → 5.76 | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock MAXLOAD=16 sh $R '(M)' $MO $SP/bench.lock m-fanout -count=5 -run '^TestFanOut$' -v ./internal/h2gate/` | cold 64 → 1 connection in 50/50 bursts; warm → 0 new in 50/50; ordering (R29c, 20 ms leader delay) 50/50; 200 vs 8: 200/200 within 2 s on 1 connection in 50/50, wall p50 311.4 (310.8-317.0) ms, refused streams 0 (0-2) per run; waiter wire p50 23.7 (23.4-24.5) / p99 25.4 (24.5-28.3) ms; leader's first response byte → first waiter HEADERS p50 0.068 (0.035-0.077) ms | `results/m-fanout.txt` |
+| W2.2-02 | 2026-09-25 15:45:19 UTC | W2.2 AC-P4 `TestFanOut` ×5 | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 1.50 → 1.17 | `MAXLOAD=44 sh $R '(L)' $LO /tmp/ts-spike/bench.lock l-fanout -count=5 -run '^TestFanOut$' -v ./internal/h2gate/` | cold 64 → 1 in 50/50; warm → 0 in 50/50; ordering 50/50; 200 vs 8: 200/200 in 50/50, wall p50 271.1 (270.5-271.3) ms, refused 0 (0-0); waiter wire p50 21.7 (21.6-21.9) / p99 22.9 (22.6-24.5) ms; first response byte → first waiter HEADERS p50 0.047 (0.045-0.061) ms | `results/l-fanout.txt` |
+| W2.2-03 | 2026-09-26 00:45:36 JST | W2.2 K22 and negative control ×5 | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 5.76 → 4.26 | `H2GATE_RECORD=1 GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock MAXLOAD=16 sh $R '(M)' $MO $SP/bench.lock m-record -count=5 -run '^TestRecordFanOut$' -v ./internal/h2gate/` | K22, 64 cold calls at 1 s service (3 bursts a run): FirstHold wall p50 2006.9 (2006.6-2010.3) ms, leader done 1003.9, waiters done p50 2006.5 / p99 2012.6 ms; plain token wall 1004.7 (1004.6-1007.3) ms; 1 connection each. Negative control (plain token, 20 ms leader delay): ordering 0/50, check (b) failed 50/50 | `results/m-record.txt` |
+| W2.2-04 | 2026-09-25 15:45:35 UTC | W2.2 K22 and negative control ×5 | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 1.17 → 0.55 | `H2GATE_RECORD=1 MAXLOAD=44 sh $R '(L)' $LO /tmp/ts-spike/bench.lock l-record -count=5 -run '^TestRecordFanOut$' -v ./internal/h2gate/` | K22: FirstHold wall p50 2003.2 (2003.1-2003.9) ms, leader done 1001.4, waiters done p50 2002.9 / p99 2003.7 ms; plain token wall 1003.1 (1002.7-1003.3) ms. Negative control: ordering 0/50, (b) failed 50/50 | `results/l-record.txt` |
+| W2.2-05 | 2026-09-26 00:46:22 JST | W2.2 contention: `TestFanOut`, `TestTokenResidualK21` ×20 | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 4.26 → 394.21 (noisy by design) | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $C '(M)' $MO $SP/bench.lock m-contention 16 -count=20 -run '^(TestFanOut|TestTokenResidualK21)$' -v ./internal/h2gate/` | PASS, 144.6 s: ordering 200/200 bursts, 200 vs 8 200/200 in 200 reps (refused 0-4 per run); K21b: no call past deadline + 100 ms in 60 runs, every error a timeout, probe HEADERS ≤ 0.259 ms, accepts ≤ 2, fresh bursts 200/200 in 60/60 | 16 `nice -n 19 yes` loops inside the lock; `results/m-contention.txt` |
+| W2.2-06 | 2026-09-25 15:46:21 UTC | W2.2 contention ×20 | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.55 → 42.18 (noisy by design) | `sh $C '(L)' $LO /tmp/ts-spike/bench.lock l-contention 44 -count=20 -run '^(TestFanOut|TestTokenResidualK21)$' -v ./internal/h2gate/` | PASS, 186.0 s: ordering 200/200; 200 vs 8 200/200 in 200 reps, wall p50 284.2 ms but max 1278 ms, refused 12-77 per run of 10; K21b: late 0 in 60 runs, fresh 200/200 in 60/60, probe ≤ 0.215 ms | 44 loops; `results/l-contention.txt` |
+| W2.2-07 | 2026-09-26 00:48:52 JST | W2.2 contention, `-race` ×5 | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 394.21 → 402.44 (noisy by design) | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $C '(M)' $MO $SP/bench.lock m-contention-race 16 -race -count=5 -run '^(TestFanOut|TestTokenResidualK21)$' -v ./internal/h2gate/` | PASS, 37.9 s, no race: ordering 50/50; 200 vs 8 200/200 in 50 reps; K21b late 0 in 15 runs, fresh 200/200 | `results/m-contention-race.txt` |
+| W2.2-08 | 2026-09-25 15:49:33 UTC | W2.2 contention, `-race` ×5 | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 42.18 → 43.28 (noisy by design) | `sh $C '(L)' $LO /tmp/ts-spike/bench.lock l-contention-race 44 -race -count=5 -run '^(TestFanOut|TestTokenResidualK21)$' -v ./internal/h2gate/` | PASS, 48.8 s, no race: ordering 50/50; 200 vs 8 200/200 in 50 reps (wall max 1282 ms, refused 39-60 per run); K21b late 0 in 15 runs, probe ≤ 1.043 ms, fresh 200/200 | `results/l-contention-race.txt` |
+
+### W2.2 results
+
+AC-P4 against the frozen rows (`docs/perf/frozen-budgets.md`):
+
+| Clause | Frozen (W0.4b) | (M) | (L) |
+| --- | --- | --- | --- |
+| cold 64 → 1 connection | 50/50 per host | 50/50 (W2.2-01), 200/200 and 50/50 under contention (W2.2-05, -07) | 50/50 (W2.2-02), 200/200 and 50/50 under contention (W2.2-06, -08) |
+| warm → 0 | 50/50 | 50/50 | 50/50 |
+| 200 vs limit 8 → 200/200 within 2 s on 1 connection (asserted) | 293.0 ms (M), 271.7 ms (L) | 200/200 in 50/50, 311.4 ms | 200/200 in 50/50, 271.1 ms |
+| ordering, 20 ms leader delay, from client traces (R29c) | 50/50 at 5 ms | 50/50 | 50/50 |
+| negative control, plain token (not asserted) | fails 50/50 at 5 ms | fails (b) 50/50 | fails (b) 50/50 |
+| waiter latency (recorded) | wire p50 1.064 / p99 1.928 ms (M), 1.451 / 2.537 ms (L) at 0 ms delay | wire p50 23.7 / p99 25.4 ms | wire p50 21.7 / p99 22.9 ms |
+
+The waiter wire time now includes the 20 ms the ordering test holds the
+leader's response: under FirstHold no waiter writes before that response
+arrives, which is what the clause asserts. What the token itself adds is the
+hand-off from the leader's first response byte to the first waiter's HEADERS:
+p50 0.068 ms (M) and 0.047 ms (L). The 200-vs-8 wall on (M) is 6 % above
+W0.4b's, at a lower load (6.6 against 9.8); it is recorded, not a budget.
+
+K22 (W2.2-03, -04): a cold burst of 64 at 1 s of service time costs one
+service time more under FirstHold, as W0.4b measured at 50 and 200 ms: 2006.9
+against 1004.7 ms (M), 2003.2 against 1003.1 ms (L). The leader is answered
+at about 1 s and the 63 waiters at about 2 s, all on one connection.
+
+K21b (`TestTokenResidualK21`; contention rows W2.2-05 to -08, 50 runs a
+scenario in all): no call returned past its 2 s deadline + 100 ms, every error
+was a timeout (no connection, configuration or proxy class), the token was
+free after every burst (probe HEADERS at most 1.043 ms, against the 50 ms
+bound), the server accepted at most 2 connections, and every fresh 200-vs-8
+burst afterwards succeeded 200/200. REFUSED_STREAM above 4 ends with
+deadline misses in every run (5-43 of 72 calls succeed): the stock
+transport retries a refused stream at once, then after 1 s and 2 s of
+backoff (`internal/http2/transport.go:417-446`), so the second refusal of a
+call outlives its deadline. The GOAWAY scenario completed 72/72 in 12 of 20
+runs on (M) and 13 of 20 on (L) under contention, 4 of 5 on each host under
+`-race`, and in every unloaded run; in the others 16-63 calls ran out of
+their deadline in that backoff. SETTINGS 8 → 2 completed 72/72 in 48 of 50
+contention runs.
+
+Why the server refuses under load: the loopback server writes a stream's
+END_STREAM (`internal/testsupport/h2conn.go:584`) before it decrements its
+open-stream count (`:594`). A client that reads END_STREAM and opens its next
+stream inside that window finds the server one stream over the limit, and the
+window widens under CPU contention. This is where the 200-vs-8 refusals on
+(L) under contention come from (12-77 per 10 bursts, with a burst's wall up
+to 1.28 s: one refusal and the 1 s backoff, still inside the 2 s deadline);
+unloaded, they are 0-2. It is a property of the test server, stricter than
+RFC 9113 (a stream the server has ended is closed on its side when it sends
+the frame); a second refusal of one call would miss the 2 s deadline, so it
+is the one flake path of `TestFanOut`'s 200-vs-8 case under heavy load.
+Reported to the lead (W2.2 report, question 1).
