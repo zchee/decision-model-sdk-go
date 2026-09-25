@@ -233,16 +233,9 @@ func (c *Client) SystemOne(ctx context.Context, state any, qs *Prepared, opts ..
 		getBody:  body.GetBody,
 	}
 	resp := new(SystemOneResponse)
-	r := retryState{policy: s.retry}
-	for attempt := 0; ; attempt++ {
-		resp.meta, err = c.attempt(ctx, &rq, attempt)
-		if err == nil {
-			err = decodeSystemOne(ctx, c.cfg.logger, &resp.meta, c.systemOneEndpoint, qs, model, &resp.res)
-		}
-		if !r.again(ctx, attempt, err) {
-			break
-		}
-	}
+	err = c.send(ctx, &rq, s.retry, &resp.meta, func() error {
+		return decodeSystemOne(ctx, c.cfg.logger, &resp.meta, c.systemOneEndpoint, qs, model, &resp.res)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -286,20 +279,32 @@ func (m Models) List(ctx context.Context, opts ...CallOption) (*ModelsResponse, 
 		timeout:  s.timeout,
 	}
 	resp := new(ModelsResponse)
-	r := retryState{policy: s.retry}
-	for attempt := 0; ; attempt++ {
-		resp.meta, err = c.attempt(ctx, &rq, attempt)
-		if err == nil {
-			err = decodeModels(&resp.meta, c.modelsEndpoint, &resp.list)
-		}
-		if !r.again(ctx, attempt, err) {
-			break
-		}
-	}
+	err = c.send(ctx, &rq, s.retry, &resp.meta, func() error {
+		return decodeModels(&resp.meta, c.modelsEndpoint, &resp.list)
+	})
 	if err != nil {
 		return nil, err
 	}
 	return resp, nil
+}
+
+// send makes the attempts of one call as its retry policy asks (section
+// 6.4; W3 completes the policy) and returns the error of the last attempt:
+// the attempt's own, or decode's for a response that arrived. Each attempt
+// stores its response's status, header and body in *meta, which decode
+// reads. decode does not escape, so a call's closure stays on its stack.
+func (c *Client) send(ctx context.Context, rq *request, policy RetryPolicy, meta *wire.ResponseMeta, decode func() error) error {
+	r := retryState{policy: policy}
+	for attempt := 0; ; attempt++ {
+		var err error
+		*meta, err = c.attempt(ctx, rq, attempt)
+		if err == nil {
+			err = decode()
+		}
+		if !r.again(ctx, attempt, err) {
+			return err
+		}
+	}
 }
 
 // request is what every attempt of one call sends.
