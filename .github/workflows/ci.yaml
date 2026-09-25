@@ -150,6 +150,11 @@ jobs:
       - name: go test without -race (allocation tests)
         run: go test -count=1 ./internal/codec/ ./internal/wire/ ./internal/testsupport/
 
+      # The root package's pinned Prepare counts (ruling R50); W5.2 folds the
+      # name into the ALLOC list above and this step into its own.
+      - name: go test without -race (root allocation tests)
+        run: go test -count=1 -run '^(TestAllocPrepare)$' -v .
+
       # OIDC authentication: the action exchanges the job's id-token (hence
       # `id-token: write` above) and ignores any token input. It needs the Codecov
       # GitHub App installed on the repository (owner gate G1). For a pull request
