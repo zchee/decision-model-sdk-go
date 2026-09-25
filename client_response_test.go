@@ -17,6 +17,7 @@ package typesafe
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -578,6 +579,132 @@ func TestReadBody(t *testing.T) {
 			}
 			if tt.wantCap != 0 && cap(got) != tt.wantCap {
 				t.Errorf("cap = %d, want %d", cap(got), tt.wantCap)
+			}
+		})
+	}
+}
+
+// TestResponsesKeepTheirOwnBodies checks that a response owns the body it
+// was read into: a later call with another body leaves an earlier response's
+// RawBody, model and answers as they were.
+func TestResponsesKeepTheirOwnBodies(t *testing.T) {
+	first := testsupport.Fixture(t, "result.json")
+	second := []byte(`{"model":"other-model","usage":{"input_tokens":7,"output_tokens":7},"answers":{"spam":{"type":"noul","noul":0.5}}}`)
+	c := newTestClient(t, &testsupport.Recorder{Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, first), testsupport.JSON(http.StatusOK, second)}})
+	resp1, err := c.SystemOne(t.Context(), "x", q3Questions(t))
+	if err != nil {
+		t.Fatalf("first SystemOne: %v", err)
+	}
+	resp2, err := c.SystemOne(t.Context(), "x", q3Questions(t))
+	if err != nil {
+		t.Fatalf("second SystemOne: %v", err)
+	}
+	spam1, _ := resp1.Answers().Noul("spam")
+	spam2, _ := resp2.Answers().Noul("spam")
+	got := []any{string(resp1.Meta().RawBody()), resp1.Model(), spam1.Noul(), string(resp2.Meta().RawBody()), resp2.Model(), spam2.Noul()}
+	want := []any{string(first), "jev-latest", 0.98, string(second), "other-model", 0.5}
+	if diff := gocmp.Diff(want, got); diff != "" {
+		t.Errorf("bodies, models and spam of both responses (-want +got):\n%s", diff)
+	}
+}
+
+// TestAPIErrorRequestContextThroughClient ports test_api_error_request_context
+// (E3) through the client: an error response of a list-models call and of a
+// System One call names its endpoint, under the base URL's prefix, with the
+// status, the message and the request id, and no printed form holds the API
+// key. TestAPIErrorRendersEndpointStatusMessageRequestID checks the
+// rendering itself. (E4's base URL with credentials is refused when the
+// client is built, R63, and E5 builds its error directly: neither has a
+// through-the-client form.)
+func TestAPIErrorRequestContextThroughClient(t *testing.T) {
+	const key = "private-api-key"
+	tests := map[string]struct {
+		call     func(c *Client) error
+		endpoint string
+	}{
+		"error: models": {
+			call:     func(c *Client) error { _, err := c.Models().List(t.Context()); return err },
+			endpoint: "GET https://api.example.test/prefix/v1/models",
+		},
+		"error: system_one": {
+			call: func(c *Client) error {
+				_, err := c.SystemOne(t.Context(), "hello", mustPrepared(t, NewQuestions().Noul("q", Noul{Instructions: Text("Greeting?")})))
+				return err
+			},
+			endpoint: "POST https://api.example.test/prefix/v1/systemone",
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			rec := replying(http.StatusTooManyRequests, []byte(`{"message":"Too many requests"}`), "X-Typesafe-Request-Id", "req-context")
+			clearEnv(t)
+			c := newEnvClient(t, rec, WithAPIKey(key), WithBaseURL("https://api.example.test/prefix"))
+			err := tt.call(c)
+			ae, ok := errors.AsType[*APIError](err)
+			if !ok {
+				t.Fatalf("error = %v (%T), want an *APIError", err, err)
+			}
+			want := tt.endpoint + ": 429 Too many requests (request_id=req-context)"
+			if diff := gocmp.Diff([]any{APIErrorRateLimit, tt.endpoint, want}, []any{ae.Kind, ae.Endpoint, ae.Error()}); diff != "" {
+				t.Errorf("kind, endpoint, Error() (-want +got):\n%s", diff)
+			}
+			for _, verb := range []string{"%v", "%+v", "%#v", "%s", "%q"} {
+				if out := fmt.Sprintf(verb, err); strings.Contains(out, key) {
+					t.Errorf("%s of the error holds the key: %s", verb, out)
+				}
+			}
+		})
+	}
+}
+
+// TestAPIErrorBodyEdgeCasesThroughClient ports test_error_body_edge_cases
+// (E6) through the client, with each body declared and undeclared: eight
+// rows render exactly as the Python SDK's, and long-plain-message is cut at
+// 200 characters (Appendix B "plain-text body cut at 200");
+// TestAPIErrorBodyEdgeCases checks the reader itself.
+func TestAPIErrorBodyEdgeCasesThroughClient(t *testing.T) {
+	x := strings.Repeat("x", 201)
+	rows := map[string]struct {
+		body string
+		want string
+	}{
+		"empty":                           {body: "", want: "400 status code (no body)"},
+		"null":                            {body: "null", want: "400 status code (no body)"},
+		"empty array":                     {body: "[]", want: "400 []"},
+		"number":                          {body: "42", want: "400 42"},
+		"not JSON, invalid UTF-8":         {body: "not JSON: \xff", want: "400 not JSON: �"},
+		"deviation, long-plain-message":   {body: x, want: "400 " + x[:200] + "…"},
+		"long-unstructured-body":          {body: `{"unknown":"` + x + `"}`, want: `400 {"unknown":"` + x[:188] + "…"},
+		"an empty error stops the search": {body: `{"error":"","message":"ignored"}`, want: `400 {"error":"","message":"ignored"}`},
+		"detail entries without a msg":    {body: `{"detail":[null,42,{"msg":4}]}`, want: `400 {"detail":[null,42,{"msg":4}]}`},
+	}
+	type test struct {
+		body     string
+		declared bool
+		want     string
+	}
+	tests := map[string]test{}
+	for name, r := range rows {
+		tests["success: "+name+", declared"] = test{body: r.body, declared: true, want: r.want}
+		tests["success: "+name+", undeclared"] = test{body: r.body, want: r.want}
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			reply := testsupport.Reply{Status: http.StatusBadRequest, Body: []byte(tt.body)}
+			if !tt.declared {
+				reply.ContentLength = -1
+			}
+			c := newTestClient(t, &testsupport.Recorder{Replies: []testsupport.Reply{reply}})
+			_, err := c.Models().List(t.Context())
+			ae, ok := errors.AsType[*APIError](err)
+			if !ok {
+				t.Fatalf("List error = %v (%T), want an *APIError", err, err)
+			}
+			if diff := gocmp.Diff(modelsEndpoint+": "+tt.want, ae.Error()); diff != "" {
+				t.Errorf("Error() (-want +got):\n%s", diff)
+			}
+			if id, ok := ae.RequestID(); ok {
+				t.Errorf("RequestID() = %q, want none", id)
 			}
 		})
 	}

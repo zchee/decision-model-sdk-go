@@ -16,6 +16,7 @@ package typesafe
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"net"
 	"net/http"
@@ -67,10 +68,10 @@ func (c *closingRT) Close() error {
 
 // TestSystemOneOverHTTP2 runs the client over the SDK's own transport and a
 // real TLS connection to the loopback server (WithRootCAs trusts its
-// certificate): WarmUp and three calls go on one HTTP/2 connection (Stats
-// counts one dial and four attempts), under a base URL's path prefix, with
-// the SDK's headers on the wire and no X-TypeSafe-Retry-Count (C15's wire
-// half).
+// certificate): WarmUp opens the one HTTP/2 connection (Stats: one dial, one
+// attempt) and three calls reuse it (one dial, four attempts), under a base
+// URL's path prefix, with the SDK's headers on the wire and no
+// X-TypeSafe-Retry-Count (C15's wire half).
 func TestSystemOneOverHTTP2(t *testing.T) {
 	srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: apiHandler(t)})
 	clearEnv(t)
@@ -81,6 +82,10 @@ func TestSystemOneOverHTTP2(t *testing.T) {
 	t.Cleanup(func() { _ = c.Close() })
 	if err := c.WarmUp(t.Context()); err != nil {
 		t.Fatalf("WarmUp: %v", err)
+	}
+	// WarmUp opened the connection the calls then share.
+	if diff := gocmp.Diff(Stats{Dials: 1, Attempts: 1}, c.Stats()); diff != "" {
+		t.Errorf("Stats after WarmUp (-want +got):\n%s", diff)
 	}
 	for range 3 {
 		resp, err := c.SystemOne(t.Context(), map[string]any{"document": "Hello 🌍"}, q3Questions(t))
@@ -109,16 +114,54 @@ func TestSystemOneOverHTTP2(t *testing.T) {
 	}
 }
 
+// closeWatch returns a ConnState hook for a test server and a channel that
+// receives once for every connection the server sees closed.
+func closeWatch() (func(net.Conn, http.ConnState), <-chan struct{}) {
+	closed := make(chan struct{}, 16)
+	return func(_ net.Conn, st http.ConnState) {
+		if st == http.StateClosed {
+			closed <- struct{}{}
+		}
+	}, closed
+}
+
+// waitClosed waits up to 5 s for the server behind closed to see a
+// connection closed.
+func waitClosed(t *testing.T, closed <-chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("%s: no connection closed within 5 s", what)
+	}
+}
+
 // TestCallerTransportKeepsItsSettings ports test_http_client_settings (C16)
 // to WithHTTPTransport: the client works over a clone of the caller's
 // *http.Transport, so the requests go through the caller's dialer and TLS
 // configuration and carry the SDK's headers, while the caller's transport
-// is neither used nor changed. Close closes the clone's idle connection.
+// is neither used nor changed. The connection stays open until Close, which
+// closes the clone's idle connection.
 func TestCallerTransportKeepsItsSettings(t *testing.T) {
-	srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: apiHandler(t)})
+	type seen struct{ Proto, Method, Authorization, SDKDefault, Call string }
+	var mu sync.Mutex
+	var requests []seen
+	api := apiHandler(t)
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requests = append(requests, seen{r.Proto, r.Method, r.Header.Get("Authorization"), r.Header.Get("X-Sdk-Default"), r.Header.Get("X-Call")})
+		mu.Unlock()
+		api.ServeHTTP(w, r)
+	}))
+	srv.EnableHTTP2 = true
+	hook, closed := closeWatch()
+	srv.Config.ConnState = hook
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+
 	var dials atomic.Int32
 	dialer := &net.Dialer{}
-	tlsConfig := testsupport.ClientTLSConfig(t)
+	tlsConfig := &tls.Config{RootCAs: srv.Client().Transport.(*http.Transport).TLSClientConfig.RootCAs, MinVersion: tls.VersionTLS12}
 	tr := &http.Transport{
 		TLSClientConfig:   tlsConfig,
 		ForceAttemptHTTP2: true,
@@ -129,7 +172,7 @@ func TestCallerTransportKeepsItsSettings(t *testing.T) {
 		},
 	}
 	clearEnv(t)
-	c, err := NewClient(WithAPIKey(testKey), WithHTTPTransport(tr), WithBaseURL(srv.URL()), WithHeader("X-Sdk-Default", "sdk"), WithHeader("X-Call", "sdk"))
+	c, err := NewClient(WithAPIKey(testKey), WithHTTPTransport(tr), WithBaseURL(srv.URL), WithHeader("X-Sdk-Default", "sdk"), WithHeader("X-Call", "sdk"))
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
@@ -144,15 +187,15 @@ func TestCallerTransportKeepsItsSettings(t *testing.T) {
 	if _, err := c.SystemOne(t.Context(), "x", noulQuestion(t), Header("X-Call", "call")); err != nil {
 		t.Fatalf("SystemOne: %v", err)
 	}
-	var methods []string
-	for _, r := range srv.Requests() {
-		methods = append(methods, r.Method)
-		if r.Header.Get("Authorization") != "Bearer "+testKey || r.Header.Get("X-Sdk-Default") != "sdk" || r.Header.Get("X-Call") != "call" {
-			t.Errorf("%s headers %v, want the SDK's Authorization, X-Sdk-Default: sdk and X-Call: call", r.Method, r.Header)
-		}
+	mu.Lock()
+	got := requests
+	mu.Unlock()
+	want := []seen{
+		{"HTTP/2.0", http.MethodGet, "Bearer " + testKey, "sdk", "call"},
+		{"HTTP/2.0", http.MethodPost, "Bearer " + testKey, "sdk", "call"},
 	}
-	if diff := gocmp.Diff([]string{http.MethodGet, http.MethodPost}, methods); diff != "" {
-		t.Errorf("methods (-want +got):\n%s", diff)
+	if diff := gocmp.Diff(want, got); diff != "" {
+		t.Errorf("requests (-want +got):\n%s", diff)
 	}
 	if tr.TLSClientConfig != tlsConfig || tr.MaxIdleConns != 7 || tr.Proxy != nil || !tr.ForceAttemptHTTP2 || tr.MaxConnsPerHost != 0 {
 		t.Errorf("the caller's transport changed: TLS %p (want %p), MaxIdleConns %d, Proxy set %t, MaxConnsPerHost %d", tr.TLSClientConfig, tlsConfig, tr.MaxIdleConns, tr.Proxy != nil, tr.MaxConnsPerHost)
@@ -163,16 +206,13 @@ func TestCallerTransportKeepsItsSettings(t *testing.T) {
 	if diff := gocmp.Diff(Stats{Dials: 1, Attempts: 2}, c.Stats()); diff != "" {
 		t.Errorf("Stats (-want +got):\n%s", diff)
 	}
+	if n := len(closed); n != 0 {
+		t.Fatalf("%d connections closed before Close, want 0", n)
+	}
 	if err := c.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	deadline := time.Now().Add(5 * time.Second)
-	for len(srv.LiveH2Conns()) != 0 {
-		if time.Now().After(deadline) {
-			t.Fatalf("%d connections still open 5 s after Close, want 0", len(srv.LiveH2Conns()))
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	waitClosed(t, closed, "Close of a WithHTTPTransport client")
 }
 
 // TestCloseClosesSuppliedTransport ports test_supplied_network_resources_closed
@@ -226,14 +266,9 @@ func TestCloseClosesSuppliedTransport(t *testing.T) {
 // the transport a client builds has the default 10 s timeout, and Close
 // closes its idle connection.
 func TestCloseClosesOwnedTransport(t *testing.T) {
-	var mu sync.Mutex
-	states := map[http.ConnState]int{}
 	srv := httptest.NewUnstartedServer(apiHandler(t))
-	srv.Config.ConnState = func(_ net.Conn, st http.ConnState) {
-		mu.Lock()
-		states[st]++
-		mu.Unlock()
-	}
+	hook, closed := closeWatch()
+	srv.Config.ConnState = hook
 	srv.Start()
 	t.Cleanup(srv.Close)
 	clearEnv(t)
@@ -247,22 +282,13 @@ func TestCloseClosesOwnedTransport(t *testing.T) {
 	if _, err := c.Models().List(t.Context()); err != nil {
 		t.Fatalf("List: %v", err)
 	}
+	if n := len(closed); n != 0 {
+		t.Fatalf("%d connections closed before Close, want 0", n)
+	}
 	if err := c.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		mu.Lock()
-		closed := states[http.StateClosed]
-		mu.Unlock()
-		if closed == 1 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("the server saw %d closed connections 5 s after Close, want 1", closed)
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	waitClosed(t, closed, "Close of the owned transport")
 	if _, err := c.Models().List(t.Context()); !errors.Is(err, ErrClientClosed) {
 		t.Errorf("List after Close = %v, want ErrClientClosed", err)
 	}

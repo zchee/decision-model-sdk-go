@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	"net/http"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -779,5 +780,33 @@ func TestWithPretouch(t *testing.T) {
 				t.Errorf("body (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestRequestURLIsCopied pins ruling R66 NIT 5: every request carries its
+// own copy of the endpoint URL, so a RoundTripper that rewrites req.URL,
+// which the RoundTripper contract forbids, changes neither the next
+// request's URL nor the client's.
+func TestRequestURLIsCopied(t *testing.T) {
+	rec := replying(http.StatusOK, []byte(`{"models":[]}`))
+	var sent []string
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		sent = append(sent, req.URL.String())
+		req.URL.Path = "/evil"
+		req.URL.Host = "evil.test"
+		return rec.RoundTrip(req)
+	})
+	c := newTestClient(t, rt)
+	for range 2 {
+		if _, err := c.Models().List(t.Context()); err != nil {
+			t.Fatalf("List: %v", err)
+		}
+	}
+	want := []string{"https://api.typesafe.ai/v1/models", "https://api.typesafe.ai/v1/models"}
+	if diff := gocmp.Diff(want, sent); diff != "" {
+		t.Errorf("URLs the transport got (-want +got):\n%s", diff)
+	}
+	if got := []string{c.cfg.modelsURL.String(), c.cfg.systemOneURL.String()}; !slices.Equal(got, []string{"https://api.typesafe.ai/v1/models", "https://api.typesafe.ai/v1/systemone"}) {
+		t.Errorf("the client's endpoints changed: %v", got)
 	}
 }
