@@ -38,7 +38,7 @@ coverage:
     patch:
       default:
         target: 90%
-        only_pulls: true
+        # No only_pulls: waves land on main without pull requests (ruling R2).
         informational: true
         if_not_found: success
     changes: false

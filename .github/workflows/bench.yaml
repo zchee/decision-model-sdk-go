@@ -8,22 +8,28 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # One group per main commit, so a later push never cancels or queues behind an
+  # earlier main run (plan risk K7 counts the runs on main); other refs share
+  # one group per ref and cancel superseded runs.
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
-  # CodSpeed authenticates with the job's OIDC id-token when its GitHub App is
-  # installed on the repository (owner gate G1); the action has no token input
-  # set and no separate OIDC switch.
-  id-token: write
 
 jobs:
   codspeed:
     name: CodSpeed (walltime)
-    # Plan decision D4: if CodSpeed refuses this image, pin the newest named
-    # image it supports and state the reason and retirement condition here.
+    # Plan decision D4: CodSpeed accepted ubuntu-26.04 on 2026-09-25 (runs
+    # 36102193024 and 36102197550, both green), so no runner exception applies.
     runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # CodSpeed authenticates with the job's OIDC id-token when its GitHub App
+      # is installed on the repository (owner gate G1); the action has no token
+      # input set and no separate OIDC switch.
+      id-token: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -39,7 +45,14 @@ jobs:
           CODSPEED_PERF_UNWINDING_MODE: fp
         with:
           mode: walltime
-          # The CodSpeed Go runner accepts only -bench and runs benchmarks only.
-          # It drops -run but keeps its value as a package pattern, so
-          # `-run '^$'` fails with: malformed import path "^$".
+          # The action's `go` shim hands every `go test` to codspeed-go-runner,
+          # which runs benchmarks only: it keeps -bench and -benchtime, drops any
+          # other flag with a warning, and takes the first non-flag argument and
+          # everything after it as package patterns (so `-run '^$'` fails with
+          # malformed import path "^$"). It then runs the real
+          # `go test -bench <p> -benchtime <d> -run=^$ <packages>` itself, so no
+          # unit test runs in this job. Source: CodSpeedHQ/codspeed v5.2.1
+          # src/executor/helpers/introspected_golang/go.sh (default go-runner
+          # 1.3.0); CodSpeedHQ/codspeed-go v1.3.0 go-runner/src/cli.rs and
+          # go-runner/src/runner/mod.rs.
           run: go test -bench=. ./...
