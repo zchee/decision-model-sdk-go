@@ -837,3 +837,95 @@ func TestInvalidRequestError(t *testing.T) {
 		t.Errorf("the *codec.EncodeError does not wrap sonic's error")
 	}
 }
+
+// TestNestedContentEncodesAsContent checks ruling R52: Content nested in a
+// state or in a body member's value, where sonic writes it through
+// Content.MarshalJSON, is sent as content, never as the empty object its
+// unexported fields would give: text escaped as the questions are (\b as
+// Python writes it), JSON content as the bytes it holds (whitespace kept),
+// unset Content as null. Invalid nested content fails before any network.
+func TestNestedContentEncodesAsContent(t *testing.T) {
+	type holder struct {
+		C Content  `json:"c"`
+		P *Content `json:"p"`
+	}
+	text := Text("a\bb")
+	tests := map[string]struct {
+		state any
+		extra []bodyMember
+		want  string // the body, on success; a substring of the message otherwise
+		cause error  // errors.Is target, on failure
+	}{
+		"success: text in a map state": {
+			state: map[string]any{"c": text},
+			want:  `{"state":{"c":"a\bb"},"model":"jev-latest","questions":` + probeQuestions + `}`,
+		},
+		"success: JSON content in a map state, bytes as given": {
+			state: map[string]any{"c": JSON([]byte(` { "a" : [1, null] } `))},
+			want:  `{"state":{"c": { "a" : [1, null] } },"model":"jev-latest","questions":` + probeQuestions + `}`,
+		},
+		"success: unset Content in a map state is null": {
+			state: map[string]any{"c": Content{}},
+			want:  `{"state":{"c":null},"model":"jev-latest","questions":` + probeQuestions + `}`,
+		},
+		"success: Content and *Content struct fields": {
+			state: holder{C: Text("x"), P: &text},
+			want:  `{"state":{"c":"x","p":"a\bb"},"model":"jev-latest","questions":` + probeQuestions + `}`,
+		},
+		"success: a nil *Content field is null": {
+			state: holder{C: JSON([]byte(`[]`))},
+			want:  `{"state":{"c":[],"p":null},"model":"jev-latest","questions":` + probeQuestions + `}`,
+		},
+		"success: Content nested in an extra member's value": {
+			state: "hi",
+			extra: []bodyMember{{"ctx", map[string]any{"c": text, "u": Content{}}}},
+			want:  `,"ctx":{`, // map order varies; the members are checked below
+		},
+		"error: invalid JSON content nested in the state": {
+			state: map[string]any{"c": JSON([]byte(`{"a":}`))},
+			want:  "state: invalid Marshaler output json syntax",
+		},
+		"error: JSON content that is not an object or an array": {
+			state: []any{JSON([]byte(`3`))},
+			want:  "state: JSON content must be an object or an array",
+			cause: wire.ErrContentShape,
+		},
+		"error: nested text that is not UTF-8, in an extra member": {
+			state: "hi",
+			extra: []bodyMember{{"ctx", []any{Text("\xff")}}},
+			want:  `extra body member "ctx": string is not valid UTF-8`,
+			cause: wire.ErrInvalidUTF8,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := bodyOf(t, tt.state, "jev-latest", probeSet(t), tt.extra...)
+			if strings.HasPrefix(name, "error: ") {
+				_ = invalidRequest(t, err, tt.want)
+				if _, ok := errors.AsType[*codec.EncodeError](err); !ok {
+					t.Errorf("err = %v, want a chain through *codec.EncodeError", err)
+				}
+				if tt.cause != nil && !errors.Is(err, tt.cause) {
+					t.Errorf("err = %v, want errors.Is %v", err, tt.cause)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("encodeBody: %v", err)
+			}
+			if tt.extra == nil {
+				if diff := gocmp.Diff(tt.want, got); diff != "" {
+					t.Errorf("body (-want +got):\n%s", diff)
+				}
+				return
+			}
+			prefix := `{"state":"hi","model":"jev-latest","questions":` + probeQuestions + tt.want
+			members := []string{`"c":"a\bb"`, `"u":null`}
+			one := prefix + members[0] + "," + members[1] + "}}"
+			other := prefix + members[1] + "," + members[0] + "}}"
+			if got != one && got != other {
+				t.Errorf("body =\n%s\nwant\n%s\nor\n%s", got, one, other)
+			}
+		})
+	}
+}

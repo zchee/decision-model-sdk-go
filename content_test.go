@@ -14,7 +14,14 @@
 
 package typesafe
 
-import "testing"
+import (
+	"errors"
+	"testing"
+
+	gocmp "github.com/google/go-cmp/cmp"
+
+	"github.com/zchee/typesafe-sdk-go/internal/wire"
+)
 
 func TestContent(t *testing.T) {
 	raw := RawJSON(`{"a": 1}`)
@@ -82,6 +89,40 @@ func TestContentJSONSharesTheBytes(t *testing.T) {
 			}
 			if got := string(p.w.Questions); got != tt.want {
 				t.Errorf("questions after the caller's change = %s, want %s", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestContentMarshalJSON covers the JSON form of Content (ruling R52): text
+// escaped as the questions are, JSON content as the bytes it holds, unset
+// Content as null, and the two failures.
+func TestContentMarshalJSON(t *testing.T) {
+	tests := map[string]struct {
+		c       Content
+		want    string
+		wantErr error
+	}{
+		"success: text, escaped as in the questions": {c: Text("a\"b\\c\b\f<>é"), want: `"a\"b\\c\b\f<>é"`},
+		"success: empty text":                        {c: Text(""), want: `""`},
+		"success: a JSON object, bytes as given":     {c: JSON([]byte(` { "a" : 1 } `)), want: ` { "a" : 1 } `},
+		"success: a JSON array":                      {c: JSON([]byte(`[1,null]`)), want: `[1,null]`},
+		"success: unset Content is null":             {c: Content{}, want: `null`},
+		"error: text that is not UTF-8":              {c: Text("\xff"), wantErr: wire.ErrInvalidUTF8},
+		"error: JSON content that is a number":       {c: JSON([]byte(` 3`)), wantErr: wire.ErrContentShape},
+		"error: empty JSON content":                  {c: JSON(nil), wantErr: wire.ErrContentShape},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := tt.c.MarshalJSON()
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("MarshalJSON err = %v, want %v", err, tt.wantErr)
+			}
+			if tt.wantErr != nil {
+				return
+			}
+			if diff := gocmp.Diff(tt.want, string(got)); diff != "" {
+				t.Errorf("MarshalJSON (-want +got):\n%s", diff)
 			}
 		})
 	}

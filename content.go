@@ -81,6 +81,39 @@ func (c Content) Text() string { return c.w.Text }
 // unset. The slice is shared: callers must not modify it.
 func (c Content) JSON() RawJSON { return c.w.JSON }
 
+// MarshalJSON returns c as a JSON value, so that Content nested inside a
+// state or a request body member, such as a map[string]any value or a
+// struct field, is sent as content rather than as an empty object: text as
+// a JSON string, escaped as the questions are; JSON content as the bytes it
+// holds, which the encoder then validates (they are not compacted); unset
+// Content as null. It fails when the text is not valid UTF-8, or when the
+// JSON's first byte other than whitespace does not open an object or an
+// array.
+func (c Content) MarshalJSON() ([]byte, error) {
+	switch {
+	case !c.set:
+		return []byte("null"), nil
+	case c.w.IsJSON():
+		if i := firstNonSpace(c.w.JSON); i == len(c.w.JSON) || c.w.JSON[i] != '{' && c.w.JSON[i] != '[' {
+			return nil, wire.ErrContentShape
+		}
+		return c.w.JSON, nil
+	default:
+		return wire.AppendString(make([]byte, 0, len(c.w.Text)+2), c.w.Text)
+	}
+}
+
+// firstNonSpace returns the offset of the first byte of b that is not JSON
+// whitespace, or len(b).
+func firstNonSpace(b []byte) int {
+	for i, c := range b {
+		if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
+			return i
+		}
+	}
+	return len(b)
+}
+
 // orNil returns the content to write, or nil when c is unset.
 func (c *Content) orNil() *wire.Content {
 	if !c.set {
