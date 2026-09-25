@@ -32,9 +32,11 @@ import (
 // docs/perf/frozen-budgets.md, S-D1 variant a1; duplicates at 17 by the
 // owner's G2 c). The counts are pinned exactly, not as ceilings (ruling
 // R70), so that a sonic upgrade or a decoder change that moves one fails
-// here and is looked at, as the NF1 encode pins do. The five fixtures one
-// below their budget are those whose frozen count included the arena that
-// copied structured levels, which interning makes unnecessary. The plain
+// here and is looked at, as the NF1 encode pins do. The six fixtures one
+// below their budget (duplicates, escaped-member-names, structured-legend,
+// deviation-lone-surrogate and the two floods: each holds a structured
+// level) are those whose frozen count included the arena that copied
+// structured levels, which interning makes unnecessary. The plain
 // 3-answer fixture also keeps the plan's ceiling of 8 (NF2).
 var decodeAllocs = map[string]struct{ want, frozen uint64 }{
 	"result.json":                      {want: 4, frozen: 4},
