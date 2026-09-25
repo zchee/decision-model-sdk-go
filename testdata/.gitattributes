@@ -1,0 +1,3 @@
+# Fixtures are exact response bodies (see README.md): git must never
+# normalise their line endings or bytes.
+*.json -text

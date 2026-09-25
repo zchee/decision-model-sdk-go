@@ -1,0 +1,1 @@
+{"answers":{"spam":{"noul":0.98,"type":"noul"},"tone":{"choice":"friendly","confidence":0.9,"probabilities":{"friendly":0.9,"hostile":0.1},"type":"choice"},"quality":{"score":1.7,"confidence":0.8,"legend":{"0":"bad","1":"ok","2":"great"},"probabilities":{"0":0.1,"1":0.1,"2":0.8},"type":"score"}},"usage":{"output_tokens":3,"input_tokens":12},"model":"jev-latest"}

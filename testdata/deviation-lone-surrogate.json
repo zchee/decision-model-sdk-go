@@ -1,0 +1,1 @@
+{"model":"jev-latest","usage":{"input_tokens":1,"output_tokens":1},"answers":{"quality":{"type":"score","score":0.5,"confidence":0.5,"legend":{"0":"bad \ud800","1":{"note":"\ud800"}},"probabilities":{"0":0.5,"1":0.5}}}}
