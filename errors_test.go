@@ -419,6 +419,11 @@ func TestRetryAfter(t *testing.T) {
 	now := time.Unix(1_000_000, 0)
 	future := now.Add(10 * time.Second).UTC().Format(http.TimeFormat)
 	past := now.Add(-10 * time.Second).UTC().Format(http.TimeFormat)
+	// RFC 2822 spellings the Python SDK's parsedate_to_datetime takes and
+	// http.ParseTime does not (ruling R73: no answer, W3 may widen).
+	numericZone := now.Add(10 * time.Second).UTC().Format(time.RFC1123Z)
+	eastZone := now.Add(10 * time.Second).In(time.FixedZone("JST", 9*3600)).Format(time.RFC1123Z)
+	noWeekday := now.Add(10 * time.Second).UTC().Format("02 Jan 2006 15:04:05 GMT")
 	tests := map[string]struct {
 		header []string
 		want   time.Duration
@@ -442,6 +447,9 @@ func TestRetryAfter(t *testing.T) {
 		"success: a repeated header is not a number":    {header: []string{"Retry-After", "1", "Retry-After", "2"}},
 		"success: hexadecimal is not a Python float":    {header: []string{"Retry-After-Ms", "0x10"}},
 		"success: a date is read from Retry-After only": {header: []string{"Retry-After-Ms", future}},
+		"success: deviation, a numeric zone +0000":      {header: []string{"Retry-After", numericZone}},
+		"success: deviation, a numeric zone +0900":      {header: []string{"Retry-After", eastZone}},
+		"success: deviation, a date without a weekday":  {header: []string{"Retry-After", noWeekday}},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {

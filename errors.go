@@ -237,7 +237,10 @@ func (e *APIError) RequestID() (string, bool) { return requestID(e.Header) }
 // seconds or as an HTTP date (a date already past is zero); a value that is
 // not a number, negative, NaN or infinite gives no answer from that header.
 // The wait is truncated to whole milliseconds. It is read for any status,
-// not only 429.
+// not only 429. A date is read in the three formats RFC 9110 names
+// (IMF-fixdate, RFC 850, asctime; [net/http.ParseTime]); the Python SDK's
+// parser also takes a numeric zone such as +0000 and a missing weekday,
+// which give no answer here (ruling R73).
 func (e *APIError) RetryAfter() (time.Duration, bool) { return retryAfter(e.Header, time.Now()) }
 
 // IsAuthentication reports whether the status or the server's error type
