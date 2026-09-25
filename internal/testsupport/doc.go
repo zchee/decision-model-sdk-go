@@ -41,7 +41,8 @@
 //     reads, so a test can assert that every attempt sends the same body.
 //   - [LogRecorder]: a [log/slog.Handler] that keeps every record.
 //   - [QuietRuntime], [Measure] and [MeasureMin]: allocation counting with the
-//     collector off, GOMAXPROCS at 1, and a stable minimum of five runs.
+//     collector off, GOMAXPROCS at 1, and a stable minimum of five runs;
+//     [Spread] for a section checked against a bound on every run.
 //   - [Fixture] and friends: the response bodies under the module's testdata
 //     directory, read once and cached.
 //

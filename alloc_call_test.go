@@ -53,6 +53,12 @@ func newAllocState() any { return strings.Repeat("s", allocStateSize-2) }
 // testsupport.AllocAgree runs share in both counters.
 func series(t *testing.T, label string, setup, section func()) testsupport.Allocs {
 	t.Helper()
+	return testsupport.StableMin(t, label, measureRuns(setup, section))
+}
+
+// measureRuns measures section testsupport.AllocRuns times, running setup
+// (not measured) before each run, and returns every run.
+func measureRuns(setup, section func()) []testsupport.Allocs {
 	runs := make([]testsupport.Allocs, testsupport.AllocRuns)
 	for i := range runs {
 		if setup != nil {
@@ -60,7 +66,7 @@ func series(t *testing.T, label string, setup, section func()) testsupport.Alloc
 		}
 		runs[i] = testsupport.Measure(section)
 	}
-	return testsupport.StableMin(t, label, runs)
+	return runs
 }
 
 // floorCall is the floor of a call: the transport called with a request
@@ -293,7 +299,21 @@ func paddedResult(t *testing.T, size int) []byte {
 // declared and undeclared, (vi) and (vii), are recorded (W5.2 bounds them).
 // Before each measured call the heap is collected, outside the section,
 // and one small call re-fills the pools the collection emptied, so the
-// section pays only for its own call. The MEM lines are the ledger's rows.
+// section pays only for its own call.
+//
+// AC-P5 is a set of bounds (R26), and every one of the
+// testsupport.AllocRuns runs of a case is checked against its bound. The
+// runs are not asked to agree, as the exact pins of AC-P1, AC-P2 and AC-P6
+// are (testsupport.StableMin, three of five): identical calls can differ by
+// a few allocations for reasons outside the SDK (ruling K32). The runtime
+// builds a type assertion's or a type switch's cache on about one lookup
+// in 1024 that misses it, at random, and (i)'s error path makes many such
+// lookups (errors.Is and errors.As on the chain, fmt printing the cause), so
+// one run in a hundred or so costs 1 or 2 allocations and 48 to 112 B more;
+// and (i)'s first run pays for fmt's pooled printer, which the collections
+// of the cases before it emptied and the small success call does not
+// refill (4 allocations, 288 B). The MEM lines record each case's minimum,
+// its own cost and the ledger's row, and the maximum of its runs.
 func TestMemStatsCap(t *testing.T) {
 	testsupport.QuietRuntime(t)
 	ctx := t.Context()
@@ -335,16 +355,19 @@ func TestMemStatsCap(t *testing.T) {
 			}
 			ran = true
 		}
-		call := series(t, name, func() { checkOutcome(); rewarm() }, func() { sinkResponse, err = c.SystemOne(ctx, state, qs, Retry(NoRetry())) })
+		runs := measureRuns(func() { checkOutcome(); rewarm() }, func() { sinkResponse, err = c.SystemOne(ctx, state, qs, Retry(NoRetry())) })
 		checkOutcome()
 		sinkResponse = nil
+		call, most := testsupport.Spread(t, name, runs)
 		verdict := "recorded"
 		if mc.bound > 0 {
 			verdict = "bound " + strconv.FormatUint(mc.bound, 10) + " B"
-			if call.Bytes > mc.bound {
-				t.Errorf("%s: TotalAlloc delta %d B exceeds the frozen bound %d B (AC-P5)", name, call.Bytes, mc.bound)
+			for i, run := range runs {
+				if run.Bytes > mc.bound {
+					t.Errorf("%s: run %d: TotalAlloc delta %d B exceeds the frozen bound %d B (AC-P5)", name, i+1, run.Bytes, mc.bound)
+				}
 			}
 		}
-		t.Logf("MEM %-27s outcome=%-5s call=%-18s callMiB=%.3f %s", name, outcomeOf(err), call, float64(call.Bytes)/(1<<20), verdict)
+		t.Logf("MEM %-27s outcome=%-5s call=%-18s callMiB=%.3f max=%-18s spread=+%d/+%d %s", name, outcomeOf(err), call, float64(call.Bytes)/(1<<20), most, most.Mallocs-call.Mallocs, most.Bytes-call.Bytes, verdict)
 	}
 }

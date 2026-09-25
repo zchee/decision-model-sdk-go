@@ -75,6 +75,60 @@ func TestStableMin(t *testing.T) {
 	}
 }
 
+// TestSpread covers the per-counter minimum and maximum of a bounded
+// section's runs, which need not agree (ruling K32).
+func TestSpread(t *testing.T) {
+	a := func(m, b uint64) Allocs { return Allocs{Mallocs: m, Bytes: b} }
+	tests := map[string]struct {
+		runs      []Allocs
+		wantLeast Allocs
+		wantMost  Allocs
+		wantErr   string
+	}{
+		"success: all runs equal": {
+			runs:      []Allocs{a(38, 263952), a(38, 263952), a(38, 263952), a(38, 263952), a(38, 263952)},
+			wantLeast: a(38, 263952),
+			wantMost:  a(38, 263952),
+		},
+		"success: the runs of CI 36201375147 that failed StableMin": {
+			runs:      []Allocs{a(42, 264240), a(39, 264000), a(38, 263952), a(38, 263952), a(39, 264016)},
+			wantLeast: a(38, 263952),
+			wantMost:  a(42, 264240),
+		},
+		"success: the counters' extremes come from different runs": {
+			runs:      []Allocs{a(3, 300), a(4, 200), a(5, 250)},
+			wantLeast: a(3, 200),
+			wantMost:  a(5, 300),
+		},
+		"success: one run": {
+			runs:      []Allocs{a(7, 112)},
+			wantLeast: a(7, 112),
+			wantMost:  a(7, 112),
+		},
+		"error: no runs": {
+			wantErr: "no runs",
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			least, most, err := spread(tt.runs)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("spread() error = %v, want it to contain %q", err, tt.wantErr)
+				}
+			} else if err != nil {
+				t.Fatalf("spread() error = %v", err)
+			}
+			if diff := gocmp.Diff(tt.wantLeast, least); diff != "" {
+				t.Errorf("spread() least (-want +got):\n%s", diff)
+			}
+			if diff := gocmp.Diff(tt.wantMost, most); diff != "" {
+				t.Errorf("spread() most (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 // TestQuietRuntimeRestores checks that QuietRuntime's settings hold inside
 // the test and are restored by its cleanup. It must not run in parallel.
 func TestQuietRuntimeRestores(t *testing.T) {

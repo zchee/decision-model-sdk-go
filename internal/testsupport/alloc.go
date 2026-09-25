@@ -165,6 +165,41 @@ func stableMin(runs []Allocs) (Allocs, error) {
 	return least, nil
 }
 
+// Spread logs runs and returns their minimum and their maximum, each taken
+// per counter. Unlike [StableMin] it does not ask the runs to agree: it is
+// for a section a test checks against a bound on every run, not for an
+// exact pin, which stays with [StableMin].
+//
+// A section can cost a few allocations more in one run than in another for
+// a reason outside the code it measures (ruling K32): the runtime builds a
+// type assertion's or a type switch's cache on about one in 1024 of the
+// lookups that miss it, at random (runtime/iface.go, typeAssert and
+// interfaceSwitch), an allocation of 48 B or more, and a pooled object the
+// collection before a run emptied is allocated anew. A bound holds on every
+// run whatever those add; the minimum is the section's own cost.
+func Spread(tb testing.TB, label string, runs []Allocs) (least, most Allocs) {
+	tb.Helper()
+	tb.Logf("runs of %-38s mallocs/bytes:%s", label, formatRuns(runs))
+	least, most, err := spread(runs)
+	if err != nil {
+		tb.Fatalf("%s: %v", label, err)
+	}
+	return least, most
+}
+
+// spread is Spread without the test plumbing.
+func spread(runs []Allocs) (least, most Allocs, err error) {
+	if len(runs) == 0 {
+		return Allocs{}, Allocs{}, errors.New("no runs")
+	}
+	least, most = runs[0], runs[0]
+	for _, run := range runs[1:] {
+		least.Mallocs, most.Mallocs = min(least.Mallocs, run.Mallocs), max(most.Mallocs, run.Mallocs)
+		least.Bytes, most.Bytes = min(least.Bytes, run.Bytes), max(most.Bytes, run.Bytes)
+	}
+	return least, most, nil
+}
+
 // formatRuns renders runs as " m/b m/b ...".
 func formatRuns(runs []Allocs) string {
 	var sb strings.Builder
