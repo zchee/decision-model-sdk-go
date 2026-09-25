@@ -30,10 +30,12 @@ import (
 //
 // An option only records its setting; the client checks every setting
 // together when it is built and reports the first one it cannot use as a
-// [*ConfigError], before anything is sent. So the order of the options never
-// decides whether a set of them is accepted, and a later option of a kind
-// replaces an earlier one of the same kind ([WithHeader] per header name). A
-// nil ClientOption is ignored.
+// [*ConfigError], before anything is sent. So the order of options of
+// different kinds never decides whether a set of them is accepted. Among
+// options of one kind the last one wins and is the only one checked:
+// WithTimeout(0) followed by WithTimeout(time.Second) is accepted, the
+// reverse is not. [WithHeader] keeps the last value per header name, and
+// checks every call. A nil ClientOption is ignored.
 //
 // A setting that no option gives is read from its environment variable
 // ([APIKeyEnv], [BaseURLEnv], [DefaultModelEnv]), trimmed of leading and
@@ -131,7 +133,9 @@ func WithMaxResponseBytes(n int64) ClientOption {
 
 // WithHeader sets a header sent on every request. A later WithHeader of the
 // same name, compared without regard to case, replaces an earlier one, as a
-// later key does in a Python mapping.
+// per-call header replaces a default one in typesafe-sdk-python
+// (py:_core/transport.py:117). Its default headers differ: a mapping that
+// holds two spellings of one name, such as X-Team and x-team, sends both.
 //
 // The SDK's own headers always win, as they do in typesafe-sdk-python, which
 // writes them over the caller's (py:_core/transport.py:116-127): a caller's
