@@ -48,10 +48,37 @@ jobs:
       - name: gofumpt, modernize, vet, staticcheck, govulncheck, go mod tidy
         run: test -z "$(gofumpt -extra -l .)" && modernize -test ./... && go vet ./... && staticcheck ./... && govulncheck ./... && go mod tidy -diff
 
-      # W0.2 adds here: the internal/codec seam test and the D1 refusal greps
-      # (GOOS=linux GOARCH=386, GOOS=linux GOARCH=riscv64, -tags go1.28; go vet and
-      # go build of ./internal/codec/ must print
-      # typesafe_sdk_go_requires_go1_17_to_go1_27_on_amd64_or_arm64).
+      # Import confinement (sonic, unsafe, x/net, JSON libraries), the per-file D1
+      # constraint lines and the sonic JIT-path guard (AC-Q4). The test job runs
+      # the same tests on every image; this step names them in the lint result.
+      - name: internal/codec seam tests
+        run: go test -run 'Seam' -count=1 -v ./internal/codec/
+
+      # D1 / AC-Q4 / PM5: off the support matrix internal/codec must refuse to
+      # compile, and go vet and go build must both exit non-zero with output
+      # naming the D1 identifier. -tags go1.28 stands in for a Go 1.28 toolchain.
+      - name: D1 refusal off the support matrix
+        env:
+          D1_IDENTIFIER: typesafe_sdk_go_requires_go1_17_to_go1_27_on_amd64_or_arm64
+        run: |
+          for t in 'GOOS=linux GOARCH=386' 'GOOS=linux GOARCH=riscv64' 'GOFLAGS=-tags=go1.28'; do
+            for cmd in vet build; do
+              echo "::group::env $t go $cmd ./internal/codec/"
+              # $t is split on purpose: env(1) applies each assignment.
+              # shellcheck disable=SC2086
+              if out="$(env $t go "$cmd" ./internal/codec/ 2>&1)"; then
+                printf '%s\n' "$out"
+                echo "::error::env $t go $cmd ./internal/codec/ succeeded: the D1 refusal is gone"
+                exit 1
+              fi
+              printf '%s\n' "$out"
+              echo "::endgroup::"
+              if ! grep -qF "$D1_IDENTIFIER" <<<"$out"; then
+                echo "::error::env $t go $cmd ./internal/codec/ failed without naming $D1_IDENTIFIER"
+                exit 1
+              fi
+            done
+          done
 
       # setup-uv publishes no floating major tag (only vX.Y.Z tags since v8), so
       # the major-only pin rule cannot apply; Dependabot bumps this full version.

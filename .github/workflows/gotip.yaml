@@ -29,18 +29,74 @@ jobs:
           go-version-file: go.mod
 
       - name: Install gotip
+        id: install
         run: |
           go install golang.org/dl/gotip@latest
           gotip download
 
-      - name: Build and test with gotip
-        run: gotip version && gotip build ./... && gotip test ./...
-      # W0.2 adds: gotip test ./internal/wire/...; gotip vet and gotip build of
-      # ./internal/codec/ must both fail with
-      # typesafe_sdk_go_requires_go1_17_to_go1_27_on_amd64_or_arm64 (any other
-      # outcome fails the canary); once gotip version reports go1.28rc, the PM5
-      # sonic support probe (go mod download -json github.com/bytedance/sonic@latest).
+      # gotip carries the go1.28 release tag, so internal/codec refuses to build
+      # there by design (D1), and so does every package that imports it (the
+      # root package from W1.2 on). The canary builds and tests only the
+      # packages the seam test keeps free of both (PM1).
+      - name: Vet and test internal/wire with gotip
+        run: gotip version && gotip vet ./internal/wire/... && gotip test ./internal/wire/...
       # W2.2 adds: gotip test ./internal/h2gate/...
+
+      # The D1 refusal must stay deliberate: gotip vet and gotip build of
+      # internal/codec must both fail and name the D1 identifier. A pass, or a
+      # failure for any other reason, fails the canary.
+      - name: D1 refusal with gotip
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        env:
+          D1_IDENTIFIER: typesafe_sdk_go_requires_go1_17_to_go1_27_on_amd64_or_arm64
+        run: |
+          for cmd in vet build; do
+            echo "::group::gotip $cmd ./internal/codec/"
+            if out="$(gotip "$cmd" ./internal/codec/ 2>&1)"; then
+              printf '%s\n' "$out"
+              echo "::error::gotip $cmd ./internal/codec/ succeeded: the D1 refusal is gone"
+              exit 1
+            fi
+            printf '%s\n' "$out"
+            echo "::endgroup::"
+            if ! grep -qF "$D1_IDENTIFIER" <<<"$out"; then
+              echo "::error::gotip $cmd ./internal/codec/ failed without naming $D1_IDENTIFIER"
+              exit 1
+            fi
+          done
+
+      # PM5: which sonic files gotip compiles, for the go.mod version and for
+      # the newest release. While sonic.go (the JIT path) carries !go1.28 gotip
+      # compiles compat.go instead. The day either version selects sonic.go,
+      # sonic supports the next Go release: the step fails, the tracking issue
+      # below fires, and the bump procedure in docs/support.md starts.
+      - name: PM5 sonic support probe
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: |
+          tip="$(gotip version)"
+          selected=0
+          probe() { # $1: label, $2: module directory
+            local version files
+            version="$(cd "$2" && gotip list -m -f '{{.Version}}' github.com/bytedance/sonic)"
+            files="$(cd "$2" && gotip list -f '{{join .GoFiles " "}}' github.com/bytedance/sonic)"
+            echo "$1 sonic ${version} under ${tip}: ${files}"
+            echo "| $1 | ${version} | ${files} |" >>"$GITHUB_STEP_SUMMARY"
+            if [[ " ${files} " == *" sonic.go "* ]]; then
+              echo "::error title=PM5 sonic support probe::sonic ${version} ($1) compiles its JIT path (sonic.go) under ${tip}: start the Go 1.28 bump procedure in docs/support.md"
+              selected=1
+            fi
+          }
+          {
+            echo "### PM5 sonic support probe"
+            echo
+            echo "| sonic | version | files compiled under ${tip} |"
+            echo "| --- | --- | --- |"
+          } >>"$GITHUB_STEP_SUMMARY"
+          probe "go.mod" "$GITHUB_WORKSPACE"
+          newest="$(mktemp -d)"
+          (cd "$newest" && gotip mod init sonicprobe && gotip get github.com/bytedance/sonic@latest)
+          probe "newest" "$newest"
+          exit "$selected"
 
       - name: Open or update the tracking issue
         if: failure()

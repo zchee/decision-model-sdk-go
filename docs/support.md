@@ -22,8 +22,8 @@ instead.
 
 ## The compile-time refusal
 
-`internal/codec` is the only package that imports sonic. It lands in wave W0.2
-of the port plan with these build constraints:
+`internal/codec` is the only package that imports sonic. Since wave W0.2 of
+the port plan it carries these build constraints:
 
 - `internal/codec/unsupported.go` carries
   `//go:build go1.28 || !(amd64 || arm64)`, and its only statement is
@@ -47,21 +47,32 @@ only the first type error, would never show the identifier.
 From W0.2 on, CI checks the refusal on every run: `go vet` and `go build` of
 `./internal/codec/` with `GOOS=linux GOARCH=386`, with `GOOS=linux
 GOARCH=riscv64` and with `-tags go1.28` (the local stand-in for a Go 1.28
-toolchain) must each print the identifier. The weekly `gotip` workflow checks
-the same with the development toolchain; any other outcome is a canary failure.
-The package's seam test asserts that every `internal/codec` file carries exactly
-one of the two constraint lines.
+toolchain) must each exit non-zero and print the identifier. The weekly `gotip`
+workflow checks the same with the development toolchain; any other outcome is
+a canary failure.
 
-`internal/codec` also imports `encoding/json`, only for the `json.Number` type
-that sonic's `ast.Visitor` interface requires; nothing is encoded or decoded
-through it.
+The seam tests in `internal/codec/seam_test.go` run in the lint job on their
+own (`go test -run Seam ./internal/codec/`) and with every test run.
+`TestSeamBuildConstraints` asserts that every `internal/codec` file carries
+exactly one of the two constraint lines, as its first line; that the two are
+complements for every GOARCH and Go release; and that `unsupported.go` holds
+nothing but the identifier. `TestSeamSonicJITPath` asserts that sonic compiles
+`sonic.go`, its JIT path, wherever `internal/codec` compiles.
+
+From W2.0 on, `internal/codec` also imports `encoding/json`, only for the
+`json.Number` type that sonic's `ast.Visitor` interface requires; nothing is
+encoded or decoded through it.
 
 ## Bump procedure for Go 1.28
 
 On Go 1.28 GA day every consumer on Go 1.28 gets the compile error above until
-sonic and the SDK both move. From `go1.28rc1` on, the weekly `gotip` workflow
-downloads the newest sonic and opens or updates the issue "Go 1.28: waiting on
-sonic" while that version's `sonic.go` build line still carries `!go1.28`.
+sonic and the SDK both move. The weekly `gotip` workflow lists the files of
+sonic that `gotip` compiles, for the version in `go.mod` and for the newest
+release. While `sonic.go` carries `!go1.28`, `gotip` compiles `compat.go`
+instead; the day either version compiles `sonic.go`, the canary fails and opens
+or updates its tracking issue, which is the signal to start the steps below.
+The probe keys on sonic's files rather than on the Go version because `gotip`
+always reports a development version, never a release candidate.
 
 When a sonic tag without `!go1.28` exists:
 
@@ -69,7 +80,12 @@ When a sonic tag without `!go1.28` exists:
 2. In **one** edit, move every `internal/codec` constraint:
    - `unsupported.go` → `//go:build go1.29 || !(amd64 || arm64)`;
    - every other file, tests included → `//go:build !go1.29 && (amd64 || arm64)`;
-   - the seam test's two expected constraint lines, to match.
+   - the identifier in `unsupported.go` →
+     `typesafe_sdk_go_requires_go1_17_to_go1_28_on_amd64_or_arm64`;
+   - the `d1Cutoff` constant of `internal/codec/seam_test.go` → `"go1.29"`
+     (the seam test derives both expected lines and the identifier from it);
+   - the refusal checks of `.github/workflows/ci.yaml` and
+     `.github/workflows/gotip.yaml` (`D1_IDENTIFIER`, and `-tags=go1.29`).
 
    Moving only `unsupported.go` would be wrong: the other files would keep
    `!go1.28`, exclude themselves on Go 1.28, and leave the package empty on a
