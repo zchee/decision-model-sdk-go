@@ -96,12 +96,16 @@ func (e *EncodeError) Unwrap() error { return e.Err }
 // the state is sent as a base64 string, as encoding/json does. A value sonic
 // cannot encode fails with an [*EncodeError].
 //
-// Floats keep sonic's spelling, which is encoding/json's (ruling R46): 3.0 is
-// written 3, -0.0 as 0, and 1e16 <= |x| < 1e21 and 1e-6 <= |x| < 1e-5 in
-// fixed digits. Raw JSON appended with [AppendRawState], or a number carried
-// as a string, keeps an exact spelling. A map's members are written in Go's
-// iteration order, which changes from one encode to the next (ruling R55):
-// a struct or raw JSON gives stable bytes.
+// Floats keep sonic's spelling (ruling R46), which is encoding/json's except
+// that a negative zero loses its sign on arm64 (K27): 3.0 is written 3,
+// -0.0 as 0 on arm64 and as -0 on amd64, and 1e16 <= |x| < 1e21 and
+// 1e-6 <= |x| < 1e-5 in fixed digits. sonic's amd64 JIT encoder calls its
+// native float writer, which writes the sign; its VM encoder, which every
+// other GOARCH runs, writes any zero as 0 before reaching it. Raw JSON
+// appended with [AppendRawState], or a number carried as a string, keeps an
+// exact spelling. A map's members are written in Go's iteration order,
+// which changes from one encode to the next (ruling R55): a struct or raw
+// JSON gives stable bytes.
 //
 // The output of a json.Marshaler in the state, such as a nested
 // json.RawMessage, is checked only by sonic, whose check does not refuse
@@ -147,10 +151,11 @@ func EncodeState(buf *[]byte, state any) error {
 // [*EncodeError]. On failure *buf keeps its length from before the call.
 //
 // Floats and map members follow the state's rules (rulings R46, R55 and
-// R59): floats keep sonic's spelling, 3.0 written 3, -0.0 as 0, fixed digits
-// for 1e16 <= |x| < 1e21 and 1e-6 <= |x| < 1e-5; a map's members go out in
-// Go's iteration order. Raw JSON appended with [AppendRawValue], or a number
-// carried as a string, keeps an exact spelling.
+// R59): floats keep sonic's spelling, 3.0 written 3, -0.0 as 0 on arm64 and
+// as -0 on amd64 (K27), fixed digits for 1e16 <= |x| < 1e21 and
+// 1e-6 <= |x| < 1e-5; a map's members go out in Go's iteration order. Raw
+// JSON appended with [AppendRawValue], or a number carried as a string,
+// keeps an exact spelling.
 func EncodeValue(buf *[]byte, v any) error {
 	if err := plainBytes(v, ErrRawValue); err != nil {
 		return err

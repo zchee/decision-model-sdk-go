@@ -64,9 +64,12 @@ const (
 // A float inside the state and the extra values that sonic writes keeps
 // sonic's spelling (rulings R46 and R59), a consequence of section 6.1.2
 // encoding them with sonic and of the owner's decision D1, not a choice of
-// this function: 3.0 is written 3, -0.0 as 0, and 1e16 <= |x| < 1e21 and
-// 1e-6 <= |x| < 1e-5 in fixed digits, where the Python SDK writes 3.0, -0.0
-// and e-notation. A value that needs an exact spelling is sent as RawJSON,
+// this function: 3.0 is written 3, -0.0 as 0 on arm64 and as -0 on amd64
+// (K27: sonic's amd64 JIT writes the sign, its arm64 VM does not), and
+// 1e16 <= |x| < 1e21 and 1e-6 <= |x| < 1e-5 in fixed digits, where the
+// Python SDK writes 3.0, -0.0 and e-notation. The same state can therefore
+// be sent with different bytes from the two architectures, for a negative
+// zero only. A value that needs an exact spelling is sent as RawJSON,
 // or carries the number as a string. In the state and the extra values, a
 // map's members go out in Go's iteration order, which changes from one call
 // to the next where Python keeps a dict's insertion order (rulings R55 and

@@ -20,6 +20,7 @@ import (
 	"math"
 	"net/http"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -195,19 +196,28 @@ func TestBodyBytesMatchPython(t *testing.T) {
 // TestBodyDeviationsFromPython pins the two ruled differences between the
 // state bytes sonic writes and Python's, with Python's bytes from the same
 // probe (2026-09-25 21:50:14 JST) next to them; sonic's own bytes for the
-// values are in _spikes/w1.2/results/sonic-*-M.txt. A sonic upgrade that
-// changes either spelling fails here.
+// values are in _spikes/w1.2/results/sonic-*-M.txt (arm64) and
+// sonic-*-L.txt (amd64). A sonic upgrade that changes either spelling fails
+// here.
 //
 //   - R47: sonic escapes U+0008 and U+000C as \u0008 and \u000c where Python
 //     writes \b and \f; the other 30 control characters, DEL, the HTML
 //     characters, U+2028, U+2029 and non-ASCII text are byte-equal, and both
 //     strings decode to the same value.
-//   - R46: sonic spells floats as encoding/json does: integral floats without
-//     ".0", -0.0 as 0, fixed digits for 1e-6 <= |x| < 1e-5 and for
-//     1e16 <= |x| < 1e21. Every number reads back as the same float64 except
-//     the sign of -0.0. R59 extends this to extra-body values, which take the
-//     same sonic path (the extra cases are from the probe run of 2026-09-25
-//     22:53:56 JST).
+//   - R46: sonic spells floats as encoding/json does, except for the sign of
+//     a negative zero on arm64: integral floats without ".0", -0.0 as 0 on
+//     arm64 and as -0 on amd64 (K27), fixed digits for 1e-6 <= |x| < 1e-5
+//     and for 1e16 <= |x| < 1e21. Every number reads back as the same
+//     float64, except that -0.0 loses its sign on arm64. R59 extends this to
+//     extra-body values, which take the same sonic path (the extra cases are
+//     from the probe run of 2026-09-25 22:53:56 JST).
+//
+// K27: on amd64 sonic's JIT encoder calls its native float writer, which
+// writes the sign of a negative zero; on every other GOARCH sonic's VM
+// encoder writes any zero as 0 before reaching it. The cases whose bytes
+// hold a negative zero are therefore pinned per GOARCH (wantByArch), and a
+// GOARCH without a pin skips them. That skip is not reached today: codec's
+// build line (D1) refuses every GOARCH but amd64 and arm64.
 func TestBodyDeviationsFromPython(t *testing.T) {
 	tail := `,"model":"jev-latest","questions":` + probeQuestions + `}`
 	var ctl strings.Builder
@@ -222,11 +232,12 @@ func TestBodyDeviationsFromPython(t *testing.T) {
 	}
 
 	tests := map[string]struct {
-		state  any
-		extra  []bodyMember
-		python string // what the Python SDK sends
-		want   string // what sonic sends
-		check  func(t *testing.T, python, got string)
+		state      any
+		extra      []bodyMember
+		python     string            // what the Python SDK sends
+		want       string            // what sonic sends on every GOARCH
+		wantByArch map[string]string // what sonic sends, by GOARCH, where it differs (K27)
+		check      func(t *testing.T, python, got string)
 	}{
 		"deviation: control character escapes": {
 			state: text,
@@ -261,16 +272,23 @@ func TestBodyDeviationsFromPython(t *testing.T) {
 			state: floats,
 			python: `{"state":[0.00001,9.99e-6,0.0001,0.1,1.5,3.0,-7.0,9999999999999998.0,1e+16,1e+20,1e+21,1e+22,` +
 				`5e-324,1.7976931348623157e+308,-0.0,0.0,9007199254740992.0,1.2345678901234567e+19]` + tail,
-			want: `{"state":[0.00001,0.00000999,0.0001,0.1,1.5,3,-7,9999999999999998,10000000000000000,100000000000000000000,` +
-				`1e+21,1e+22,5e-324,1.7976931348623157e+308,0,0,9007199254740992,12345678901234567000]` + tail,
+			wantByArch: map[string]string{
+				"arm64": `{"state":[0.00001,0.00000999,0.0001,0.1,1.5,3,-7,9999999999999998,10000000000000000,100000000000000000000,` +
+					`1e+21,1e+22,5e-324,1.7976931348623157e+308,0,0,9007199254740992,12345678901234567000]` + tail,
+				"amd64": `{"state":[0.00001,0.00000999,0.0001,0.1,1.5,3,-7,9999999999999998,10000000000000000,100000000000000000000,` +
+					`1e+21,1e+22,5e-324,1.7976931348623157e+308,-0,0,9007199254740992,12345678901234567000]` + tail,
+			},
 			check: sameNumbers,
 		},
 		"deviation: extra-value float spelling (R59)": {
 			state:  "hi",
 			extra:  []bodyMember{{"cfg", []any{0.5, 3.0, 1e16, math.Copysign(0, -1), 1e-6, 1e21}}},
 			python: `{"state":"hi","model":"jev-latest","questions":` + probeQuestions + `,"cfg":[0.5,3.0,1e+16,-0.0,1e-6,1e+21]}`,
-			want:   `{"state":"hi","model":"jev-latest","questions":` + probeQuestions + `,"cfg":[0.5,3,10000000000000000,0,0.000001,1e+21]}`,
-			check:  sameNumbers,
+			wantByArch: map[string]string{
+				"arm64": `{"state":"hi","model":"jev-latest","questions":` + probeQuestions + `,"cfg":[0.5,3,10000000000000000,0,0.000001,1e+21]}`,
+				"amd64": `{"state":"hi","model":"jev-latest","questions":` + probeQuestions + `,"cfg":[0.5,3,10000000000000000,-0,0.000001,1e+21]}`,
+			},
+			check: sameNumbers,
 		},
 		"deviation: nested extra-value float spelling (R59)": {
 			state:  "hi",
@@ -282,11 +300,19 @@ func TestBodyDeviationsFromPython(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := mustBody(t, tt.state, "jev-latest", probeSet(t), tt.extra...)
-			if diff := gocmp.Diff(tt.want, got); diff != "" {
-				t.Errorf("sonic's bytes changed (-pinned +go):\n%s", diff)
+			want := tt.want
+			if tt.wantByArch != nil {
+				w, ok := tt.wantByArch[runtime.GOARCH]
+				if !ok {
+					t.Skipf("sonic's bytes for this case are pinned for arm64 and amd64 only, which spell -0.0 differently (K27); GOARCH %s has no pin", runtime.GOARCH)
+				}
+				want = w
 			}
-			if tt.python == tt.want {
+			got := mustBody(t, tt.state, "jev-latest", probeSet(t), tt.extra...)
+			if diff := gocmp.Diff(want, got); diff != "" {
+				t.Errorf("sonic's bytes changed on %s (-pinned +go):\n%s", runtime.GOARCH, diff)
+			}
+			if tt.python == want {
 				t.Errorf("Python's bytes equal sonic's: the deviation is gone, move the case to TestBodyBytesMatchPython")
 			}
 			tt.check(t, tt.python, got)
@@ -1251,8 +1277,8 @@ func TestEncodeErrorMessageIsBounded(t *testing.T) {
 var jsonNumber = regexp.MustCompile(`-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?`)
 
 // sameNumbers checks that the numbers of Python's body and Go's, in order,
-// read back as the same float64, their spelling aside; -0.0 may lose its
-// sign (R46).
+// read back as the same float64, their spelling aside; -0.0 loses its sign
+// on arm64 and keeps it on amd64 (R46, K27).
 func sameNumbers(t *testing.T, python, got string) {
 	t.Helper()
 	py, gonums := jsonNumber.FindAllString(python, -1), jsonNumber.FindAllString(got, -1)

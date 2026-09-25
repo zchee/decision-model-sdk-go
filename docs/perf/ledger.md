@@ -1983,6 +1983,38 @@ nested `Content` and `RawJSON` are checked by wire's scanner) and R61 (a
 caller's Marshaler output is the caller's contract; no whole-state scan)
 settle it.
 
+K27, the third sonic finding (not a timing row): sonic v1.15.4 spells a
+negative zero by architecture. CI run 36148078711 on aafdbc4 failed on
+ubuntu-26.04 and windows-2025 (amd64) because `TestBodyDeviationsFromPython`
+pinned the arm64 bytes. On amd64 sonic's JIT encoder
+(`internal/encoder/x86/assembler_regabi_amd64.go`, `_asm_OP_f64` and
+`_asm_OP_f32`) calls the native `f64toa`/`f32toa`, which write the sign bit
+before the digits (`native/f64toa.c:367`), so -0.0 is `-0`. Every other
+GOARCH runs sonic's VM encoder (`internal/encoder/pools_compt.go`, build line
+`!amd64`, calls `ForceUseVM`), whose `alg.F64toa` and `alg.F32toa`
+(`internal/encoder/alg/spec.go:157` and `:170`) return `0` for any zero before
+the native call. R46's class (2) therefore reads "-0.0 is written `0` on
+arm64 and `-0` on amd64", for float64 and float32 alike, wherever the float
+sits (top level, slice element, struct field, map value); only on amd64 do
+sonic's floats equal encoding/json's for every probed input. The lane probe
+(`_spikes/w1.2/sonic_probe`, which gained the modes `zeros` and `sweep`) ran
+on both hosts from the same tree: the 18-value float table, `misc` (control
+characters, invalid UTF-8, NaN and the infinities, unsupported kinds, nil
+containers, `[]byte`, `json.RawMessage`), the three cycles and the R59
+extra-value floats are byte-equal apart from the negative zero, and the sweep
+encoded the same 1,707,209 float64, 1,176,076 float32, 524,402 int64, 262,199
+uint64 and 131,072 string inputs on both (equal input digests), with equal
+output digests once the negative zeros are left out; against encoding/json,
+amd64 differs for no input and arm64 only for negative zero. Raw:
+`_spikes/w1.2/results/sonic-*-L.txt` (2026-09-25 14:45 UTC) next to the
+`-M` files (`sonic-zeros-M.txt` and `sonic-sweep-M.txt` are new, 23:45 JST).
+At aafdbc4 the (L) runs of `go test -race -count=1 ./...` and of the non-race
+root, codec, wire and testsupport packages failed in these two subtests only
+(the test job had never reached its non-race steps on amd64, because the
+`-race` step failed first). `TestBodyDeviationsFromPython` now keys the two
+float pins by `runtime.GOARCH`, and skips them on any other GOARCH (which the
+D1 build line refuses anyway), per R62.
+
 | # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | W1.2-01 | 2026-09-25 22:04:45 JST | W1.2 R48 | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 7.43 → 7.59 | `flock bench.lock GOEXPERIMENT=nosimd,noruntimesecret go test -run '^$' -bench '^BenchmarkEncodeState$' -benchmem -count=10 ./internal/codec/` | medians of 10, check / encode: ASCII 1 KiB 17.74 ns / 150.6 ns (11.8 %), 64 KiB 828.7 ns / 4.728 µs (17.5 %), 6 MiB 81.85 µs / 445.0 µs (18.4 %); CJK 1 KiB 426.5 ns / 555.8 ns (76.7 %), 64 KiB 27.31 µs / 30.96 µs (88.2 %), 6 MiB 2.618 ms / 2.964 ms (88.3 %); every ± ≤ 2 %. The pass reads 52.1–73.6 GiB/s on ASCII and 2.21–2.24 GiB/s on CJK, and allocates nothing (`encode` 1 alloc/op, sonic's) | Against the AC-P6 time clause (q3 `call/sdk` 4.647 µs against `call/naive` 8.968 µs, W0.5-04), the pass adds 18 ns to a 1 KiB ASCII state (0.4 % of `call/sdk`) and 427 ns to a 1 KiB CJK state (9.2 %); the clause holds either way. On CJK text the pass costs about 7.6 × sonic's own encode (2.618 ms against 0.346 ms at 6 MiB). Base b227e5b plus the W1.2 working tree; raw: `_spikes/w1.2/results/bench-utf8-M.txt`, `benchstat-utf8-M.txt`, and `bench-utf8-M.meta.txt` (the run's `date`, load, `go version` and ToolTags lines) |
