@@ -13,7 +13,10 @@ concurrency:
 
 permissions:
   contents: read
-  id-token: write # CodSpeed upload through OIDC; no token secret.
+  # CodSpeed authenticates with the job's OIDC id-token when its GitHub App is
+  # installed on the repository (owner gate G1); the action has no token input
+  # set and no separate OIDC switch.
+  id-token: write
 
 jobs:
   codspeed:

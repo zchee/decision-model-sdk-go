@@ -81,7 +81,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
-      id-token: write # Codecov upload through OIDC; no token secret.
+      id-token: write # Codecov upload through OIDC; no token secret exists.
     defaults:
       run:
         shell: bash
@@ -101,12 +101,20 @@ jobs:
       # -list count guards (6 + 1), then
       # go test -count=1 -run '^(TestAllocEncode|TestAllocDecodeFixtures|TestAllocTypedDecode|TestAllocWholeCall|TestMemStatsCap|TestLinearityFlood|TestAllocScratchSequence)$' .
 
+      # OIDC authentication: the action exchanges the job's id-token (hence
+      # `id-token: write` above) and ignores any token input. It needs the Codecov
+      # GitHub App installed on the repository (owner gate G1). GitHub issues an
+      # id-token only to pushes and same-repository pull requests, so a fork's
+      # pull request cannot upload.
       - uses: codecov/codecov-action@v7
         with:
-          files: coverage.out
-          flags: ${{ matrix.os }}
           use_oidc: true
-          # Report-only until W2.0 produces coverage (plan section 12).
+          # `disable_search` stops the action from walking the tree for other
+          # coverage files, so the profile produced above is the only upload.
+          files: coverage.out
+          disable_search: true
+          flags: ${{ matrix.os }}
+          # Until W2.0 produces coverage (plan section 12).
           fail_ci_if_error: false
 
   # W6.1 adds a fuzz job on ubuntu-26.04: FuzzDecodeResponse and FuzzErrorBody
