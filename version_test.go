@@ -40,9 +40,10 @@ func TestSDKIdentifier(t *testing.T) {
 
 // TestRuntimeHeaderValue pins the X-TypeSafe-Runtime format, go/<release>
 // (<goos>; <goarch>), for the three shapes runtime.Version takes: a release,
-// a release built with experiments (go1.27.1 on (M) without the
-// repository's GOEXPERIMENT reports "go1.27.1-X:simd,runtimesecret", probe
-// 2026-09-26), and a development toolchain, whose string has no "go" prefix.
+// a release built with experiments (go1.27.1 on (M), darwin/arm64, without
+// the repository's GOEXPERIMENT reports "go1.27.1-X:simd,runtimesecret", and
+// "go1.27.1" with it; probe 2026-09-26 00:28:27 JST), and a development
+// toolchain, whose string has no "go" prefix.
 func TestRuntimeHeaderValue(t *testing.T) {
 	tests := map[string]struct {
 		version, goos, goarch string
