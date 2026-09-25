@@ -24,7 +24,8 @@ package codec
 // the named test fail. Re-run them when a rule changes.
 //   - TestSeamImports: encoding/json imported by internal/wire, by
 //     internal/h2gate or by a root test file; encoding/json/v2 imported by an
-//     internal/codec file. (internal/testsupport importing encoding/json
+//     internal/codec file; internal/testsupport imported by a non-test file
+//     of the root package. (internal/testsupport importing encoding/json
 //     passes by design.)
 //   - TestSeamTransitiveImports: encoding/json imported by a root test file,
 //     sonic's encoder imported by a root file, internal/codec imported by an
@@ -281,6 +282,14 @@ func TestSeamImports(t *testing.T) {
 				return under(f.dir, "internal/h2gate") || under(f.dir, "internal/testsupport")
 			},
 			forbids: func(_ goFile, p string) bool { return p == modulePath || under(p, codecPath) },
+		},
+		"only test files import internal/testsupport, which keeps its JSON and x/net exemptions test tooling (review W2.4 NIT 2)": {
+			// testsupport may import encoding/json and x/net (the rules above
+			// exempt it) and passes encoding/json through to root tests
+			// (StdlibMarshal); a non-test importer would carry both into a
+			// build of the SDK.
+			applies: func(f goFile) bool { return !f.test && !under(f.dir, "internal/testsupport") },
+			forbids: func(_ goFile, p string) bool { return under(p, testsupportPath) },
 		},
 		"internal/wire imports the standard library only; its tests may add go-cmp": {
 			applies: func(f goFile) bool { return under(f.dir, "internal/wire") },
