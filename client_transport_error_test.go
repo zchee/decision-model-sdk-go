@@ -668,3 +668,55 @@ func TestTransportErrorFieldsHoldNoCredential(t *testing.T) {
 		})
 	}
 }
+
+// TestTransportErrorTextScrubbedBeforeCut pins the order of the scrub and
+// the render (review W2.5 MINOR 1): a credential is replaced in the
+// transport error's whole text before safeMessage escapes it and cuts it at
+// 200 characters, so a key that straddles the cut leaves "***" and not its
+// first bytes. The key sits after pads of 176 to 195 characters, across the
+// boundary, in the text of a caller RoundTripper's error (attemptError) and
+// of an h2gate DialError (transportError); no 8-byte piece of the key may
+// survive in Error().
+func TestTransportErrorTextScrubbedBeforeCut(t *testing.T) {
+	const key = "ts_live_0123456789abcdef"
+	header := http.Header{"Authorization": {"Bearer " + key}}
+	paths := map[string]func(t *testing.T, text string) error{
+		"attemptError": func(t *testing.T, text string) error {
+			clearEnv(t)
+			c := newEnvClient(t, &testsupport.Recorder{Replies: []testsupport.Reply{{Err: errString(text)}}}, WithAPIKey(key))
+			_, err := c.Models().List(t.Context())
+			return err
+		},
+		"transportError": func(_ *testing.T, text string) error {
+			return transportError(&h2gate.DialError{Err: errors.New(text)}, time.Second, header)
+		},
+	}
+	type test struct {
+		path func(t *testing.T, text string) error
+		pad  int
+	}
+	tests := map[string]test{}
+	for name, path := range paths {
+		for pad := 176; pad <= 195; pad++ {
+			tests["error: "+name+"/pad "+strconv.Itoa(pad)] = test{path: path, pad: pad}
+		}
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := tt.path(t, strings.Repeat("a", tt.pad)+key+" tail")
+			ce, ok := errors.AsType[*ConnectionError](err)
+			if !ok {
+				t.Fatalf("error = %T %v, want a *ConnectionError", err, err)
+			}
+			got := ce.Error()
+			if !strings.Contains(got, strings.Repeat("a", tt.pad)+redacted) {
+				t.Errorf("Error() = %q, want the pad then %q", got, redacted)
+			}
+			for i := 0; i+minKeyNeedleBytes <= len(key); i++ {
+				if piece := key[i : i+minKeyNeedleBytes]; strings.Contains(got, piece) {
+					t.Errorf("Error() = %q holds %q, %d bytes of the key", got, piece, minKeyNeedleBytes)
+				}
+			}
+		})
+	}
+}

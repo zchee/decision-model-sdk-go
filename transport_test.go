@@ -345,10 +345,17 @@ func TestDialErrorsMapToSDKErrors(t *testing.T) {
 		proxy      bool
 		unwrapsErr bool // the SDK error unwraps to the transport's error, else to its stand-in
 	}
+	const detailKey = "ts_live_0123456789abcdef"
 	tests := map[string]struct {
-		err  error
-		want want
+		err    error
+		header http.Header // the failed request's header, whose credentials the texts must not show
+		want   want
 	}{
+		"success: a not-negotiated detail holding a request credential is scrubbed and its cause replaced": {
+			err:    &h2gate.DialError{Err: fmt.Errorf("%w: the caller's connection echoed Bearer %s", h2gate.ErrNotNegotiated, detailKey)},
+			header: http.Header{"Authorization": {"Bearer " + detailKey}},
+			want:   want{kind: "config", text: "The API host did not negotiate HTTP/2, which HTTP2Only requires (the caller's connection echoed ***); WithHTTPVersion(HTTPAuto) allows HTTP/1.1."},
+		},
 		"success: a proxy hop that timed out": {
 			err:  &h2gate.DialError{Proxy: true, Timeout: true, Err: timeoutCause},
 			want: want{kind: "timeout", text: "Request timed out on the proxy hop (timeout=10s).", proxy: true, unwrapsErr: true},
@@ -410,12 +417,13 @@ func TestDialErrorsMapToSDKErrors(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := transportError(tt.err, attempt, nil)
+			got := transportError(tt.err, attempt, tt.header)
 			assertMapped(t, got, tt.err, tt.want.kind, tt.want.text, tt.want.proxy, tt.want.unwrapsErr)
 			if tt.want.kind == "" && got != nil {
 				t.Errorf("transportError = %T %v, want nil", got, got)
 			}
 			assertNotPrinted(t, got, "hunter2")
+			assertNotPrinted(t, got, detailKey)
 		})
 	}
 	t.Run("success: a dial error without an attempt timeout", func(t *testing.T) {
