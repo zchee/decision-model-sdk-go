@@ -148,7 +148,7 @@ jobs:
       # guards (6 + 1):
       # go test -count=1 -run '^(TestAllocEncode|TestAllocDecodeFixtures|TestAllocTypedDecode|TestAllocWholeCall|TestMemStatsCap|TestLinearityFlood|TestAllocScratchSequence)$' .
       - name: go test without -race (allocation tests)
-        run: go test -count=1 ./internal/codec/ ./internal/wire/
+        run: go test -count=1 ./internal/codec/ ./internal/wire/ ./internal/testsupport/
 
       # OIDC authentication: the action exchanges the job's id-token (hence
       # `id-token: write` above) and ignores any token input. It needs the Codecov
