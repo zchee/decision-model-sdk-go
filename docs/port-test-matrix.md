@@ -2,9 +2,9 @@
 
 Every upstream test function of typesafe-sdk-python 0.7.1 maps to a Go test
 or to a documented deviation. Upstream is `typesafe-ai/typesafe-sdk-python` at
-`0ffd094c72ed9445223060b24ffd7a56aa781fb4`: 129 functions under
-`tests/**/test_*.py` (111 SDK behaviour + 18 tooling). The derived name list
-is [`upstream-tests.txt`](upstream-tests.txt).
+`0ffd094c72ed9445223060b24ffd7a56aa781fb4`: the 129 test functions that
+pytest collects under `tests/` (111 SDK behaviour + 18 tooling). The derived
+name list is [`upstream-tests.txt`](upstream-tests.txt).
 `.github/scripts/port-test-matrix.py` checks this file on every CI run; the
 rows were seeded from Appendix D of the port plan, which also defines the row
 IDs that the plan's waves cite.
@@ -14,15 +14,22 @@ IDs that the plan's waves cite.
 | Status | Meaning | Checker rule |
 | --- | --- | --- |
 | `planned` | not ported yet | passes; with `--no-planned` (CI from W6.3) it fails |
-| `ported` | the Go test exists | the Go cell names at least one backtick-quoted `Test…` identifier, and every one of them is listed by `go test -list '.*' -tags live ./...`; `pkg.TestName` must be listed by a package whose import path ends in `/pkg` |
-| `deviation` | replaced by a documented behaviour difference | the Go cell cites an Appendix B row: a `B<n>` token, or the word `deviation` followed by a double-quoted reference (`deviation "one deadline per attempt"`); `same deviation` takes the citation of the nearest row above it in the same group; any backtick-quoted `Test…` identifier in the cell must exist, as for `ported` |
+| `ported` | the Go test exists | the Go cell names at least one backtick-quoted `Test…` identifier, and every one of them is listed by `go test -list '.*' -tags live ./...`; `pkg.TestName` must be listed by a package whose import path ends in `/pkg`, so tests of the root package are written unqualified (`TestX`, never `typesafe.TestX`: the root import path ends in `/typesafe-sdk-go`) |
+| `deviation` | replaced by a documented behaviour difference | the Go cell cites an Appendix B row as the word `deviation` followed by a double-quoted, non-blank reference (`deviation "one deadline per attempt"`); Appendix B rows are unnumbered and `B<n>` would read as a benchmark ID, so there is no numeric form; `same deviation` takes the citation of the nearest row above it in the same group; any backtick-quoted `Test…` identifier in the cell must exist, as for `ported` |
 
 ## Format
 
-- One `` ### `tests/<file>` (<count>) `` heading per upstream file; the
-  checker keys every row by that file and the upstream function name.
-- Columns: ID, upstream function name (backtick-quoted), Go test or deviation,
-  status. A literal `|` inside a cell is written `\|`.
+- One `` ### `tests/<file>` (<count>) `` or
+  `` ### `tests/<file>` (<count>, <note>) `` heading per upstream file, and
+  only one per file; `<count>` must equal the number of rows in that group.
+  The checker keys every row by that file and the upstream function name.
+- Each group holds one table: a header row, a separator row (every cell is
+  three or more `-`, optionally with a `:` at either end) and one row per
+  upstream test. After the first group heading, every table row must sit in
+  a group.
+- Columns: ID, upstream function name (backtick-quoted; `Class::test_x` for a
+  test method), Go test or deviation, status. The ID cell may not be blank or
+  hold only `-` and `:`. A literal `|` inside a cell is written `\|`.
 - Changing a row's status is the only edit a porting wave makes here, plus the
   Go test name or deviation citation when it differs from the seed.
 
