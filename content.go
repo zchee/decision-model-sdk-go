@@ -16,14 +16,21 @@ package typesafe
 
 import "github.com/zchee/typesafe-sdk-go/internal/wire"
 
-// RawJSON is one JSON value that is already encoded. The SDK checks it and
-// removes its insignificant whitespace, but never decodes it: strings keep
-// their escape sequences and numbers their spelling.
+// RawJSON is one JSON value that is already encoded. The SDK never decodes
+// it: strings keep their escape sequences and numbers their spelling. That
+// makes it the way to send a number spelled exactly: a float in a state that
+// is not RawJSON is written as Go's JSON encoders spell it, 3 for 3.0 and
+// 10000000000000000 for 1e16, where the Python SDK writes 3.0 and 1e+16.
 //
-// As a [RawQuestion] field value it is written as the value it holds; [JSON]
-// takes one to build structured [Content]. A member name repeated inside an
-// object (`{"a":1,"a":2}`) is passed through unchanged, which a Python dict
-// cannot produce; the server decides which one counts.
+// As a [RawQuestion] field value it is checked and written without its
+// insignificant whitespace, as the value it holds; [JSON] takes one to build
+// structured [Content]. As the state of a call, or as the value of a member
+// the call adds to the request body, it is sent as it is, whitespace
+// included, after a check of its first byte only: a state must start a
+// string, an array or an object, a member any JSON value. That it is one
+// valid JSON value is then the caller's contract. A member name repeated
+// inside an object (`{"a":1,"a":2}`) is passed through unchanged, which a
+// Python dict cannot produce; the server decides which one counts.
 type RawJSON []byte
 
 // Content is text, or a JSON object or array: what the API accepts as a
