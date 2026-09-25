@@ -2087,10 +2087,10 @@ and `BASE=8686b40`.
    `structured-legend`, `deviation-lone-surrogate` and the two floods, each
    of which holds a structured level. Their frozen numbers include the one
    arena that copied structured levels, and a level equal to the question's
-   compact JSON is now the question's bytes. Since cf16992 the counts are
-   pinned exactly (ruling R70), and the pins held on both hosts after the
-   review fix pass (the depth cap, the spelling check and the zero rule add
-   no allocation). The
+   compact JSON is now the question's bytes. Since cf16992 (landed as
+   78d2954) the counts are pinned exactly (ruling R70), and the pins held
+   on both hosts after the review fix pass (the depth cap, the spelling
+   check and the zero rule add no allocation). The
    plain 3-answer fixture takes 4 allocations: the target of 4 and the
    ceiling of 8.
 2. **Misses cost one allocation per decode**, whatever their number: every
