@@ -19,5 +19,6 @@ test on its way to a Go test or a documented deviation.
 - Behaviour that deliberately differs from the Python SDK: the deviation table
   (the port plan's Appendix B) is to come in `docs/`.
 
-Licensed under the Apache License, Version 2.0 ([LICENSE](LICENSE)); see
-[LICENSE-THIRD-PARTY](LICENSE-THIRD-PARTY) for dependencies.
+Licensed under the Apache License, Version 2.0 ([LICENSE](LICENSE)).
+Third-party licence texts are available from each module's source in the Go
+module cache (`go mod download -json <module>` gives the directory).
