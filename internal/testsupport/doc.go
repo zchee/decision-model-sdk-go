@@ -37,6 +37,8 @@
 //     strict or h2-offering ALPN.
 //   - [Recorder]: an in-memory [net/http.RoundTripper] that records requests
 //     and returns canned replies.
+//   - [SumGetBody]: the SHA-256 digest of the bytes a request's GetBody
+//     reads, so a test can assert that every attempt sends the same body.
 //   - [LogRecorder]: a [log/slog.Handler] that keeps every record.
 //   - [QuietRuntime], [Measure] and [MeasureMin]: allocation counting with the
 //     collector off, GOMAXPROCS at 1, and a stable minimum of five runs.
