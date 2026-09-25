@@ -116,7 +116,8 @@ type ticketState struct {
 // TestBodyBytesMatchPython pins request bodies byte for byte against what
 // typesafe-sdk-python 0.7.1 sends for the same call: want is
 // prepare_system_one(...).content from the upstream venv (pydantic-core
-// 2.46.5; probe 2026-09-25 21:50:14 JST). A map state has one member per
+// 2.46.5; probe _spikes/w1.2/body_probe.py, run of 2026-09-25 21:50:14 JST in
+// _spikes/w1.2/results/body_probe-M.txt). A map state has one member per
 // level, because a Go map with more is sent in Go's iteration order (sonic
 // does not sort keys); the struct case shows the nested order.
 func TestBodyBytesMatchPython(t *testing.T) {
@@ -191,8 +192,9 @@ func TestBodyBytesMatchPython(t *testing.T) {
 
 // TestBodyDeviationsFromPython pins the two ruled differences between the
 // state bytes sonic writes and Python's, with Python's bytes from the same
-// probe (2026-09-25 21:50:14 JST) next to them. A sonic upgrade that changes
-// either spelling fails here.
+// probe (2026-09-25 21:50:14 JST) next to them; sonic's own bytes for the
+// values are in _spikes/w1.2/results/sonic-*-M.txt. A sonic upgrade that
+// changes either spelling fails here.
 //
 //   - R47: sonic escapes U+0008 and U+000C as \u0008 and \u000c where Python
 //     writes \b and \f; the other 30 control characters, DEL, the HTML
