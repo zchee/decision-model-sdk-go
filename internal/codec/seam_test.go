@@ -26,6 +26,9 @@ package codec
 //     internal/h2gate or by a root test file; encoding/json/v2 imported by an
 //     internal/codec file. (internal/testsupport importing encoding/json
 //     passes by design.)
+//   - TestSeamTransitiveImports: encoding/json imported by a root test file,
+//     sonic's encoder imported by a root file, internal/codec imported by an
+//     external test of internal/wire (each also fails TestSeamImports).
 //   - TestSeamSonicJITPath, with sonic replaced by an edited copy: spec.go and
 //     spec_compat.go of internal/encoder/alg cut at go1.27, so the fallback is
 //     compiled on the host; encoder_native.go cut at go1.26 on amd64 only, so
@@ -326,22 +329,39 @@ func goList(t *testing.T, root string, args ...string) string {
 // package nor internal/codec, which do not compile on gotip by design (PM1).
 // A package that does not exist yet is skipped.
 //
-// The root package is on the canary list only while it does not import
-// internal/codec. Its row fails the day it does (W1.2): remove the root
-// package from the "Build, vet and test with gotip" step of
-// .github/workflows/gotip.yaml and this row together.
+// The root package left the canary list when it began to import
+// internal/codec for the request body (W1.2, ruling R41). Its row asserts
+// instead what section 4 asks of it: its files, tests included, import no
+// JSON library directly, in the build configuration of the host (where
+// TestSeamImports reads every file whatever its constraints); the JSON layer
+// is internal/codec's.
 func TestSeamTransitiveImports(t *testing.T) {
 	mod := findModule(t)
+	t.Run("root package imports no JSON library directly (R41)", func(t *testing.T) {
+		out := goList(t, mod.root, "-f", `{{join .Imports "\n"}}{{"\n"}}{{join .TestImports "\n"}}{{"\n"}}{{join .XTestImports "\n"}}`, ".")
+		const wirePath = modulePath + "/internal/wire"
+		sawWire := false
+		for line := range strings.Lines(out) {
+			p := strings.TrimSpace(line)
+			if p == wirePath {
+				sawWire = true
+			}
+			if isJSONLibrary(p) {
+				t.Errorf("the root package imports %q directly; only internal/codec may import a JSON library", p)
+			}
+		}
+		// The root package's types wrap internal/wire values (section 4):
+		// without it in the list the row would pass on an empty or mangled
+		// listing.
+		if !sawWire {
+			t.Errorf("go list does not show the root package importing %s:\n%s", wirePath, out)
+		}
+	})
+
 	tests := map[string]struct {
 		dir     string // slash-separated, from the module root
 		pattern string // the go list pattern
-		gotip   string // what to do when the row fails
 	}{
-		"root package (until it imports internal/codec, W1.2)": {
-			dir:     ".",
-			pattern: ".",
-			gotip:   "drop the root package from gotip.yaml's canary step and this row",
-		},
 		"internal/h2gate":      {dir: "internal/h2gate", pattern: "./internal/h2gate/..."},
 		"internal/testsupport": {dir: "internal/testsupport", pattern: "./internal/testsupport/..."},
 		"internal/wire":        {dir: "internal/wire", pattern: "./internal/wire/..."},
@@ -360,13 +380,8 @@ func TestSeamTransitiveImports(t *testing.T) {
 					continue
 				}
 				n++
-				// The root package lists itself among its own dependencies.
-				if (dep == modulePath && tt.dir != ".") || under(dep, codecPath) {
-					if tt.gotip != "" {
-						t.Errorf("%s depends on %s: %s", tt.pattern, dep, tt.gotip)
-					} else {
-						t.Errorf("%s depends on %s", tt.pattern, dep)
-					}
+				if dep == modulePath || under(dep, codecPath) {
+					t.Errorf("%s depends on %s", tt.pattern, dep)
 				}
 			}
 			if n == 0 {
