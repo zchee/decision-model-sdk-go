@@ -68,6 +68,8 @@ experiment set are in [`../support.md`](../support.md#measurement-rule).
 | W0.3-18 | 2026-09-25 16:34:41 JST | W0.3 S-D1 linearity (AC-P8) | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 20.86 → 20.86, noisy | `env GOEXPERIMENT=nosimd,noruntimesecret go test -count=5 -run ^TestLinearity$ -v ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/linearity-M.txt` | base 2305d02; util-linux flock on scratchpad bench.lock |
 | W0.3-19 | 2026-09-25 07:44:39 UTC | W0.3 S-D1 R14 and primitive probes | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.54 → 0.54 | `go test -count=1 -run ^(TestProbeR14\|TestProbePrimitivesOnFixtures)$ -v ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/probe-L.txt` | base 2305d02; flock /tmp/ts-spike/bench.lock |
 | W0.3-20 | 2026-09-25 16:34:39 JST | W0.3 S-D1 R14 and primitive probes | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 21.46 → 21.46, noisy | `env GOEXPERIMENT=nosimd,noruntimesecret go test -count=1 -run ^(TestProbeR14\|TestProbePrimitivesOnFixtures)$ -v ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/probe-M.txt` | base 2305d02; util-linux flock on scratchpad bench.lock |
+| W0.3-21 | 2026-09-25 08:15:20 UTC | W0.3 S-D1 decode allocations, extended `duplicates.json` | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.01 → 0.01 | `go test -count=1 -run ^TestAllocDecode$ -v ./_spikes/s-d1/` | a1 and a2 `duplicates` 17/5336 (traverse 6/400, lazy pass 9/4272; 18 members, 1 structured legend); b 16/4328; every other fixture as W0.3-11; [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/alloc-L-base31f2986.txt` | base 31f2986; `duplicates.json` extended by 73af053 (825 B, was 693 B); flock /tmp/ts-spike/bench.lock, quiet rule (MAXLOAD 44, waited 0 × 60 s) |
+| W0.3-22 | 2026-09-25 17:25:57 JST | W0.3 S-D1 decode allocations, extended `duplicates.json` | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 8.29 → 8.29 | `env GOEXPERIMENT=nosimd,noruntimesecret go test -count=1 -run ^TestAllocDecode$ -v ./_spikes/s-d1/` | a1 and a2 `duplicates` 17/5336 (traverse 6/400, lazy pass 9/4272; 18 members, 1 structured legend); b 23/5232; every other fixture as W0.3-12; [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/alloc-M-base31f2986.txt` | base 31f2986; `duplicates.json` extended by 73af053 (825 B, was 693 B); util-linux flock on scratchpad bench.lock, quiet rule (MAXLOAD 16, waited 0 × 60 s) |
 | W0.5-01 | 2026-09-25 17:07:35 JST | W0.5 S-C1 allocations and AC-P5 memstats probe | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.93 → 6.93 | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock alloc-M -count=1 -run '^(TestAllocCall\|TestMemStatsCap)$' -v ./_spikes/s-c1/` | q3: floor 8/640, call/sdk 23/2904, SDK-own 15/2264, call/naive 119/7960; q20: floor 8/640, call/sdk 43/10144, SDK-own 35/9504, call/naive 522/30872; AC-P5 (256 KiB): (i) 263448 B, (ii) 1328 B, (iii) 33293616 B, (iv) 33294392 B; [W0.5 tables](#w05-tables) | mallocs/bytes, collector off, `GOMAXPROCS(1)`, 3 of 5 runs agree; `results/alloc-M.txt` |
 | W0.5-02 | 2026-09-25 17:07:36 JST | W0.5 S-C1 correctness | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.93 → 7.65 | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock test-M -count=1 -v -run '^(TestSystemOneDecodes\|TestRequestShape\|TestGetBodyReplay\|TestReadBody\|TestSystemOneCap)$' ./_spikes/s-c1/` | `ok`, 26 tests and subtests PASS | not a measurement; `results/test-M.txt` |
 | W0.5-03 | 2026-09-25 17:07:36 JST | W0.5 S-C1 under -race | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 7.65 → 7.65 | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock race-M -race -count=1 ./_spikes/s-c1/` | `ok` in 1.156s | not a measurement (alloc tests are `!race`); `results/race-M.txt` |
@@ -541,7 +543,7 @@ opens with the lock, host, base commit, load average, `go version`, ToolTags
 and command, and closes with the load and end time, all printed by the same
 shell process that ran the measurement. The tables under
 [W0.3 tables](#w03-tables) were rendered from those files by a script, so no
-number in them was typed by hand. The runs are rows W0.3-01 to W0.3-20 of
+number in them was typed by hand. The runs are rows W0.3-01 to W0.3-22 of
 the [Rows](#rows) table, in the row format above.
 
 ### How the numbers were taken
@@ -788,7 +790,7 @@ average 5.6–7.0 bytes, with a maximum of 15 (string-mix table below).
 | --- | --- |
 | `result` | 4 |
 | `type-last` | 4 |
-| `duplicates` | 4 |
+| `duplicates` | 17 (fixture extended by 73af053; the structured legend triggers the lazy pass; W0.3-21, W0.3-22) |
 | `result-20` | 24 |
 | `score-flood-mini` | 21 |
 | `escaped-names` | 10 |
@@ -996,12 +998,12 @@ Sources: `s-e1/results/alloc-M.txt` = W0.3-04; `s-e1/results/alloc-L.txt` = W0.3
 #### S-D1 per variant and fixture
 
 
-Sources: `s-d1/results/alloc-M.txt` = W0.3-12; `s-d1/results/bench-M.txt` = W0.3-14; `s-d1/results/alloc-L.txt` = W0.3-11; `s-d1/results/bench-L.txt` = W0.3-13.
+Sources: `s-d1/results/alloc-M.txt` = W0.3-12; `s-d1/results/bench-M.txt` = W0.3-14; `s-d1/results/alloc-L.txt` = W0.3-11; `s-d1/results/bench-L.txt` = W0.3-13; `s-d1/results/alloc-M-base31f2986.txt` = W0.3-22; `s-d1/results/alloc-L-base31f2986.txt` = W0.3-21.
 
 | variant | fixture | body B | (M) allocs/B | (M) ns/op median (±half-spread) | (L) allocs/B | (L) ns/op median (±half-spread) | lazy allocs | members | notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | a1 | deviation-lone-surrogate | 219 | 14/4568 | 4.46 µs (±3 %) | 14/4568 | 4.73 µs (±0 %) | 8 | 11 | per-level copy: 14/4568 |
-| a1 | duplicates | 693 | 4/768 | – | 4/768 | – | 0 | 0 |  |
+| a1 | duplicates | 825 | 17/5336 | – | 17/5336 | – | 9 | 18 | fixture extended by 73af053 (W0.3-22, W0.3-21); the structured legend triggers the lazy pass; per-level copy: 17/5336 |
 | a1 | escaped-member-names | 425 | 30/5144 | 6.51 µs (±1 %) | 30/5144 | 6.86 µs (±0 %) | 13 | 12 | per-level copy: 30/5144 |
 | a1 | escaped-names | 481 | 10/1224 | 5.24 µs (±1 %) | 10/1224 | 5.33 µs (±0 %) | 0 | 0 | body scan ran |
 | a1 | no-answers | 67 | 0/0 | 497.5 ns (±1 %) | 0/0 | 404.3 ns (±0 %) | 0 | 0 |  |
@@ -1015,7 +1017,7 @@ Sources: `s-d1/results/alloc-M.txt` = W0.3-12; `s-d1/results/bench-M.txt` = W0.3
 | a1 | type-last | 364 | 4/688 | 3.22 µs (±2 %) | 4/688 | 3.11 µs (±0 %) | 0 | 0 |  |
 | a1 | unknown-answer-type | 145 | 1/144 | 1.33 µs (±1 %) | 1/144 | 1.17 µs (±0 %) | 0 | 0 |  |
 | a2 | deviation-lone-surrogate | 219 | 14/4568 | 4.33 µs (±2 %) | 14/4568 | 4.73 µs (±0 %) | 8 | 11 | per-level copy: 14/4568 |
-| a2 | duplicates | 693 | 4/768 | – | 4/768 | – | 0 | 0 |  |
+| a2 | duplicates | 825 | 17/5336 | – | 17/5336 | – | 9 | 18 | fixture extended by 73af053 (W0.3-22, W0.3-21); the structured legend triggers the lazy pass; per-level copy: 17/5336 |
 | a2 | escaped-member-names | 425 | 30/5144 | 6.65 µs (±2 %) | 30/5144 | 6.90 µs (±0 %) | 13 | 12 | per-level copy: 30/5144 |
 | a2 | escaped-names | 481 | 10/1224 | 5.21 µs (±1 %) | 10/1224 | 5.28 µs (±0 %) | 0 | 0 | body scan ran |
 | a2 | no-answers | 67 | 0/0 | 503.1 ns (±2 %) | 0/0 | 395.7 ns (±0 %) | 0 | 0 |  |
@@ -1029,7 +1031,7 @@ Sources: `s-d1/results/alloc-M.txt` = W0.3-12; `s-d1/results/bench-M.txt` = W0.3
 | a2 | type-last | 364 | 4/688 | 3.25 µs (±2 %) | 4/688 | 3.12 µs (±0 %) | 0 | 0 |  |
 | a2 | unknown-answer-type | 145 | 1/144 | 1.29 µs (±1 %) | 1/144 | 1.21 µs (±0 %) | 0 | 0 |  |
 | b | deviation-lone-surrogate | 219 | 18/3848 | 3.76 µs (±2 %) | 14/3576 | 4.26 µs (±0 %) | 7 | 8 | per-level copy: 18/3848 |
-| b | duplicates | 693 | 12/1544 | – | 5/800 | – | 0 | 0 |  |
+| b | duplicates | 825 | 23/5232 | – | 16/4328 | – | 7 | 12 | fixture extended by 73af053 (W0.3-22, W0.3-21); the structured legend triggers the lazy pass; per-level copy: 23/5232 |
 | b | escaped-member-names | 425 | 31/4568 | 6.12 µs (±7 %) | 27/4120 | 6.32 µs (±0 %) | 9 | 9 | per-level copy: 31/4568 |
 | b | escaped-names | 481 | 15/1800 | 5.38 µs (±3 %) | 11/1256 | 5.51 µs (±0 %) | 0 | 0 | body scan ran |
 | b | no-answers | 67 | 4/160 | 649.8 ns (±3 %) | 1/32 | 550.0 ns (±0 %) | 0 | 0 |  |
