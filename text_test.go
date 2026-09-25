@@ -15,9 +15,13 @@
 package typesafe
 
 import (
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	gocmp "github.com/google/go-cmp/cmp"
+
+	"github.com/zchee/typesafe-sdk-go/internal/codec"
 )
 
 // TestAppendSafeText pins the escape and cut of text the SDK did not write
@@ -52,6 +56,53 @@ func TestAppendSafeText(t *testing.T) {
 			got := string(appendSafeText([]byte("<"), tt.s, tt.limit, tt.double))
 			if diff := gocmp.Diff("<"+tt.want, got); diff != "" {
 				t.Errorf("appendSafeText (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestRenderFieldPath checks how a field path is printed (NF7): the Python
+// SDK's dotted field_path, "." for the root, each name the server chose
+// escaped with its backslashes doubled and cut at 128 characters, and the
+// whole cut at 320.
+func TestRenderFieldPath(t *testing.T) {
+	const ell = "…"
+	long := strings.Repeat("n", 300)
+	tests := map[string]struct {
+		path codec.FieldPath
+		want string
+	}{
+		"success: the root":            {path: codec.FieldPath{}, want: "."},
+		"success: a top-level member":  {path: codec.FieldPath{Top: "model"}, want: "model"},
+		"success: a usage member":      {path: codec.FieldPath{Top: "usage", Member: "input_tokens"}, want: "usage.input_tokens"},
+		"success: an answer's member":  {path: codec.FieldPath{Top: "answers", Name: "tone", HasName: true, Member: "confidence"}, want: "answers.tone.confidence"},
+		"success: a legend key":        {path: codec.FieldPath{Top: "answers", Name: "s", HasName: true, Member: "legend", Key: "x", HasKey: true}, want: "answers.s.legend.x"},
+		"success: a model card member": {path: codec.FieldPath{Top: "models", Index: 1, HasIndex: true, Member: "name"}, want: "models[1].name"},
+		"success: a model card":        {path: codec.FieldPath{Top: "models", Index: 0, HasIndex: true}, want: "models[0]"},
+		"success: an empty name":       {path: codec.FieldPath{Top: "answers", Name: "", HasName: true, Member: "type"}, want: "answers..type"},
+		"success: names escaped, backslashes doubled": {
+			path: codec.FieldPath{Top: "answers", Name: "a\nb\x1b\\", HasName: true, Member: "probabilities", Key: "k\t\u202e", HasKey: true},
+			want: `answers.a\nb\x1b\\.probabilities.k\t\u202e`,
+		},
+		"success: a long name cut at 128": {
+			path: codec.FieldPath{Top: "answers", Name: long, HasName: true, Member: "noul"},
+			want: "answers." + long[:128] + ell + ".noul",
+		},
+		"success: the deepest path, both names cut, within 320": {
+			path: codec.FieldPath{Top: "answers", Name: long, HasName: true, Member: "probabilities", Key: long, HasKey: true},
+			// 8 + 129 + 15 + 129 = 281 characters: the path's own cap of 320
+			// holds both names at theirs, as the Rust port sized it.
+			want: "answers." + long[:128] + ell + ".probabilities." + long[:128] + ell,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := renderFieldPath(tt.path)
+			if diff := gocmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("renderFieldPath (-want +got):\n%s", diff)
+			}
+			if n := utf8.RuneCountInString(got); n > maxPathChars+1 {
+				t.Errorf("rendered path has %d characters, want at most %d", n, maxPathChars+1)
 			}
 		})
 	}
