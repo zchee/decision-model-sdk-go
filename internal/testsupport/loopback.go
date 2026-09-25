@@ -131,7 +131,9 @@ type ServerConfig struct {
 	ALPN ALPN
 	// MaxConcurrentStreams, when non-zero, is advertised in the server's
 	// SETTINGS frame; a stream that would exceed it is reset with
-	// REFUSED_STREAM and counted by [LoopbackServer.OverLimit].
+	// REFUSED_STREAM and counted by [LoopbackServer.OverLimit]. It is each
+	// HTTP/2 connection's limit until [H2Conn.SetMaxConcurrentStreams]
+	// changes it.
 	MaxConcurrentStreams uint32
 	// Handler serves every request, HTTP/2 and HTTP/1.1. Nil answers 200 with
 	// an empty body. Over HTTP/2 the response carries no Content-Length unless

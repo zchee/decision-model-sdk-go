@@ -73,6 +73,7 @@ type H2Conn struct {
 	connWin    int64 // what the server may still send on the connection
 	initWin    int64 // the peer's SETTINGS_INITIAL_WINDOW_SIZE
 	active     int
+	maxStreams uint32 // the stream limit enforced now; 0 means none
 	goAway     bool
 	goAwayLast uint32
 	closed     bool
@@ -110,6 +111,8 @@ func newH2Conn(s *LoopbackServer, nc *tls.Conn, idx int) *H2Conn {
 		streams: make(map[uint32]*h2stream),
 		connWin: defaultWindow,
 		initWin: defaultWindow,
+
+		maxStreams: s.cfg.MaxConcurrentStreams,
 	}
 	c.cond = sync.NewCond(&c.mu)
 	c.henc = hpack.NewEncoder(&c.hbuf)
@@ -173,6 +176,33 @@ func (c *H2Conn) GoAway(lastStreamID uint32, code ErrCode) error {
 		return fmt.Errorf("%w: %w", errConnClosed, err)
 	}
 	c.maybeFinish()
+	return nil
+}
+
+// SetMaxConcurrentStreams sends a SETTINGS frame advertising n (at least 1)
+// as SETTINGS_MAX_CONCURRENT_STREAMS and enforces n on this connection from
+// then on: a new stream that would exceed it is reset with REFUSED_STREAM and
+// counted by [LoopbackServer.OverLimit], even one the client opened before it
+// read the frame (RFC 9113 section 5.1.2 allows the refusal; a real server
+// may wait for the client's acknowledgement). Streams already open are left
+// alone. It lowers or raises a limit in the middle of a connection.
+func (c *H2Conn) SetMaxConcurrentStreams(n uint32) error {
+	if n == 0 {
+		return errors.New("testsupport: SetMaxConcurrentStreams needs a limit of at least 1")
+	}
+	// The write lock is taken first, as everywhere (wmu before mu), and held
+	// from the state change through the frame write, so the new limit and
+	// the frame that announces it cannot be reordered against another write.
+	c.wmu.Lock()
+	c.mu.Lock()
+	c.maxStreams = n
+	c.mu.Unlock()
+	err := c.fr.WriteSettings(http2.Setting{ID: http2.SettingMaxConcurrentStreams, Val: n})
+	c.wmu.Unlock()
+	if err != nil {
+		c.Close()
+		return fmt.Errorf("%w: %w", errConnClosed, err)
+	}
 	return nil
 }
 
@@ -375,7 +405,7 @@ func (c *H2Conn) onHeaders(f *http2.MetaHeadersFrame) {
 	})
 
 	c.mu.Lock()
-	full := c.srv.cfg.MaxConcurrentStreams > 0 && c.active >= int(c.srv.cfg.MaxConcurrentStreams)
+	full := c.maxStreams > 0 && c.active >= int(c.maxStreams)
 	c.mu.Unlock()
 	if full {
 		c.srv.overLimit.Add(1)

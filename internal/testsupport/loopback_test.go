@@ -220,6 +220,9 @@ type frame struct {
 	End      bool   // END_STREAM
 	Code     ErrCode
 	LastID   uint32 // GOAWAY
+	// MaxStreams is a later SETTINGS frame's MAX_CONCURRENT_STREAMS (the
+	// first SETTINGS frame is kept in rawClient.settings, not returned).
+	MaxStreams uint32
 }
 
 // next returns the next frame other than SETTINGS, WINDOW_UPDATE and PING,
@@ -233,16 +236,19 @@ func (c *rawClient) next() (frame, error) {
 		}
 		switch f := f.(type) {
 		case *http2.SettingsFrame:
-			if !f.IsAck() {
-				if c.settings == nil {
-					c.settings = map[http2.SettingID]uint32{}
-					_ = f.ForeachSetting(func(s http2.Setting) error {
-						c.settings[s.ID] = s.Val
-						return nil
-					})
-				}
-				_ = c.fr.WriteSettingsAck()
+			if f.IsAck() {
+				continue
 			}
+			_ = c.fr.WriteSettingsAck()
+			if c.settings != nil {
+				v, _ := f.Value(http2.SettingMaxConcurrentStreams)
+				return frame{Type: "SETTINGS", MaxStreams: v}, nil
+			}
+			c.settings = map[http2.SettingID]uint32{}
+			_ = f.ForeachSetting(func(s http2.Setting) error {
+				c.settings[s.ID] = s.Val
+				return nil
+			})
 		case *http2.WindowUpdateFrame, *http2.PingFrame:
 		case *http2.MetaHeadersFrame:
 			return frame{Type: "HEADERS", StreamID: f.StreamID, Status: f.PseudoValue("status"), End: f.StreamEnded()}, nil
@@ -413,6 +419,45 @@ func TestLoopbackStreamLimit(t *testing.T) {
 		}
 		if srv.OverLimit() != 1 || srv.MaxActiveStreams() != 2 {
 			t.Errorf("OverLimit %d, MaxActiveStreams %d; want 1, 2", srv.OverLimit(), srv.MaxActiveStreams())
+		}
+	})
+
+	t.Run("success: a limit lowered mid-connection is announced and enforced", func(t *testing.T) {
+		srv := NewLoopbackServer(t, ServerConfig{
+			MaxConcurrentStreams: 8,
+			OnStream:             func(*Stream) Action { return ActionHold },
+		})
+		c := dialRaw(t, srv.Addr())
+		if got := c.serverSettings()[http2.SettingMaxConcurrentStreams]; got != 8 {
+			t.Fatalf("first SETTINGS_MAX_CONCURRENT_STREAMS = %d, want 8", got)
+		}
+		c.request(1, "/a", true)
+		c.request(3, "/b", true)
+		waitFor(t, "two held streams", func() bool {
+			cs := srv.LiveH2Conns()
+			return len(cs) == 1 && len(cs[0].ActiveStreams()) == 2
+		})
+		conn := srv.LiveH2Conns()[0]
+		if err := conn.SetMaxConcurrentStreams(0); err == nil {
+			t.Error("SetMaxConcurrentStreams(0) = nil, want an error")
+		}
+		if err := conn.SetMaxConcurrentStreams(2); err != nil {
+			t.Fatal(err)
+		}
+		c.expect(frame{Type: "SETTINGS", MaxStreams: 2})
+		c.request(5, "/c", true) // a third stream against the new limit of 2
+		c.expect(frame{Type: "RST_STREAM", StreamID: 5, Code: CodeRefusedStream})
+		if err := conn.SetMaxConcurrentStreams(3); err != nil {
+			t.Fatal(err)
+		}
+		c.expect(frame{Type: "SETTINGS", MaxStreams: 3})
+		c.request(7, "/d", true) // raised again: the third stream is held
+		waitFor(t, "three held streams", func() bool { return len(conn.ActiveStreams()) == 3 })
+		if diff := gocmp.Diff([]Action{ActionHold, ActionHold, ActionRefuse, ActionHold}, actions(srv)); diff != "" {
+			t.Errorf("actions (-want +got):\n%s", diff)
+		}
+		if srv.OverLimit() != 1 || srv.MaxActiveStreams() != 3 {
+			t.Errorf("OverLimit %d, MaxActiveStreams %d; want 1, 3", srv.OverLimit(), srv.MaxActiveStreams())
 		}
 	})
 }
