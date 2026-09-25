@@ -57,3 +57,7 @@ bench.txt
 
 # profile
 *.pprof
+
+# Python caches from .github/scripts tests
+__pycache__/
+.pytest_cache/

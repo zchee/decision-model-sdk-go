@@ -1,0 +1,233 @@
+# Port test matrix
+
+Every upstream test function of typesafe-sdk-python 0.7.1 maps to a Go test
+or to a documented deviation. Upstream is `typesafe-ai/typesafe-sdk-python` at
+`0ffd094c72ed9445223060b24ffd7a56aa781fb4`: 129 functions under
+`tests/**/test_*.py` (111 SDK behaviour + 18 tooling). The derived name list
+is [`upstream-tests.txt`](upstream-tests.txt).
+`.github/scripts/port-test-matrix.py` checks this file on every CI run; the
+rows were seeded from Appendix D of the port plan, which also defines the row
+IDs that the plan's waves cite.
+
+## Status values
+
+| Status | Meaning | Checker rule |
+| --- | --- | --- |
+| `planned` | not ported yet | passes; with `--no-planned` (CI from W6.3) it fails |
+| `ported` | the Go test exists | the Go cell names at least one backtick-quoted `Test…` identifier, and every one of them is listed by `go test -list '.*' -tags live ./...`; `pkg.TestName` must be listed by a package whose import path ends in `/pkg` |
+| `deviation` | replaced by a documented behaviour difference | the Go cell cites an Appendix B row: a `B<n>` token, or the word `deviation` followed by a double-quoted reference (`deviation "one deadline per attempt"`); `same deviation` takes the citation of the nearest row above it in the same group; any backtick-quoted `Test…` identifier in the cell must exist, as for `ported` |
+
+## Format
+
+- One `` ### `tests/<file>` (<count>) `` heading per upstream file; the
+  checker keys every row by that file and the upstream function name.
+- Columns: ID, upstream function name (backtick-quoted), Go test or deviation,
+  status. A literal `|` inside a cell is written `\|`.
+- Changing a row's status is the only edit a porting wave makes here, plus the
+  Go test name or deviation citation when it differs from the seed.
+
+## Rows
+
+### `tests/test_clients.py` (21)
+
+| ID | Upstream | Go test / deviation | status |
+| --- | --- | --- | --- |
+| C1 | `test_round_trip` | `TestSystemOneRoundTrip` (typed, raw, mixed) | planned |
+| C2 | `test_extra_body_shallow_override` | `TestExtraBodyShallowOverride` | planned |
+| C3 | `test_unserializable_request_body_raises` | `TestUnencodableBodyFailsBeforeNetwork` | planned |
+| C4 | `test_raw_question_passthrough` | `TestRawQuestionPassthrough` | planned |
+| C5 | `test_question_schema_validation_is_left_to_api` | `TestRawQuestionSchemaLeftToAPI` | planned |
+| C6 | `test_rich_descriptions` | `TestStructuredContentRoundTrip` | planned |
+| C7 | `test_models_shape` | `TestModelsListShape` | planned |
+| C8 | `test_models_ignore_unknown_fields` | `TestModelsIgnoreUnknownFields` | planned |
+| C9 | `test_invalid_models_response` | `TestModelsInvalidBodies` (4 bodies) | planned |
+| C10 | `test_validation_before_network` | `TestQuestionValidationBeforeNetwork` | planned |
+| C11 | `test_error_mapping` | `TestAPIErrorMapping` (11 statuses) | planned |
+| C12 | `test_error_messages` | `TestAPIErrorMessages` (8 bodies) | planned |
+| C13 | `test_transport_errors` | `TestTransportErrorsBecomeConnectionOrTimeout` | planned |
+| C14 | `test_system_one_timeout_override` | `TestPerCallTimeoutOverride` (deviation: one deadline per attempt) | planned |
+| C15 | `test_headers_timeout_and_logging` | `TestProtectedHeadersAndPrefixBaseURL` | planned |
+| C16 | `test_http_client_settings` | `TestCallerTransportKeepsItsSettings` | planned |
+| C17 | `test_supplied_network_resources_closed` | `TestCloseClosesSuppliedTransport` | planned |
+| C18 | `test_owned_http_client_closed` | `TestCloseClosesOwnedTransport` | planned |
+| C19 | `test_exceptional_context_closes_http_client` | `TestCloseAfterFailedCall` | planned |
+| C20 | `test_task_cancellation_closes_context` | `TestCancelInFlightRequest` | planned |
+| C21 | `test_cancellation_propagates` | `TestCancelledContextMakesOneAttempt` | planned |
+
+### `tests/test_config.py` (11)
+
+| ID | Upstream | Go test / deviation | status |
+| --- | --- | --- | --- |
+| F1 | `test_transport_and_http_client_mutually_exclusive` | deviation "one transport option, two kinds" + `TestTransportOptionsAreExclusive` | planned |
+| F2 | `test_model_override` | `TestModelOverridePerCall` | planned |
+| F3 | `test_resolution` | `TestConfigResolutionOrder` (default/env/explicit) | planned |
+| F4 | `test_missing_key` | `TestMissingAPIKey` | planned |
+| F5 | `test_api_key_whitespace` | `TestAPIKeyTrimmed` | planned |
+| F6 | `test_invalid_explicit_key_does_not_fall_back_to_env` | `TestInvalidExplicitKeyDoesNotFallBack` | planned |
+| F7 | `test_invalid_api_key` | `TestInvalidAPIKeyNeverEchoed` | planned |
+| F8 | `test_empty_env_unset` | `TestBlankEnvIsUnset` | planned |
+| F9 | `test_invalid_timeout` | `TestInvalidTimeout` | planned |
+| F10 | `test_timeout_object` | deviation "one deadline per attempt" | planned |
+| F11 | `test_http_client_timeout_precedence` | deviation "a custom transport owns its timeouts" | planned |
+
+### `tests/test_errors.py` (6)
+
+| ID | Upstream | Go test / deviation | status |
+| --- | --- | --- | --- |
+| E1 | `test_exception_reconstruction` | deviation "errors are values" + `TestErrorsAsRoundTrip` | planned |
+| E2 | `test_api_error_from_process_pool` | deviation "no process pools" | planned |
+| E3 | `test_api_error_request_context` | `TestAPIErrorRendersEndpointStatusMessageRequestID` | planned |
+| E4 | `test_api_error_endpoint_omits_url_credentials` | `TestEndpointOmitsCredentialsQueryFragment` | planned |
+| E5 | `test_message_override` | `TestAPIErrorMessageOverride` | planned |
+| E6 | `test_error_body_edge_cases` | `TestAPIErrorBodyEdgeCases` (8 exact) + deviation "plain-text body cut at 200" (`long-plain-message`) | planned |
+
+### `tests/test_integration.py` (3)
+
+| ID | Upstream | Go test | status |
+| --- | --- | --- | --- |
+| I1 | `test_live_models` | `livetests.TestLiveModels` | planned |
+| I2 | `test_live_questions` | `livetests.TestLiveQuestions` | planned |
+| I3 | `test_live_pydantic_response` | `livetests.TestLiveTypedResponse` | planned |
+
+### `tests/test_logging.py` (8)
+
+| ID | Upstream | Go test / deviation | status |
+| --- | --- | --- | --- |
+| L1 | `test_secret_headers_redacted` | `TestSecretHeadersRedacted` (9 × 3) | planned |
+| L2 | `test_transport_errors_do_not_expose_credentials` | `TestTransportErrorsNeverExposeCredentials` | planned |
+| L3 | `test_exception_redaction_escaped_values` | `TestRedactionCoversGoEscapeForms` | planned |
+| L4 | `test_exception_redaction_shared_causes_cycles_and_notes` | deviation "Go errors have no notes or cycles" | planned |
+| L5 | `test_exception_redaction_structured_constructor` | deviation "Go errors are not rebuilt from messages" | planned |
+| L6 | `test_exception_redaction_preserves_network_diagnostics` | `TestRedactionKeepsCleanChains` | planned |
+| L7 | `test_logger_level_controls_output` | `TestLogLevelsPerAttempt` | planned |
+| L8 | `test_setup_logging_from_env` | deviation "`TYPESAFE_LOG_LEVEL` not read" | planned |
+
+### `tests/test_pydantic_response_models.py` (5)
+
+| ID | Upstream | Go test | status |
+| --- | --- | --- | --- |
+| P1 | `test_standalone_pydantic_response_model` | `TestDecodeAsWithSeparateQuestions` (questions built separately; `DecodeAs[KnownResponse]`; extra answer members ignored) | planned |
+| P2 | `test_explicit_default_response_model` | `TestSystemOneDefaultResponse` | planned |
+| P3 | `test_pydantic_system_one_response_subclass` | `TestDecodeAsOptionalFieldAndUnknownAnswer` (`optional` field absent → `Present() == false`; user struct with `options=friendly\|hostile`; unknown `future` type dropped; `Answers()` still complete; request id kept) | planned |
+| P4 | `test_pydantic_response_validation` | `TestAskValidationFieldPaths` | planned |
+| P5 | `test_custom_response_preserves_api_errors` | `TestAskPreservesAPIErrors` | planned |
+
+### `tests/test_questions.py` (11)
+
+| ID | Upstream | Go test / deviation | status |
+| --- | --- | --- | --- |
+| Q1 | `test_normalization_preserves_objects` | `TestTypedQuestionsWireForm` | planned |
+| Q2 | `test_normalization_preserves_raw_questions` | `TestRawQuestionsPassThrough` | planned |
+| Q3 | `test_raw_questions_require_structural_keys` | `TestRawQuestionStructuralChecks` (10 cases) | planned |
+| Q4 | `test_direct_encoding_omits_only_default_fields` | `TestUnsetMembersLeftOffWire` (5) | planned |
+| Q5 | `test_discriminators_are_automatic` | `TestEachKindWritesItsTypeTag` | planned |
+| Q6 | `test_invalid_typed_question_is_rejected_on_construction` | deviation "not representable" | planned |
+| Q7 | `test_typed_questions_reject_unknown_fields` | deviation "not representable" | planned |
+| Q8 | `test_optional_noul_criteria` | `TestNoulCriteriaShapes` (12) | planned |
+| Q9 | `test_typed_noul_criteria_reject_unknown_fields` | deviation "not representable" | planned |
+| Q10 | `test_empty_score_criteria_is_rejected` | `TestScoreWithoutLevelsRejected` | planned |
+| Q11 | `test_covariant_question_mappings` | `TestMixedQuestionMapsThroughOneBuilder` | planned |
+
+### `tests/test_responses.py` (15)
+
+| ID | Upstream | Go test / deviation | status |
+| --- | --- | --- | --- |
+| R1 | `test_malformed_response_raises_validation_error` | `TestMalformedResponseFieldPaths` (8) | planned |
+| R2 | `test_nested_missing_field_path` | `TestModelsMissingMemberPath` | planned |
+| R3 | `test_response_carries_request_id` | `TestResponseRequestID` | planned |
+| R4 | `test_response_carries_raw_http_response` | `TestResponseMeta` | planned |
+| R5 | `test_response_serialization_excludes_http_metadata` | `TestResponseJSONRoundTrip` (models and systemone) | planned |
+| R6 | `test_copied_response_preserves_metadata` | deviation "responses are values" + `TestResponseCopyKeepsMeta` | planned |
+| R7 | `test_missing_raw_raises_on_access` | deviation "empty `Meta()`" | planned |
+| R8 | `test_missing_request_id_raises_on_access` | `TestRequestIDAbsent` | planned |
+| R9 | `test_unknown_extra_fields_tolerated` | `TestUnknownMembersIgnored` | planned |
+| R10 | `test_unknown_answer_type_ignored` | `TestUnknownAnswerTypeSkipped` | planned |
+| R11 | `test_response_preserves_nested_json` | `TestStructuredLegendExactBytes` | planned |
+| R12 | `test_answer_attributes_and_dictionary_types` | `TestAnswerJSONShapes` | planned |
+| R13 | `test_public_response_types_ignore_unknown_fields` | `TestPublicTypesIgnoreUnknownMembers` (7 types) | planned |
+| R14 | `test_answer_fields_are_frozen` | deviation "unexported fields with getters" | planned |
+| R15 | `test_answer_groups_are_cached_and_not_serialized` | deviation "`iter.Seq2` filters" | planned |
+
+### `tests/test_retry.py` (25)
+
+| ID | Upstream | Go test / deviation | status |
+| --- | --- | --- | --- |
+| RT1 | `test_retry_policy_invalid_timeout` | `TestRetryPolicyInvalidBudget` | planned |
+| RT2 | `test_zero_backoff_retries` | `TestZeroBackoffRetriesAtOnce` | planned |
+| RT3 | `test_invalid_backoff` | `TestRetryPolicyInvalidBackoff` | planned |
+| RT4 | `test_invalid_backoff_jitter` | `TestRetryPolicyInvalidJitter` | planned |
+| RT5 | `test_invalid_max_retries` | `TestRetryPolicyInvalidMaxRetries` | planned |
+| RT6 | `test_retry_policy_timeout_budget` | `TestRetryBudgetStopsBeforeDelay` (6 cases) | planned |
+| RT7 | `test_retry_policy_timeout_override` | `TestPerCallBudgetOverride` | planned |
+| RT8 | `test_default_retry_statuses` | `TestDefaultRetryStatuses` (12) | planned |
+| RT9 | `test_connection_retry_recovers` | `TestConnectionErrorsRetried` | planned |
+| RT10 | `test_server_delay_through_tenacity` | `TestRetryAfterHonoured` | planned |
+| RT11 | `test_parse_retry_after` | `TestParseRetryAfterTable` (9) | planned |
+| RT12 | `test_backoff_dates_cap_and_jitter` | `TestBackoffScheduleAndDates` | planned |
+| RT13 | `test_system_one_retry_override` | `TestPerCallRetryPolicyOverride` | planned |
+| RT14 | `test_async_concurrent_retry_state` | partial deviation "goroutines instead of asyncio" + `TestConcurrentCallsCountTheirOwnRetries` | planned |
+| RT15 | `test_system_one_retry_recovers_with_overrides` | `TestRetryRecoversWithOverrides` (same bytes, headers, timeout per attempt) | planned |
+| RT16 | `test_concurrent_system_one_overrides` | `TestConcurrentCallsKeepTheirOverrides` | planned |
+| RT17 | `test_exhausted_transport_retry` | `TestExhaustedTransportRetryReturnsLastError` | planned |
+| RT18 | `test_exhausted_retry_preserves_final_http_error` | `TestExhaustedRetryKeepsLastAPIError` | planned |
+| RT19 | `test_cancel_pending_retry` | `TestCancelPendingRetry` | planned |
+| RT20 | `test_retry_policy_max_retries` | `TestMaxRetriesCountsAttempts` | planned |
+| RT21 | `test_retry_policy_custom_statuses` | `TestCustomStatusesReplaceDefault` | planned |
+| RT22 | `test_retry_policy_per_call_override` | `TestPerCallMaxRetries` | planned |
+| RT23 | `test_retry_policy_exceptions_and_predicate` | partial deviation "`exceptions` dropped" + `TestPredicateOptsIn` | planned |
+| RT24 | `test_retry_policy_wait_options` | `TestWaitOptions` | planned |
+| RT25 | `test_backoff_extreme_values` | `TestBackoffExtremeValues` | planned |
+
+### `tests/test_types.py` (6)
+
+| ID | Upstream | Go test / deviation | status |
+| --- | --- | --- | --- |
+| T1 | `test_str_subclasses_fallback_to_strings` | deviation "`any` state" | planned |
+| T2 | `test_json_value_and_state_exclude_top_level_none` | deviation + `TestScalarStatesRefused` (`nil`, number, bool) | planned |
+| T3 | `test_array_inputs` | `TestArrayContentEverywhere` (4 array positions: state, instructions, criteria description, score levels; upstream parametrises raw/typed) | planned |
+| T4 | `test_raw_optional_fields_preserve_explicit_null` | `TestRawQuestionKeepsExplicitNull` | planned |
+| T5 | `test_explicitly_nullable_json_values` | `TestNullInsideContentSurvives` | planned |
+| T6 | `test_abstract_input_containers_encode` | `TestMapSliceStructStates` | planned |
+
+### `tests/test_docs.py` (2, live sybil examples)
+
+| ID | Upstream | Go test / deviation | status |
+| --- | --- | --- | --- |
+| XD1 | `test_markdown` | README and `docs/*.md` Go snippets are `examples/` packages compiled by `go vet ./examples/...` in CI and proven identical to the Markdown blocks by `docs-snippets.py`; the ones that call the API run as `livetests.TestExamples` (deviation "no sybil") | planned |
+| XD2 | `test_python_doctests` | `Example*` functions in root run by `go test`; live ones behind `//go:build live` | planned |
+
+### `tests/test_public_api_surface.py` (3)
+
+| ID | Upstream | Go test / deviation | status |
+| --- | --- | --- | --- |
+| XA1 | `test_public_members` | `TestPublicAPISurface`: golden of exported names and signatures from `go/types` (`go/importer` "source"), stable across comment edits | planned |
+| XA2 | `test_package_exports` | same golden; `internal/` packages are unimportable by construction | planned |
+| XA3 | `test_constructor_kwargs` | `TestClientOptionsSurface`: golden of the `With*` option names (functional options; no positional parameters) | planned |
+
+### `tests/test_public_sync.py` (10, skipped outside the dev repository)
+
+| ID | Upstream | Go test / deviation | status |
+| --- | --- | --- | --- |
+| XS1 | `test_sign_snapshot_and_push` | deviation "dev→public sync tooling not ported" | planned |
+| XS2 | `test_signing_failure_keeps_refs` | same deviation | planned |
+| XS3 | `test_dry_run_skips_github` | same deviation | planned |
+| XS4 | `test_snapshot_and_push_retries` | same deviation | planned |
+| XS5 | `test_existing_history_deletions_and_immutable_tags` | same deviation | planned |
+| XS6 | `test_invalid_includes` | same deviation | planned |
+| XS7 | `test_unsafe_snapshots` | same deviation | planned |
+| XS8 | `test_version_mismatch` | same deviation | planned |
+| XS9 | `test_atomic_push_rejects_concurrent_update` | same deviation | planned |
+| XS10 | `test_release_contributors` | same deviation | planned |
+
+### `tests/test_release_notes.py` (2)
+
+| ID | Upstream | Go test / deviation | status |
+| --- | --- | --- | --- |
+| XR1 | `test_release_notes` | deviation "no release-notes script" | planned |
+| XR2 | `test_invalid_release_notes` | same deviation | planned |
+
+### `tests/test_typing.py` (1)
+
+| ID | Upstream | Go test / deviation | status |
+| --- | --- | --- | --- |
+| XT1 | `test_public_typing` | negative expectations → the 13 + 3 runtime `*ConfigError` rejections of AC-F8 (upstream `tests/typing/negative/*` reviewed for Go analogues in W4.1); the three positive fixtures (`valid.py`, `transport.py`, `pydantic_response_models.py`) → `go vet ./examples/...` (W6.4) | planned |
