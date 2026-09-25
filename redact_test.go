@@ -317,3 +317,52 @@ func rawHandlerOutput(r redactedHeaders) string {
 	slog.New(rawValueHandler{buf: &buf}).Debug("request", slog.Any("headers", r))
 	return buf.String()
 }
+
+// TestAPIKeyNeedleThreshold pins ruling R68: the key is looked for inside a
+// WithHeader name and inside a header value only when it is at least
+// minKeyNeedleBytes (8) long, so a test's short dummy key neither refuses an
+// ordinary name nor hides an ordinary value, while Authorization is redacted
+// by its name whatever the key.
+func TestAPIKeyNeedleThreshold(t *testing.T) {
+	tests := map[string]struct {
+		key         string
+		name        string // a WithHeader name that contains the key
+		wantRefused bool
+		wantEcho    string // how X-Echo, whose value holds the key, prints
+	}{
+		"success: 1-byte key is not looked for": {
+			key: "k", name: "X-K", wantEcho: "id=k",
+		},
+		"success: 7-byte key is not looked for": {
+			key: "test-id", name: "X-Test-Id", wantEcho: "id=test-id",
+		},
+		"success: 8-byte key is looked for": {
+			key: "trace-id", name: "X-Trace-Id", wantRefused: true, wantEcho: "***",
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if len(tt.key) >= minKeyNeedleBytes != tt.wantRefused {
+				t.Fatalf("row %q: a %d-byte key contradicts minKeyNeedleBytes = %d", name, len(tt.key), minKeyNeedleBytes)
+			}
+			opts := []ClientOption{WithAPIKey(tt.key), WithHeader(tt.name, "v")}
+			if tt.wantRefused {
+				err := resolveError(t, noEnv, opts...)
+				if want := "The name given to WithHeader call 1 contains the API key, so it is not shown; pass the key with WithAPIKey only."; err.Error() != want {
+					t.Errorf("Error() = %q, want %q", err.Error(), want)
+				}
+			} else {
+				c := mustResolve(t, noEnv, opts...)
+				if got := c.modelsHeader.Get(tt.name); got != "v" {
+					t.Errorf("template %s = %q, want %q", tt.name, got, "v")
+				}
+			}
+
+			header := http.Header{"Authorization": {"Bearer " + tt.key}, "X-Echo": {"id=" + tt.key}}
+			want := "[Authorization=*** X-Echo=" + tt.wantEcho + "]"
+			if got := fmt.Sprint(newRedactedHeaders(header, tt.key)); got != want {
+				t.Errorf("rendered = %q, want %q", got, want)
+			}
+		})
+	}
+}

@@ -152,8 +152,10 @@ func WithMaxResponseBytes(n int64) ClientOption {
 // The name must be a valid HTTP field name (RFC 9110, section 5.6.2) and the
 // value a valid field value (RFC 9110, section 5.5), or the client is not
 // built. A name that contains the API key, without regard to case, is
-// refused too, as when the two arguments are swapped. No error repeats a
-// value, which is where a caller puts a token, or a name that holds the key.
+// refused too, as when the two arguments are swapped, provided the key is at
+// least 8 bytes long: a shorter key, a test's dummy such as "test", occurs in
+// ordinary names. No error repeats a value, which is where a caller puts a
+// token, or a name that holds the key.
 func WithHeader(name, value string) ClientOption {
 	return func(o *options) { o.headers = append(o.headers, headerOption{name: name, value: value}) }
 }
@@ -456,13 +458,14 @@ func (o *options) resolveTimeout() (time.Duration, error) {
 // caller's headers without the ones the SDK or the transport owns, then the
 // SDK's own (py:_core/transport.py:116-127). Each dropped header is logged
 // by name at debug level. A name that holds the key, without regard to case,
-// is refused before anything else is checked: names are logged and sent as
-// they are, and redaction looks for the key in values only.
+// is refused before anything else is checked, when the key is at least
+// [minKeyNeedleBytes] long: names are logged and sent as they are, and
+// redaction looks for the key in values only.
 func (o *options) headerTemplate(logger *slog.Logger, key, userAgent string) (http.Header, error) {
 	h := make(http.Header, len(o.headers)+5)
 	lowerKey := strings.ToLower(key)
 	for i, ho := range o.headers {
-		if strings.Contains(strings.ToLower(ho.name), lowerKey) {
+		if keyNeedle(key) && strings.Contains(strings.ToLower(ho.name), lowerKey) {
 			return nil, newConfigError("The name given to WithHeader call " + strconv.Itoa(i+1) + " contains the API key, so it is not shown; pass the key with WithAPIKey only.")
 		}
 		if !validFieldName(ho.name) {

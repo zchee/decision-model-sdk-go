@@ -39,15 +39,30 @@ func isSecretHeader(name string) bool {
 	return slices.Contains(secretHeaderNames, lower) || strings.Contains(lower, "token") || strings.Contains(lower, "secret")
 }
 
+// minKeyNeedleBytes is the shortest API key the SDK looks for inside other
+// text: a header value it redacts, and a WithHeader name it refuses (ruling
+// R68). A shorter key, such as a test's "test" or "k", occurs in ordinary
+// names and values, and looking for it would hide or refuse them; real keys
+// are far longer. Redaction by header name does not depend on the key and
+// always applies.
+const minKeyNeedleBytes = 8
+
+// keyNeedle reports whether key is long enough to be looked for inside other
+// text ([minKeyNeedleBytes]).
+func keyNeedle(key string) bool {
+	return len(key) >= minKeyNeedleBytes
+}
+
 // isCredential reports whether the values of the header name must not be
 // printed: the name marks them as credentials ([isSecretHeader]), or one of
-// them holds the API key, under whatever name the caller sent it. The second
-// test goes past typesafe-sdk-python, which redacts by name alone.
+// them holds the API key, under whatever name the caller sent it, when the
+// key is at least [minKeyNeedleBytes] long. The second test goes past
+// typesafe-sdk-python, which redacts by name alone.
 func isCredential(name string, values []string, apiKey string) bool {
 	if isSecretHeader(name) {
 		return true
 	}
-	return apiKey != "" && slices.ContainsFunc(values, func(v string) bool { return strings.Contains(v, apiKey) })
+	return keyNeedle(apiKey) && slices.ContainsFunc(values, func(v string) bool { return strings.Contains(v, apiKey) })
 }
 
 // redactedHeaders is a header map as a log record shows it: a group with one
@@ -77,7 +92,8 @@ type headerLog struct {
 }
 
 // newRedactedHeaders returns header as a log record shows it, with any value
-// that holds apiKey redacted whatever its header's name.
+// that holds apiKey redacted whatever its header's name, when apiKey is at
+// least [minKeyNeedleBytes] long.
 func newRedactedHeaders(header http.Header, apiKey string) redactedHeaders {
 	return redactedHeaders{p: &headerLog{header: header, apiKey: apiKey}}
 }
