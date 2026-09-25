@@ -115,18 +115,20 @@ func WithHTTPVersion(v HTTPVersion) ClientOption {
 }
 
 // WithRootCAs sets the certificate authorities the client trusts for the
-// API host and an https proxy; nil means the system's, the default. It
-// configures the SDK's own transport, so it cannot be combined with
-// [WithHTTPTransport] or [WithRoundTripper].
+// API host and an https proxy. A non-nil pool replaces the RootCAs of
+// [WithTLSConfig]'s configuration; nil keeps that configuration's RootCAs,
+// which are the system's when it sets none or when there is no
+// [WithTLSConfig]. It configures the SDK's own transport, so it cannot be
+// combined with [WithHTTPTransport] or [WithRoundTripper].
 func WithRootCAs(pool *x509.CertPool) ClientOption {
 	return func(o *options) { o.transport.rootCAs, o.transport.rootCAsSet = pool, true }
 }
 
 // WithTLSConfig sets the TLS configuration the client starts from; it is
 // cloned when the option is applied. The SDK raises MinVersion to TLS 1.2 and
-// runs its own ALPN check after the configuration's VerifyConnection;
-// [WithRootCAs], when also given, replaces RootCAs. It configures the SDK's
-// own transport, so it cannot be combined with [WithHTTPTransport] or
+// runs its own ALPN check after the configuration's VerifyConnection; a
+// non-nil pool given to [WithRootCAs] replaces RootCAs. It configures the
+// SDK's own transport, so it cannot be combined with [WithHTTPTransport] or
 // [WithRoundTripper].
 func WithTLSConfig(cfg *tls.Config) ClientOption {
 	return func(o *options) { o.transport.tlsConfig, o.transport.tlsConfigSet = cfg.Clone(), true }
@@ -162,10 +164,17 @@ func WithHTTPTransport(t *http.Transport) ClientOption {
 // WithRoundTripper makes the client send every request through rt as it is:
 // no connection policy, no ALPN check, no cold-start gate. The client's
 // per-attempt deadline and response size limit still apply, and closing the
-// client closes rt, once, when it is an [io.Closer]. rt owns its connection timeouts, so it
-// cannot be combined with [WithHTTPTransport], [WithHTTPVersion],
-// [WithRootCAs], [WithTLSConfig], [WithProxy] or [WithConnectTimeout]. A nil
-// rt is refused.
+// client closes rt, once, when it is an [io.Closer]. rt owns its connection
+// timeouts, so it cannot be combined with [WithHTTPTransport],
+// [WithHTTPVersion], [WithRootCAs], [WithTLSConfig], [WithProxy] or
+// [WithConnectTimeout]. A nil rt is refused.
+//
+// rt must not modify a request, as the [net/http.RoundTripper] contract
+// already requires: the first attempt of every call hands it the client's
+// own header map, shared by every call and never copied, so a RoundTripper
+// that writes to req.Header changes the headers of later calls and races
+// with concurrent ones. Each request carries its own copy of the endpoint
+// URL.
 func WithRoundTripper(rt http.RoundTripper) ClientOption {
 	return func(o *options) { o.transport.roundTripper, o.transport.roundTripperSet = rt, true }
 }
