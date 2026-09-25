@@ -1054,37 +1054,3 @@ func TestPythonSpace(t *testing.T) {
 		t.Errorf("isPythonSpace disagrees with Python's str.isspace() on %d code points:\n%s", len(mismatches), strings.Join(mismatches, "\n"))
 	}
 }
-
-// sinkHeader keeps BenchmarkHeaderTemplateClone's result alive.
-var sinkHeader http.Header
-
-// BenchmarkHeaderTemplateClone measures the per-attempt cost of the header
-// template: one http.Header.Clone of the POST template, which is what a
-// request copies before it adds its own headers.
-func BenchmarkHeaderTemplateClone(b *testing.B) {
-	tests := map[string][]ClientOption{
-		"sdk-only":       nil,
-		"three-defaults": {WithHeader("X-Team", "billing"), WithHeader("X-Trace", "on"), WithHeader("X-Region", "ap-northeast-1")},
-		"no-runtime-hdr": {WithRuntimeHeader(false)},
-	}
-	for name, extra := range tests {
-		b.Run(name, func(b *testing.B) {
-			c := mustResolveB(b, append([]ClientOption{WithAPIKey("test-key")}, extra...)...)
-			b.ReportAllocs()
-			for b.Loop() {
-				sinkHeader = c.systemOneHeader.Clone()
-			}
-		})
-	}
-}
-
-// mustResolveB resolves opts with no environment, failing the benchmark
-// when that fails.
-func mustResolveB(b *testing.B, opts ...ClientOption) *config {
-	b.Helper()
-	c, err := resolveConfig(noEnv, opts...)
-	if err != nil {
-		b.Fatalf("resolve: %v", err)
-	}
-	return c
-}
