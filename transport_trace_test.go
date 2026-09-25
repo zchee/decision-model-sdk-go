@@ -25,6 +25,7 @@ import (
 	"reflect"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -158,16 +159,21 @@ func panickingTrace(hook string, armed *atomic.Bool, n *atomic.Int64) *httptrace
 // hook came from WithClientTrace or from a trace on the call's context, and
 // raises it from roundTrip once net/http has returned: the caller sees the
 // panic, the token is free, the pool is not locked and no stream is leaked,
-// which a server allowing 2 streams per connection makes visible.
+// which a server allowing 2 streams per connection makes visible. roundTrip
+// closes the response body before it panics again; a server that holds each
+// body open until the client resets the stream, with a call context that is
+// never cancelled, shows that close is what frees the stream.
 func TestClientTracePanicIsRaisedOnTheCaller(t *testing.T) {
 	const (
 		streams = 2
 		wedged  = 10 * time.Second
 	)
 	tests := map[string]struct {
-		hook string
-		site hookSite
+		hook     string
+		site     hookSite
+		holdBody bool // the server holds each panicking call's body open
 	}{
+		"success: a GotConn panic while the server holds the body open":          {hook: "GotConn", site: onOption, holdBody: true},
 		"success: a warm GetConn panic from WithClientTrace":                     {hook: "GetConn", site: onOption},
 		"success: a GotConn panic from WithClientTrace":                          {hook: "GotConn", site: onOption},
 		"success: a warm GetConn panic from the call's context":                  {hook: "GetConn", site: onContext},
@@ -177,7 +183,16 @@ func TestClientTracePanicIsRaisedOnTheCaller(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{MaxConcurrentStreams: streams})
+			srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{
+				MaxConcurrentStreams: streams,
+				Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusOK)
+					if tt.holdBody && strings.HasPrefix(r.URL.Path, "/panic/") {
+						w.(http.Flusher).Flush()
+						<-r.Context().Done() // until the client resets the stream
+					}
+				}),
+			})
 			var (
 				armed    atomic.Bool
 				n        atomic.Int64
@@ -204,6 +219,14 @@ func TestClientTracePanicIsRaisedOnTheCaller(t *testing.T) {
 				defer cancel()
 				return getVia(ctx, c.transport, srv.URL()+path, 0)
 			}
+			getPanicking := get
+			if tt.holdBody {
+				// No deadline and no cancel: only closing the body resets the
+				// stream the server holds.
+				getPanicking = func(path string) getResult {
+					return getVia(context.WithoutCancel(callCtx), c.transport, srv.URL()+path, 0)
+				}
+			}
 			if r := get("/warm"); r.err != nil || r.protoMajor != 2 {
 				t.Fatalf("warm-up GET = HTTP/%d %v", r.protoMajor, r.err)
 			}
@@ -212,7 +235,7 @@ func TestClientTracePanicIsRaisedOnTheCaller(t *testing.T) {
 			for i := range streams + 1 {
 				n.Store(int64(i))
 				within(t, wedged, "the panicking GET #"+strconv.Itoa(i), func() []string {
-					p := recovered(func() { get("/panic/" + strconv.Itoa(i)) })
+					p := recovered(func() { getPanicking("/panic/" + strconv.Itoa(i)) })
 					if hp, ok := p.(hookPanic); !ok || hp.n != i {
 						return []string{fmt.Sprintf("GET #%d panicked with %v, want the hook's value #%d", i, p, i)}
 					}

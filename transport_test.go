@@ -23,6 +23,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/http/httptrace"
 	"net/url"
 	"strings"
@@ -106,6 +107,45 @@ func TestHTTPVersionString(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if got := tt.v.String(); got != tt.want {
 				t.Errorf("String() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestHTTPVersionDefaults pins section 6.3's defaults: an http base URL is
+// HTTPAuto, which speaks HTTP/1.1 to a plain server, and an https base URL is
+// HTTP2Only, which refuses a server that negotiates no protocol;
+// WithHTTPVersion overrides either.
+func TestHTTPVersionDefaults(t *testing.T) {
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	t.Cleanup(plain.Close)
+	noALPN := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{ALPN: testsupport.ALPNNone})
+	cas := WithRootCAs(testsupport.RootCAs(t))
+	tests := map[string]struct {
+		baseURL   string
+		opts      []ClientOption
+		wantProto int // the response's major version; 0 when the call fails
+	}{
+		"success: http defaults to HTTPAuto, which speaks HTTP/1.1":           {baseURL: plain.URL, wantProto: 1},
+		"error: http under HTTP2Only speaks HTTP/2 with prior knowledge only": {baseURL: plain.URL, opts: []ClientOption{WithHTTPVersion(HTTP2Only)}},
+		"error: https defaults to HTTP2Only, which refuses no ALPN":           {baseURL: noALPN.URL(), opts: []ClientOption{cas}},
+		"success: https under HTTPAuto speaks HTTP/1.1":                       {baseURL: noALPN.URL(), opts: []ClientOption{cas, WithHTTPVersion(HTTPAuto)}, wantProto: 1},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			c := mustResolve(t, noEnv, append([]ClientOption{WithAPIKey(testKey), WithBaseURL(tt.baseURL)}, tt.opts...)...)
+			r := getWithin(t, c.transport, tt.baseURL+"/v1/models", 0, 10*time.Second)
+			if tt.wantProto == 0 {
+				if r.err == nil {
+					t.Fatalf("GET = %d HTTP/%d, want an error", r.status, r.protoMajor)
+				}
+				if strings.HasPrefix(tt.baseURL, "https:") && !errors.Is(r.err, ErrHTTP2NotNegotiated) {
+					t.Errorf("error = %v, want ErrHTTP2NotNegotiated", r.err)
+				}
+				return
+			}
+			if r.err != nil || r.status != http.StatusOK || r.protoMajor != tt.wantProto {
+				t.Errorf("GET = %d HTTP/%d %v, want 200 over HTTP/%d", r.status, r.protoMajor, r.err, tt.wantProto)
 			}
 		})
 	}
