@@ -55,9 +55,8 @@ type PreparedQuestion struct {
 // asks it.
 //
 // It is read-only once NewPrepared or [Builder.Finish] has made it, and safe
-// for concurrent use. The
-// entries sit behind [Prepared.Entries] so that the lookup index built over
-// them cannot go stale.
+// for concurrent use. The entries sit behind [Prepared.Entries] so that the
+// lookup index built over them cannot go stale.
 type Prepared struct {
 	// Questions is the compact JSON object that is the value of a request's
 	// "questions" member, spliced into every request body as is.
