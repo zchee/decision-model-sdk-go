@@ -70,6 +70,10 @@ jobs:
         env:
           D1_IDENTIFIER: typesafe_sdk_go_requires_go1_17_to_go1_27_on_amd64_or_arm64
         run: |
+          # The refusal is the expected output. Drop setup-go's Go problem
+          # matcher (owner "go") so that it is not reported as an error
+          # annotation; no later step compiles Go code.
+          echo "::remove-matcher owner=go::"
           for cmd in vet build; do
             echo "::group::gotip $cmd ./internal/codec/"
             if out="$(gotip "$cmd" ./internal/codec/ 2>&1)"; then
@@ -77,9 +81,7 @@ jobs:
               echo "::error::gotip $cmd ./internal/codec/ succeeded: the D1 refusal is gone"
               exit 1
             fi
-            # The prefix keeps setup-go's Go problem matcher from reporting
-            # the expected refusal as an error annotation.
-            while IFS= read -r line; do printf 'refused as expected | %s\n' "$line"; done <<<"$out"
+            printf '%s\n' "$out"
             echo "::endgroup::"
             if ! grep -qF "$D1_IDENTIFIER" <<<"$out"; then
               echo "::error::gotip $cmd ./internal/codec/ failed without naming $D1_IDENTIFIER"

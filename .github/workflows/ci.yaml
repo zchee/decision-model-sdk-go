@@ -66,34 +66,6 @@ jobs:
       - name: internal/codec seam tests
         run: go test -run 'Seam' -count=1 -v ./internal/codec/
 
-      # D1 / AC-Q4 / PM5: off the support matrix internal/codec must refuse to
-      # compile, and go vet and go build must both exit non-zero with output
-      # naming the D1 identifier. -tags go1.28 stands in for a Go 1.28 toolchain.
-      - name: D1 refusal off the support matrix
-        env:
-          D1_IDENTIFIER: typesafe_sdk_go_requires_go1_17_to_go1_27_on_amd64_or_arm64
-        run: |
-          for t in 'GOOS=linux GOARCH=386' 'GOOS=linux GOARCH=riscv64' 'GOFLAGS=-tags=go1.28'; do
-            for cmd in vet build; do
-              echo "::group::env $t go $cmd ./internal/codec/"
-              # $t is split on purpose: env(1) applies each assignment.
-              # shellcheck disable=SC2086
-              if out="$(env $t go "$cmd" ./internal/codec/ 2>&1)"; then
-                printf '%s\n' "$out"
-                echo "::error::env $t go $cmd ./internal/codec/ succeeded: the D1 refusal is gone"
-                exit 1
-              fi
-              # The prefix keeps setup-go's Go problem matcher from reporting
-              # the expected refusal as an error annotation.
-              while IFS= read -r line; do printf 'refused as expected | %s\n' "$line"; done <<<"$out"
-              echo "::endgroup::"
-              if ! grep -qF "$D1_IDENTIFIER" <<<"$out"; then
-                echo "::error::env $t go $cmd ./internal/codec/ failed without naming $D1_IDENTIFIER"
-                exit 1
-              fi
-            done
-          done
-
       # setup-uv publishes no floating major tag (only vX.Y.Z tags since v8), so
       # the major-only pin rule cannot apply; Dependabot bumps this full version.
       - uses: astral-sh/setup-uv@v10.2.0
@@ -109,6 +81,36 @@ jobs:
 
       - name: Report available dependency updates
         run: go list -m -u all
+
+      # D1 / AC-Q4 / PM5: off the support matrix internal/codec must refuse to
+      # compile, and go vet and go build must both exit non-zero with output
+      # naming the D1 identifier. -tags go1.28 stands in for a Go 1.28 toolchain.
+      - name: D1 refusal off the support matrix
+        env:
+          D1_IDENTIFIER: typesafe_sdk_go_requires_go1_17_to_go1_27_on_amd64_or_arm64
+        run: |
+          # The refusal is the expected output. Drop setup-go's Go problem
+          # matcher (owner "go") so that it is not reported as an error
+          # annotation; this is the lint job's last step for that reason.
+          echo "::remove-matcher owner=go::"
+          for t in 'GOOS=linux GOARCH=386' 'GOOS=linux GOARCH=riscv64' 'GOFLAGS=-tags=go1.28'; do
+            for cmd in vet build; do
+              echo "::group::env $t go $cmd ./internal/codec/"
+              # $t is split on purpose: env(1) applies each assignment.
+              # shellcheck disable=SC2086
+              if out="$(env $t go "$cmd" ./internal/codec/ 2>&1)"; then
+                printf '%s\n' "$out"
+                echo "::error::env $t go $cmd ./internal/codec/ succeeded: the D1 refusal is gone"
+                exit 1
+              fi
+              printf '%s\n' "$out"
+              echo "::endgroup::"
+              if ! grep -qF "$D1_IDENTIFIER" <<<"$out"; then
+                echo "::error::env $t go $cmd ./internal/codec/ failed without naming $D1_IDENTIFIER"
+                exit 1
+              fi
+            done
+          done
 
   test:
     name: test (${{ matrix.os }})
