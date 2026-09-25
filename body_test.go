@@ -899,8 +899,13 @@ func TestNestedContentEncodesAsContent(t *testing.T) {
 				body(`"hi"`, `,"ctx":{"u":null,"c":"a\bb"}`),
 			},
 		},
+		// Truncated on purpose: under -race, sonic's check of a
+		// MarshalJSON output accepts a few complete but invalid outputs
+		// ({"a":}, [1 2], a trailing comma: about 0.5 %, never in a normal
+		// build; _spikes/w1.2/validrace), and refuses a truncated one in
+		// both builds.
 		"error: invalid JSON content nested in the state": {
-			state:   map[string]any{"c": JSON([]byte(`{"a":}`))},
+			state:   map[string]any{"c": JSON([]byte(`{"a":`))},
 			wantErr: "state: a MarshalJSON method returned invalid JSON (syntax error at position ",
 		},
 		"error: JSON content that is not an object or an array": {
@@ -1126,7 +1131,9 @@ func TestEncodeErrorMessageIsBounded(t *testing.T) {
 			inCause:  true,
 		},
 		"error: 1 MiB of invalid RawJSON nested in the state": {
-			state:    []any{RawJSON(`["` + payload + `",]`)},
+			// Truncated, not a trailing comma: see the invalid nested JSON
+			// case of TestNestedContentEncodesAsContent.
+			state:    []any{RawJSON(`["` + payload + `"`)},
 			want:     "state: a MarshalJSON method returned invalid JSON (syntax error at position ",
 			noSecret: true,
 			inCause:  true,
