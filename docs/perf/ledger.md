@@ -68,6 +68,14 @@ experiment set are in [`../support.md`](../support.md#measurement-rule).
 | W0.3-18 | 2026-09-25 16:34:41 JST | W0.3 S-D1 linearity (AC-P8) | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 20.86 → 20.86, noisy | `env GOEXPERIMENT=nosimd,noruntimesecret go test -count=5 -run ^TestLinearity$ -v ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/linearity-M.txt` | base 2305d02; util-linux flock on scratchpad bench.lock |
 | W0.3-19 | 2026-09-25 07:44:39 UTC | W0.3 S-D1 R14 and primitive probes | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.54 → 0.54 | `go test -count=1 -run ^(TestProbeR14\|TestProbePrimitivesOnFixtures)$ -v ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/probe-L.txt` | base 2305d02; flock /tmp/ts-spike/bench.lock |
 | W0.3-20 | 2026-09-25 16:34:39 JST | W0.3 S-D1 R14 and primitive probes | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 21.46 → 21.46, noisy | `env GOEXPERIMENT=nosimd,noruntimesecret go test -count=1 -run ^(TestProbeR14\|TestProbePrimitivesOnFixtures)$ -v ./_spikes/s-d1/` | [W0.3 tables](#w03-tables); raw `_spikes/s-d1/results/probe-M.txt` | base 2305d02; util-linux flock on scratchpad bench.lock |
+| W0.5-01 | 2026-09-25 17:07:35 JST | W0.5 S-C1 allocations and AC-P5 memstats probe | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.93 → 6.93 | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock alloc-M -count=1 -run '^(TestAllocCall\|TestMemStatsCap)$' -v ./_spikes/s-c1/` | q3: floor 8/640, call/sdk 23/2904, SDK-own 15/2264, call/naive 119/7960; q20: floor 8/640, call/sdk 43/10144, SDK-own 35/9504, call/naive 522/30872; AC-P5 (256 KiB): (i) 263448 B, (ii) 1328 B, (iii) 33293616 B, (iv) 33294392 B; [W0.5 tables](#w05-tables) | mallocs/bytes, collector off, `GOMAXPROCS(1)`, 3 of 5 runs agree; `results/alloc-M.txt` |
+| W0.5-02 | 2026-09-25 17:07:36 JST | W0.5 S-C1 correctness | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.93 → 7.65 | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock test-M -count=1 -v -run '^(TestSystemOneDecodes\|TestRequestShape\|TestGetBodyReplay\|TestReadBody\|TestSystemOneCap)$' ./_spikes/s-c1/` | `ok`, 26 tests and subtests PASS | not a measurement; `results/test-M.txt` |
+| W0.5-03 | 2026-09-25 17:07:36 JST | W0.5 S-C1 under -race | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 7.65 → 7.65 | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock race-M -race -count=1 ./_spikes/s-c1/` | `ok` in 1.156s | not a measurement (alloc tests are `!race`); `results/race-M.txt` |
+| W0.5-04 | 2026-09-25 17:07:42 JST | W0.5 S-C1 ns/op | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 7.28 → 7.71 | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock MAXLOAD=16 sh $R '(M)' $O $SP/bench.lock bench-M -run '^$' -bench . -benchmem -count=5 ./_spikes/s-c1/` | q3: floor 296.4 ns, E_sonic 128.0 ns, call/sdk 4.647 µs, call/naive 8.968 µs; q20: floor 323.5 ns, call/sdk 23.28 µs, call/naive 39.78 µs (medians of 5); [W0.5 tables](#w05-tables) | load gate 16, waited 0; `results/bench-M.txt`, `results/benchstat-M.txt` |
+| W0.5-05 | 2026-09-25 08:07:50 UTC | W0.5 S-C1 allocations and AC-P5 memstats probe | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.00 → 0.00 | `sh $R '(L)' $O /tmp/ts-spike/bench.lock alloc-L -count=1 -run '^(TestAllocCall\|TestMemStatsCap)$' -v ./_spikes/s-c1/` | identical to W0.5-01 in every count | `results/alloc-L.txt` |
+| W0.5-06 | 2026-09-25 08:07:52 UTC | W0.5 S-C1 correctness | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.00 → 1.28 | `sh $R '(L)' $O /tmp/ts-spike/bench.lock test-L -count=1 -v -run '^(TestSystemOneDecodes\|TestRequestShape\|TestGetBodyReplay\|TestReadBody\|TestSystemOneCap)$' ./_spikes/s-c1/` | `ok`, 26 tests and subtests PASS | not a measurement; `results/test-L.txt` |
+| W0.5-07 | 2026-09-25 08:07:53 UTC | W0.5 S-C1 under -race | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 1.28 → 1.26 | `sh $R '(L)' $O /tmp/ts-spike/bench.lock race-L -race -count=1 ./_spikes/s-c1/` | `ok` in 1.433s | not a measurement; `results/race-L.txt` |
+| W0.5-08 | 2026-09-25 08:08:07 UTC | W0.5 S-C1 ns/op | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 1.16 → 0.98 | `MAXLOAD=44 sh $R '(L)' $O /tmp/ts-spike/bench.lock bench-L -run '^$' -bench . -benchmem -count=5 ./_spikes/s-c1/` | q3: floor 564.8 ns, E_sonic 93.51 ns, call/sdk 5.837 µs, call/naive 16.76 µs; q20: floor 601.7 ns, call/sdk 24.25 µs, call/naive 77.34 µs (medians of 5); [W0.5 tables](#w05-tables) | `results/bench-L.txt`, `results/benchstat-L.txt` |
 
 ## W0.4 transport spikes (S-T1 to S-T5b, F1)
 
@@ -1129,3 +1137,257 @@ Sources: `s-d1/results/gate-M.txt` = W0.3-16.
 | escaped-member-names.json | 32 | 223 | 7.0 | 6 | 13 | 15 |
 | structured-legend-flood-1k.json | 5026 | 29787 | 5.9 | 5 | 9 | 13 |
 | structured-legend-flood-10k.json | 50026 | 331287 | 6.6 | 5 | 10 | 13 |
+
+## W0.5: S-C1 (whole call) and the AC-P5 memory probe
+
+Spike code: `_spikes/s-c1/` (throwaway, outside `./...`; run it by path,
+`go test ./_spikes/s-c1/`). `call.go` is a prototype of the future
+`Client.SystemOne` built only from what exists: the body is encoded into a
+pooled `codec.Body` (plan 6.1.2, sonic's `encoder.EncodeInto` for the state);
+the request carries a `codec.BodyReader`, `GetBody`, `ContentLength`, the
+header template (plan 6.3) and a per-attempt `context.WithTimeout`; it goes
+through `testsupport.Recorder`; the body is read under the NF5 rules; the
+S-D1 winner a1 (`_spikes/s-d1`) decodes it into `wire.Answers`. Each stage is
+a method, so a test measures it alone. `naive.go` is the AC-P6 comparator:
+`encoding/json` Marshal of the same body, `http.NewRequestWithContext` over a
+`bytes.Reader`, `Header.Set` of the same seven headers, `io.ReadAll`,
+`encoding/json` Unmarshal into `map[string]any`, on the same Recorder, with
+the same per-attempt deadline, calling `RoundTrip` directly as the prototype
+does. `_spikes/` is outside the seam test, so the comparator may import
+`encoding/json` (the file says so).
+
+Rows W0.5-01 to W0.5-08. Commands use `R=_spikes/s-c1/run.sh`,
+`O=_spikes/s-c1/results`,
+`SP=/private/tmp/claude-501/-Users-zchee-go-src-github-com-zchee-typesafe-sdk-go/c8084031-5323-4873-8c36-a19f65c9e6ff/scratchpad`;
+on (L) the worktree was copied with the §11 tar pipe to
+`/tmp/ts-spike/src-w0.5/wt-w0.5` and run with `PATH=/tmp/ts-spike/go/bin:$PATH
+GOPATH=/tmp/ts-spike/gopath GOMODCACHE=/tmp/ts-spike/modcache
+GOCACHE=/tmp/ts-spike/gocache` and no `GOEXPERIMENT`. `run.sh` takes the
+shared lock with `flock(1)` for every run and writes the header (date, load
+from `uptime` and from the kernel: `sysctl -n vm.loadavg` on (M),
+`/proc/loadavg` on (L), the lock waits, the base, `go version`, ToolTags) and
+the footer (exit status, date, load) from the same shell. Base of every row:
+`7b55fe7` plus the `_spikes/s-c1` sources committed with these results
+(`cat _spikes/s-c1/*.go _spikes/s-c1/run.sh | shasum -a 256` starts
+`46a5e88ba297945d`, printed in each header). The branch was then rebased
+onto `cc1524a` (P0-fix-2), which changes none of the files these runs
+execute (`internal/testsupport/{recorder,alloc,fixtures}.go`, the non-test
+files of `internal/codec` and `internal/wire`, `_spikes/s-d1`,
+`testdata/result.json`, `testdata/result-20.json`); the rows were not
+repeated, and a `TestAllocCall` run on the rebased tree printed the same
+CALL, STAGE and ITEM lines.
+
+### How the numbers were taken
+
+- Allocations: `testsupport.Measure` deltas of `runtime.MemStats.Mallocs`
+  and `TotalAlloc`, the collector off and `GOMAXPROCS(1)`
+  (`testsupport.QuietRuntime`), five runs, and the minimum that at least
+  three runs share in both counters (`testsupport.StableMin`). Two calls of
+  each client warm the pools, the encoder and the decoder scratch first.
+- The state is a string of 1 022 bytes boxed in an `any` before the call
+  (its JSON is 1 024 bytes; NF1's B = 0). q3 is the three questions of the
+  upstream round-trip test (`pytest:test_clients.py:60-80`) answered by
+  `result.json` (364 B); q20 is the twenty questions `result-20.json`
+  answers (2 253 B), derived from the fixture as `testdata/README.md` says.
+- The floor (NF3) = `Recorder.RoundTrip` of a request built before the
+  measured section (the prototype's URL and header template over a
+  pre-encoded body, rewound between runs), its response drained into
+  `io.Discard` and closed, plus `E_sonic` (`encoder.EncodeInto` of the same
+  state into a warm buffer). This is the Rust port's `floor`
+  (`benches/sdk/call.rs:131`: "the transport called directly with a request
+  built beforehand"). SDK-own = call/sdk − floor.
+- The Recorder answers `testsupport.JSON(200, fixture)`: a `Content-Type`
+  header and a declared `Content-Length`. The AC-P5 replies carry no header,
+  which is why their successful calls count 20/2 488 instead of 23/2 904 (the
+  Recorder's clone of that one header is 3 mallocs, 416 B).
+- The stage split runs one call as six measured sections in `SystemOne`'s
+  order; the stages sum to the whole call exactly (asserted), and the request
+  stage's items sum to the stage (asserted).
+- Time: `go test -bench . -benchmem -count=5` with `for b.Loop()`, the
+  collector on; the tables show the median of five and half the min-to-max
+  spread; `benchstat` summaries are in `results/benchstat-{M,L}.txt` (five
+  samples print `± ∞`). With the collector on, a collection sometimes empties
+  the scratch pool, so the benchmarks' B/op run a little above the
+  collector-off counts; allocs/op round to the same numbers.
+- Load (R17): (M) runs started at a 1-minute load of 6.9–7.7 on 16 cores
+  (the timing row passed the load gate of 16 without waiting), (L) at
+  0.0–1.3 on 44. No row is noisy.
+
+### S-C1 findings
+
+1. **Every allocation count is identical on (M) and (L)**, for both shapes,
+   every stage and every AC-P5 case.
+2. **Whole call, q3** (the NF3 scenario): floor 8 (Recorder 7 + `E_sonic`
+   1), call/sdk 23, **SDK-own 15** (2 264 B); call/naive 119, naive-own 111.
+   SDK-own / naive-own = 0.135; total / naive = 0.193. **q20**: SDK-own 35
+   (9 504 B), naive-own 514; 0.068 and 0.082.
+3. **Where the 15 are** (stage, then item; the ITEM rows of
+   `results/alloc-*.txt`):
+
+   | stage | allocs/B | item | SDK-own | avoidable? |
+   | --- | --- | --- | --- | --- |
+   | encode | 1/16 | `codec.NewBody` from the warm pool 0, `EncodeInto` 1 (= `E_sonic`, in the floor), appends 0 (the 4 KiB scratch holds the 1 292 B q3 and 3 172 B q20 bodies) | 0 | – |
+   | request | 9/1 080 | `*codec.BodyReader` for `Request.Body`: 1/64 | 1 | yes (W1.2): embed the first reader in the pooled scratch; its `Close` already checks the generation |
+   | | | `GetBody` closure: 1/24 | 1 | no: a closure cached per scratch would open whatever generation the scratch holds when called, so a RoundTripper calling `GetBody` after the call returned would read a later call's bytes (PM4) |
+   | | | header map, `make(http.Header, 7)` + 7 inserts: 2/400 (the map and its one group) | 2 | yes (W2.3), when the call has no per-call header: one immutable map per attempt number, shared by every call; the `RoundTripper` contract forbids modifying the request |
+   | | | `context.WithTimeout`: 4/272 (timerCtx, the `time.AfterFunc` timer, its closure, the `CancelFunc` closure); the same 4/272 under a parent that cannot be canceled | 4 | not now: a custom attempt context with a pooled timer would cost its Done channel only, but the transport's goroutines keep the context; W2.3 may measure it |
+   | | | `*http.Request`: 1/320 (`WithContext`'s copy; the literal stays on the stack, `-gcflags=-m`) | 1 | no |
+   | round trip | 7/624 | the Recorder's own, equal to the floor's round trip | 0 | – |
+   | read | 1/384 | the body buffer, exactly `Content-Length` (364 B in its 384 B size class; q20: 2 253 → 2 304 B) | 1 | no: the response owns it (`RawBody`; answers alias it) |
+   | decode | 5/800 | `*Result`: 1/112 | 1 | yes, if `SystemOne` returns a value (API decision) |
+   | | | `DecodeInto`: 4/688 (entries 1, choice probabilities 1, score legend 1, score probabilities 1; R24's `result` = 4); q20: 24/6 008 | 4 | decode-side (AC-P2): one arena per slice type per response would make it 4 whatever the answer count (W2.0 candidate) |
+   | finish | 0/0 | `Put`, `Close`, `cancel()`, `Release` | 0 | – |
+
+4. **Over a real transport the call pays one more per attempt**: the
+   attempt context's Done channel is made by the first `Done()` call, which
+   the HTTP/2 client makes
+   (`GOROOT:net/http/internal/http2/transport.go:1129,1201,1250`) and the
+   Recorder never does (ITEM `Done` = 1/112).
+   NF3/AC-P6 are stated through the in-memory RoundTripper, so it is not in
+   N; the W5 loopback benchmarks will show it.
+5. **Time** ([tables](#w05-tables)): call/sdk is faster than call/naive on
+   both hosts: q3 4.647 µs vs 8.968 µs on (M) (0.52×) and 5.837 µs vs
+   16.76 µs on (L) (0.35×); q20 23.28 vs 39.78 µs (0.59×) and 24.25 vs
+   77.34 µs (0.31×). The decode is most of the call: S-D1 measured
+   `result.json` at 3.30 µs (M) / 3.09 µs (L) (W0.3-14, W0.3-13), so encode,
+   request, round trip and read together take about 1 µs (M) and 2.1 µs (L),
+   of which the floor is 0.42 µs and 0.66 µs.
+
+**Proposed provisional N (NF3 / AC-P6): 15**, the measured SDK-own count
+with no slack, for the NF3 scenario as S-C1 ran it: q3, a 1 KiB state boxed
+before the call, no per-call options, no enabled logger, one attempt,
+`testsupport.Recorder`. W2.3's target is 12 = 15 − 2 (shared header map) − 1
+(first reader in the scratch). That equals Rust's 12, but the two counts are
+composed differently: the Go floor includes `E_sonic` (Rust counts its encode
+block inside its 12), and Go pays 4 for `context.WithTimeout` and 1 for the
+`*http.Request` where Rust's pinned future pays nothing. Anything Phase 3 adds
+(retry loop, telemetry, redaction, `Stats`) is itemized against the table
+above before the end-of-Phase-3 freeze.
+
+### AC-P5 findings and proposed bounds
+
+Whole-call and read-stage `TotalAlloc` deltas, identical on both hosts; the
+plan's reading of NF5 is `plan-256K` (the first buffer of an undeclared body
+is also 256 KiB); full table under [W0.5 tables](#w05-tables).
+
+| case | outcome | call mallocs/B | read stage mallocs/B |
+| --- | --- | --- | --- |
+| (i) `Content-Length: 16 MiB`, 10 bytes sent | `io.ErrUnexpectedEOF` | 15/263 448 | 1/262 144 |
+| (ii) declared 16 MiB + 1 | `*TooLargeError`, nothing read | 15/1 328 | 1/24 (the error) |
+| (iii) undeclared 16 MiB + 1 | `*TooLargeError` after cap + 1 bytes | 22/33 293 616 | 8/33 292 312 |
+| (iv) declared 16 MiB exactly | accepted, 3 answers | 26/33 294 392 | 7/33 292 288 |
+
+- (iii) and (iv) allocate the doubling sequence 256 KiB … 16 MiB (7 buffers),
+  2 × cap − 256 KiB = 33 292 288 B, plus the rest of the call.
+- The read never allocates past the cap: a full buffer first reads one byte
+  into a pooled probe, so a body that ends exactly at the buffer's capacity
+  (every declared body, and a 16 MiB undeclared one) does not grow it, and
+  the byte after the cap refuses the body (`TestReadBody`,
+  `TestSystemOneCap`).
+
+**Proposed AC-P5 bounds**, per attempt (see the retry question below):
+
+| case | proposed bound | measured | plan |
+| --- | --- | --- | --- |
+| (i) | ≤ 256 KiB + 64 KiB = 327 680 B | 263 448 B | < 1 MiB |
+| (ii) | ≤ 64 KiB | 1 328 B | < 1 MiB |
+| (iii) | ≤ 2 × cap + 64 KiB = 33 619 968 B | 33 293 616 B | ≤ 2 × cap + 1 MiB |
+| (iv) (new) | ≤ 2 × cap + 64 KiB | 33 294 392 B | – |
+
+The 64 KiB margin is 26 to 49 × the call's own non-body bytes (2 488 B for
+a successful q3 call, 1 328 B on the refused path), room for Phase 3's error
+values and log records. It still catches the regressions that matter: in (i)
+and (ii) a first buffer of 512 KiB or any buffer sized by the declared
+length; in (iii) and (iv) any buffer beyond the doubling sequence (a
+shrink-to-fit copy, a growth factor below 2). The plan's looser bounds also
+hold.
+
+**A tighter initial buffer (64 KiB)** changes only (i): 66 840 B. (ii) is
+unchanged; (iii) and (iv) take two more growth steps (+2 mallocs,
++196 608 B, still ≤ 2 × cap + 64 KiB); a declared body between 64 KiB and
+256 KiB then grows once or twice instead of being read into one exact
+buffer. The cap-relative bounds do not change.
+
+**Finding: an undeclared small body pays the whole first buffer.** Under the
+plan's reading, a chunked `result.json` (364 B) costs 264 248 B per call,
+against 2 488 B when its length is declared. Proposal for NF5: the first
+buffer is min(`Content-Length`, 256 KiB) for a declared body and 4 KiB for an
+undeclared one (`split-256K-4K`): 6 200 B per small chunked call; an
+undeclared 16 MiB body then takes 13 buffers instead of 7 (+6 mallocs,
++258 048 B, still ≤ 2 × cap + 64 KiB). Whether the API declares
+`Content-Length` on its 2xx responses is not known here (no live traffic);
+W6.4's recording should note `resp.ContentLength`.
+
+**Kept: doubling for declared bodies.** Growing straight to a declared
+`Content-Length` once the first 256 KiB arrived would read an honest 16 MiB
+body with 16.25 MiB instead of 31.75 MiB, but a peer that sends 256 KiB could
+then force a 16 MiB allocation (64 × what it sent); doubling bounds that at
+2 ×.
+
+### Questions for W0.6
+
+- Retries and AC-P5: (i) is a 2xx whose body ends early; if the default
+  policy retries it as a connection error, one call pays the 256 KiB buffer
+  per attempt. Proposal: AC-P5's bounds are per attempt, and
+  `TestMemStatsCap` runs with `Retry(NoRetry())`.
+- The retry-count header: the prototype sends `X-TypeSafe-Retry-Count: 0` on
+  the first attempt, as the W0.5 brief asked; Python sends it only when
+  `attempts > 0` (`py:_core/transport.py:71-72`) and plan 1.1.3 says "on
+  retries". The count is the same either way (seven or six entries fit one
+  map group); W2.3 follows the plan unless ruled otherwise.
+- NF5's undeclared first buffer: 256 KiB (the plan's reading) or 4 KiB (the
+  proposal above).
+
+<a id="w05-tables"></a>
+
+### W0.5 tables
+
+#### S-C1 whole call (allocs/B, identical on (M) and (L); W0.5-01, W0.5-05)
+
+| shape | `E_sonic` | floor round trip | floor | call/sdk | SDK-own | call/naive | naive-own | SDK-own / naive-own | call/sdk / call/naive |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| q3 | 1/16 | 7/624 | 8/640 | 23/2 904 | 15/2 264 | 119/7 960 | 111/7 320 | 0.135 | 0.193 |
+| q20 | 1/16 | 7/624 | 8/640 | 43/10 144 | 35/9 504 | 522/30 872 | 514/30 232 | 0.068 | 0.082 |
+
+#### S-C1 by stage (allocs/B; W0.5-01, W0.5-05)
+
+| shape | encode (own) | request | round trip (own) | read | decode | finish | sum |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| q3 | 1/16 (0/0) | 9/1 080 | 7/624 (0/0) | 1/384 | 5/800 | 0/0 | 23/2 904 |
+| q20 | 1/16 (0/0) | 9/1 080 | 7/624 (0/0) | 1/2 304 | 25/6 120 | 0/0 | 43/10 144 |
+
+#### S-C1 items (allocs/B; W0.5-01, W0.5-05)
+
+| shape | `body.Open` | `GetBody` | header | `WithTimeout` | `Request` | `cancel()` | `*Result` | `DecodeInto` | `WithTimeout`, detached parent | attempt ctx `Done()` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| q3 | 1/64 | 1/24 | 2/400 | 4/272 | 1/320 | 0/0 | 1/112 | 4/688 | 4/272 | 1/112 |
+| q20 | 1/64 | 1/24 | 2/400 | 4/272 | 1/320 | 0/0 | 1/112 | 24/6 008 | 4/272 | 1/112 |
+
+#### S-C1 time (median of 5, ± half the min-to-max spread; W0.5-04, W0.5-08)
+
+| benchmark | (M) ns/op | (M) B/op | (L) ns/op | (L) B/op | allocs/op |
+| --- | --- | --- | --- | --- | --- |
+| `Call/q3/floor` | 296.4 ns (±6.1 %) | 621 | 564.8 ns (±0.6 %) | 623 | 7 |
+| `Call/q3/esonic` | 128.0 ns (±0.7 %) | 16 | 93.51 ns (±0.1 %) | 16 | 1 |
+| `Call/q3/sdk` | 4.647 µs (±1.7 %) | 3.198 KiB | 5.837 µs (±0.3 %) | 3.252 KiB | 23 |
+| `Call/q3/naive` | 8.968 µs (±4.0 %) | 7.807 KiB | 16.76 µs (±0.4 %) | 7.856 KiB | 119 |
+| `Call/q20/floor` | 323.5 ns (±4.5 %) | 621 | 601.7 ns (±0.5 %) | 624 | 7 |
+| `Call/q20/esonic` | 128.7 ns (±1.0 %) | 16 | 93.44 ns (±0.1 %) | 16 | 1 |
+| `Call/q20/sdk` | 23.28 µs (±9.0 %) | 11.11 KiB | 24.25 µs (±0.3 %) | 11.60 KiB | 43 |
+| `Call/q20/naive` | 39.78 µs (±2.1 %) | 30.34 KiB | 77.34 µs (±0.4 %) | 30.63 KiB | 522 |
+
+#### AC-P5 memstats, whole call and read stage (mallocs/B, identical on (M) and (L); W0.5-01, W0.5-05)
+
+`plan-256K`: first buffer min(`Content-Length`, 256 KiB), undeclared 256 KiB;
+`tight-64K`: 64 KiB for both; `split-256K-4K`: 256 KiB declared, 4 KiB
+undeclared. Replies without headers (see above).
+
+| case | outcome | plan-256K call | plan-256K read | tight-64K call | tight-64K read | split-256K-4K call | split-256K-4K read |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| (i) declared 16 MiB, 10 B sent | eof | 15/263 448 | 1/262 144 | 15/66 840 | 1/65 536 | 15/263 448 | 1/262 144 |
+| (ii) declared 16 MiB + 1 | too large | 15/1 328 | 1/24 | 15/1 328 | 1/24 | 15/1 328 | 1/24 |
+| (iii) undeclared 16 MiB + 1 | too large | 22/33 293 616 | 8/33 292 312 | 24/33 490 224 | 10/33 488 920 | 28/33 551 664 | 14/33 550 360 |
+| (iv) declared 16 MiB | ok | 26/33 294 392 | 7/33 292 288 | 28/33 491 000 | 9/33 488 896 | 26/33 294 392 | 7/33 292 288 |
+| (v) undeclared 16 MiB | ok | 26/33 294 392 | 7/33 292 288 | 28/33 491 000 | 9/33 488 896 | 32/33 552 440 | 13/33 550 336 |
+| (vi) declared `result.json` | ok | 20/2 488 | 1/384 | 20/2 488 | 1/384 | 20/2 488 | 1/384 |
+| (vii) undeclared `result.json` | ok | 20/264 248 | 1/262 144 | 20/67 640 | 1/65 536 | 20/6 200 | 1/4 096 |
