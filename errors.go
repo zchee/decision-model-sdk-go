@@ -45,10 +45,15 @@ type Error interface {
 }
 
 // ConfigError reports something the caller configured that the SDK cannot
-// use: a question set that [Questions.Prepare] rejects, for example. It is
-// returned before any request is sent, and retrying cannot fix it.
+// use: a [ClientOption] that fails when the client is built (a missing or
+// malformed API key, the base URL, the model, a timeout, a header name or
+// value, the User-Agent product), or a question set that [Questions.Prepare]
+// rejects. It is returned before any request is sent, and retrying cannot fix
+// it.
 //
-// Error returns the message, which names what is wrong. Unwrap returns the
+// Error returns the message, which names what is wrong without repeating a
+// credential: neither the API key nor the value of a header the caller set is
+// ever part of it. Unwrap returns the
 // errors it wraps, if any. A rejected question set wraps the failure behind
 // the message, such as the syntax error in JSON content; its type is
 // internal to the SDK, so only its text, which the message already carries,
@@ -376,9 +381,11 @@ type ConnectionError struct {
 
 // newConnectionError returns a *ConnectionError whose text is "Connection
 // error: " and text, escaped and cut. text is the transport error's text
-// with every credential already redacted; cause is the error to unwrap to,
-// nil when its own text held a credential. proxy marks a failure of the
-// proxy hop.
+// with every credential already replaced by "***", by the rules of
+// redact.go (a secret header's value, a value that holds the API key); cause
+// is the error to unwrap to, nil when its own text held a credential. proxy
+// marks a failure of the proxy hop. The transport classification (W2.5)
+// does the redaction; this only renders.
 func newConnectionError(text string, cause error, proxy bool) *ConnectionError {
 	return &ConnectionError{msg: "Connection error: " + safeMessage(text), err: cause, proxy: proxy}
 }
