@@ -40,10 +40,11 @@ func TestSDKIdentifier(t *testing.T) {
 
 // TestRuntimeHeaderValue pins the X-TypeSafe-Runtime format, go/<release>
 // (<goos>; <goarch>), for the three shapes runtime.Version takes: a release,
-// a release built with experiments (go1.27.1 on (M), darwin/arm64, without
-// the repository's GOEXPERIMENT reports "go1.27.1-X:simd,runtimesecret", and
-// "go1.27.1" with it; probe 2026-09-26 00:28:27 JST), and a development
-// toolchain, whose string has no "go" prefix.
+// a release built with experiments, whose "-X:" suffix is cut (ruling R63;
+// go1.27.1 on (M), darwin/arm64, without the repository's GOEXPERIMENT
+// reports "go1.27.1-X:simd,runtimesecret", and "go1.27.1" with it; probe
+// 2026-09-26 00:28:27 JST), and a development toolchain, whose string has
+// no "go" prefix and is kept whole.
 func TestRuntimeHeaderValue(t *testing.T) {
 	tests := map[string]struct {
 		version, goos, goarch string
@@ -57,9 +58,13 @@ func TestRuntimeHeaderValue(t *testing.T) {
 			version: "go1.28rc1", goos: "darwin", goarch: "arm64",
 			want: "go/1.28rc1 (darwin; arm64)",
 		},
-		"success: experiments are kept": {
+		"success: experiments are cut": {
 			version: "go1.27.1-X:simd,runtimesecret", goos: "darwin", goarch: "arm64",
-			want: "go/1.27.1-X:simd,runtimesecret (darwin; arm64)",
+			want: "go/1.27.1 (darwin; arm64)",
+		},
+		"success: one experiment is cut": {
+			version: "go1.27.1-X:nosimd", goos: "linux", goarch: "amd64",
+			want: "go/1.27.1 (linux; amd64)",
 		},
 		"success: devel string is kept whole": {
 			version: "devel go1.28-4c3b2a1 Tue Sep 22 10:00:00 2026 +0000", goos: "linux", goarch: "arm64",
@@ -78,8 +83,17 @@ func TestRuntimeHeaderValue(t *testing.T) {
 		})
 	}
 
-	// The value this process sends, derived from the running toolchain.
-	want := "go/" + strings.TrimPrefix(runtime.Version(), "go") + " (" + runtime.GOOS + "; " + runtime.GOARCH + ")"
+	// The value this process sends, derived from the running toolchain by
+	// the same rule: a release loses "go" and any "-X:" suffix, a devel
+	// string is kept whole.
+	release := runtime.Version()
+	if r, ok := strings.CutPrefix(release, "go"); ok {
+		release = r
+		if i := strings.Index(release, "-X:"); i >= 0 {
+			release = release[:i]
+		}
+	}
+	want := "go/" + release + " (" + runtime.GOOS + "; " + runtime.GOARCH + ")"
 	if runtimeIdentifier != want {
 		t.Errorf("runtimeIdentifier = %q, want %q (runtime.Version() = %q)", runtimeIdentifier, want, runtime.Version())
 	}

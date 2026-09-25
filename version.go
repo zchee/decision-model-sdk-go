@@ -24,8 +24,9 @@ import (
 const Version = "0.1.0-dev"
 
 // sdkIdentifier is what the SDK calls itself in User-Agent and
-// X-TypeSafe-SDK. typesafe-sdk-python sends typesafe-sdk/<version> in both
-// (py:_core/transport.py:123-124); this port names itself instead, so the API
+// X-TypeSafe-SDK, the same string in both, as typesafe-sdk-python sends
+// typesafe-sdk/<version> in both (py:_core/transport.py:123-124). This port
+// names itself instead (plan Appendix B, "SDK/runtime headers"), so the API
 // never mistakes it for the SDK it is a port of.
 const sdkIdentifier = "typesafe-sdk-go/" + Version
 
@@ -36,11 +37,17 @@ const sdkIdentifier = "typesafe-sdk-go/" + Version
 var runtimeIdentifier = runtimeHeaderValue(runtime.Version(), runtime.GOOS, runtime.GOARCH)
 
 // runtimeHeaderValue formats X-TypeSafe-Runtime as go/<release> (<goos>;
-// <goarch>), where release is version, a [runtime.Version] string, without
-// its leading "go": "go1.27.1" becomes "1.27.1", and a toolchain built with
-// experiments keeps their suffix ("1.27.1-X:simd"). A development toolchain's
-// "devel ..." string has no such prefix and is kept whole.
+// <goarch>), where release is the plain Go release in version, a
+// [runtime.Version] string, as typesafe-sdk-python sends the plain
+// platform.python_version(): "go1.27.1" becomes "1.27.1", and so does
+// "go1.27.1-X:simd,runtimesecret", a toolchain built with experiments, whose
+// suffix names build settings rather than a release (ruling R63). A
+// development toolchain's "devel ..." string has no "go" prefix and is kept
+// whole.
 func runtimeHeaderValue(version, goos, goarch string) string {
-	release, _ := strings.CutPrefix(version, "go")
+	release, ok := strings.CutPrefix(version, "go")
+	if ok {
+		release, _, _ = strings.Cut(release, "-X:")
+	}
 	return "go/" + release + " (" + goos + "; " + goarch + ")"
 }
