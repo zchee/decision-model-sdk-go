@@ -2032,11 +2032,11 @@ moves the numbers, is interning (plan 6.2.5): every string of the answers,
 and the model, is the request's own when it is equal to one, and a copy
 otherwise, all copies of one decode sharing one arena. So a result never
 aliases the body. Measured at 8686b40, the branch before its rebases onto
-b88758c (W2.1) and 7fd43ce (W2.2 Part A). On the branch as rebased onto
-7fd43ce the same commit is cb9110f, and the decoder's commits are 1cfef19,
-980b23e and a0f4df6. Neither W2.1's root files nor W2.2's h2gate and
-testsupport files are on the decode path, and the raw headers keep the
-measured SHA. Raw outputs are in
+b88758c (W2.1), 7fd43ce (W2.2 Part A) and 0394219 (W2.2's K29 test fix).
+On the branch as rebased onto 0394219 the same commit is 5daf169, and the
+decoder's commits are 9810a38, ba39cbc and 88b3458. Neither W2.1's root
+files nor W2.2's h2gate and testsupport files are on the decode path, and
+the raw headers keep the measured SHA. Raw outputs are in
 `_spikes/w2.0/results/`. The tables under [W2.0 tables](#w20-tables) were
 printed from those files by `_spikes/w2.0/render.py`, which checks that
 (M) and (L) agree and that every count is within its budget.
