@@ -210,8 +210,8 @@ func TestBodyDeviationsFromPython(t *testing.T) {
 	for c := range 0x20 {
 		ctl.WriteByte(byte(c))
 	}
-	text := ctl.String() + "\x7f<>&\"\\/é  \U0001F600"
-	const escapedTail = "\x7f<>&\\\"\\\\/é  \U0001F600"
+	text := ctl.String() + "\x7f<>&\"\\/é\u2028\u2029\U0001F600"
+	const escapedTail = "\x7f<>&\\\"\\\\/é\u2028\u2029\U0001F600"
 	floats := []any{
 		1e-5, 9.99e-6, 1e-4, 0.1, 1.5, 3.0, -7.0, 9999999999999998.0, 1e16, 1e20, 1e21, 1e22,
 		5e-324, 1.7976931348623157e308, math.Copysign(0, -1), 0.0, float64(1<<53 + 1), 12345678901234567168.0,

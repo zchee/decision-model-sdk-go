@@ -171,8 +171,8 @@ func TestEncodeState(t *testing.T) {
 			want:  " {\"a\" : [1, 2]} ",
 		},
 		"success: every non-ASCII character as is": {
-			state: "é  \U0001F600<>&",
-			want:  "\"é  \U0001F600<>&\"",
+			state: "é\u2028\u2029\U0001F600<>&",
+			want:  "\"é\u2028\u2029\U0001F600<>&\"",
 		},
 
 		"error: nil":                      {state: nil, err: errShape, wantText: "nil encodes as null, not a string"},
