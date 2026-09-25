@@ -92,9 +92,10 @@
 // 52-61), which a panic leaves locked, and GotConn after ReserveNewRequest,
 // whose reservation only cc.RoundTrip releases
 // (internal/http2/transport.go:423-425), so a panic there leaks a stream
-// slot. No wrapper repairs either; the root package's WithClientTrace
-// wraps every caller hook, recovers inside it and panics again on the
-// calling goroutine once RoundTrip has returned.
+// slot. No wrapper repairs either; the root package wraps every caller hook,
+// from its WithClientTrace option and from a trace on the call's context
+// (K28c), recovers inside it and panics again on the calling goroutine once
+// RoundTrip has returned.
 //
 // # Goroutines
 //

@@ -171,12 +171,16 @@ func WithRoundTripper(rt http.RoundTripper) ClientOption {
 
 // WithClientTrace sets the net/http/httptrace hooks every request of the
 // client reports to; nil removes them. The hooks are copied when the option
-// is applied and run after the SDK's own. A hook that panics does not
-// unwind through net/http, which calls some hooks with its own locks held
-// or a stream reserved: the panic is recovered inside the hook and raised
-// again, with the same value, from the call that made the request once
-// net/http has returned (any response body is closed first). A hook that
-// panics after the call has returned is recovered and logged at WARN.
+// is applied and run after the SDK's own, and before those of a trace the
+// call's context carries (httptrace.WithClientTrace).
+//
+// A hook that panics, whether given here or carried by the call's context,
+// does not unwind through net/http, which calls some hooks with its own
+// locks held or a stream reserved: the panic is recovered inside the hook
+// and raised again, with the same value, from the call that made the
+// request once net/http has returned (any response body is closed first). A
+// hook that panics after the call has returned is recovered and logged at
+// WARN.
 func WithClientTrace(trace *httptrace.ClientTrace) ClientOption {
 	return func(o *options) {
 		if trace == nil {
@@ -335,9 +339,12 @@ func buildError(err error) *ConfigError {
 // R67 Q3); any other error is returned as the transport gave it.
 func (t *transport) roundTrip(req *http.Request, timeout time.Duration) (*http.Response, error) {
 	var sh *shield
-	if t.trace != nil {
-		sh = newShield(t.trace, t.logger)
-		req = req.WithContext(httptrace.WithClientTrace(req.Context(), &sh.trace))
+	if trace := t.callerTrace(req.Context()); trace != nil {
+		// net/http composes every trace on the context into the one it calls,
+		// so the context net/http sees carries the shielded trace alone
+		// (K28c).
+		sh = newShield(trace, t.logger)
+		req = req.WithContext(httptrace.WithClientTrace(untracedContext{req.Context()}, &sh.trace))
 	}
 	resp, err := t.rt.RoundTrip(req)
 	if sh != nil {
@@ -350,6 +357,48 @@ func (t *transport) roundTrip(req *http.Request, timeout time.Duration) (*http.R
 		return nil, err
 	}
 	return resp, nil
+}
+
+// callerTrace returns the caller's hooks that reach a request with context
+// ctx: WithClientTrace's, then those of a trace on ctx, composed as
+// httptrace composes them, or nil when there are none. It never changes
+// t.trace or ctx's trace.
+func (t *transport) callerTrace(ctx context.Context) *httptrace.ClientTrace {
+	onCtx := httptrace.ContextClientTrace(ctx)
+	switch {
+	case onCtx == nil:
+		return t.trace
+	case t.trace == nil:
+		return onCtx
+	}
+	// WithClientTrace composes the trace it is given with the one already on
+	// the context, in place; composing into a copy of the option's trace
+	// leaves both originals as they were.
+	merged := *t.trace
+	httptrace.WithClientTrace(httptrace.WithClientTrace(context.Background(), onCtx), &merged)
+	return &merged
+}
+
+// untracedContext is a request context without its httptrace values: net/http
+// finds neither the caller's trace nor the net-level hooks httptrace derived
+// from it, and composes only the shielded trace roundTrip installs above it.
+// Deadline, cancellation, cause and every other value are the wrapped
+// context's; context.WithCancel on it still finds the wrapped context's
+// cancellation through Value, so it starts no goroutine.
+type untracedContext struct{ context.Context }
+
+// traceKeys answers, with a non-nil value, for exactly the context keys
+// httptrace.WithClientTrace sets: its client-event key and, for a trace
+// with a net-level hook, the key of the net package's hooks.
+var traceKeys = httptrace.WithClientTrace(context.Background(), &httptrace.ClientTrace{ConnectStart: func(string, string) {}})
+
+// Value returns nil for httptrace's keys and the wrapped context's value for
+// every other key.
+func (c untracedContext) Value(key any) any {
+	if traceKeys.Value(key) != nil {
+		return nil
+	}
+	return c.Context.Value(key)
 }
 
 // close releases the transport, once: the SDK's transport and a caller's

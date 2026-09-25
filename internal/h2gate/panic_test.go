@@ -88,7 +88,8 @@ func TestPanicUnwind(t *testing.T) {
 	// each panic there leaks one stream slot, so with a server limit of 2,
 	// two recovered panics leave the client at the limit although the token
 	// is free. No wrapper around *http.Transport repairs either, and the
-	// root package's WithClientTrace shields every caller hook instead. This
+	// root package shields every caller hook instead, the WithClientTrace
+	// option's and those on the call's context (K28c). This
 	// test pins what h2gate owns, the token and the gate, so its warm case
 	// panics in GotConn once, on a server without a limit.
 	t.Run("success: a panicking hook on a warm transport leaves the token free", func(t *testing.T) {
