@@ -2554,18 +2554,25 @@ architecture-dependent `-0.0` cannot arise on this path (no sonic encoder
 runs, and the decoder reads `-0` as 0, R73 NIT 4). Reading a payload back
 is the production decoder with no question set. The numbers are
 informational: no frozen budget covers them; `TestAllocResponseJSON` pins
-the allocation counts so a change shows in CI. Measured at eaedbdd; raw
-outputs are in `_spikes/w2.4/results/` (with the gate logs of both hosts,
-`gate-M.txt` and `gate-L.txt`). Commands use
+the allocation counts so a change shows in CI. Measured at eaedbdd (rows
+W2.4-01 and -02) and again at 4a11b48, after the review's fix pass (rows
+W2.4-03 and -04), with the same counts and bytes on both hosts. 4a11b48 is
+the last commit of the branch that changes code or tests: the commits
+between eaedbdd and 4a11b48 change comments, tests and documents only, and
+every later commit changes documents only. Raw outputs are in
+`_spikes/w2.4/results/`: `alloc-{M,L}.txt` and `gate-{M,L}.txt` at
+4a11b48, the same files with `-eaedbdd` for the first measurement, and
+`verify-commits-M.txt`, which builds, vets, formats and tests every commit
+of the branch alone. Commands use
 `R=_spikes/s-c1/run.sh` (W0.5's runner), `O=_spikes/w2.4/results`,
 `SP=/private/tmp/claude-501/-Users-zchee-go-src-github-com-zchee-typesafe-sdk-go/c8084031-5323-4873-8c36-a19f65c9e6ff/scratchpad`
-and `BASE=eaedbdd`.
+and `BASE=4a11b48` (`eaedbdd` for rows W2.4-01 and -02).
 
 ### How the numbers were taken
 
 - (M): `go1.27.1 darwin/arm64`, `GOEXPERIMENT=nosimd,noruntimesecret`,
   under `/opt/homebrew/opt/util-linux/bin/flock` on `$SP/bench.lock`.
-- (L): the tree at eaedbdd written by `git archive eaedbdd` and piped
+- (L): the tree at `$BASE` written by `git archive $BASE` and piped
   over ssh to `/tmp/ts-spike/w2.4-meas/wt-w2.4`; toolchain
   `/tmp/ts-spike/go/bin/go` with the §11 `GOPATH`, `GOMODCACHE` and
   `GOCACHE` under `/tmp/ts-spike` and no `GOEXPERIMENT`, under
@@ -2581,9 +2588,12 @@ and `BASE=eaedbdd`.
 - Parity: `_spikes/w2.4/python_dump.py` run with the upstream checkout's
   own `.venv` (typesafe-sdk-python 0.7.1 at 0ffd094, Python 3.14.6,
   pydantic-core 2.46.5), output `results/python-dump.txt`, probed
-  2026-09-26 04:54:53 JST (time from `date`); `TestResponseJSONFixtures`
-  and `TestAnswerJSONShapes` compare against it.
-- Load (R17): (M) 4.08 → 4.08 on 16 cores; (L) 0.11 → 0.11 on 44.
+  2026-09-26 05:30:45 JST (time from `date`; the first run, at 04:54:53
+  JST, lacked the two bodies of `TestResponseJSONDeviations` and matched
+  on every other line); `TestResponseJSONFixtures`, `TestAnswerJSONShapes`
+  and `TestResponseJSONDeviations` compare against it.
+- Load (R17): (M) 4.08 → 4.08 (eaedbdd) and 8.79 → 8.79 (4a11b48) on 16
+  cores; (L) 0.11 → 0.11 and 1.01 → 1.01 on 44.
 
 ### W2.4 findings
 
@@ -2607,6 +2617,13 @@ and `BASE=eaedbdd`.
    escape inside a structured legend level, which Go keeps as received
    (`summ\u0061ry` where Python writes `summary`; R73). The four answer
    shapes of R12, R14 and R11, `Usage` and `ModelMetadata` match too.
+   Two classes besides escapes differ, and `TestResponseJSONDeviations`
+   pins each with Python's bytes beside Go's: a known float member that
+   arrived as `-0.0` is written `0.0`, where Python writes `-0.0` (the
+   decoder reads every zero as 0, R73 NIT 4), and a member name repeated
+   inside a structured level stays as received, where Python keeps the
+   last (`{"a":1,"b":2,"a":3}` against `{"a":3,"b":2}`; R73). No fixture
+   holds either.
    Python refuses `deviation-lone-surrogate.json`, which Go reads and
    writes back; Go refuses the three other `deviation-*` bodies. All 15
    bodies Go accepts read back to equal values and write the same bytes
@@ -2614,5 +2631,7 @@ and `BASE=eaedbdd`.
 
 | # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| W2.4-01 | 2026-09-26 05:00:02 JST | W2.4 payload allocations | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 4.08 → 4.08 | `BASE=$BASE GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock alloc-M -count=1 -run '^TestAllocResponseJSON$' -v .` | marshal 1/704 B (result), 1/4864 B (result-20), 1/98304 B (flood-1k), 1/96 B (models); unmarshal 5/752 B, 25/6520 B, 91/213896 B, 2/80 B | mallocs/bytes, collector off, `GOMAXPROCS(1)`, 3 of 5 runs agree; `results/alloc-M.txt` |
-| W2.4-02 | 2026-09-25 19:59:59 UTC | W2.4 payload allocations | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.11 → 0.11 | `BASE=$BASE sh $R '(L)' $O /tmp/ts-spike/bench.lock alloc-L -count=1 -run '^TestAllocResponseJSON$' -v .` | identical to W2.4-01 in every count | `results/alloc-L.txt` |
+| W2.4-01 | 2026-09-26 05:00:02 JST | W2.4 payload allocations | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 4.08 → 4.08 | `BASE=$BASE GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock alloc-M -count=1 -run '^TestAllocResponseJSON$' -v .` | marshal 1/704 B (result), 1/4864 B (result-20), 1/98304 B (flood-1k), 1/96 B (models); unmarshal 5/752 B, 25/6520 B, 91/213896 B, 2/80 B | mallocs/bytes, collector off, `GOMAXPROCS(1)`, 3 of 5 runs agree; `results/alloc-M-eaedbdd.txt` (written as `alloc-M.txt`, renamed when W2.4-03 took the name) |
+| W2.4-02 | 2026-09-25 19:59:59 UTC | W2.4 payload allocations | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.11 → 0.11 | `BASE=$BASE sh $R '(L)' $O /tmp/ts-spike/bench.lock alloc-L -count=1 -run '^TestAllocResponseJSON$' -v .` | identical to W2.4-01 in every count | `results/alloc-L-eaedbdd.txt` (written as `alloc-L.txt`, renamed when W2.4-04 took the name) |
+| W2.4-03 | 2026-09-26 05:34:41 JST | W2.4 payload allocations, after the review fix pass | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 8.79 → 8.79 | `BASE=$BASE GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock alloc-M -count=1 -run '^TestAllocResponseJSON$' -v .` | identical to W2.4-01 in every count and byte | at 4a11b48; `results/alloc-M.txt` |
+| W2.4-04 | 2026-09-25 20:34:36 UTC | W2.4 payload allocations, after the review fix pass | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 1.01 → 1.01 | `BASE=$BASE sh $R '(L)' $O /tmp/ts-spike/bench.lock alloc-L -count=1 -run '^TestAllocResponseJSON$' -v .` | identical to W2.4-01 in every count and byte | at 4a11b48; `results/alloc-L.txt` |
