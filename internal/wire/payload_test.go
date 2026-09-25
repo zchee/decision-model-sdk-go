@@ -312,7 +312,8 @@ func TestAppendUsage(t *testing.T) {
 }
 
 // TestPayloadErrors covers values the decoder never produces: every failure
-// names its cause and leaves dst as it was.
+// names its cause and leaves dst as it was, through the outer appenders and
+// through each per-kind one, whose own dst is returned to the caller.
 func TestPayloadErrors(t *testing.T) {
 	const bad = "bad \xff"
 	noul := func(f float64) Answer { return Answer{Kind: KindNoul, Noul: NoulAnswer{Noul: f}} }
@@ -400,6 +401,30 @@ func TestPayloadErrors(t *testing.T) {
 				return AppendModelCard(dst, &ModelCard{Name: "a", Description: "b", ReleaseDate: bad})
 			},
 			wantErr: ErrInvalidUTF8,
+		},
+		"error: AppendNoulAnswer with a NaN noul": {
+			write: func(dst []byte) ([]byte, error) {
+				return AppendNoulAnswer(dst, &NoulAnswer{Noul: math.NaN()})
+			},
+			wantErr: ErrUnsupportedValue,
+		},
+		"error: AppendChoiceAnswer with invalid UTF-8 in a label after a valid one": {
+			write: func(dst []byte) ([]byte, error) {
+				return AppendChoiceAnswer(dst, &ChoiceAnswer{Choice: "a", Probabilities: []LabelProbability{{"a", 0.5}, {bad, 0.5}}})
+			},
+			wantErr: ErrInvalidUTF8,
+		},
+		"error: AppendScoreAnswer with an empty structured level after a text one": {
+			write: func(dst []byte) ([]byte, error) {
+				return AppendScoreAnswer(dst, &ScoreAnswer{Legend: []LegendEntry{{0, Content{Text: "x"}}, {1, Content{JSON: []byte{}}}}})
+			},
+			wantErr: ErrContentShape,
+		},
+		"error: AppendAnswer with an infinite score probability": {
+			write: func(dst []byte) ([]byte, error) {
+				return AppendAnswer(dst, &Answer{Kind: KindScore, Score: ScoreAnswer{Probabilities: []LevelProbability{{0, 0.5}, {1, math.Inf(1)}}}})
+			},
+			wantErr: ErrUnsupportedValue,
 		},
 		"error: invalid UTF-8 in a name of AppendAnswers": {
 			write: func(dst []byte) ([]byte, error) {

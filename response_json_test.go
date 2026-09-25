@@ -30,7 +30,7 @@ import (
 // The byte strings attributed to Python below are the output of
 // _spikes/w2.4/python_dump.py (typesafe-sdk-python 0.7.1 at 0ffd094, its own
 // .venv, pydantic-core 2.46.5), committed in
-// _spikes/w2.4/results/python-dump.txt, probed 2026-09-26 04:54:53 JST (time
+// _spikes/w2.4/results/python-dump.txt, probed 2026-09-26 05:30:45 JST (time
 // from date).
 
 // marshaler and unmarshaler are encoding/json's Marshaler and Unmarshaler,
@@ -292,9 +292,22 @@ func TestResponseJSONFixtures(t *testing.T) {
 		t.Fatalf("fixtures without a row, or rows without a fixture (-rows +fixtures):\n%s", diff)
 	}
 
-	accepted := 0
+	// 18 fixtures: 15 read back, 3 refused by Go (Appendix B). The total is
+	// counted from the table, so a -run filter that selects some of the rows
+	// does not fail it; the rows that ran are held to it only when all ran.
+	wantAccepted := 0
+	for _, tt := range tests {
+		if tt.goRefuses == "" {
+			wantAccepted++
+		}
+	}
+	if wantAccepted != 15 {
+		t.Errorf("the table expects %d fixtures to round-trip, want 15", wantAccepted)
+	}
+	accepted, ran := 0, 0
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
+			ran++
 			body := testsupport.Fixture(t, name)
 			want := tt.python
 			switch {
@@ -362,9 +375,69 @@ func TestResponseJSONFixtures(t *testing.T) {
 			accepted++
 		})
 	}
-	// 18 fixtures: 15 read back, 3 refused by Go (Appendix B).
-	if accepted != 15 {
-		t.Errorf("%d fixtures round-tripped, want 15", accepted)
+	if ran == len(tests) && accepted != wantAccepted {
+		t.Errorf("%d fixtures round-tripped, want %d", accepted, wantAccepted)
+	}
+}
+
+// TestResponseJSONDeviations pins the two classes, besides a structured
+// level's escapes, where the payload differs from Python's model_dump_json
+// (review W2.4 MINOR 2), each with Python's bytes beside Go's: a known
+// float member that arrived as -0.0 is written 0.0, since the decoder reads
+// every zero as 0 (R73 NIT 4, a W7 row), where Python writes -0.0; and a
+// member name repeated inside a structured level stays as received (R73),
+// where Python keeps the last. Both payloads read back to a fixed point.
+func TestResponseJSONDeviations(t *testing.T) {
+	const prefix = `{"model":"m","usage":{"input_tokens":1,"output_tokens":1},"answers":{`
+	tests := map[string]struct {
+		body   string
+		want   string // Go's payload
+		python string // Python's payload
+		// fromPython turns Python's payload into Go's, stating the whole
+		// difference.
+		fromPython *strings.Replacer
+	}{
+		"negative zero in every known float member": {
+			body: prefix + `"n":{"type":"noul","noul":-0.0},` +
+				`"c":{"type":"choice","choice":"a","confidence":-0.0,"probabilities":{"a":-0.0}},` +
+				`"s":{"type":"score","score":-0.0,"confidence":-0.0,"legend":{"0":"x"},"probabilities":{"0":-0.0}}}}`,
+			want: prefix + `"n":{"type":"noul","noul":0.0},` +
+				`"c":{"type":"choice","choice":"a","confidence":0.0,"probabilities":{"a":0.0}},` +
+				`"s":{"type":"score","score":0.0,"confidence":0.0,"legend":{"0":"x"},"probabilities":{"0":0.0}}}}`,
+			python:     `{"model":"m","usage":{"input_tokens":1,"output_tokens":1},"answers":{"n":{"type":"noul","noul":-0.0},"c":{"type":"choice","choice":"a","confidence":-0.0,"probabilities":{"a":-0.0}},"s":{"type":"score","score":-0.0,"confidence":-0.0,"legend":{"0":"x"},"probabilities":{"0":-0.0}}}}`,
+			fromPython: strings.NewReplacer(`-0.0`, `0.0`),
+		},
+		"a member name repeated inside a structured level": {
+			body:       prefix + `"s":{"type":"score","score":0.5,"confidence":1,"legend":{"0":{"a":1,"b":2,"a":3}},"probabilities":{"0":1}}}}`,
+			want:       prefix + `"s":{"type":"score","score":0.5,"confidence":1.0,"legend":{"0":{"a":1,"b":2,"a":3}},"probabilities":{"0":1.0}}}}`,
+			python:     `{"model":"m","usage":{"input_tokens":1,"output_tokens":1},"answers":{"s":{"type":"score","score":0.5,"confidence":1.0,"legend":{"0":{"a":3,"b":2}},"probabilities":{"0":1.0}}}}`,
+			fromPython: strings.NewReplacer(`{"a":3,"b":2}`, `{"a":1,"b":2,"a":3}`),
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			var first SystemOneResponse
+			if err := first.UnmarshalJSON([]byte(tt.body)); err != nil {
+				t.Fatalf("UnmarshalJSON: %v", err)
+			}
+			payload := marshal(t, first)
+			if diff := gocmp.Diff(tt.want, payload); diff != "" {
+				t.Errorf("payload (-want +got):\n%s", diff)
+			}
+			if tt.python == tt.want {
+				t.Fatal("Python's payload equals Go's; the row pins no difference")
+			}
+			if diff := gocmp.Diff(tt.want, tt.fromPython.Replace(tt.python)); diff != "" {
+				t.Errorf("Python's payload differs from Go's by more than the stated class (-go +python rewritten):\n%s", diff)
+			}
+			var second SystemOneResponse
+			if err := second.UnmarshalJSON([]byte(payload)); err != nil {
+				t.Fatalf("UnmarshalJSON(payload): %v", err)
+			}
+			if again := marshal(t, second); again != payload {
+				t.Errorf("second payload differs from the first:\n%s\n%s", again, payload)
+			}
+		})
 	}
 }
 
@@ -460,9 +533,11 @@ func TestAnswerJSONShapes(t *testing.T) {
 // TestResponseUnmarshalJSON pins what UnmarshalJSON does beyond the round
 // trip: a payload the decoder refuses fails with a *ResponseValidationError
 // that names the field and nothing of an HTTP response, and leaves the
-// response as it was; null changes nothing; an answer of an unknown type is
-// left out; the result keeps no reference to the payload; and a response
-// from the client loses its Meta when it reads a payload.
+// response as it was, its Meta included; null changes nothing; an answer of
+// an unknown type is left out; the result keeps no reference to the
+// payload; a response from the client, of either kind, loses its Meta when
+// it reads a payload; and the call replaces the response in place, so a
+// view taken before it shows the new content while a copy keeps the old.
 func TestResponseUnmarshalJSON(t *testing.T) {
 	result := testsupport.Fixture(t, "result.json")
 	models := testsupport.Fixture(t, "models.json")
@@ -616,14 +691,94 @@ func TestResponseUnmarshalJSON(t *testing.T) {
 			t.Errorf("Answers().Len() = %d, want 0", resp.Answers().Len())
 		}
 	})
+
+	t.Run("success: a models response from the client loses its Meta", func(t *testing.T) {
+		c := newTestClient(t, replying(http.StatusOK, models, "X-Typesafe-Request-Id", "req-2"))
+		resp, err := c.Models().List(t.Context())
+		if err != nil {
+			t.Fatalf("List: %v", err)
+		}
+		if err := resp.UnmarshalJSON([]byte(`{"models":[]}`)); err != nil {
+			t.Fatal(err)
+		}
+		if diff := gocmp.Diff(emptyMeta, metaOf(resp.Meta())); diff != "" {
+			t.Errorf("Meta (-want +got):\n%s", diff)
+		}
+		if n := len(resp.Models()); n != 0 {
+			t.Errorf("len(Models()) = %d, want 0", n)
+		}
+	})
+
+	t.Run("success: a refused payload leaves a client response's Meta", func(t *testing.T) {
+		c := newTestClient(t, &testsupport.Recorder{Replies: []testsupport.Reply{
+			testsupport.JSON(http.StatusOK, result),
+			testsupport.JSON(http.StatusOK, models),
+		}})
+		resp, err := c.SystemOne(t.Context(), "text", noulQuestion(t))
+		if err != nil {
+			t.Fatalf("SystemOne: %v", err)
+		}
+		list, err := c.Models().List(t.Context())
+		if err != nil {
+			t.Fatalf("List: %v", err)
+		}
+		respMeta, listMeta := metaOf(resp.Meta()), metaOf(list.Meta())
+		if respMeta.Status != http.StatusOK || listMeta.Status != http.StatusOK {
+			t.Fatalf("statuses %d and %d, want 200", respMeta.Status, listMeta.Status)
+		}
+		paths := []string{
+			validationError(t, resp.UnmarshalJSON([]byte(`{"model":"m"}`))).FieldPath,
+			validationError(t, list.UnmarshalJSON([]byte(`{"models":[{}]}`))).FieldPath,
+		}
+		if diff := gocmp.Diff([]string{"usage", "models[0].name"}, paths); diff != "" {
+			t.Errorf("field paths of the refused payloads (-want +got):\n%s", diff)
+		}
+		if diff := gocmp.Diff(respMeta, metaOf(resp.Meta())); diff != "" {
+			t.Errorf("SystemOneResponse Meta after a refused payload (-want +got):\n%s", diff)
+		}
+		if diff := gocmp.Diff(listMeta, metaOf(list.Meta())); diff != "" {
+			t.Errorf("ModelsResponse Meta after a refused payload (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("success: the call replaces the response in place", func(t *testing.T) {
+		var r SystemOneResponse
+		if err := r.UnmarshalJSON(result); err != nil {
+			t.Fatal(err)
+		}
+		view, before := r.Answers(), r
+		if view.Len() != 3 {
+			t.Fatalf("view.Len() = %d, want 3", view.Len())
+		}
+		if err := r.UnmarshalJSON(testsupport.Fixture(t, "no-answers.json")); err != nil {
+			t.Fatal(err)
+		}
+		got := []any{view.Len(), before.Answers().Len(), marshal(t, before)}
+		if diff := gocmp.Diff([]any{0, 3, string(result)}, got); diff != "" {
+			t.Errorf("earlier view's Len, copy's Len, copy's payload (-want +got):\n%s", diff)
+		}
+
+		var m ModelsResponse
+		if err := m.UnmarshalJSON(models); err != nil {
+			t.Fatal(err)
+		}
+		cards, mBefore := m.Models(), m
+		if err := m.UnmarshalJSON([]byte(`{"models":[]}`)); err != nil {
+			t.Fatal(err)
+		}
+		gotModels := []any{len(cards), len(m.Models()), marshal(t, mBefore)}
+		if diff := gocmp.Diff([]any{1, 0, string(models)}, gotModels); diff != "" {
+			t.Errorf("earlier Models slice, new Models, copy's payload (-want +got):\n%s", diff)
+		}
+	})
 }
 
 // TestStdlibJSON checks the responses through a caller's encoding/json
 // (ruling R80): json.Marshal of a response by value and by pointer, and as
 // a struct field of either kind, gives the MarshalJSON bytes, as it does for
-// every other type that marshals, except that encoding/json escapes <, >
-// and & in any MarshalJSON output (its HTML escaping), where MarshalJSON
-// and the Python SDK write them as they are; json.Unmarshal reaches
+// every other type that marshals, except that encoding/json escapes <, >,
+// &, U+2028 and U+2029 in any MarshalJSON output, where MarshalJSON and the
+// Python SDK write them as they are; json.Unmarshal reaches
 // UnmarshalJSON, and null leaves a field as it was. ResponseMeta is HTTP
 // metadata with no payload of its own, and marshals as an empty object.
 func TestStdlibJSON(t *testing.T) {
@@ -709,8 +864,8 @@ func TestStdlibJSON(t *testing.T) {
 		}
 	})
 
-	t.Run("success: json.Marshal escapes HTML characters that MarshalJSON keeps", func(t *testing.T) {
-		const payload = `{"model":"a<b>&c","usage":{"input_tokens":1,"output_tokens":1},"answers":{}}`
+	t.Run("success: json.Marshal escapes <, >, &, U+2028 and U+2029, which MarshalJSON keeps", func(t *testing.T) {
+		const payload = `{"model":"a<b>&c` + "\u2028d\u2029e" + `","usage":{"input_tokens":1,"output_tokens":1},"answers":{}}`
 		var r SystemOneResponse
 		if err := r.UnmarshalJSON([]byte(payload)); err != nil {
 			t.Fatal(err)
@@ -722,7 +877,7 @@ func TestStdlibJSON(t *testing.T) {
 		if err != nil {
 			t.Fatalf("json.Marshal: %v", err)
 		}
-		want := strings.NewReplacer("<", `\u003c`, ">", `\u003e`, "&", `\u0026`).Replace(payload)
+		want := strings.NewReplacer("<", `\u003c`, ">", `\u003e`, "&", `\u0026`, "\u2028", `\u2028`, "\u2029", `\u2029`).Replace(payload)
 		if diff := gocmp.Diff(want, string(got)); diff != "" {
 			t.Errorf("json.Marshal (-want +got):\n%s", diff)
 		}
