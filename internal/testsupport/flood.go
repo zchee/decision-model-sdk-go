@@ -80,3 +80,30 @@ func StructuredLegendFlood(levels int) []byte {
 	b = append(b, `}}}}`...)
 	return b
 }
+
+// UnknownAnswerFlood returns a System One response body of at least size
+// bytes and the number of answers it holds: after a model and a usage, only
+// answers of the type "x", which no version of the SDK models, each named
+// "a" and its index and holding nothing but its type:
+//
+//	{"model":"m","usage":{"input_tokens":1,"output_tokens":1},"answers":{"a0":{"type":"x"},"a1":{"type":"x"},…}}
+//
+// It is the hostile body of review W6.2 MAJ-1: a decode keeps one answer
+// entry for each of about 20 bytes of it, so its scratch outgrows the body
+// many times over. The body is compact, deterministic and decodes without a
+// failure, every answer skipped.
+func UnknownAnswerFlood(size int) (body []byte, answers int) {
+	b := make([]byte, 0, size+64)
+	b = append(b, `{"model":"m","usage":{"input_tokens":1,"output_tokens":1},"answers":{`...)
+	for len(b) < size || answers == 0 {
+		if answers > 0 {
+			b = append(b, ',')
+		}
+		b = append(b, `"a`...)
+		b = strconv.AppendInt(b, int64(answers), 10)
+		b = append(b, `":{"type":"x"}`...)
+		answers++
+	}
+	b = append(b, `}}`...)
+	return b, answers
+}

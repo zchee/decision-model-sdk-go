@@ -5911,3 +5911,28 @@ exception. Documentation only.
 | # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | W6-fixes-22 | 2026-09-27 05:12:23 JST | W6-fixes 6: the `go doc` diff | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | `diff <(go doc -all <pkg> at the parent) <(go doc -all <pkg> here)` for `.` and `./internal/h2gate` | root: the preamble's line, the new GetConn bullet and the closing sentence; `internal/h2gate`: the new bullet; nothing else | `results/c6-godoc-M.txt` |
+## W6-secfix: the security review's production fixes (MAJ-1, MIN-1, MIN-2, MIN-4)
+
+W6-secfix lands the production fixes the W6.2 security review routed to it
+(`.omc/handoffs/w6.2-security.md`; rulings V72): the decoder pool's ceiling
+and AC-P5's structured-flood case (MAJ-1), the zeroed slack sonic's
+`advance_dword` needs on inputs shorter than 4 bytes (MIN-1), the pin on
+`trailing`'s end-past-input guard (MIN-2) and the proxy credential scrub
+(MIN-4), one commit each. Raw outputs are in `_spikes/w6-secfix/results/`;
+`_spikes/w6-secfix/maj1.sh GO TREE BEFORE AFTER` runs MAJ-1's series on one
+host: the new pins three times each, then the review's probes
+(`TestW62PoolPinnedUnderTraffic`, `TestW62FloodMemory`, from its artefacts)
+and `TestMemStatsFlood` in `git archive` copies of origin/main 3a31a0a
+(BEFORE, with `codec.DecoderCeiling` spelled `4 << 20`) and of 3a31a0a with
+this commit's files (AFTER). (M) runs set `GOEXPERIMENT=nosimd,noruntimesecret`
+and hold `/opt/homebrew/opt/util-linux/bin/flock <SCRATCHPAD>/bench.lock`;
+(L) runs use `/tmp/ts-spike/go/bin/go`, section 11's `GOPATH`,
+`GOMODCACHE` and `GOCACHE`, the trees copied by tar into
+`/tmp/ts-spike/w6-secfix/{c1,before,after}`, and
+`flock /tmp/ts-spike/bench.lock`.
+
+| # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| W6-secfix-01 | 2026-09-27 04:22:55–04:23:14 JST | W6-secfix 1/MAJ-1: the decoder pool's ceiling (`codec.DecoderCeiling` = 4 MiB) and AC-P5 (viii) | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.06 | `$F $SP/bench.lock _spikes/w6-secfix/maj1.sh go <tree> <before> <after>` | the review's probe after a 15 MiB flood of 688 682 unknown answers and six ordinary decodes + GC under `GOMAXPROCS(1)`: **+232.8 MiB → +0.0 MiB** (3 runs each); `TestMemStatsFlood` retained after the sixth call **+244 183 984 to +244 184 640 B (FAIL ×3) → +78 488 to +79 480 B** (bound 5 242 880); its peak +575 367 792 to +696 470 696 B (36.6–44.3 × the body; bound about +1 173.2 MB), the same before; control +3 480 464 to +3 579 856 B; `TestDecoderPoolRetention` +712 B, pooled after the flood 0 B, control 3 524 704 B pooled; the largest fixture scratch 2 172 168 B (structured-legend-flood-10k, 0.52 of the ceiling) | `maj1-series-M.txt`; the first series (`maj1-before-M.txt`, `maj1-after-M.txt`, 04:12:41–04:12:52 JST) gave the same retained figures. A `-count=3` run first showed that a scratch left pooled by an earlier run hid in the next run's base (control +237 208 B, retained −3 266 728 B); both pins now take the base after two collections empty the pools |
+| W6-secfix-02 | 2026-09-26 19:23:16–19:23:48 UTC | W6-secfix 1/MAJ-1: the same series | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.12 | `flock /tmp/ts-spike/bench.lock ./maj1.sh go c1 before after` | the review's probe **+232.8 MiB → +0.0 MiB**; `TestMemStatsFlood` retained **+244 139 280 to +244 184 240 B (FAIL ×3) → +33 976 to +78 968 B**; peak +574 914 520 to +784 861 912 B (36.6–49.9 ×; at most 0.67 of the bound about +1 174.2 MB), before +585 874 600 to +696 469 864 B; control +3 209 424 to +3 579 344 B; `TestDecoderPoolRetention` +712 B, control 3 524 704 B | `maj1-series-L.txt` |
+| W6-secfix-03 | 2026-09-27 04:29:06–04:29:18 JST (commit 1's tree); 04:14:50–04:14:59 JST (3a31a0a) | W6-secfix 1/MAJ-1: both non-race CI steps (allocation tests; allocation budgets with the two new list entries) at commit 1, and the budgets step at 3a31a0a | (M) | `go1.27.1 darwin/arm64` | as W6-secfix-01 | 10.62; 16.95 | `bash -eo pipefail` of the two steps' `run:` blocks extracted from ci.yaml, under `$F $SP/bench.lock` | rc 0 and 0; **every asserted pin line is identical to 3a31a0a's** (DECODE ×14 fixtures, CALL q3 own 12/2 008 B and q20, MEM (i)–(vii), TYPED, LAZY, SECRET, JSON, LOG, INLINE, ITEM); the lines that differ are recorded-only: the nested-map encode scratch sizes (sonic's growth; the counts, which are asserted, are the same), the boxed-string sequence's call-1 maximum, LINEARITY time | `c1-nonrace-steps-M.txt`, `base-budgets-M.txt` (R104: no AC-P2, AC-P3, AC-P5 (i)–(vii) or AC-P6 figure moved) |

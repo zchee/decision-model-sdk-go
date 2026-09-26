@@ -207,6 +207,7 @@ jobs:
             TestAllocWholeCall       # AC-P6, N = 12 (W5.3; 14 at W3.4)
             TestAllocAnswersInlineBound # AC-P6, the inline entries' bound (W5.3)
             TestMemStatsCap          # AC-P5 (W2.3)
+            TestMemStatsFlood        # AC-P5 (viii), the structured flood's peak and what stays live (W6-secfix)
             TestAllocResponseJSON    # response payloads (W2.4)
             TestAllocTypedDecode     # AC-P3 (W4.2)
             TestAllocTypedFailure    # a typed failure's error, its path rendered once (W5.3)
@@ -219,6 +220,7 @@ jobs:
             TestLazyPassAllocations             # AC-P8, c0 + c1 x members visited (W2.0, ruling R110)
             TestNewBodyAllocations              # AC-P1, the sequence's call 23 (W1.2)
             TestPretouchFirstCallCostsAWarmCall # after Pretouch a first encode costs a warm one (W2.3)
+            TestDecoderPoolRetention            # the decoder pool's ceiling, GOMAXPROCS 1 (W6-secfix)
           )
           # require_listed WHAT NAMES LIST...: every name of NAMES (one per
           # line) must be in LIST, or no step shows its output.

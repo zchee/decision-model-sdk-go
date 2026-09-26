@@ -120,3 +120,47 @@ func TestStructuredLegendFloodShape(t *testing.T) {
 		})
 	}
 }
+
+// TestUnknownAnswerFloodShape decodes the generator's output with the
+// standard library and checks the shape its documentation promises.
+func TestUnknownAnswerFloodShape(t *testing.T) {
+	type body struct {
+		Model   string                       `json:"model"`
+		Usage   map[string]int               `json:"usage"`
+		Answers map[string]map[string]string `json:"answers"`
+	}
+	tests := map[string]struct {
+		size int
+	}{
+		"success: size 0 still holds one answer": {size: 0},
+		"success: 1 KiB":                         {size: 1 << 10},
+		"success: 1 MiB":                         {size: 1 << 20},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			raw, answers := UnknownAnswerFlood(tt.size)
+			if len(raw) < tt.size {
+				t.Errorf("the body is %d bytes, want at least %d", len(raw), tt.size)
+			}
+			var got body
+			if err := json.Unmarshal(raw, &got); err != nil {
+				t.Fatalf("the body is not JSON: %v", err)
+			}
+			if got.Model != "m" || got.Usage["input_tokens"] != 1 || got.Usage["output_tokens"] != 1 {
+				t.Errorf("model %q, usage %v; want \"m\" and 1 and 1 tokens", got.Model, got.Usage)
+			}
+			if len(got.Answers) != answers || answers == 0 {
+				t.Fatalf("the body holds %d distinct answers, the generator says %d (want at least one)", len(got.Answers), answers)
+			}
+			for i := range answers {
+				name := "a" + strconv.Itoa(i)
+				if a := got.Answers[name]; len(a) != 1 || a["type"] != "x" {
+					t.Fatalf("answer %s = %v, want only type \"x\"", name, a)
+				}
+			}
+			if bytes.ContainsAny(raw, " \n\t\\") {
+				t.Error("the body is not compact or holds an escape")
+			}
+		})
+	}
+}

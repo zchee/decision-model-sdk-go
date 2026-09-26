@@ -19,6 +19,7 @@ package codec
 import (
 	"bytes"
 	"errors"
+	"reflect"
 	"slices"
 	"strconv"
 	"sync"
@@ -196,7 +197,74 @@ type decoder struct {
 	strs    []*string
 	jsons   []jsonMiss
 	optIdx  map[string]int
+	optPeak int // the most options optIdx has indexed
 	stats   stats
+}
+
+// DecoderCeiling is the most scratch, in bytes as scratchBytes bounds it, that
+// a decoder keeps when it goes back to the pool. A decode that grew the
+// scratch past it leaves the scratch to the garbage collector, and the
+// decoder goes back without it, as a request body's scratch past
+// [ScratchCeiling] does (plan section 6.1.3). Without the ceiling one body of
+// tiny answers inside the 16 MiB response cap left about 233 MiB in the pool,
+// kept for as long as later decodes reused that decoder (review W6.2 MAJ-1).
+// It is 4 MiB: 10^4 answer entries, the size of the largest collection a
+// decode budget pins (structured-legend-flood-10k's legend), take 2 880 000
+// bytes, and the next power of two is 4 MiB; the largest scratch a pinned
+// fixture leaves, that flood's, is 2 172 168 bytes by scratchBytes, so every
+// pinned decode keeps its warm decoder (docs/perf/frozen-budgets.md, AC-P5).
+const DecoderCeiling = 4 << 20
+
+// mapEntryBytes bounds the heap one entry of a scratch index map takes. A Go
+// map keeps its entries in groups of eight slots behind eight control bytes
+// and doubles a table when it is 7/8 full, so a table's slots are at least
+// 7/16 used; with the largest slot here, a string key and an int (24 bytes),
+// that is (8 + 8 × 24) / (8 × 7/16) = 59.4 bytes per entry. A cleared map
+// keeps its groups.
+const mapEntryBytes = 64
+
+// The element sizes of the decoder's scratch slices, for scratchBytes.
+var (
+	entrySize    = sizeOf[entry]()
+	probSize     = sizeOf[probPair]()
+	legendSize   = sizeOf[legendPair]()
+	foldSize     = sizeOf[fold]()
+	cardSize     = sizeOf[wire.ModelCard]()
+	nodeSize     = sizeOf[ast.Node]()
+	stringSize   = sizeOf[string]()
+	intSize      = sizeOf[int]()
+	pointerSize  = sizeOf[*string]()
+	jsonMissSize = sizeOf[jsonMiss]()
+)
+
+// sizeOf returns the size in bytes of a value of type T.
+func sizeOf[T any]() int { return int(reflect.TypeFor[T]().Size()) }
+
+// scratchBytes bounds the heap the decoder's scratch holds: the capacity of
+// every scratch slice, and mapEntryBytes for each entry an index map may have
+// held. An index map never holds more entries than the slice it indexes has
+// room for: setIdx the answer set's, lvlIdx and strIdx the longer of probs
+// and legend (a legend or a probability list folds from one of them, and the
+// lazy pass indexes a folded legend); optIdx indexes a question's options,
+// and optPeak counts the most it has held. A nil map holds nothing.
+func (d *decoder) scratchBytes() int {
+	v := &d.v
+	n := cap(v.set)*entrySize + cap(v.probs)*probSize + cap(v.legend)*legendSize + cap(v.folds)*foldSize + cap(v.cards)*cardSize
+	n += cap(d.nodes)*nodeSize + cap(d.raws)*stringSize + cap(d.rawBase)*intSize + cap(d.strs)*pointerSize + cap(d.jsons)*jsonMissSize
+	levels := max(cap(v.probs), cap(v.legend))
+	if v.setIdx != nil {
+		n += cap(v.set) * mapEntryBytes
+	}
+	if v.lvlIdx != nil {
+		n += levels * mapEntryBytes
+	}
+	if v.strIdx != nil {
+		n += levels * mapEntryBytes
+	}
+	if d.optIdx != nil {
+		n += d.optPeak * mapEntryBytes
+	}
+	return n
 }
 
 // jsonMiss is a structured legend level that no level of the question set
@@ -214,8 +282,13 @@ var decoders = sync.Pool{New: func() any { return newDecoder() }}
 
 // release drops every reference the decoder holds into the last body, the
 // last result and the last question set, so the pool keeps none of them
-// alive.
+// alive. It keeps the scratch's capacity for the next decode, unless the
+// scratch has grown past [DecoderCeiling]: then it drops the scratch too.
 func (d *decoder) release() {
+	if d.scratchBytes() > DecoderCeiling {
+		*d = decoder{opts: d.opts}
+		return
+	}
 	d.v.release()
 	clear(d.optIdx)
 	clear(d.nodes)
@@ -684,6 +757,7 @@ func (d *decoder) optionIndex(opts []string) {
 	if d.optIdx == nil {
 		d.optIdx = make(map[string]int, len(opts))
 	}
+	d.optPeak = max(d.optPeak, len(opts))
 	clear(d.optIdx)
 	for i, o := range opts {
 		if _, ok := d.optIdx[o]; !ok {
