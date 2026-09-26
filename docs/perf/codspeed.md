@@ -14,7 +14,7 @@ instead. The numbers behind each statement are in the
 | --- | --- |
 | Workflow | `.github/workflows/bench.yaml`, job `CodSpeed (walltime)` |
 | Triggers | Every push to `main`; `workflow_dispatch` on any branch; `pull_request`, although none are opened (ruling R2) |
-| Runner | `ubuntu-26.04`, GitHub-hosted, linux/amd64, 4 vCPUs (the `-4` suffix on each row in the log). The CPU model changes from run to run: AMD EPYC 7763, 9V74 and 9V45 and Intel Xeon 6973P-C so far (ledger W5.4). |
+| Runner | `ubuntu-26.04`, GitHub-hosted, linux/amd64, 4 vCPUs (the `-4` suffix on each row in the log). The CPU changes from run to run: AMD EPYC 7763, 9V74 and 9V45 and Intel Xeon 6973P-C so far, and one model name can come with or without AVX-512 (ledger W5.4). |
 | Go | `actions/setup-go@v7` with `go-version-file: go.mod`. It reads the `toolchain` line, go1.27.1. |
 | Experiments | No `GOEXPERIMENT`. The `nosimd,noruntimesecret` override of the [measurement rule](../support.md#measurement-rule) is for a host whose Go env file sets experiments. The runner has none, so its default already is the Go 1.27 baseline. The report step prints the ToolTags. |
 | Instrument | `CodSpeedHQ/action@v5` (runner 5.2.1, go runner 1.3.0), `mode: walltime`. Walltime is the only instrument CodSpeed has for Go (plan decision D4). |
@@ -33,8 +33,8 @@ Two steps follow the CodSpeed step:
    (see [`benchmarks.md`](benchmarks.md#codspeed)).
 2. **Report AC-P7 (report-only)** writes a table to the job summary. The
    table gives the `BenchmarkCall` rows' minimum, median and mean, and the
-   sdk/naive ratios, together with `go version`, the ToolTags and the CPU
-   model. The step's log lists every uploaded row by its full name. The
+   sdk/naive ratios, together with `go version`, the ToolTags, the CPU
+   model, whether the host exposes AVX-512, and a digest of its CPU flags. The step's log lists every uploaded row by its full name. The
    step compares no value, so no timing fails the job. It fails only when
    it has nothing to report: when there is no results file, jq cannot read
    one, or the results hold no `BenchmarkCall/sdk` or `BenchmarkCall/naive`
@@ -143,6 +143,15 @@ counted runs, whatever their model, because the ratio is what AC-P7
 compares. No threshold is set on that ratio spread yet. Every row of the
 ledger's section W5.4 carries the run's CPU model and its GitHub and
 CodSpeed run ids, and the report step prints the model on every run.
+
+One model name does not always name one kind of host. Two runs on an
+"AMD EPYC 9V74" differed only in the CPU flags the VM exposed, AVX-512
+among them, and the one with AVX-512 ran 123 of 125 rows 15 to 50 %
+faster. Counted per model name, that one pair already spreads 29 %. So
+the report step also prints the host's AVX-512 exposure and a digest of
+its flags. The ledger counts K7 both ways: per model (R109), and per
+model and AVX-512 exposure, the key W5.4 has proposed to the lead as an
+amendment.
 
 To list the candidate runs, then keep the successful ones from 36221839206
 on:

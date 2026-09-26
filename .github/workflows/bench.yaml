@@ -136,7 +136,13 @@ jobs:
             echo "### AC-P7: \`BenchmarkCall/sdk\` against \`BenchmarkCall/naive\` (report-only, K7)"
             echo
             echo "- \`$(go version)\`, ToolTags \`$(go list -f '{{context.ToolTags}}' runtime)\`"
-            echo "- CPU: $(lscpu | sed -n 's/^Model name: *//p'), $(nproc) CPUs"
+            # Hosts of one model name differ in the CPU flags the VM exposes
+            # (an EPYC 9V74 with and without AVX-512 ran 28 % apart), so the
+            # line names AVX-512 and a digest of the sorted flags.
+            flags=$(sed -n '/^flags[[:space:]]*:/{s/^[^:]*: //p;q;}' /proc/cpuinfo 2>/dev/null || true)
+            case " $flags " in *" avx512f "*) avx512=yes ;; *) avx512=no ;; esac
+            digest=$(tr ' ' '\n' <<<"$flags" | LC_ALL=C sort | tr '\n' ' ' | sha256sum | cut -c1-12)
+            echo "- CPU: $(lscpu | sed -n 's/^Model name: *//p'), $(nproc) CPUs, AVX-512 $avx512, flags digest $digest"
             echo
             jq -rs '
               [.[].benchmarks[] | select(.uri | startswith("internal/benchmark/call_test.go::BenchmarkCall::"))
