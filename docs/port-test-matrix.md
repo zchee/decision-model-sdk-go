@@ -118,7 +118,7 @@ Rows by status: 35 deviation, 0 planned, 94 ported.
 | L7 | `test_logger_level_controls_output` | `TestLogLevelsPerAttempt` (DEBUG, INFO, WARN, LevelTrace; one INFO record per attempt; no header above DEBUG, no body above LevelTrace) + `TestLogTransportRecords` + `TestLogWarnCapThroughClient` | ported |
 | L8 | `test_setup_logging_from_env` | deviation "`TYPESAFE_LOG_LEVEL` not read" + `TestLogLevelEnvNotRead` (5 upstream values × INFO, DEBUG, no `WithLogger`) | deviation |
 
-### `tests/test_pydantic_response_models.py` (5, AC-F12: `TestDecodeAsAgreesWithAnswers` decodes every fixture the decoder accepts with `DecodeAs` and with `Ask`, and both equal `Answers` field by field; AC-P3: `TestAllocTypedDecode`, ledger rows W4.2-01 and W4.2-02)
+### `tests/test_pydantic_response_models.py` (5, AC-F12: `TestDecodeAsAgreesWithAnswers` decodes every fixture the decoder accepts with `DecodeAs` and with `Ask`, and both equal `Answers` field by field; AC-P3: `TestAllocTypedDecode`, in `internal/alloctest` since W6.5, ledger rows W4.2-01 and W4.2-02)
 
 | ID | Upstream | Go test / deviation | status |
 | --- | --- | --- | --- |

@@ -253,3 +253,41 @@ one worker per core).
   input, byte for byte: `decode_response` for the first two (the Rust target
   reads every body as an error body too), `retry_after` for the third, whose
   input layout (the first byte picks the headers) `FuzzRetryAfter` keeps.
+
+## Package layout (as built, W6.5)
+
+W6.5 moved the stages of a call out of the root package (owner
+instruction G9, design D1 of the W6.5 design report; the port plan's
+sections 4, 11 and 12 describe the layout before it):
+
+- `internal/engine` holds the call's stages: the request body's assembly
+  (`EncodeBody`, generic over the root package's `RawJSON` and `Content`),
+  the body read (`ReadBody`), the decode's entry (`DecodeSystemOneInto`),
+  header redaction, the credential scrub, the falsiness check, the
+  transport container with the trace-hook shield, and the state behind
+  the root package's `Client`, `Prepared` and `SystemOneResponse`. It
+  imports `internal/codec`, `internal/wire` and `internal/h2gate`, never
+  the root package.
+- The root package keeps every public type with its methods and
+  documentation. `Client`, `Prepared` and `SystemOneResponse` are defined
+  types over the engine's state (`type Client
+  engine.Client[RetryPolicy]`, `type Prepared engine.Prepared`, `type
+  SystemOneResponse engine.Response`): the conversion is free, the public
+  method set is the root package's, and the engine's accessors do not join
+  it. The other public types are wrapper structs over `internal/wire`
+  values, as before; no type is an alias.
+- `internal/alloctest` (test files only) holds the root package's
+  allocation budgets. The budget list runs there:
+  `go test -list "^($ALLOC)$" ./internal/alloctest/` and
+  `go test -run "^($ALLOC)$" -count=1 -v ./internal/alloctest/`, and
+  CI's allocation-budget step runs `run_budgets ./internal/alloctest/`
+  with its `//go:build !race` scan over the root package and
+  `internal/alloctest`.
+- `unsafe` stays under `internal/codec` itself (no package below it),
+  `internal/testsupport/naive`, and the root package's typed store,
+  `decodeas_store.go`; `internal/engine` imports no `unsafe` and uses no
+  raw-pointer route (K40, STANDING 3). The seam tests hold
+  `internal/engine` to every rule of the root package.
+- CI's `-race` coverage step runs with `-coverpkg=./...` (owner ruling
+  G10), so a block is covered when any test of the module runs it.
+

@@ -7,7 +7,8 @@ coverage profile of the ubuntu-26.04 test job in CI (the
 `go test -race -coverpkg=./... -coverprofile` step): it fails on a block
 without a row, on a row whose block is covered now or whose code is gone,
 and on a count that differs, so the table cannot fall behind the code. The
-measurements behind it are in [`perf/ledger.md`](perf/ledger.md) `## W6.3`.
+measurements behind it are in [`perf/ledger.md`](perf/ledger.md) `## W6.3`
+and `## W6.5`.
 
 The scope is the module's tests over each package: `-coverpkg=./...`
 instruments every package in every test binary, so a block is covered when

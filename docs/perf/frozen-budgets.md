@@ -8,6 +8,8 @@ W5.2 added the Test column, the test that asserts or records each row (ledger `#
 
 W6-secfix added the AC-P5 row (viii), a structured flood inside the cap, and the decoder pool's ceiling, for the security review's MAJ-1 (`.omc/handoffs/w6.2-security.md`; ledger `## W6-secfix`).
 
+W6.5 moved the root package's budgets to `internal/alloctest` (owner instruction G9, design D1): the Test cells name the new files, the path alone, and no frozen value changed (ruling D-W6.5-design 6.3; ledger `## W6.5`). Note 4 gives the as-built wording.
+
 Row IDs refer to [`docs/perf/ledger.md`](perf/ledger.md); rulings refer to `.omc/handoffs/rulings.md`. G2 is the owner's W0.6 decision.
 
 The verifier reproduced every number below from the committed raw files under `_spikes/*/results/`. Two scripts did the checking:
@@ -82,3 +84,21 @@ Notes:
    (ledger W6-fixes-11). On (M) the check is `utf8.Valid` as before,
    2.66 ms against sonic's 0.32 ms, 8.3 times (W6-fixes-12). No pin holds
    the time; this note records the target's state (D-W6-fixes-status-2).
+4. **W6.5, as built (owner instruction G9, design D1).** The stages a
+   call runs moved from the root package to `internal/engine`, and the
+   root package's budgets to `internal/alloctest`, which measures them
+   through the root package's public API and the engine's functions. No
+   pin moved, on (M) or (L) (ledger `## W6.5`). AC-P6's composition reads,
+   in the engine's names: `context.WithTimeout` 4 (272 B), decode 3
+   (240 B: `engine.DecodeSystemOneInto` into the visitor's three fold
+   slices), `engine.ReadBody` 1 (384), the `*http.Request` from
+   `WithContext` 1 (320), the call's own allocation 1 (704 B:
+   `engine.NewSystemOneAlloc`, the `engine.Response` behind the root
+   package's `SystemOneResponse`, the first attempt's URL copy and up to
+   four answer entries), `codec.Body.Open`'s reader 1 (64), the `GetBody`
+   method value 1 (24), the header map 0 (`engine.Request.AttemptHeader`,
+   R77): N = 12, 2 008 B. AC-P1's body assembly is `engine.EncodeBody`,
+   instantiated with the root package's `RawJSON` and `Content`. AC-Q2
+   counts the module's tests over each package (`-coverpkg=./...`, owner
+   ruling G10), and AC-Q4's seam clause includes `internal/engine`, which
+   imports no `unsafe` and uses no raw-pointer route (STANDING 3).
