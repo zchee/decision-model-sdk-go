@@ -17,118 +17,58 @@
 package typesafe
 
 import (
-	"runtime"
-	"slices"
+	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
+	"github.com/zchee/typesafe-sdk-go/internal/testsupport/naive"
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
-// decodeAllocs pins, per fixture, the allocations of one decode of a System
-// One body into its answers (want), measured identically on (M) and (L)
-// (ledger rows W2.0-01 and W2.0-04), next to AC-P2's frozen budget (frozen:
-// docs/perf/frozen-budgets.md, S-D1 variant a1; duplicates at 17 by the
-// owner's G2 c). The counts are pinned exactly, not as ceilings (ruling
-// R70), so that a sonic upgrade or a decoder change that moves one fails
-// here and is looked at, as the NF1 encode pins do. The six fixtures one
-// below their budget (duplicates, escaped-member-names, structured-legend,
-// deviation-lone-surrogate and the two floods: each holds a structured
-// level) are those whose frozen count included the arena that copied
-// structured levels, which interning makes unnecessary. The plain
-// 3-answer fixture also keeps the plan's ceiling of 8 (NF2).
-var decodeAllocs = map[string]struct{ want, frozen uint64 }{
-	"result.json":                      {want: 4, frozen: 4},
-	"type-last.json":                   {want: 4, frozen: 4},
-	"duplicates.json":                  {want: 16, frozen: 17},
-	"result-20.json":                   {want: 24, frozen: 24},
-	"score-flood-mini.json":            {want: 21, frozen: 21},
-	"escaped-names.json":               {want: 10, frozen: 10},
-	"escaped-member-names.json":        {want: 29, frozen: 30},
-	"structured-legend.json":           {want: 11, frozen: 12},
-	"deviation-lone-surrogate.json":    {want: 13, frozen: 14},
-	"unknown-answer-type.json":         {want: 1, frozen: 1},
-	"parity-big-exp-unknown.json":      {want: 1, frozen: 1},
-	"no-answers.json":                  {want: 0, frozen: 0},
-	"structured-legend-flood-1k.json":  {want: 90, frozen: 91},
-	"structured-legend-flood-10k.json": {want: 685, frozen: 686},
-}
+// sinkNaive keeps the naive decodes' maps reachable, as a caller's would be.
+var sinkNaive map[string]any
 
-// questionsFor returns the question set a response like res answers, built
-// through the public API as a caller builds it: every answer's name and
-// kind, a choice's options in the order of its probabilities, and a score's
-// levels from its legend, a level the legend leaves out (or an empty legend)
-// being the text "-". A response without answers answers one noul question,
-// "q", since a set cannot be empty.
-func questionsFor(t *testing.T, res *wire.SystemOneResult) *Prepared {
-	t.Helper()
-	qs := NewQuestions()
-	for _, e := range res.Answers.Entries() {
-		name := strings.Clone(e.Name)
-		switch e.Answer.Kind {
-		case wire.KindNoul:
-			qs.Noul(name, Noul{})
-		case wire.KindChoice:
-			var opts Options
-			for _, p := range e.Answer.Choice.Probabilities {
-				opts = append(opts, Option{Label: strings.Clone(p.Label)})
-			}
-			qs.Choice(name, Choice{Options: opts})
-		case wire.KindScore:
-			levels := []Content{Text("-")}
-			for _, l := range e.Answer.Score.Legend {
-				for len(levels) <= int(l.Level) {
-					levels = append(levels, Text("-"))
-				}
-				if l.Description.JSON != nil {
-					levels[l.Level] = JSON(slices.Clone(l.Description.JSON))
-				} else {
-					levels[l.Level] = Text(strings.Clone(l.Description.Text))
-				}
-			}
-			qs.Score(name, Score{Levels: levels})
-		}
-	}
-	if res.Answers.Len() == 0 {
-		qs.Noul("q", Noul{})
-	}
-	p, err := qs.Prepare()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return p
-}
-
-// TestAllocDecodeFixtures checks AC-P2: the allocations of one decode of
-// each fixture, as a call makes it (the pooled decoder warm, a fresh result,
-// the question set and model the response answers, no logger), equal the
-// pinned count, which is within the frozen budget. Counts are
-// runtime.ReadMemStats deltas, the minimum that three of five runs share,
-// with the collector off and GOMAXPROCS 1 (section 6.1.6). Each DECODE line
-// is a ledger row; the misses column is the same decode without a question
-// set or model, where every string is a copy into one arena (recorded, not
-// pinned).
+// TestAllocDecodeFixtures checks AC-P2 over every fixture of testdata that
+// decodes as a System One body: the allocations of one decode, as a call
+// makes it (the pooled decoder warm, a fresh result, the question set and
+// model the response answers, no logger), equal the pinned count of
+// decodeAllocs, which is within the frozen budget; a fixture that decodes
+// without a pin, or is pinned and does not decode, fails. The plain
+// 3-answer fixture, result.json, also allocates at most 8 times (the plan's
+// ceiling; target 4) and at most half as often as the naive comparator's
+// decode of the same body measured in the same run (G3 (a):
+// internal/testsupport/naive's sonic codec, sonic.Unmarshal into a
+// map[string]any); every other fixture's ratio, the 20-answer and escaped
+// ones included, is reported.
+//
+// Counts are runtime.ReadMemStats deltas, the minimum that three of five
+// runs share, with the collector off and GOMAXPROCS 1 (section 6.1.6); the
+// naive decode's is the minimum of five runs, the comparator's cost at its
+// best. Each DECODE line is a ledger row; its misses column is the same
+// decode without a question set or model, where every string is a copy
+// into one arena (recorded, not pinned). A fixture that does not decode is
+// logged with its error, and so is one the naive decode refuses. The
+// functional half is TestAllocDecodeFixturesFunctional.
 func TestAllocDecodeFixtures(t *testing.T) {
 	testsupport.QuietRuntime(t)
-	for _, name := range slices.Sorted(func(yield func(string) bool) {
-		for k := range decodeAllocs {
-			if !yield(k) {
-				return
-			}
-		}
-	}) {
-		pin := decodeAllocs[name]
-		if pin.want > pin.frozen {
-			t.Fatalf("%s: pinned count %d exceeds the frozen budget %d", name, pin.want, pin.frozen)
-		}
+	decoded := 0
+	for _, name := range testsupport.FixtureNames(t, "*.json") {
 		t.Run(name, func(t *testing.T) {
-			meta := &wire.ResponseMeta{Status: 200, Body: []byte(testsupport.FixtureString(t, name))}
-			var first wire.SystemOneResult
-			if err := decodeSystemOne(t.Context(), nil, meta, "", headerRedactor{}, nil, "", &first); err != nil {
-				t.Fatal(err)
+			pin, pinned := decodeAllocs[name]
+			meta, first, err := decodeFixture(t, name)
+			switch {
+			case err != nil && pinned:
+				t.Fatalf("pinned at %d allocations but does not decode: %v", pin.want, err)
+			case err != nil:
+				t.Logf("DECODE %-34s does not decode, no budget: %v", strings.TrimSuffix(name, ".json"), err)
+				return
+			case !pinned:
+				t.Fatalf("decodes as a System One body but decodeAllocs has no pin for it: AC-P2 covers every fixture that decodes")
+			case pin.want > pin.frozen:
+				t.Fatalf("pinned count %d exceeds the frozen budget %d", pin.want, pin.frozen)
 			}
+			decoded++
 			qs, model := questionsFor(t, &first), strings.Clone(first.Model)
 			measure := func(label string, qs *Prepared, model string) testsupport.Allocs {
 				ctx := t.Context()
@@ -144,112 +84,93 @@ func TestAllocDecodeFixtures(t *testing.T) {
 			}
 			got := measure("interned", qs, model)
 			misses := measure("misses", nil, "")
-			t.Logf("DECODE %-34s bytes=%-7d allocs=%-4d allocBytes=%-8d budget=%-4d misses=%s", strings.TrimSuffix(name, ".json"), len(meta.Body), got.Mallocs, got.Bytes, pin.frozen, misses)
+
+			naiveCount, ratio := "refused", ""
+			var naiveErr error
+			if sinkNaive, naiveErr = naive.Sonic.Decode(meta.Body); naiveErr == nil { // warms sonic's decoder for map[string]any
+				least, _ := testsupport.Spread(t, name+" naive", measureRuns(nil, func() { sinkNaive, naiveErr = naive.Sonic.Decode(meta.Body) }))
+				if naiveErr != nil {
+					t.Fatalf("naive decode: %v", naiveErr)
+				}
+				naiveCount, ratio = least.String(), strconvRatio(got.Mallocs, least.Mallocs)
+				if name == "result.json" && 2*got.Mallocs > least.Mallocs {
+					t.Errorf("result.json decode allocations = %d, want at most half the naive decode's %d (AC-P2)", got.Mallocs, least.Mallocs)
+				}
+			} else {
+				t.Logf("the naive decode refuses %s on this host: %v", name, naiveErr)
+			}
+			t.Logf("DECODE %-34s bytes=%-7d allocs=%-4d allocBytes=%-8d budget=%-4d misses=%-12s naive=%-14s ratio=%s", strings.TrimSuffix(name, ".json"), len(meta.Body), got.Mallocs, got.Bytes, pin.frozen, misses, naiveCount, ratio)
 			if got.Mallocs != pin.want {
 				t.Errorf("decode allocations = %d, want exactly %d (frozen budget %d): a change in the decoder or in sonic moved the count", got.Mallocs, pin.want, pin.frozen)
 			}
-			if name == "result.json" && got.Mallocs > 8 {
-				t.Errorf("result.json decode allocations = %d, want at most 8 (NF2)", got.Mallocs)
+			if name == "result.json" {
+				if got.Mallocs > 8 {
+					t.Errorf("result.json decode allocations = %d, want at most 8 (NF2)", got.Mallocs)
+				}
+				if naiveErr != nil {
+					t.Errorf("the naive decode refuses result.json, so AC-P2's ratio cannot be formed: %v", naiveErr)
+				}
 			}
 		})
 	}
+	if decoded != len(decodeAllocs) {
+		t.Errorf("%d fixtures decoded, want the %d of decodeAllocs", decoded, len(decodeAllocs))
+	}
 }
 
-// Timing spans of TestLinearityFlood. A span repeats one flood's decode
-// until the clock has advanced by at least linearitySpan, so it holds as
-// many decodes as the host needs for its clock to resolve it: Windows
-// advances time.Now in ticks (about 15.6 ms by default), under which one
-// 10^3 decode, well under a millisecond, can measure 0 s and make the ratio
-// +Inf (K30), while a 250 ms span covers at least 16 such ticks, so its
-// reading is within about 6% of its length. Each flood gets linearitySpans
-// spans. linearityMaxDecodes only ends a span on a clock that never
-// advances, which the test then reports: a 10^3 decode would have to take
-// under 4 µs to reach it before 250 ms.
-const (
-	linearitySpan       = 250 * time.Millisecond
-	linearitySpans      = 5
-	linearityMaxDecodes = 1 << 16
-)
+// strconvRatio renders a / b with three decimals.
+func strconvRatio(a, b uint64) string {
+	if b == 0 {
+		return "-"
+	}
+	return strconv.FormatFloat(float64(a)/float64(b), 'f', 3, 64)
+}
 
-// TestLinearityFlood checks AC-P8's time and allocation ratios on the
-// structured-legend floods: one 10^4 decode takes at most 15 times as long
-// as one 10^3 decode, and allocates at most 12 times as often. A decode's
-// time is a span's length divided by the decodes it holds, the minimum over
-// the flood's spans, which filters scheduler noise. The number of decodes
-// is not fixed in advance, since a fixed count would have to be sized for
-// the slowest runner; each span runs until linearitySpan has elapsed on the
-// host's own clock. The two floods' spans alternate, so a change in the
-// host's load reaches both. The collector stays off (QuietRuntime) and is
-// run once before each span, to free the last span's garbage, which keeps
-// the pooled decoder (sync.Pool keeps it through one collection); a warm
-// decode then precedes the span. The lazy pass's own bound is
-// internal/codec's TestLazyPassAllocations.
+// TestLinearityFlood checks AC-P8's allocation clauses on the
+// structured-legend floods: one decode of the 10^4 flood allocates at most
+// 12 times as often as one of the 10^3 flood (the frozen ratio; a1 measured
+// 7.54 at W0.3), where each count is the flood's pinned AC-P2 count
+// (decodeAllocs: 90 and 685). The members the lazy pass visits (plan
+// section 8) are counted from the fixture by membersVisited, independently
+// of the decoder, and must be frozen-budgets.md's 1 011 and 10 011, the
+// inputs of the frozen c₀ + c₁ × members bound (c₀ = 20, c₁ = 1/15, plus one
+// allocation per escaped key and the arena). That bound is on the lazy pass
+// alone, which the root package cannot run apart from the decode: it is
+// asserted by internal/codec's TestLazyPassAllocations, and here the whole
+// decode's growth per member visited is recorded against c₁.
+//
+// Counts are runtime.ReadMemStats deltas, the minimum that three of five
+// runs share, with the collector off and GOMAXPROCS 1. The time ratio is
+// TestLinearityFloodTime, which runs in every build.
 func TestLinearityFlood(t *testing.T) {
 	testsupport.QuietRuntime(t)
-	type flood struct {
-		name    string
-		meta    *wire.ResponseMeta
-		qs      *Prepared
-		model   string
-		decodes []int           // per span
-		each    []time.Duration // per span: its length divided by its decodes
-		time    time.Duration
-		allocs  uint64
-	}
-	decode := func(f *flood, res *wire.SystemOneResult) {
-		if err := decodeSystemOne(t.Context(), nil, f.meta, "", headerRedactor{}, f.qs, f.model, res); err != nil {
+	wantMembers := [2]uint64{1011, 10011}
+	var allocs, members [2]uint64
+	for i, name := range linearityFloods {
+		meta, first, err := decodeFixture(t, name)
+		if err != nil {
 			t.Fatal(err)
 		}
-	}
-	var floods []*flood
-	for _, name := range []string{"structured-legend-flood-1k.json", "structured-legend-flood-10k.json"} {
-		f := &flood{name: name, meta: &wire.ResponseMeta{Status: 200, Body: []byte(testsupport.FixtureString(t, name))}}
-		var first wire.SystemOneResult
-		if err := decodeSystemOne(t.Context(), nil, f.meta, "", headerRedactor{}, nil, "", &first); err != nil {
-			t.Fatal(err)
+		qs := questionsFor(t, &first)
+		decode := func(res *wire.SystemOneResult) {
+			if err := decodeSystemOne(t.Context(), nil, meta, "", headerRedactor{}, qs, first.Model, res); err != nil {
+				t.Fatal(err)
+			}
 		}
-		f.qs, f.model = questionsFor(t, &first), first.Model
-		decode(f, new(wire.SystemOneResult))
-		f.allocs = testsupport.MeasureMin(t, name, func() *wire.SystemOneResult { return new(wire.SystemOneResult) }, func(res *wire.SystemOneResult) {
-			decode(f, res)
-		}).Mallocs
-		floods = append(floods, f)
-	}
-	for span := range linearitySpans {
-		for _, f := range floods {
-			runtime.GC()
-			decode(f, new(wire.SystemOneResult))
-			n, start := 0, time.Now()
-			var elapsed time.Duration
-			for elapsed < linearitySpan && n < linearityMaxDecodes {
-				var res wire.SystemOneResult
-				decode(f, &res)
-				n++
-				elapsed = time.Since(start)
-			}
-			if elapsed <= 0 {
-				t.Fatalf("%s span %d: %d decodes measured %v: the clock did not advance, so no time ratio can be formed", f.name, span, n, elapsed)
-			}
-			each := elapsed / time.Duration(n)
-			t.Logf("span %d %-32s %5d decodes in %v, %v each", span, f.name, n, elapsed, each)
-			f.decodes = append(f.decodes, n)
-			f.each = append(f.each, each)
+		decode(new(wire.SystemOneResult))
+		allocs[i] = testsupport.MeasureMin(t, name, func() *wire.SystemOneResult { return new(wire.SystemOneResult) }, decode).Mallocs
+		members[i] = membersVisited(t, meta.Body)
+		if members[i] != wantMembers[i] {
+			t.Errorf("%s: %d members visited, want frozen-budgets.md's %d", name, members[i], wantMembers[i])
+		}
+		if want := decodeAllocs[name].want; allocs[i] != want {
+			t.Errorf("%s: decode allocations = %d, want exactly the AC-P2 pin %d", name, allocs[i], want)
 		}
 	}
-	for _, f := range floods {
-		f.time = slices.Min(f.each)
-	}
-	small, large := floods[0], floods[1]
-	if small.time <= 0 {
-		t.Fatalf("1k decode time = %v over spans %v of %v decodes: want > 0", small.time, small.each, small.decodes)
-	}
-	timeRatio := float64(large.time) / float64(small.time)
-	allocRatio := float64(large.allocs) / float64(small.allocs)
-	t.Logf("LINEARITY 1k %v %d allocs, 10k %v %d allocs, time ratio %.2f (bound 15), allocation ratio %.2f (bound 12), decodes per span 1k %v 10k %v, %d spans of at least %v", small.time, small.allocs, large.time, large.allocs, timeRatio, allocRatio, small.decodes, large.decodes, linearitySpans, linearitySpan)
-	if timeRatio > 15 {
-		t.Errorf("10^4 : 10^3 time ratio = %.2f, want at most 15", timeRatio)
-	}
-	if allocRatio > 12 {
-		t.Errorf("10^4 : 10^3 allocation ratio = %.2f, want at most 12", allocRatio)
+	ratio := float64(allocs[1]) / float64(allocs[0])
+	slope := float64(allocs[1]-allocs[0]) / float64(members[1]-members[0])
+	t.Logf("LINEARITY allocations 1k %d (members %d), 10k %d (members %d), ratio %.2f (bound 12), growth %.4f per member visited (the lazy pass's c₁ = 1/15 = %.4f, recorded)", allocs[0], members[0], allocs[1], members[1], ratio, slope, 1.0/15)
+	if ratio > 12 {
+		t.Errorf("10^4 : 10^3 allocation ratio = %.2f, want at most 12", ratio)
 	}
 }

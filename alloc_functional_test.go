@@ -16,12 +16,17 @@ package typesafe
 
 import (
 	"bytes"
+	"maps"
 	"net/http"
+	"slices"
 	"strconv"
 	"testing"
 
+	gocmp "github.com/google/go-cmp/cmp"
+
 	"github.com/zchee/typesafe-sdk-go/internal/codec"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
+	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
 // The functional halves of the allocation tests. Every allocation budget is
@@ -158,6 +163,34 @@ func TestAllocScratchSequenceFunctional(t *testing.T) {
 				t.Errorf("after call %d the pool handed out a scratch of %d B, room for its %d B body: the scratch past the ceiling was kept", sequenceNine, c, lens[2])
 			}
 		})
+	}
+}
+
+// TestAllocDecodeFixturesFunctional is the functional half of
+// TestAllocDecodeFixtures: exactly the fixtures of decodeAllocs decode as a
+// System One body, and each decodes to the same model, usage and answers
+// with the question set and model it answers, whose names and labels the
+// decode interns, as without them, where it copies every string.
+func TestAllocDecodeFixturesFunctional(t *testing.T) {
+	var decoded []string
+	for _, name := range testsupport.FixtureNames(t, "*.json") {
+		meta, first, err := decodeFixture(t, name)
+		if err != nil {
+			continue
+		}
+		decoded = append(decoded, name)
+		t.Run(name, func(t *testing.T) {
+			var interned wire.SystemOneResult
+			if err := decodeSystemOne(t.Context(), nil, meta, "", headerRedactor{}, questionsFor(t, &first), first.Model, &interned); err != nil {
+				t.Fatalf("decode with the question set: %v", err)
+			}
+			if diff := gocmp.Diff(payloadOf(&SystemOneResponse{res: first}), payloadOf(&SystemOneResponse{res: interned})); diff != "" {
+				t.Errorf("the decode with the question set differs from the decode without (-without +with):\n%s", diff)
+			}
+		})
+	}
+	if diff := gocmp.Diff(slices.Sorted(maps.Keys(decodeAllocs)), decoded); diff != "" {
+		t.Errorf("the fixtures that decode differ from decodeAllocs's keys (-decodeAllocs +decoded):\n%s", diff)
 	}
 }
 
