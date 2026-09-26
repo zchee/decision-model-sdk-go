@@ -282,7 +282,8 @@ func TestOneScanTakesValidBodies(t *testing.T) {
 // its input without its closing quote as a complete string when the string's
 // content is a multiple of 32 bytes long. Every body here is refused, on the
 // whole-body path (cutPoint refuses the cut, or the body does not end in a
-// brace), with the whole-body decode's own error.
+// brace), with the whole-body decode's own error, at every such length from
+// 32 to 288 bytes.
 func TestK41ScannerBoundary(t *testing.T) {
 	zeros := func(n int) string { return strings.Repeat("0", n) }
 	tests := map[string]struct {
@@ -295,6 +296,22 @@ func TestK41ScannerBoundary(t *testing.T) {
 		"error: a truncated body":                               {body: `{"":"` + zeros(64), wantErr: "eof"},
 		"error: a top-level string of 32 bytes":                 {body: `"` + zeros(32), wantErr: "not a JSON object"},
 		"error: after the members a response has":               {body: `{"model":"m","answers":{},"x":"` + zeros(32) + `}`, wantErr: "eof"},
+	}
+	// Every length sonic takes as complete, 32·k for k = 1 to 9 (the
+	// reviewer's K41-corr probed 32 to 288 on darwin/arm64), in each shape:
+	// open at the body's end, with a brace last, open at the cut with a brace
+	// or a bracket before it, and the top-level string.
+	type k41case = struct {
+		body    string
+		wantErr string
+	}
+	for k := 1; k <= 9; k++ {
+		n := strconv.Itoa(32 * k)
+		tests["error: "+n+" bytes open at the body's end"] = k41case{body: `{"":"` + zeros(32*k), wantErr: "eof"}
+		tests["error: "+n+" bytes open with a brace last"] = k41case{body: `{"":"` + zeros(32*k-1) + `}`, wantErr: "eof"}
+		tests["error: "+n+" bytes open at the cut, a brace before it"] = k41case{body: `{"a":"` + zeros(32*k-1) + `}}`, wantErr: "eof"}
+		tests["error: "+n+" bytes open at the cut, a bracket before it"] = k41case{body: `{"a":"` + zeros(32*k-1) + `]}`, wantErr: "eof"}
+		tests["error: a top-level string of "+n+" bytes"] = k41case{body: `"` + zeros(32*k), wantErr: "not a JSON object"}
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
