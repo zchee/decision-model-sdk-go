@@ -36,7 +36,9 @@ import (
 // [*ConnectionError], a [*TimeoutError], a [*ResponseValidationError] of the
 // response as a whole and the others [Client.SystemOne] lists, is returned
 // as SystemOne returns it. A response whose answers do not fit T fails as
-// DecodeAs says, with the call's endpoint in the error.
+// DecodeAs says, with the call's endpoint in the error and its header
+// redacted as the call's other errors redact theirs: by the header's name,
+// and a header whose value holds the client's API key.
 //
 // Ask returns only the answers. A caller that also needs the response,
 // its request id, usage, model or raw body, makes the two calls Ask makes:
@@ -56,7 +58,7 @@ func Ask[T any](ctx context.Context, c *Client, state any, opts ...CallOption) (
 		var zero T
 		return zero, err
 	}
-	return decodeTyped[T](p, resp, c.systemOneEndpoint)
+	return decodeTyped[T](p, resp, c.systemOneEndpoint, c.cfg.redactor())
 }
 
 // DecodeAs returns the answers of resp as a T, the struct type whose fields
@@ -111,17 +113,21 @@ func Ask[T any](ctx context.Context, c *Client, state any, opts ...CallOption) (
 // The error carries resp's HTTP metadata: its status, header, request id
 // and body when resp came from a request, and none of them when it was read
 // back with [SystemOneResponse.UnmarshalJSON], whose Meta is empty. Its
-// Endpoint is empty; [Ask] fills it in.
+// Header is a copy in which a header that is a credential by its name,
+// such as Authorization, Cookie or Set-Cookie ([APIError.Header] lists
+// them), has each value "***"; DecodeAs has no client, so unlike [Ask] it
+// cannot find the client's API key inside other headers. Its Endpoint is
+// empty; Ask fills it in.
 func DecodeAs[T any](resp *SystemOneResponse) (T, error) {
-	return decodeTyped[T](typedPlanFor[T](), resp, "")
+	return decodeTyped[T](typedPlanFor[T](), resp, "", headerRedactor{})
 }
 
 // decodeTyped decodes resp into a T by p, the plan of T, and names endpoint
-// in a validation error. On failure it returns the zero T, not a T with the
-// fields read before the failure.
-func decodeTyped[T any](p *typedPlan, resp *SystemOneResponse, endpoint string) (T, error) {
+// in a validation error, whose header r redacts. On failure it returns the
+// zero T, not a T with the fields read before the failure.
+func decodeTyped[T any](p *typedPlan, resp *SystemOneResponse, endpoint string, r headerRedactor) (T, error) {
 	var t T
-	if err := p.decode(resp, endpoint, reflect.ValueOf(&t).Elem()); err != nil {
+	if err := p.decode(resp, endpoint, r, reflect.ValueOf(&t).Elem()); err != nil {
 		var zero T
 		return zero, err
 	}
@@ -139,8 +145,9 @@ var (
 
 // decode reads the answers of resp into v, a struct of the type p was built
 // for, field by field in p's order, and names endpoint in a validation
-// error. It returns p's own error for a refused type.
-func (p *typedPlan) decode(resp *SystemOneResponse, endpoint string, v reflect.Value) error {
+// error, whose header r redacts. It returns p's own error for a refused
+// type.
+func (p *typedPlan) decode(resp *SystemOneResponse, endpoint string, r headerRedactor, v reflect.Value) error {
 	if p.err != nil {
 		return p.err
 	}
@@ -152,9 +159,9 @@ func (p *typedPlan) decode(resp *SystemOneResponse, endpoint string, v reflect.V
 		case !ok && f.optional:
 			continue
 		case !ok:
-			return typedError(resp, endpoint, f.name, codec.FieldPath{}, errTypedMissing)
+			return typedError(resp, endpoint, r, f.name, codec.FieldPath{}, errTypedMissing)
 		case a.Kind != f.kind:
-			return typedError(resp, endpoint, f.name, codec.FieldPath{Member: "type"}, errTypedKind)
+			return typedError(resp, endpoint, r, f.name, codec.FieldPath{Member: "type"}, errTypedKind)
 		}
 		// The field's address, as an interface holding a pointer: no answer
 		// is boxed, and the answer is stored through the pointer. It moves
@@ -166,12 +173,12 @@ func (p *typedPlan) decode(resp *SystemOneResponse, endpoint string, v reflect.V
 			*dst.(*NoulAnswer) = NoulAnswer{w: a.Noul, present: true}
 		case wire.KindChoice:
 			if at, bad := undeclaredOption(&a.Choice, f.options); bad {
-				return typedError(resp, endpoint, f.name, at, errTypedOption)
+				return typedError(resp, endpoint, r, f.name, at, errTypedOption)
 			}
 			*dst.(*ChoiceAnswer) = ChoiceAnswer{w: a.Choice, present: true}
 		default: // wire.KindScore: buildPlan gives every field one of the three kinds
 			if at, bad := undeclaredLevel(&a.Score, uint64(len(f.levels))); bad {
-				return typedError(resp, endpoint, f.name, at, errTypedLevel)
+				return typedError(resp, endpoint, r, f.name, at, errTypedLevel)
 			}
 			*dst.(*ScoreAnswer) = ScoreAnswer{w: a.Score, present: true}
 		}
@@ -219,9 +226,9 @@ func undeclaredLevel(a *wire.ScoreAnswer, levels uint64) (at codec.FieldPath, ba
 // typedError returns the *ResponseValidationError for the answer called
 // name that does not fit its field: at is the path below the answer (its
 // Member and Key; the rest is filled in here), reason why it does not fit.
-// The error carries resp's HTTP metadata and endpoint, its header
-// redacted by the headers' names ([headerRedactor]).
-func typedError(resp *SystemOneResponse, endpoint, name string, at codec.FieldPath, reason error) *ResponseValidationError {
+// The error carries resp's HTTP metadata and endpoint; r redacts its header,
+// and the names in its path ([newResponseValidationError]).
+func typedError(resp *SystemOneResponse, endpoint string, r headerRedactor, name string, at codec.FieldPath, reason error) *ResponseValidationError {
 	at.Top, at.Name, at.HasName = "answers", name, true
-	return newResponseValidationError(&resp.meta, endpoint, headerRedactor{}, &codec.DecodeError{Path: at, Err: reason})
+	return newResponseValidationError(&resp.meta, endpoint, r, &codec.DecodeError{Path: at, Err: reason})
 }

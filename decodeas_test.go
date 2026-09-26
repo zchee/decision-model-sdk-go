@@ -642,6 +642,71 @@ func TestDecodeAsStoredResponse(t *testing.T) {
 	}
 }
 
+// TestTypedErrorRedactsHeader checks the header a typed validation error
+// keeps (ruling R99 (d), review W4.2 MINOR 4): a header that is a
+// credential by its name, Set-Cookie, is "***" whether DecodeAs or Ask
+// built the error; a header whose value holds the client's API key is
+// "***" from Ask, which has the client's key, and as it arrived from
+// DecodeAs, which has none. The response's own header is not changed.
+func TestTypedErrorRedactsHeader(t *testing.T) {
+	// The body lacks spam, which typedSystemOneResponse requires.
+	body := resultWith(toneJSON, qualityJSON)
+	echo := "echoed " + testKey + " back"
+	tests := map[string]struct {
+		typed      func(*testing.T, *Client) error
+		wantCookie string
+		wantEcho   string
+		wantEnd    string
+	}{
+		"error: DecodeAs redacts by the header's name only": {
+			typed: func(t *testing.T, c *Client) error {
+				resp, err := c.SystemOne(t.Context(), "x", mustPrepared(t, NewQuestions().Noul("spam", Noul{})))
+				if err != nil {
+					t.Fatalf("SystemOne: %v", err)
+				}
+				_, err = DecodeAs[typedSystemOneResponse](resp)
+				if got := resp.Meta().Header().Get("Set-Cookie"); got != "session=abc" {
+					t.Errorf("the response's own Set-Cookie = %q, want it unchanged", got)
+				}
+				return err
+			},
+			wantCookie: "***",
+			wantEcho:   echo,
+		},
+		"error: Ask redacts by name and by the client's key": {
+			typed: func(t *testing.T, c *Client) error {
+				_, err := Ask[typedSystemOneResponse](t.Context(), c, "x")
+				return err
+			},
+			wantCookie: "***",
+			wantEcho:   "***",
+			wantEnd:    systemOneEndpoint,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			c := newTestClient(t, replying(http.StatusOK, body, "Set-Cookie", "session=abc", "X-Echo", echo, "x-typesafe-request-id", "req-redact"))
+			err := tt.typed(t, c)
+			var rve *ResponseValidationError
+			if !errors.As(err, &rve) {
+				t.Fatalf("err = %T %v, want *ResponseValidationError", err, err)
+			}
+			id, _ := rve.RequestID()
+			type view struct {
+				FieldPath, Cookie, Echo, RequestID, Endpoint string
+			}
+			want := view{FieldPath: "answers.spam", Cookie: tt.wantCookie, Echo: tt.wantEcho, RequestID: "req-redact", Endpoint: tt.wantEnd}
+			got := view{FieldPath: rve.FieldPath, Cookie: rve.Header.Get("Set-Cookie"), Echo: rve.Header.Get("X-Echo"), RequestID: id, Endpoint: rve.Endpoint}
+			if diff := gocmp.Diff(want, got); diff != "" {
+				t.Errorf("typed error (-want +got):\n%s", diff)
+			}
+			if strings.Contains(rve.Error(), testKey) {
+				t.Errorf("Error() = %q shows the API key", rve.Error())
+			}
+		})
+	}
+}
+
 // TestAskPreservesAPIErrors ports test_custom_response_preserves_api_errors
 // (:120-131, P5) and extends it: with a struct type, a failure status is
 // still the *APIError it is without one (400 with its body and request id,
