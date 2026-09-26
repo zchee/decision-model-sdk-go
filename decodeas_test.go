@@ -27,6 +27,7 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
+	"github.com/zchee/typesafe-sdk-go/internal/codec"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
@@ -449,26 +450,23 @@ func decodeAs[T any]() decodeAsFunc {
 // SystemOne returns, which gives the same path without the endpoint.
 //
 // Paths, next to what the Python SDK reports (probed with
-// _spikes/w4.2/python_typed_paths.py; "nested" is a response_model that
-// keeps the answers under "answers", as KnownResponse does, "flat" a
-// SystemOneResponse subclass, as TypedSystemOneResponse is):
+// _spikes/w4.2/python_typed_paths.py): T's fields are the answers lifted
+// out of "answers", so a typed failure is named as the Python SDK names it
+// for a SystemOneResponse subclass with one field per answer, as the
+// upstream TypedSystemOneResponse is (ruling R99-rev):
 //
 //   - The upstream first case, KnownResponse over a body without usage,
 //     fails at usage in Go: Ask validates the whole System One response
 //     before the struct, as a SystemOneResponse subclass does, and
 //     SystemOneResponse requires usage. With usage the failure is the
 //     decoder's answers.spam.noul, the upstream path.
-//   - The upstream second case, tone.choice for the flat model, is
-//     answers.tone.choice in Go, the nested model's path: T holds the
-//     answers the way KnownResponse's answers member does.
-//   - The rest are the nested model's paths (answers.spam,
-//     answers.spam.type, answers.missing.type), with two exceptions. Python
-//     makes the option and level checks only when the model's own types say
-//     so. And an answer of an unknown type is skipped before the struct is
-//     filled, as the flat subclass skips it: under a required field's name
-//     it fails as absent (answers.spam, where the nested model says
-//     answers.spam.type), and a body without answers fails at the first
-//     required field (answers.spam, where the nested model says answers).
+//   - The upstream second case is tone.choice, the upstream path.
+//   - The rest are that model's paths (spam, spam.type, missing.type): an
+//     answer of an unknown type is skipped, as that model skips it, so
+//     under a required field's name it fails as absent (spam), and a body
+//     without answers fails at the first required field (spam). Python
+//     makes the option and level checks only when the model's own types
+//     say so.
 func TestAskValidationFieldPaths(t *testing.T) {
 	// reviewWithFour is reviewAnswers with a fourth level, for a body whose
 	// score names level 3.
@@ -495,73 +493,73 @@ func TestAskValidationFieldPaths(t *testing.T) {
 			body:   resultWith(spamJSON, `"tone":{"type":"choice","choice":"unknown","confidence":0.9,"probabilities":{"friendly":0.9,"hostile":0.1}}`, qualityJSON),
 			ask:    askAs[typedSystemOneResponse](),
 			decode: decodeAs[typedSystemOneResponse](),
-			path:   "answers.tone.choice",
+			path:   "tone.choice",
 		},
 		"error: a required answer absent": {
 			body:   resultWith(toneJSON, qualityJSON),
 			ask:    askAs[typedSystemOneResponse](),
 			decode: decodeAs[typedSystemOneResponse](),
-			path:   "answers.spam",
+			path:   "spam",
 		},
 		"error: a required answer of a type this version does not model": {
 			body:   resultWith(`"spam":{"type":"future","value":1}`, toneJSON, qualityJSON),
 			ask:    askAs[typedSystemOneResponse](),
 			decode: decodeAs[typedSystemOneResponse](),
-			path:   "answers.spam",
+			path:   "spam",
 		},
 		"error: no answers member: the first required field in T's order": {
 			body:   []byte(`{"model":"jev-latest","usage":{"input_tokens":1,"output_tokens":1}}`),
 			ask:    askAs[typedSystemOneResponse](),
 			decode: decodeAs[typedSystemOneResponse](),
-			path:   "answers.spam",
+			path:   "spam",
 		},
 		"error: the first failing field in T's order, not in the body's": {
 			body:   resultWith(`"tone":{"type":"noul","noul":0.5}`, qualityJSON),
 			ask:    askAs[typedSystemOneResponse](),
 			decode: decodeAs[typedSystemOneResponse](),
-			path:   "answers.spam",
+			path:   "spam",
 		},
 		"error: a required answer of another kind": {
 			body:   resultWith(`"spam":{"type":"choice","choice":"friendly","confidence":0.9,"probabilities":{"friendly":0.9,"hostile":0.1}}`, toneJSON, qualityJSON),
 			ask:    askAs[typedSystemOneResponse](),
 			decode: decodeAs[typedSystemOneResponse](),
-			path:   "answers.spam.type",
+			path:   "spam.type",
 		},
 		"error: an optional answer of another kind": {
 			body:   resultWith(spamJSON, toneJSON, `"missing":{"type":"score","score":0,"confidence":1,"legend":{},"probabilities":{}}`),
 			ask:    askAs[typedSystemOneResponse](),
 			decode: decodeAs[typedSystemOneResponse](),
-			path:   "answers.missing.type",
+			path:   "missing.type",
 		},
 		"error: a probability of an option T does not list": {
 			body:   resultWith(spamJSON, `"tone":{"type":"choice","choice":"friendly","confidence":0.9,"probabilities":{"friendly":0.9,"hostile":0.05,"other":0.05}}`, qualityJSON),
 			ask:    askAs[typedSystemOneResponse](),
 			decode: decodeAs[typedSystemOneResponse](),
-			path:   "answers.tone.probabilities.other",
+			path:   "tone.probabilities.other",
 		},
 		"error: a legend level past T's three levels": {
 			body:   resultWith(spamJSON, toneJSON, `"quality":{"type":"score","score":1.7,"confidence":0.8,"legend":{"0":"bad","1":"ok","2":"great","3":"wow"},"probabilities":{"0":0.1,"1":0.1,"2":0.8}}`),
 			ask:    askAs[reviewAnswers](),
 			decode: decodeAs[reviewAnswers](),
-			path:   "answers.quality.legend.3",
+			path:   "quality.legend.3",
 		},
 		"error: a probability of a level past T's three levels": {
 			body:   resultWith(spamJSON, toneJSON, `"quality":{"type":"score","score":1.7,"confidence":0.8,"legend":{"0":"bad","1":"ok","2":"great"},"probabilities":{"0":0.1,"1":0.1,"2":0.7,"3":0.1}}`),
 			ask:    askAs[reviewAnswers](),
 			decode: decodeAs[reviewAnswers](),
-			path:   "answers.quality.probabilities.3",
+			path:   "quality.probabilities.3",
 		},
 		"error: the pick is checked before the probabilities": {
 			body:   resultWith(spamJSON, `"tone":{"type":"choice","choice":"bad","confidence":1,"probabilities":{"other":1}}`, qualityJSON),
 			ask:    askAs[typedSystemOneResponse](),
 			decode: decodeAs[typedSystemOneResponse](),
-			path:   "answers.tone.choice",
+			path:   "tone.choice",
 		},
 		"error: the legend is checked before the probabilities": {
 			body:   resultWith(`"quality":{"type":"score","score":1.7,"confidence":0.8,"legend":{"0":"bad","5":"x"},"probabilities":{"4":1}}`),
 			ask:    askAs[reviewWithFour](),
 			decode: decodeAs[reviewWithFour](),
-			path:   "answers.quality.legend.5",
+			path:   "quality.legend.5",
 		},
 	}
 	for name, tt := range tests {
@@ -612,6 +610,46 @@ func checkTypedError(t *testing.T, form string, err error, body []byte, path, en
 	}
 }
 
+// TestTypedFieldPathEscapesNames checks that a typed failure's path writes
+// an answer's name as the decoder writes the names in its own paths
+// (renderFieldPath): escaped, without the "answers." the decoder puts
+// first (ruling R99-rev). escaped-names.json loses one answer, so the
+// field that reads it fails as absent.
+func TestTypedFieldPathEscapesNames(t *testing.T) {
+	tests := map[string]struct {
+		drop string // the answer the body loses, as the fixture spells it
+		name string // its name, decoded
+	}{
+		"error: a name with a newline":   {drop: `"new\nline":{"type":"noul","noul":0.75},`, name: "new\nline"},
+		"error: a name with a backslash": {drop: `"back\\slash":{"type":"choice","choice":"a","confidence":0.6,"probabilities":{"a":0.6,"b":0.4}},`, name: `back\slash`},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			body := strings.Replace(testsupport.FixtureString(t, "escaped-names.json"), tt.drop, "", 1)
+			var resp SystemOneResponse
+			if err := resp.UnmarshalJSON([]byte(body)); err != nil {
+				t.Fatalf("UnmarshalJSON: %v", err)
+			}
+			if _, ok := resp.Answers().Get(tt.name); ok {
+				t.Fatalf("the body still answers %q", tt.name)
+			}
+			_, err := DecodeAs[escapedNamesAnswers](&resp)
+			var rve *ResponseValidationError
+			if !errors.As(err, &rve) {
+				t.Fatalf("DecodeAs: err = %T %v, want *ResponseValidationError", err, err)
+			}
+			decoders := renderFieldPath(codec.FieldPath{Top: "answers", Name: tt.name, HasName: true})
+			want, ok := strings.CutPrefix(decoders, "answers.")
+			if !ok || want == tt.name {
+				t.Fatalf("the decoder renders %q as %q: want an escaped name after answers.", tt.name, decoders)
+			}
+			if rve.FieldPath != want {
+				t.Errorf("FieldPath = %q, want %q, the decoder's rendering of the name", rve.FieldPath, want)
+			}
+		})
+	}
+}
+
 // TestDecodeAsStoredResponse checks the error of a typed decode of a
 // response read back from JSON: it has the path and no HTTP metadata, as
 // the stored response's own validation errors have none (ruling R80 Q3).
@@ -632,7 +670,7 @@ func TestDecodeAsStoredResponse(t *testing.T) {
 		NilBody          bool
 		Missing          bool
 	}
-	want := view{FieldPath: "answers.spam", Error: "Invalid response data at 'answers.spam'.", NilHeader: true, NilBody: true, Missing: true}
+	want := view{FieldPath: "spam", Error: "Invalid response data at 'spam'.", NilHeader: true, NilBody: true, Missing: true}
 	got := view{
 		FieldPath: rve.FieldPath, Error: rve.Error(), StatusCode: rve.StatusCode,
 		NilHeader: rve.Header == nil, NilBody: rve.Body == nil, Missing: errors.Is(err, errTypedMissing),
@@ -661,7 +699,7 @@ func TestTypedErrorRedactsHeader(t *testing.T) {
 	type view struct {
 		FieldPath, Cookie, Echo, RequestID, Endpoint, Error string
 	}
-	path := "answers.tone.probabilities." + testKey
+	path := "tone.probabilities." + testKey
 	tests := map[string]struct {
 		typed func(*testing.T, *Client) error
 		want  view

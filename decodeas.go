@@ -82,33 +82,35 @@ func Ask[T any](ctx context.Context, c *Client, state any, opts ...CallOption) (
 // fields are read in their order in T, and the first that does not fit
 // fails the whole decode: DecodeAs returns the zero T, never one holding
 // the fields read before the failure, and a [*ResponseValidationError]
-// whose FieldPath names the answer. The paths are the ones the Python SDK
-// reports for a response model that holds the answers under "answers" (a
-// pydantic response_model such as {"model": str, "answers": {"spam":
-// NoulAnswer}}), except that an answer of a type this version does not
-// model is skipped before T is filled, as a SystemOneResponse subclass
-// skips it: under a required field's name it fails as absent
-// (answers.spam, where that model says answers.spam.type), under an
-// optional field's name it leaves the field absent, and a response without
-// an "answers" member fails at T's first required field (answers.spam,
-// where that model says answers):
+// whose FieldPath names the answer. T's fields are the answers lifted out
+// of the response's "answers" member, so the paths are the ones the Python
+// SDK reports for such a response model, a SystemOneResponse subclass with
+// one field per answer (the upstream tests' TypedSystemOneResponse): the
+// answer's name, then the member and the key. An answer of a type this
+// version does not model has been skipped, as that model skips it, so under
+// a required field's name it fails as absent and under an optional field's
+// name it leaves the field absent, and a response without an "answers"
+// member fails at T's first required field:
 //
-//	the answer is absent and the field is not optional  answers.<name>
-//	the answer is of another kind than the field        answers.<name>.type
-//	a choice picks an option T does not list            answers.<name>.choice
-//	a choice gives a probability to such an option      answers.<name>.probabilities.<option>
-//	a score's legend has a level beyond T's levels      answers.<name>.legend.<level>
-//	a score gives a probability to such a level         answers.<name>.probabilities.<level>
+//	the answer is absent and the field is not optional  <name>
+//	the answer is of another kind than the field        <name>.type
+//	a choice picks an option T does not list            <name>.choice
+//	a choice gives a probability to such an option      <name>.probabilities.<option>
+//	a score's legend has a level beyond T's levels      <name>.legend.<level>
+//	a score gives a probability to such a level         <name>.probabilities.<level>
+//
+// A failure of the response as a whole, a missing model or usage or an
+// answer without a type, comes from the decoder before T is filled, at the
+// decoder's own path, such as usage or answers.spam.noul, as in Python,
+// which validates the base model's fields first.
 //
 // A choice's options and a score's levels are the ones T's tag lists: a
 // level counts from zero, so a score with three levels has the levels 0, 1
 // and 2, and a level is written in decimal in the path. An option or a
 // level the answer does not mention, and the score's value, are not
 // checked. Python checks an option only when the response model's own type
-// says so, with a Literal; it reports the choice above at "tone.choice" for
-// a SystemOneResponse subclass, which lifts each answer out of "answers",
-// and at "answers.tone.choice" for a model that keeps them there, as T
-// does.
+// says so, with a Literal, and then reports the pick at "tone.choice", as
+// DecodeAs does.
 //
 // The error carries resp's HTTP metadata: its status, header, request id
 // and body when resp came from a request, and none of them when it was read
@@ -231,9 +233,35 @@ func undeclaredLevel(a *wire.ScoreAnswer, levels uint64) (at codec.FieldPath, ba
 // typedError returns the *ResponseValidationError for the answer called
 // name that does not fit its field: at is the path below the answer (its
 // Member and Key; the rest is filled in here), reason why it does not fit.
-// The error carries resp's HTTP metadata and endpoint; r redacts its header,
-// and the names in its path ([newResponseValidationError]).
+// The error carries resp's HTTP metadata and endpoint; r redacts its header
+// ([newResponseValidationError]). The decode error it wraps keeps the
+// answer's place in the body, under "answers"; its FieldPath is the lifted
+// form of that path, as newResponseValidationError left it
+// ([typedFieldPath]).
 func typedError(resp *SystemOneResponse, endpoint string, r headerRedactor, name string, at codec.FieldPath, reason error) *ResponseValidationError {
 	at.Top, at.Name, at.HasName = "answers", name, true
-	return newResponseValidationError(&resp.meta, endpoint, r, &codec.DecodeError{Path: at, Err: reason})
+	de := &codec.DecodeError{Path: at, Err: reason}
+	e := newResponseValidationError(&resp.meta, endpoint, r, de)
+	e.FieldPath = typedFieldPath(de.Path)
+	return e
+}
+
+// typedFieldPath renders p, the path in the body of an answer that does not
+// fit its field, as the Python SDK names it in a response model that lifts
+// each answer out of "answers" (ruling R99-rev): the answer's name, then
+// the member and the key, such as "tone.choice" or "quality.legend.3". The
+// name and the key are escaped and cut as [renderFieldPath] writes the
+// decoder's.
+func typedFieldPath(p codec.FieldPath) string {
+	t := pathText{limit: maxPathChars}
+	t.name(p.Name)
+	if p.Member != "" {
+		t.fixed(".")
+		t.fixed(p.Member)
+	}
+	if p.HasKey {
+		t.fixed(".")
+		t.name(p.Key)
+	}
+	return string(t.b)
 }
