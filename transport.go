@@ -197,8 +197,7 @@ func WithRoundTripper(rt http.RoundTripper) ClientOption {
 // [WithHTTPTransport]'s clone) lets one request at a time write its headers,
 // and a request's hooks run while it holds that turn, the first request on
 // a new connection until its response headers arrive. How long a hook that
-// blocks holds every other call on the client depends on where it blocks,
-// whatever the calls' deadlines, [WithNoTimeout] included:
+// blocks holds every other call on the client depends on where it blocks:
 //
 //   - In GotConn or a later hook, until its response headers: for up to
 //     the connect timeout plus the TLS handshake timeout (20 s by default),
@@ -206,6 +205,11 @@ func WithRoundTripper(rt http.RoundTripper) ClientOption {
 //   - In GetConn, while the client has no connection yet: for up to the
 //     wait for its first connection (the same two timeouts, and a proxy's
 //     CONNECT and handshake when a proxy may apply) plus the bound above.
+//   - In GetConn, once the client has its connection: until the hook
+//     returns, past the other calls' own deadlines. net/http calls GetConn
+//     with its connection pool's lock held (risk K28), so a call that has
+//     waited out the bound above then waits for that lock, which its
+//     context cannot interrupt.
 //   - In the DNS, connect or TLS handshake hooks of its request's new
 //     connection: until the hook returns. The transport keeps one
 //     connection per host, so the other calls wait for that one until their
@@ -213,7 +217,8 @@ func WithRoundTripper(rt http.RoundTripper) ClientOption {
 //     the TLS handshake timeout only after TLSHandshakeStart.
 //
 // The shield above covers a panic; the bound covers a hook that blocks once
-// its request has a connection, not one that blocks the dial.
+// its request has a connection, except GetConn on a client that has one,
+// and not one that blocks the dial.
 func WithClientTrace(trace *httptrace.ClientTrace) ClientOption {
 	return func(o *options) {
 		if trace == nil {

@@ -119,6 +119,11 @@
 //     the gate's wait bound (waitBound: the dial and the handshake, and the
 //     CONNECT exchange and the proxy's handshake when a proxy may apply)
 //     plus the hold bound.
+//   - In GetConn on a warm transport: net/http's connection pool mutex,
+//     which it holds while it calls GetConn on a warm HTTP/2 connection
+//     (K28, above). A request that leaves send at the hold bound then blocks
+//     on that mutex, which neither the bound nor its own context can end, so
+//     the others wait until the hook returns, past their deadlines.
 //   - In a new connection's DNS, connect or TLS hooks (DNSStart,
 //     ConnectStart, TLSHandshakeStart): that connection, the only one
 //     MaxConnsPerHost 1 allows, for which net/http's per-host wait is

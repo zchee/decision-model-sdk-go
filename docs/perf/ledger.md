@@ -5896,3 +5896,18 @@ guard fails it if it reads too few files. Test-only.
 | # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | W6-fixes-21 | 2026-09-27 05:11:05 JST | W6-fixes 5: the seam mutants | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | `python3 scripts/c5-seam-mutants.py <this commit's tree> <work dir>` (each mutant in a copy; `go test -count=1 -run '^TestSeam' ./internal/codec/` and `go test -count=1 -run '^TestStoreWritesTyped$' .`); then review V70's S7b planted at 8aeb138 (commit 4, this commit's parent) under `go vet ./...` and the same seam tests | 15 of 15 killed by the named test: V70's S7b (a new codec file writing through `reflect.NewAt(…, field.Addr().UnsafePointer())` with no `unsafe` import, called from `decodeas.go`), the critic's S7 (a raw-write helper in `nocopy.go`), a blank `unsafe` import in `validate.go` and a `reflect.Value.UnsafeAddr` in `validate_amd64.go` (not built on arm64) by `TestSeamCodecUnsafeIsNoCopyString`; V68's M1–M7 and V63's S1–S5 by `TestSeamRootRawPointers`, V63's S6 by `TestStoreWritesTyped`; the control (a raw pointer in a codec test file) passes; at 8aeb138 S7b passes vet and all 12 seam tests | `results/c5-seam-mutants-M.txt` |
+
+### A warm client's GetConn hook (commit 6; V73 MINOR 1)
+
+`WithClientTrace`'s godoc and `internal/h2gate`'s package doc gain a fourth
+place a blocking hook can hold the other calls: GetConn on a client that
+already has its connection, which net/http calls with its connection
+pool's lock held (K28), so a call that waits out the token bound then waits
+for that lock past its own deadline (the reviewer's probe: a call with a
+1.5 s deadline returned at 3.9 s). `WithClientTrace`'s preamble drops
+"whatever the calls' deadlines", and its closing sentence names the
+exception. Documentation only.
+
+| # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| W6-fixes-22 | 2026-09-27 05:12:23 JST | W6-fixes 6: the `go doc` diff | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | `diff <(go doc -all <pkg> at the parent) <(go doc -all <pkg> here)` for `.` and `./internal/h2gate` | root: the preamble's line, the new GetConn bullet and the closing sentence; `internal/h2gate`: the new bullet; nothing else | `results/c6-godoc-M.txt` |
