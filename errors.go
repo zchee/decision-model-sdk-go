@@ -369,12 +369,19 @@ func newResponseValidationError(meta *wire.ResponseMeta, endpoint string, r head
 	if de, ok := errors.AsType[*codec.DecodeError](err); ok {
 		path = de.Path
 	}
+	return newResponseValidationErrorAt(meta, endpoint, r, err, renderFieldPath(path))
+}
+
+// newResponseValidationErrorAt is [newResponseValidationError] with the field
+// path already rendered, as fieldPath, for a caller that renders it its own
+// way ([typedError]) and so renders it once.
+func newResponseValidationErrorAt(meta *wire.ResponseMeta, endpoint string, r headerRedactor, err error, fieldPath string) *ResponseValidationError {
 	return &ResponseValidationError{
 		StatusCode: meta.Status,
 		Header:     r.header(meta.Header),
 		Body:       meta.Body,
 		Endpoint:   endpoint,
-		FieldPath:  renderFieldPath(path),
+		FieldPath:  fieldPath,
 		err:        err,
 	}
 }

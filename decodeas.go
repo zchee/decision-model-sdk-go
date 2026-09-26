@@ -240,12 +240,11 @@ func undeclaredLevel(a *wire.ScoreAnswer, levels uint64) (at codec.FieldPath, ba
 // The error carries resp's HTTP metadata and endpoint; r redacts its header
 // ([newResponseValidationError]). The decode error it wraps keeps the
 // answer's place in the body, under "answers"; its FieldPath is that
-// path's lifted form ([typedFieldPath]).
+// path's lifted form ([typedFieldPath]), rendered once (review-w4.2 NIT F:
+// the decoder's form was rendered first and then replaced).
 func typedError(resp *SystemOneResponse, endpoint string, r headerRedactor, name string, at codec.FieldPath, reason error) *ResponseValidationError {
 	at.Top, at.Name, at.HasName = "answers", name, true
-	e := newResponseValidationError(&resp.meta, endpoint, r, &codec.DecodeError{Path: at, Err: reason})
-	e.FieldPath = typedFieldPath(at)
-	return e
+	return newResponseValidationErrorAt(&resp.meta, endpoint, r, &codec.DecodeError{Path: at, Err: reason}, typedFieldPath(at))
 }
 
 // typedFieldPath renders p, the path in the body of an answer that does not

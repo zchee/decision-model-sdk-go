@@ -173,6 +173,7 @@ jobs:
             TestMemStatsCap          # AC-P5 (W2.3)
             TestAllocResponseJSON    # response payloads (W2.4)
             TestAllocTypedDecode     # AC-P3 (W4.2)
+            TestAllocTypedFailure    # a typed failure's error, its path rendered once (W5.3)
             TestAllocLoggedCall      # what logging costs a call (W3.3, ruling R102)
             TestAllocRequestID       # a logged request id's cost (R103 revert)
             TestAllocSecretHeaderName # redaction by name without a copy (W5.3)

@@ -17,6 +17,7 @@
 package typesafe
 
 import (
+	"errors"
 	"net/http"
 	"testing"
 
@@ -103,5 +104,33 @@ func TestAllocTypedDecode(t *testing.T) {
 	}
 	if ask.Mallocs != call.Mallocs+typedDecode.Mallocs {
 		t.Errorf("Ask allocations = %d, want exactly SystemOne's %d plus DecodeAs's %d: Ask adds nothing to a call (AC-P6)", ask.Mallocs, call.Mallocs, typedDecode.Mallocs)
+	}
+}
+
+// failToneAnswers is reviewAnswers's tone with options result.json's
+// "friendly" is not one of, so DecodeAs of result.json fails on it.
+type failToneAnswers struct {
+	Tone ChoiceAnswer `typesafe:"kind=choice;name=tone;instructions=Tone?;options=calm|hostile"`
+}
+
+// TestAllocTypedFailure pins what a typed failure costs (W5.3, review-w4.2
+// NIT F): DecodeAs of result.json into failToneAnswers fails at
+// "tone.choice", and its *ResponseValidationError renders that path once,
+// where it rendered the decoder's form and then replaced it: 9 allocations
+// before, 5 now. The response is UnmarshalJSON's, whose Meta has no header,
+// so the count is the error's alone.
+func TestAllocTypedFailure(t *testing.T) {
+	var resp SystemOneResponse
+	if err := resp.UnmarshalJSON(testsupport.Fixture(t, "result.json")); err != nil {
+		t.Fatal(err)
+	}
+	_, err := DecodeAs[failToneAnswers](&resp)
+	if ve, ok := errors.AsType[*ResponseValidationError](err); !ok || ve.FieldPath != "tone.choice" {
+		t.Fatalf("DecodeAs error = %v, want a *ResponseValidationError at tone.choice", err)
+	}
+	n := testing.AllocsPerRun(100, func() { _, err = DecodeAs[failToneAnswers](&resp) })
+	t.Logf("TYPED failure at tone.choice: %v allocations", n)
+	if n != 5 {
+		t.Errorf("a typed failure allocates %v times, want 5 (its path rendered once)", n)
 	}
 }
