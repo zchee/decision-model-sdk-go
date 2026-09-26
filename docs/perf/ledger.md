@@ -3961,3 +3961,261 @@ these rows are the last.
 2. **`Ask` adds nothing to a call beyond `DecodeAs`** (AC-P6, R77/R28):
    23 = 22 + 1 on both hosts. `PreparedFor[T]` is a cache hit (W4.1: 0
    allocations) and the call options pass through.
+
+## W4.3: S-D2 (how the typed decode stores an answer) and `PreparedFor`'s first call
+
+W4.3 measures, without changing a production file, what section 6.6
+asks of spike S-D2 (does `DecodeAs`'s reflect-only store cost more than
+twice a store through `unsafe` field offsets?), what the first
+`PreparedFor[T]` call for a type allocates, and AC-P3's typed-decode row
+again at the base. The code is `_spikes/w4.3/` (package `sd2`), outside
+`./...` and the seam test's `unsafe` rule. Its decodes are replicas of
+the root package's `typedPlan.decode`, with the same plan cache keyed by
+`reflect.Type`, the same `wire.Answers.Get` lookup, and the same kind,
+option and level checks, on answer types laid out as the root package's.
+They differ only in how an answer reaches its field:
+
+- **(1) `1-reflect-addr`**, the store as built:
+  `v.Field(i).Addr().Interface()` type-asserted to the answer type's
+  pointer. The `T` moves to the heap, because `reflect.ValueOf(&t)` lets
+  it escape.
+- **(2) `2-unsafe-offset`**: the field's `reflect.StructField.Offset`,
+  taken once per type, and a store through `unsafe.Add(unsafe.Pointer(&t),
+  off)`. The `T` stays on the stack (`-gcflags=-m`: `base does not
+  escape`).
+- **(3) `3-reflect-set`**: `v.Field(i).Set(reflect.ValueOf(answer))`, which
+  boxes each answer as well.
+- **(2h) `2h-unsafe-offset-heap`**, a diagnostic and not a candidate:
+  (2) with the `T` forced onto the heap, as (1) puts it there. (1) − (2h)
+  is the reflect work per field; (2h) − (2) is the allocation of the `T`
+  and the collector's share of it.
+
+`0-DecodeAs` is `typesafe.DecodeAs` itself, over the response of a
+`SystemOne` call over the Recorder with the same question set. It is
+measured beside the replicas. `TestVariantsAgree` checks that every
+replica decodes each fixture into the value `DecodeAs` returns, field
+for field, the unexported answer and presence bit included.
+`TestReplicasRefuse` checks that the replicas refuse what `DecodeAs`
+refuses (seven cases). `TestSD2Allocs` checks that (1) and (2h) allocate
+exactly what `DecodeAs` allocates, that (2) allocates nothing and that (3)
+allocates the `T` and one boxed answer per field. The fixtures are
+`result.json` (3 answers), `result-20.json` (7 noul, 7 choice, 6 score)
+and `structured-legend-flood-1k.json` (a score with 1 000 levels, whose
+legend and probabilities the level check walks), typed with the root
+tests' own tags.
+
+`PreparedFor`'s first call for a type is counted by
+`TestPreparedForFirstCall`. Each run is a fresh child process, the test
+binary run again with only `TestFirstCallChild`. The child makes one
+`PreparedFor` call for a warm-up type, then counts the first and the
+second call for the measured type with `runtime.ReadMemStats` deltas
+(collector off, `GOMAXPROCS(1)`). There are five children per type, and
+the result is the minimum that three of them share. `testing.AllocsPerRun`
+cannot count a first call, because its warm-up call is the first call. A
+fresh type per run in one process would not cost the same on each run:
+the plan cache is a `sync.Map`, whose hash trie
+(`GOROOT/src/internal/sync/hashtriemap.go:167-190`) allocates a new
+16-way node (160 B) when a new key's hash shares its top bits with a
+cached key's, and that becomes likelier with every type already cached.
+In a child only the warm-up type is cached, so this happens in about one
+first call in 16. The measured types are `one`, W1.3's `c2-noul-short`
+set as a struct (`Spam NoulAnswer` with `name=spam;instructions=Spam?`),
+`ticket` (the plan's section 5 `Ticket`, as the root tests spell it),
+`ten` (the first ten questions of `result-20.json`) and `twenty` (all
+twenty). Each is compared with the same set built by hand with the
+builder and prepared (`NewQuestions()…Prepare()` in the measured
+section) and with `Prepare()` alone (W1.3's method, the builder outside
+the measured section). `TestShapesMatchByHand` checks that each typed set
+is byte for byte the hand-built one. The `PROFILE` step of the series
+runs one child for `twenty` with every allocation sampled from the end
+of the warm-up call to the end of the first call, and prints
+`go tool pprof -sample_index=alloc_objects -lines -top`.
+
+Commands use `R=_spikes/s-c1/run.sh` (W0.5's runner),
+`S=_spikes/w4.3/series.sh` (the three measurements, each an `$R`
+invocation with its own lock hold, then the optional profile under the
+lock), `O=_spikes/w4.3/results`, the lead's `SP` (whose `bench.lock` the
+lanes share) and the base d7a5968: main 7778166 with W4.2 at 61bd3da and
+this wave's two spike commits. W4.2 then landed as 9c61db9, and the
+branch was rebased onto it with `--onto 61bd3da`: 1839eb1 became
+e27fe56 and d7a5968 became 6c65b9c. `_spikes/w4.3` is unchanged by the
+rebase. Main's Go files differ from 61bd3da only in a godoc sentence of
+`errors.go` and a new test in `decodeas_test.go`; `decodeas.go` and
+`typed.go` are byte-identical, so the rows hold for 6c65b9c. (L) ran
+the tree `git archive d7a5968` wrote, piped over ssh to
+`/tmp/ts-spike/src-w4.3`,
+with the section 11 toolchain and caches under `/tmp/ts-spike` and no
+`GOEXPERIMENT`, under `flock /tmp/ts-spike/bench.lock`. (M) ran the
+worktree at d7a5968 with `GOEXPERIMENT=nosimd,noruntimesecret` under
+`/opt/homebrew/opt/util-linux/bin/flock $SP/bench.lock`. The (L) series
+ran first. Times are the minimum of five `b.Loop()` runs (`-count=5`,
+collector on). `benchstat` summaries are in `results/benchstat-{M,L}.txt`,
+where five samples print `± ∞`. The tables under
+[W4.3 tables](#w43-tables) were printed by
+`_spikes/w4.3/render.py _spikes/w4.3/results`, which also checks that
+(M) and (L) agree in every allocation count. One deviation, accepted by
+R112 and not of record: while (2h) was being added, a
+`-benchtime=2000x` smoke run of `BenchmarkSD2` (about 5 ms) ran on (M)
+outside the lock, between 15:43:56 JST (the end of W4.3-09) and 15:46:06
+JST (the start of W4.3-11's second `-race` run). No row uses it.
+
+| # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| W4.3-01 | 2026-09-26 06:46:42 UTC | W4.3 S-D2 ns/op | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.06 → 0.62 | `MAXLOAD=44 PROFILE=1 TMP=/tmp/ts-spike/w4.3-tmp sh $S '(L)' $O /tmp/ts-spike/bench.lock d7a5968 L`, first invocation: `go test -run '^$' -bench '^BenchmarkSD2$' -benchmem -count=5 ./_spikes/w4.3/` | min of 5, ns/op, in the order DecodeAs, (1), (2), (2h), (3): `result.json` 185.7, 173.5, 72.71, 132.8, 273.5; `result-20.json` 1 187, 1 117, 619.2, 873.4, 1 814; flood-1k 1 365, 961.2, 874.3, 928.1, 1 067. (1)/(2) = 2.39×, 1.80×, 1.10×; DecodeAs/(2) = 2.55×, 1.92×, 1.56×. [W4.3 tables](#w43-tables) | load gate 44, waited 0; `results/bench-L.txt`, `results/benchstat-L.txt` |
+| W4.3-02 | 2026-09-26 06:48:11 UTC | W4.3 S-D2 allocations; `PreparedFor` first calls | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.62 → 0.62 | second invocation of `MAXLOAD=44 PROFILE=1 TMP=/tmp/ts-spike/w4.3-tmp sh $S '(L)' $O /tmp/ts-spike/bench.lock d7a5968 L`: `go test -count=1 -run '^(TestVariantsAgree\|TestReplicasRefuse\|TestShapesMatchByHand\|TestSD2Allocs\|TestPreparedForFirstCall)$' -v ./_spikes/w4.3/` | S-D2 mallocs/B: DecodeAs = (1) = (2h) = 1/144 (`result-20.json` 1/1024), (2) 0/0, (3) 4/304 (`result-20.json` 21/2064). First `PreparedFor` call: `one` 8/800, `ticket` 24/4720, `ten` 63/20328, `twenty` 114/41704; the second call 0/0 for each. Built by hand and prepared: 5/600, 11/3688, 25/15808, 40/32176. `Prepare()` alone: 3/224, 5/928, 13/2888, 20/5640. Warm-up call (the process's first) 9/944. [W4.3 tables](#w43-tables) | agreement tests pass; S-D2 counts 5/5 runs agree; first calls 5/5 agree on (L); `results/alloc-L.txt` |
+| W4.3-03 | 2026-09-26 06:48:12 UTC | W4.3 AC-P3 and the `Ask` row at the base (deliverable C) | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.62 → 0.62 | third invocation of `MAXLOAD=44 PROFILE=1 TMP=/tmp/ts-spike/w4.3-tmp sh $S '(L)' $O /tmp/ts-spike/bench.lock d7a5968 L`: `go test -count=1 -run '^TestAllocTypedDecode$' -v .` | `result.json` (364 B): Answers() decode 4/688 B; `DecodeAs[reviewAnswers]` 1/144 B; `SystemOne` 22/2648 B; `Ask[reviewAnswers]` 23/2792 B | identical to W4.2-02; `results/typed-L.txt` |
+| W4.3-04 | 2026-09-26 06:48:12 UTC | W4.3 first-call allocation sites of `twenty` | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | not recorded by the step (W4.3-03 read 0.62 in the same second) | the `PROFILE` step: `go test -c -trimpath`, then `SD2_FIRST_CALL=twenty SD2_FIRST_CALL_PROFILE=… sd2.test -test.run='^TestFirstCallChild$'`, then `go tool pprof -sample_index=alloc_objects -lines -top` | the 114 allocations of `twenty`'s first call, by source line: the same lines and counts as W4.3-08 | call-site attribution, not a count of record; the profile's other 17 samples are outside the SDK (the profile write and the test harness); `results/profile-L.txt` |
+| W4.3-05 | 2026-09-26 15:48:34 JST | W4.3 S-D2 ns/op | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 5.14 → 6.42 | `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock MAXLOAD=16 PROFILE=1 TMP=<scratch> sh $S '(M)' $O $SP/bench.lock d7a5968 M`, first invocation: `go test -run '^$' -bench '^BenchmarkSD2$' -benchmem -count=5 ./_spikes/w4.3/` | min of 5, ns/op, in the order DecodeAs, (1), (2), (2h), (3): `result.json` 134.3, 122.7, 63.86, 94.89, 165.4; `result-20.json` 923.9, 838.4, 539.7, 654.1, 1 108; flood-1k 704.9, 693.7, 647.6, 674.6, 747.5. (1)/(2) = 1.92×, 1.55×, 1.07×; DecodeAs/(2) = 2.10×, 1.71×, 1.09×. [W4.3 tables](#w43-tables) | load gate 16, waited 0; not noisy; `results/bench-M.txt`, `results/benchstat-M.txt` |
+| W4.3-06 | 2026-09-26 15:50:04 JST | W4.3 S-D2 allocations; `PreparedFor` first calls | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.42 → 6.42 | second invocation of `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock MAXLOAD=16 PROFILE=1 TMP=<scratch> sh $S '(M)' $O $SP/bench.lock d7a5968 M`: `go test -count=1 -run '^(TestVariantsAgree\|TestReplicasRefuse\|TestShapesMatchByHand\|TestSD2Allocs\|TestPreparedForFirstCall)$' -v ./_spikes/w4.3/` | identical to W4.3-02 in every count and byte | 3 of the 20 first-call runs (one each for `one`, `ticket` and `ten`) cost 1 more allocation of 160 B, the trie node; the minimum is shared by 4 of 5 runs; `results/alloc-M.txt` |
+| W4.3-07 | 2026-09-26 15:50:04 JST | W4.3 AC-P3 and the `Ask` row at the base (deliverable C) | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.42 → 6.42 | third invocation of `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock MAXLOAD=16 PROFILE=1 TMP=<scratch> sh $S '(M)' $O $SP/bench.lock d7a5968 M`: `go test -count=1 -run '^TestAllocTypedDecode$' -v .` | identical to W4.3-03 | identical to W4.2-01; `results/typed-M.txt` |
+| W4.3-08 | 2026-09-26 15:50:34 JST | W4.3 first-call allocation sites of `twenty` | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | not recorded by the step (W4.3-07 read 6.42 at 15:50:05) | the `PROFILE` step: `go test -c -trimpath`, then `SD2_FIRST_CALL=twenty SD2_FIRST_CALL_PROFILE=… sd2.test -test.run='^TestFirstCallChild$'`, then `go tool pprof -sample_index=alloc_objects -lines -top` | 114 allocations by source line (at d7a5968): `typed.go:830` parseOptions 21, `typed.go:340` planField's error prefix 20, `typed.go:850` parseLevels 19, `typed.go:413` labels 7, `typed.go:414` options 7, `questions.go:309` prepareChoice 7, `typed.go:283` entries 6, `typed.go:284` fields 6, `typed.go:431` levels 6, `questions.go:324` prepareScore 6, `wire/prepared.go:103` index 4, `slices.Grow` in `Builder.Grow` 2, `questions.go:235` the `*Prepared` 1, `typed.go:301` the plan 1, `hashtriemap.go:572` the cache entry 1 | the sum is the counted 114 exactly, so no allocation went to the tiny allocator unsampled; 4 other samples are outside the SDK; `results/profile-M.txt` |
+| W4.3-09 | 2026-09-26 06:42:42 UTC | W4.3 S-D2, the first (L) series, at 1839eb1 (before (2h)) | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.00 → 1.04 | `MAXLOAD=44 sh $S '(L)' $O /tmp/ts-spike/bench.lock 1839eb1 L` (the three invocations, no profile) | (1)/(2) = 2.42×, 1.80×, 1.09× and DecodeAs/(2) = 2.62×, 1.89×, 1.53× (`result.json`, `result-20.json`, flood-1k); allocations and TYPED identical to W4.3-02/-03 | superseded by W4.3-01..04; this run's 2.42× on `result.json` is why (2h) was added; `results/{bench,alloc,typed}-L-base1839eb1.txt` |
+| W4.3-10 | 2026-09-26 06:54:42 UTC | W4.3 the two copies of `undeclaredLevel` in the spike binary | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.26 (06:53:59) | `go test -c ./_spikes/w4.3/`, `go tool objdump -s undeclaredLevel`; `perf stat` was refused (`kernel.perf_event_paranoid` = 3) | the root package's copy and the spike's have the same 89 instructions. The root package's legend loop (0x9964fe–0x996510) and probability loop (0x996578–0x99658f) each cross a 64-byte boundary; the spike's (0x9da45e–0x9da470, 0x9da4d8–0x9da4ef) do not | finding 5; `results/layout-L.txt` |
+| W4.3-11 | 2026-09-26 15:41:04 JST | gates before each commit: the section 11 chain, then `go test -race -count=1 ./...` under the lock | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 8.27 → 7.94 (1839eb1); 6.93 → 8.16 (d7a5968) | the chain as section 11 has it, with `go run golang.org/x/vuln/cmd/govulncheck@latest ./...` for govulncheck; `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=… sh $R '(M)' <scratch> $SP/bench.lock race-all-M-… -timeout 60m -race -count=1 ./...` | chain: 0 issues, no vulnerabilities; `-race`: ok in all seven packages, before 1839eb1 (15:41:04 JST) and before d7a5968 (15:46:06 JST) | the installed govulncheck is built with go1.26 and cannot load go1.27 sources, so the chain runs it with `go run`, as W5.4 did; each `-race` run was of the tree its commit then recorded, so the headers name the base as uncommitted; `results/race-all-M-1839eb1.txt`, `results/race-all-M-d7a5968.txt` |
+| W4.3-12 | 2026-09-26 16:01:02 JST | gates at 6c65b9c, the Go tree of this section's commit: the section 11 chain, then the TYPED measurement, `-race ./...` and ci.yaml's root allocation step with its `-list` guard, each under the lock | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 7.90 → 6.54 | the chain as in W4.3-11 (16:00:34 to 16:00:38 JST), then `GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh _spikes/w4.2/gates.sh '(M)' $O $SP/bench.lock 6c65b9c M-6c65b9c` | chain: 0 issues, no vulnerabilities; TYPED identical to W4.3-07; `-race`: ok in all seven packages; guard 8 names; the step ok | W4.2's committed gates script; its three invocations took the lock at 16:01:02, 16:02:03 and 16:04:06 JST, the lock being held by other lanes in between; `results/{alloc,race-all,root-alloc-step}-M-6c65b9c.txt` |
+| W4.3-13 | 2026-09-26 07:04:20 UTC | the same gates, without the chain | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.07 → 0.63 | `sh _spikes/w4.2/gates.sh '(L)' $O /tmp/ts-spike/bench.lock 6c65b9c L-6c65b9c` on the tree `git archive 6c65b9c` wrote | TYPED identical to W4.3-03; `-race`: ok in all seven packages; guard 8 names; the step ok | `results/{alloc,race-all,root-alloc-step}-L-6c65b9c.txt` |
+
+### W4.3 tables
+
+Printed by `_spikes/w4.3/render.py` from `results/bench-{M,L}.txt` and
+`results/alloc-{M,L}.txt`. In the S-D2 tables, (1) is `1-reflect-addr`,
+(2) `2-unsafe-offset`, (2h) `2h-unsafe-offset-heap` and (3)
+`3-reflect-set`; the spread is the slowest of the five runs over the
+fastest.
+
+S-D2: min ns/op of 5 (spread max/min), B/op, allocs/op
+
+| Fixture | Variant | (M) ns/op | (L) ns/op | B/op | allocs/op |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `result.json` | 0-DecodeAs | 134.3 (×1.043) | 185.7 (×1.004) | 144 | 1 |
+| `result.json` | 1-reflect-addr | 122.7 (×1.040) | 173.5 (×1.003) | 144 | 1 |
+| `result.json` | 2-unsafe-offset | 63.86 (×1.012) | 72.71 (×1.002) | 0 | 0 |
+| `result.json` | 2h-unsafe-offset-heap | 94.89 (×1.033) | 132.8 (×1.005) | 144 | 1 |
+| `result.json` | 3-reflect-set | 165.4 (×1.046) | 273.5 (×1.005) | 304 | 4 |
+| `result-20.json` | 0-DecodeAs | 923.9 (×1.045) | 1.187 µs (×1.005) | 1024 | 1 |
+| `result-20.json` | 1-reflect-addr | 838.4 (×1.137) | 1.117 µs (×1.006) | 1024 | 1 |
+| `result-20.json` | 2-unsafe-offset | 539.7 (×1.024) | 619.2 (×1.002) | 0 | 0 |
+| `result-20.json` | 2h-unsafe-offset-heap | 654.1 (×1.037) | 873.4 (×1.007) | 1024 | 1 |
+| `result-20.json` | 3-reflect-set | 1.108 µs (×1.021) | 1.814 µs (×1.008) | 2064 | 21 |
+| `structured-legend-flood-1k.json` | 0-DecodeAs | 704.9 (×1.018) | 1.365 µs (×1.005) | 144 | 1 |
+| `structured-legend-flood-1k.json` | 1-reflect-addr | 693.7 (×1.012) | 961.2 (×1.002) | 144 | 1 |
+| `structured-legend-flood-1k.json` | 2-unsafe-offset | 647.6 (×1.015) | 874.3 (×1.003) | 0 | 0 |
+| `structured-legend-flood-1k.json` | 2h-unsafe-offset-heap | 674.6 (×1.763) | 928.1 (×1.002) | 144 | 1 |
+| `structured-legend-flood-1k.json` | 3-reflect-set | 747.5 (×1.700) | 1.067 µs (×1.004) | 304 | 4 |
+
+Ratios of the minimums
+
+| Fixture | Host | (1)/(2) | DecodeAs/(2) | (3)/(2) | allocation (2h)−(2) | reflect per field ((1)−(2h))/fields |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `result.json` | (M) | 1.92× | 2.10× | 2.59× | 31.0 ns | 9.27 ns |
+| `result.json` | (L) | 2.39× | 2.55× | 3.76× | 60.1 ns | 13.57 ns |
+| `result-20.json` | (M) | 1.55× | 1.71× | 2.05× | 114.4 ns | 9.21 ns |
+| `result-20.json` | (L) | 1.80× | 1.92× | 2.93× | 254.2 ns | 12.18 ns |
+| `structured-legend-flood-1k.json` | (M) | 1.07× | 1.09× | 1.15× | 27.0 ns | 6.37 ns |
+| `structured-legend-flood-1k.json` | (L) | 1.10× | 1.56× | 1.22× | 53.8 ns | 11.03 ns |
+
+PreparedFor first call, mallocs/bytes (identical on both hosts)
+
+| Type | Fields | First call | Second call | Same set by hand (builder + Prepare) | Prepare alone | Typed extra | Per field |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `one` | 1 | 8/800 | 0/0 | 5/600 | 3/224 | 3/200 | 3.00/200.0 |
+| `ticket` | 4 | 24/4720 | 0/0 | 11/3688 | 5/928 | 13/1032 | 3.25/258.0 |
+| `ten` | 10 | 63/20328 | 0/0 | 25/15808 | 13/2888 | 38/4520 | 3.80/452.0 |
+| `twenty` | 20 | 114/41704 | 0/0 | 40/32176 | 20/5640 | 74/9528 | 3.70/476.4 |
+
+Warm-up call (the process's first PreparedFor): 9/944
+
+### W4.3 findings
+
+1. **S-D2 verdict: keep reflect (ruling R112). Per section 6.6, no
+   `unsafe` enters the root package.** Section 6.6 asks whether the
+   reflect-only store is more than twice as slow as a store through
+   field offsets, on both hosts. Compared like for like, the replica of
+   the store as built, (1), against (2) is:
+   - `result.json`: 1.92× (M), 2.39× (L);
+   - `result-20.json`: 1.55× (M), 1.80× (L);
+   - the 1k flood: 1.07× (M), 1.10× (L).
+
+   (M) is below 2× on every fixture, so the bar is not met. The rest of
+   (2)'s advantage comes from escape analysis, not from reflection: in
+   (2) the `T` stays on the stack (finding 2). `DecodeAs` runs 11.6 ns (M)
+   and 12.2 ns (L) above the replica, overhead that an offsets build
+   would keep. Such a build would come to about 75.5 ns (M) and 84.9 ns
+   (L), so today's `DecodeAs` takes 1.78× (M) and 2.19× (L) its time:
+   again one host under the bar.
+
+   Read the other way, with `DecodeAs` itself as (1), the ratios are
+   2.10× (M) and 2.55× (L) on `result.json`, 1.71× and 1.92× on
+   `result-20.json`, and 1.09× and 1.56× on the flood. Both readings are
+   recorded here so the owner sees both. The stake is small (finding 3).
+
+   R112 routes one follow-up to W5.3, best effort: the `T`'s heap
+   allocation in `DecodeAs` (1/144) is an escape, not a cost of
+   reflection, and a decode into storage the caller provides, or a
+   construction that does not let the `T` escape, could remove it
+   without `unsafe`.
+2. **Most of the difference is the allocation of the `T`, not reflection.**
+   On `result.json`, (2h) − (2) = 31.0 ns (M) and 60.1 ns (L). That is the
+   cost of allocating the 144-byte `T` plus the collector's share of it,
+   the one allocation AC-P3's pin already counts. The reflect work,
+   (1) − (2h), is 9.3 ns (M) and 13.6 ns (L) per field: `Field`, `Addr`,
+   `Interface` and the type assertion. At 20 answers the `T` is 1 KiB,
+   and allocating it costs 114 ns (M) and 254 ns (L), while the reflect
+   work stays at 9.2 ns and 12.2 ns per field. On the 1k flood, the
+   level checks walk 2 000 entries and outweigh either cost, so
+   (1)/(2) = 1.07× (M) and 1.10× (L).
+3. **What offsets would save in a call.** A q3 `Call/sdk` over the
+   Recorder takes 5.041 µs (M) and 6.176 µs (L) (W3.4's B5 table,
+   minimums). On `result.json`, offsets would save at most
+   `DecodeAs` − (2) = 70.4 ns (M) and 113.0 ns (L) per `Ask`, 1.4 % and
+   1.8 % of that call. An offsets build that keeps `DecodeAs`'s own
+   overhead would save (1) − (2) = 58.8 ns and 100.8 ns, 1.2 % and 1.6 %.
+   Over a network, either share is smaller.
+4. **(3) `reflect.Value.Set` is the slowest and allocates the most.** It
+   allocates the `T` plus one boxed answer per field (W4.2's 4/304
+   reproduced; 21/2064 at 20 answers) and runs 2.59× (M) and 3.76× (L)
+   the time of (2) on `result.json`. It stays dropped, as W4.2 left it.
+5. **`DecodeAs` against its replica.** On `result.json` and
+   `result-20.json`, `DecodeAs` runs 6–10 % slower than the replica of (1)
+   on both hosts. It passes the response, the endpoint and the header
+   redactor, which the replica does not; which of these costs the time
+   was not measured. On the 1k flood on (L), `DecodeAs` runs 404 ns (42 %)
+   slower than the replica, while on (M) the gap is 11 ns. The two
+   copies of `undeclaredLevel` in the binary have the same 89
+   instructions, but the root package's legend and probability loops
+   each cross a 64-byte boundary on (L) and the spike's do not
+   (W4.3-10). That is consistent with the cost coming from where the
+   linker placed the loops, but it is not established: `perf` counters
+   were refused on (L). So `DecodeAs/(2)` on the flood on (L), 1.56×,
+   measures loop placement rather than the store. The replica-to-replica
+   ratio (1)/(2) is the comparison of the store.
+6. **`PreparedFor`'s first call** costs 3.0–3.8 more allocations and
+   200–476 B more per field than building and preparing the same set by
+   hand. In allocations, that is 2.7× (`one`) to 5.7× (`twenty`) the
+   cost of `Prepare()` alone. The second call allocates nothing (W4.1's
+   cache pin holds). Of `twenty`'s 74 extra allocations:
+   - 20 are the error prefix `planField` builds for every field
+     (`typed.go:340`), which is used only when the field is refused.
+   - 40 are the growth of `parseOptions`' and `parseLevels`' slices,
+     which are appended from nil: 2 to 4 per choice or score.
+   - 7 are the `labels` copy per choice, made for the repeat check.
+   - 6 are the growth of the plan's `fields` slice.
+   - 1 is the plan itself, and 1 the cache entry.
+
+   That is 75. The hand-built path makes one allocation the typed path
+   does not, `NewQuestions()`'s `*Questions`, because `buildPlan` keeps
+   its `Questions` on the stack; 75 − 1 = 74. Everything else, the
+   option and level tables (13), the entries' growth (6) and `Prepare`'s
+   own 20, is made by the builder path as well. Against W1.3 (R51):
+   `one`'s `Prepare()` alone is 3/224, W1.3-01's "one noul"
+   (`c2-noul-short`), so `Prepare` has not moved since b227e5b for that
+   set. W1.3's `c1-sketch` (9/1 016) holds a raw question and is not
+   `ticket`'s set, whose `Prepare()` alone is 5/928. A W5.3 note, since
+   each cost is paid once per type per process: building the error
+   prefix only when a field is refused saves 1 allocation per field, and
+   sizing the option and level slices from a count of separators saves 1
+   to 3 per choice or score.
+7. **AC-P3 and `Ask` at the base (deliverable C): unchanged on both
+   hosts.** `DecodeAs` 1/144 against 4/688 for the `Answers()` decode;
+   `Ask` 23/2792 = `SystemOne` 22/2648 + 1. No pin moved, so no test was
+   changed (deliverable D), and ci.yaml is untouched.
