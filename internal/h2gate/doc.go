@@ -97,6 +97,22 @@
 // (K28c), recovers inside it and panics again on the calling goroutine once
 // RoundTrip has returned.
 //
+// # Caller hooks that block
+//
+// A caller's hooks run while their request holds the header-write token:
+// every hook from GetConn to WroteHeaders (a new connection's DNS, connect
+// and TLS hooks included), and, under FirstHold, every hook until the
+// response headers. A hook that blocks
+// holds the token, so every other request on the transport waits for it in
+// send, bounded only by its own context; the FirstHold bound is armed at
+// WroteHeaders and does not reach a hook that blocks before it, and a
+// caller with no deadline (the root package's WithNoTimeout) waits without
+// a bound (risk K28d, ruling R85; verifier finding F-2). The root package's
+// WithClientTrace documents the contract, hooks must return promptly; the
+// shield above covers panics and ordering, not a hook that never returns.
+// Bounding the token wait by the hold bound, with a fall-through to the
+// stock transport, is owed to W6.1.
+//
 // # Logging
 //
 // The transport logs its events to [Config.Logger] (section 6.3

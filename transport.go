@@ -192,6 +192,14 @@ func WithRoundTripper(rt http.RoundTripper) ClientOption {
 // request once net/http has returned (any response body is closed first). A
 // hook that panics after the call has returned is recovered and logged at
 // WARN.
+//
+// Hooks must return promptly. The SDK's own transport (the default one and
+// [WithHTTPTransport]'s clone) lets one request at a time write its headers,
+// and a request's hooks run while it holds that turn, the first request on
+// a new connection until its response headers arrive: a hook that blocks,
+// in GotConn for example, stalls every other call on the client until each
+// call's own deadline, and without a bound under [WithNoTimeout]. The
+// shield above covers a panic, not a hook that does not return.
 func WithClientTrace(trace *httptrace.ClientTrace) ClientOption {
 	return func(o *options) {
 		if trace == nil {
