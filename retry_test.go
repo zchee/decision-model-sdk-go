@@ -418,7 +418,7 @@ func TestRetryPolicyDefaults(t *testing.T) {
 			if got := r.delay(1, errors.New("no response")); got != 500*time.Millisecond {
 				t.Errorf("first backoff = %v, want 500ms", got)
 			}
-			if p.ignoreRetryAfter || p.noConnection || p.noTimeout || p.predicate != nil || p.unbounded || p.set != 0 {
+			if p.ignoreRetryAfter || p.noConnection || p.noTimeout || p.rules != nil || p.unbounded || p.set != 0 {
 				t.Errorf("policy %+v, want every setting at its default", *p)
 			}
 			if err := p.check(); err != nil {
@@ -439,7 +439,7 @@ func TestRetryPolicyDefaults(t *testing.T) {
 	codes := []int{503, 409, 409}
 	s := DefaultRetry().Statuses(codes...)
 	codes[0] = 200
-	if diff := gocmp.Diff([]int{409, 503}, s.statuses); diff != "" {
+	if diff := gocmp.Diff([]int{409, 503}, s.rules.statuses); diff != "" {
 		t.Errorf("Statuses kept (-want +got):\n%s", diff)
 	}
 	if none := DefaultRetry().Statuses(); none.retriesStatus(503) || none.retriesStatus(429) {

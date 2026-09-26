@@ -107,11 +107,13 @@ type RetryPolicy struct {
 	initial    time.Duration
 	maximum    time.Duration
 	jitter     float64
-	// statuses is sorted and holds each status once; copies of the policy
-	// share it, and nothing writes to it after Statuses made it.
-	statuses  []int
-	predicate func(error) bool
-	budget    time.Duration
+	// rules holds the statuses and the predicate, the settings a policy
+	// seldom carries, behind one pointer, so that the policy every call's
+	// options hold by value is 56 bytes, not 80 (ruling R97-corr (c), W5.3);
+	// nil holds neither. Copies of the policy share it; Statuses and
+	// Predicate replace it with a new one, and nothing writes to it after.
+	rules  *retryRules
+	budget time.Duration
 	// set marks the settings whose fields replace DefaultRetry's values;
 	// the fields of the others are not read.
 	set retrySetting
@@ -122,6 +124,23 @@ type RetryPolicy struct {
 	noConnection     bool
 	noTimeout        bool
 	unbounded        bool
+}
+
+// retryRules are a [RetryPolicy]'s statuses and predicate.
+type retryRules struct {
+	// statuses is sorted and holds each status once.
+	statuses  []int
+	predicate func(error) bool
+}
+
+// withRules returns a copy of p's rules, or new empty ones, for Statuses or
+// Predicate to change and store in place of p's.
+func (p *RetryPolicy) withRules() *retryRules {
+	r := new(retryRules)
+	if p.rules != nil {
+		*r = *p.rules
+	}
+	return r
 }
 
 // retrySetting is a set of [RetryPolicy] settings, one bit each.
@@ -176,7 +195,9 @@ func (p RetryPolicy) Backoff(initial, maximum time.Duration, jitter float64) Ret
 func (p RetryPolicy) Statuses(codes ...int) RetryPolicy {
 	s := slices.Clone(codes)
 	slices.Sort(s)
-	p.statuses = slices.Clip(slices.Compact(s))
+	r := p.withRules()
+	r.statuses = slices.Clip(slices.Compact(s))
+	p.rules = r
 	p.set |= setStatuses
 	return p
 }
@@ -212,7 +233,9 @@ func (p RetryPolicy) TimeoutErrors(retry bool) RetryPolicy {
 // retried. The Python SDK's exceptions setting has no counterpart: accept
 // can test an error's type with [errors.As].
 func (p RetryPolicy) Predicate(accept func(err error) bool) RetryPolicy {
-	p.predicate = accept
+	r := p.withRules()
+	r.predicate = accept
+	p.rules = r
 	return p
 }
 
@@ -273,7 +296,11 @@ func (p *RetryPolicy) retriesStatus(status int) bool {
 	case p.set&setStatuses == 0:
 		return status == http.StatusRequestTimeout || status == http.StatusTooManyRequests || (status >= 500 && status <= 599)
 	}
-	_, found := slices.BinarySearch(p.statuses, status)
+	var statuses []int
+	if p.rules != nil {
+		statuses = p.rules.statuses
+	}
+	_, found := slices.BinarySearch(statuses, status)
 	return found
 }
 
@@ -294,7 +321,7 @@ func (p *RetryPolicy) retryable(err error) bool {
 	case *APIError:
 		builtin = p.retriesStatus(e.StatusCode)
 	}
-	return builtin || (p.predicate != nil && p.predicate(err))
+	return builtin || (p.rules != nil && p.rules.predicate != nil && p.rules.predicate(err))
 }
 
 // retryState is one call's progress through its policy: the loop of a call
