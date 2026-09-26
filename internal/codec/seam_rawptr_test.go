@@ -88,6 +88,54 @@ func rawPointerUses(fset *token.FileSet, f *ast.File) []string {
 	return uses
 }
 
+// TestSeamCodecUnsafeIsNoCopyString bounds internal/codec's use of unsafe
+// to NoCopyString (critic-p5 m-2, condition C3). The raw-pointer rule of
+// TestSeamRootRawPointers exempts internal/codec, and TestSeamOneUnsafeFile
+// counts the package's unsafe importers, one, nocopy.go, but not what that
+// file does: a raw-write helper added there and called from the root
+// package would write through a raw pointer outside decodeas_store.go and
+// pass both. So nocopy.go must declare exactly one thing, the function
+// NoCopyString, and reach a raw pointer only through unsafe.String and
+// unsafe.SliceData. It runs in the lint job's internal/codec seam tests
+// step (go test -run 'Seam') on ubuntu-26.04 and in CI's -race test step on
+// ubuntu-26.04, xcode-27 and windows-2025.
+func TestSeamCodecUnsafeIsNoCopyString(t *testing.T) {
+	mod := findModule(t)
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, filepath.Join(mod.root, "internal", "codec", "nocopy.go"), nil, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decls []string
+	for _, d := range f.Decls {
+		switch d := d.(type) {
+		case *ast.FuncDecl:
+			if d.Recv != nil {
+				decls = append(decls, "method "+d.Name.Name)
+			} else {
+				decls = append(decls, "func "+d.Name.Name)
+			}
+		case *ast.GenDecl:
+			if d.Tok != token.IMPORT {
+				decls = append(decls, fmt.Sprintf("%s at line %d", d.Tok, fset.Position(d.Pos()).Line))
+			}
+		}
+	}
+	if want := []string{"func NoCopyString"}; !slices.Equal(decls, want) {
+		t.Errorf("internal/codec/nocopy.go declares %q, want only %q", decls, want)
+	}
+	var routes []string
+	for _, use := range rawPointerUses(fset, f) {
+		_, what, _ := strings.Cut(use, ": ")
+		routes = append(routes, what)
+	}
+	slices.Sort(routes)
+	routes = slices.Compact(routes)
+	if want := []string{"selector SliceData", "unsafe.String"}; !slices.Equal(routes, want) {
+		t.Errorf("internal/codec/nocopy.go reaches raw pointers through %q, want only %q (unsafe.String over unsafe.SliceData)", routes, want)
+	}
+}
+
 // isPointerCall reports whether e is a call of a method named Pointer
 // without arguments, as reflect.Value.Pointer is called.
 func isPointerCall(e ast.Expr) bool {
