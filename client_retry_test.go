@@ -165,11 +165,19 @@ func TestConnectionErrorsRetried(t *testing.T) {
 			srv.CloseConns()
 			hold(r, release)
 		}
-		// closedAfterGoAway checks the first n connections the server
-		// closed after a GOAWAY, by the server's sequence numbers (K29,
-		// K33): the GOAWAY frame, then close_notify and FIN, then the end
-		// of the client's side read, then the socket's close, so the client
-		// read the GOAWAY before the server closed.
+		// closedAfterGoAway checks the close records of the first n
+		// connections, each ended by goAwayAfterWrite, by the server's
+		// sequence numbers (K29), in the terms of internal/h2gate's
+		// closedGracefully (rulings K33, K34, R100): the GOAWAY frame, then
+		// the server's close_notify and FIN, then the reader's read of the
+		// end of the client's side, then the socket's close (0 < GoAwaySeq <
+		// CloseWriteSeq < PeerClosedSeq < ClosedSeq). The server necessarily
+		// closes first on this path, so client-first is not allowed: the
+		// GOAWAY's LastStreamID is the held stream, which net/http leaves
+		// open, and a connection with an open stream is never closed as
+		// idle, so the client waits for the response until CloseConns ends
+		// the call in flight, as in the K33 row of
+		// TestTransportErrorsBecomeConnectionOrTimeout.
 		closedAfterGoAway := func(t *testing.T, srv *testsupport.LoopbackServer, n int) {
 			t.Helper()
 			var conns []testsupport.ConnInfo
@@ -190,6 +198,7 @@ func TestConnectionErrorsRetried(t *testing.T) {
 				if !ordered {
 					t.Errorf("connection %d close records %+v, want GOAWAY < close_notify and FIN < the client's close < the socket's close", ci.Index, ci)
 				}
+				t.Logf("connection %d close records %+v", ci.Index, ci)
 			}
 		}
 		tests := map[string]struct {
