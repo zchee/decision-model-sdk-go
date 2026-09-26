@@ -16,6 +16,7 @@ package typesafe
 
 import (
 	"bytes"
+	"errors"
 	"maps"
 	"net/http"
 	"slices"
@@ -191,6 +192,100 @@ func TestAllocDecodeFixturesFunctional(t *testing.T) {
 	}
 	if diff := gocmp.Diff(slices.Sorted(maps.Keys(decodeAllocs)), decoded); diff != "" {
 		t.Errorf("the fixtures that decode differ from decodeAllocs's keys (-decodeAllocs +decoded):\n%s", diff)
+	}
+}
+
+// TestAllocWholeCallFunctional is the functional half of
+// TestAllocWholeCall: the floor it subtracts is the call's own request.
+// For q3 and q20, the floor's prebuilt request (floorRequest, sent with
+// testsupport.FloorCall) and the request the call's first attempt sends
+// reach the Recorder with the same method, URL, Host, headers, body and
+// declared length, and the call returns the answers of the fixture the
+// Recorder serves.
+func TestAllocWholeCallFunctional(t *testing.T) {
+	tests := map[string]struct {
+		fixture string
+		q20     bool // the twenty questions the fixture answers; q3 otherwise
+	}{
+		"success: q3":  {fixture: "result.json"},
+		"success: q20": {fixture: "result-20.json", q20: true},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			rec := &testsupport.Recorder{Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, testsupport.Fixture(t, tt.fixture))}}
+			c := newTestClient(t, rec, WithRetry(DefaultRetry()))
+			_, want, err := decodeFixture(t, tt.fixture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			state, qs := newAllocState(), q3Questions(t)
+			if tt.q20 {
+				qs = questionsFor(t, &want)
+			}
+			resp, err := c.SystemOne(t.Context(), state, qs)
+			if err != nil {
+				t.Fatalf("SystemOne: %v", err)
+			}
+			floorReq, _ := floorRequest(t, c, state, qs)
+			if err := testsupport.FloorCall(rec, floorReq); err != nil {
+				t.Fatalf("FloorCall: %v", err)
+			}
+			type seen struct {
+				Method, URL, Host string
+				Header            http.Header
+				Body              []byte
+				ContentLength     int64
+			}
+			var got []seen
+			for _, r := range rec.Requests() {
+				got = append(got, seen{r.Method, r.URL, r.Host, r.Header, r.Body, r.ContentLength})
+			}
+			if len(got) != 2 {
+				t.Fatalf("the Recorder saw %d requests, want the call's and the floor's", len(got))
+			}
+			if diff := gocmp.Diff(got[0], got[1]); diff != "" {
+				t.Errorf("the floor's request differs from the call's (-call +floor):\n%s", diff)
+			}
+			if diff := gocmp.Diff(payloadOf(&SystemOneResponse{res: want}), payloadOf(resp)); diff != "" {
+				t.Errorf("the call's answers differ from %s's (-fixture +call):\n%s", tt.fixture, diff)
+			}
+		})
+	}
+}
+
+// TestMemStatsCapFunctional is the functional half of TestMemStatsCap: each
+// case of memCases, over the Recorder with the default 16 MiB cap and
+// Retry(NoRetry()), ends as the case says, in both builds:
+// io.ErrUnexpectedEOF for (i), a *ResponseTooLargeError naming the 200 and
+// the cap for (ii) and (iii), and result.json's answers for (iv) to (vii),
+// whose 16 MiB bodies pad result.json with a member the decoder skips.
+func TestMemStatsCapFunctional(t *testing.T) {
+	_, want, err := decodeFixture(t, "result.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, mc := range memCases(t) {
+		t.Run(name, func(t *testing.T) {
+			c := newTestClient(t, &testsupport.Recorder{Discard: true, Replies: []testsupport.Reply{mc.reply}})
+			resp, err := c.SystemOne(t.Context(), newAllocState(), q3Questions(t), Retry(NoRetry()))
+			if got := outcomeOf(err); got != mc.outcome {
+				t.Fatalf("outcome %q, want %q", got, mc.outcome)
+			}
+			switch mc.outcome {
+			case "large":
+				tl, _ := errors.AsType[*ResponseTooLargeError](err)
+				if tl.StatusCode != http.StatusOK || tl.Limit != DefaultMaxResponseBytes {
+					t.Errorf("*ResponseTooLargeError status %d, limit %d; want 200 and the cap %d", tl.StatusCode, tl.Limit, DefaultMaxResponseBytes)
+				}
+			case "ok":
+				if diff := gocmp.Diff(payloadOf(&SystemOneResponse{res: want}), payloadOf(resp)); diff != "" {
+					t.Errorf("the answers differ from result.json's (-result.json +call):\n%s", diff)
+				}
+			}
+			if st := c.Stats(); st.Attempts != 1 {
+				t.Errorf("Stats().Attempts = %d, want 1 (NoRetry)", st.Attempts)
+			}
+		})
 	}
 }
 

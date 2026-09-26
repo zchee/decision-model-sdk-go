@@ -17,9 +17,7 @@
 package typesafe
 
 import (
-	"bytes"
 	"context"
-	"errors"
 	"io"
 	"maps"
 	"net/http"
@@ -27,7 +25,6 @@ import (
 	"runtime"
 	"slices"
 	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/zchee/typesafe-sdk-go/internal/codec"
@@ -40,13 +37,6 @@ var (
 	sinkResponse *SystemOneResponse
 	sinkRequest  *http.Request
 )
-
-// allocStateSize is the length of the whole-call state's JSON encoding: the
-// plan's 1 KiB state (NF3), a string boxed in an any before the call.
-const allocStateSize = 1 << 10
-
-// newAllocState returns the 1 KiB boxed-string state.
-func newAllocState() any { return strings.Repeat("s", allocStateSize-2) }
 
 // series measures section testsupport.AllocRuns times, running setup (not
 // measured) before each run, and returns the minimum that at least
@@ -113,16 +103,8 @@ func TestAllocWholeCall(t *testing.T) {
 		err = codec.EncodeState(&buf, state)
 	})
 	check("E_sonic")
-	enc, err := encodeBody(state, c.cfg.model, qs, nil)
-	check("encodeBody")
-	pre := bytes.Clone(enc.Bytes())
-	enc.Release()
-	rd := bytes.NewReader(pre)
-	floorReq := &http.Request{
-		Method: http.MethodPost, URL: c.cfg.systemOneURL, Proto: "HTTP/1.1", ProtoMajor: 1, ProtoMinor: 1,
-		Header: c.cfg.systemOneHeader, Body: io.NopCloser(rd), ContentLength: int64(len(pre)), Host: c.cfg.systemOneURL.Host,
-	}
-	floorRT := series(t, "floor round trip", func() { rd.Reset(pre) }, func() { err = testsupport.FloorCall(rec, floorReq) })
+	floorReq, rd := floorRequest(t, c, state, qs)
+	floorRT := series(t, "floor round trip", func() { _, _ = rd.Seek(0, io.SeekStart) }, func() { err = testsupport.FloorCall(rec, floorReq) })
 	check("floor")
 	total := series(t, "call/sdk", nil, func() { sinkResponse, err = c.SystemOne(ctx, state, qs) })
 	check("call/sdk")
@@ -148,6 +130,30 @@ func TestAllocWholeCall(t *testing.T) {
 	if own != 14 {
 		t.Errorf("SDK-own allocations of one call = %d, want exactly 14 (AC-P6: N = 14, frozen at W3.4)", own)
 	}
+
+	// q20, recorded (frozen-budgets.md AC-P6, "Recorded, not in N"; W3.4
+	// measured it with a probe): the same call asking the twenty questions
+	// result-20.json answers, over the Recorder answering it.
+	_, first20, err := decodeFixture(t, "result-20.json")
+	check("result-20.json")
+	qs20 := questionsFor(t, &first20)
+	rec20 := &testsupport.Recorder{Discard: true, Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, testsupport.Fixture(t, "result-20.json"))}}
+	c20 := newTestClient(t, rec20, WithRetry(DefaultRetry()))
+	for range 2 {
+		_, err = c20.SystemOne(ctx, state, qs20)
+		check("q20 warm call")
+	}
+	floorReq20, rd20 := floorRequest(t, c20, state, qs20)
+	floorRT20 := series(t, "q20 floor round trip", func() { _, _ = rd20.Seek(0, io.SeekStart) }, func() { err = testsupport.FloorCall(rec20, floorReq20) })
+	check("q20 floor")
+	total20 := series(t, "q20 call/sdk", nil, func() { sinkResponse, err = c20.SystemOne(ctx, state, qs20) })
+	check("q20 call/sdk")
+	floor20 := testsupport.Allocs{Mallocs: floorRT20.Mallocs + esonic.Mallocs, Bytes: floorRT20.Bytes + esonic.Bytes}
+	if total20.Mallocs < floor20.Mallocs || total20.Bytes < floor20.Bytes {
+		t.Fatalf("the q20 call %s costs less than its floor %s", total20, floor20)
+	}
+	t.Logf("CALL q20 E_sonic=%s floorRT=%s floor=%s total=%s own=%d/%d (recorded, not in N)", esonic, floorRT20, floor20, total20, total20.Mallocs-floor20.Mallocs, total20.Bytes-floor20.Bytes)
+	t.Logf("ITEM q20 %s", measureCallItems(t, c20, state, qs20))
 }
 
 // callItems is one call split into the allocations of its request side and
@@ -237,60 +243,18 @@ func measureCallItems(t *testing.T, c *Client, state any, qs *Prepared) callItem
 // requestURL holds a URL copy on the heap, as a request's URL is.
 type requestURL struct{ u url.URL }
 
-// memCase is one AC-P5 reply and the outcome and bound it must meet.
-type memCase struct {
-	reply   testsupport.Reply
-	outcome string // "ok", "eof" (io.ErrUnexpectedEOF) or "large" (*ResponseTooLargeError)
-	bound   uint64 // the frozen TotalAlloc bound in bytes; 0 records only
-}
-
-// outcomeOf classifies a call's error for TestMemStatsCap.
-func outcomeOf(err error) string {
-	switch {
-	case err == nil:
-		return "ok"
-	case errors.Is(err, io.ErrUnexpectedEOF):
-		return "eof"
-	}
-	if _, ok := errors.AsType[*ResponseTooLargeError](err); ok {
-		return "large"
-	}
-	return err.Error()
-}
-
-// paddedResult returns a valid response body of exactly size bytes:
-// result.json with an unknown member "pad" holding a string that fills the
-// rest, which the decoder traverses and ignores.
-func paddedResult(t *testing.T, size int) []byte {
-	t.Helper()
-	base := testsupport.FixtureString(t, "result.json")
-	const open, closing = `{"pad":"`, `",`
-	n := size - len(base) - len(open) - len(closing) + 1 // base's '{' is dropped
-	if n < 0 {
-		t.Fatalf("size %d is below the fixture's %d bytes", size, len(base))
-	}
-	b := make([]byte, 0, size)
-	b = append(b, open...)
-	b = append(b, bytes.Repeat([]byte{'x'}, n)...)
-	b = append(b, closing...)
-	b = append(b, base[1:]...)
-	if len(b) != size {
-		t.Fatalf("padded body is %d bytes, want %d", len(b), size)
-	}
-	return b
-}
-
 // TestMemStatsCap checks AC-P5 per attempt (frozen-budgets.md; rulings R26,
 // R26b, R27): the TotalAlloc delta of one whole SystemOne call with
-// Retry(NoRetry()) and the default 16 MiB cap, for (i) a body that declares
-// 16 MiB and sends 10 bytes (≤ 256 KiB + 64 KiB), (ii) a declared 16 MiB + 1
-// refused before a read (≤ 64 KiB), (iii) an undeclared 16 MiB + 1 refused
-// at the byte past the cap and (iv), (v) a declared and an undeclared body
-// of exactly 16 MiB, read and decoded (each ≤ 2 × cap + 64 KiB). result.json
-// declared and undeclared, (vi) and (vii), are recorded (W5.2 bounds them).
-// Before each measured call the heap is collected, outside the section,
-// and one small call re-fills the pools the collection emptied, so the
-// section pays only for its own call.
+// Retry(NoRetry()) and the default 16 MiB cap, for each case of memCases:
+// (i) a body that declares 16 MiB and sends 10 bytes (≤ 256 KiB + 64 KiB),
+// (ii) a declared 16 MiB + 1 refused before a read (≤ 64 KiB), (iii) an
+// undeclared 16 MiB + 1 refused at the byte past the cap and (iv), (v) a
+// declared and an undeclared body of exactly 16 MiB, read and decoded (each
+// ≤ 2 × cap + 64 KiB), and result.json declared and undeclared, (vi) and
+// (vii), each within its first read buffer + 64 KiB (W5.2's bounds, on the
+// frozen cases' rule). Before each measured call the heap is collected,
+// outside the section, and one small call re-fills the pools the collection
+// emptied, so the section pays only for its own call.
 //
 // AC-P5 is a set of bounds (R26), and every one of the
 // testsupport.AllocRuns runs of a case is checked against its bound. The
@@ -304,26 +268,17 @@ func paddedResult(t *testing.T, size int) []byte {
 // and (i)'s first run pays for fmt's pooled printer, which the collections
 // of the cases before it emptied and the small success call does not
 // refill (4 allocations, 288 B). The MEM lines record each case's minimum,
-// its own cost and the ledger's row, and the maximum of its runs.
+// its own cost and the ledger's row, and the maximum of its runs
+// (testsupport.Spread). The functional half, each case's outcome under the
+// race detector too, is TestMemStatsCapFunctional; the cap over a real
+// HTTP/2 connection is TestResponseCapOverTheWire.
 func TestMemStatsCap(t *testing.T) {
 	testsupport.QuietRuntime(t)
 	ctx := t.Context()
-	const limit = DefaultMaxResponseBytes
-	const bigBound = 2*limit + 64<<10
-	over := bytes.Repeat([]byte{' '}, limit+1)
-	exact := paddedResult(t, limit)
 	small := testsupport.Fixture(t, "result.json")
 	qs := q3Questions(t)
 	state := newAllocState()
-	cases := map[string]memCase{
-		"i-declared-16MiB-sent-10B":  {reply: testsupport.Reply{Body: []byte(`{"model":"`), ContentLength: limit}, outcome: "eof", bound: 256<<10 + 64<<10},
-		"ii-declared-16MiB+1":        {reply: testsupport.Reply{Body: over}, outcome: "large", bound: 64 << 10},
-		"iii-undeclared-16MiB+1":     {reply: testsupport.Reply{Body: over, ContentLength: -1}, outcome: "large", bound: bigBound},
-		"iv-declared-16MiB":          {reply: testsupport.Reply{Body: exact}, outcome: "ok", bound: bigBound},
-		"v-undeclared-16MiB":         {reply: testsupport.Reply{Body: exact, ContentLength: -1}, outcome: "ok", bound: bigBound},
-		"vi-declared-result.json":    {reply: testsupport.Reply{Body: small}, outcome: "ok"},
-		"vii-undeclared-result.json": {reply: testsupport.Reply{Body: small, ContentLength: -1}, outcome: "ok"},
-	}
+	cases := memCases(t)
 	warm := newTestClient(t, &testsupport.Recorder{Discard: true, Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, small)}})
 	rewarm := func() {
 		runtime.GC()
