@@ -247,6 +247,7 @@ type LoopbackServer struct {
 	overLimit atomic.Int64
 	maxActive atomic.Int64
 	seq       atomic.Int64 // the sequence of ConnInfo's close records
+	hooks     atomic.Pointer[h2Hooks]
 
 	mu       sync.Mutex
 	closed   bool

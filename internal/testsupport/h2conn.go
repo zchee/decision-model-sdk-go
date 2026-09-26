@@ -218,6 +218,9 @@ func (c *H2Conn) GoAway(lastStreamID uint32, code ErrCode) error {
 		}
 	}
 	c.mu.Unlock()
+	if h := c.srv.hooks.Load(); h != nil && h.goAwayPublished != nil {
+		h.goAwayPublished(c)
+	}
 	// Numbered before the frame leaves, as CloseWriteSeq is: a client may
 	// close the connection as soon as it reads the GOAWAY, and the reader
 	// can record that close before this goroutine runs again.
@@ -305,6 +308,18 @@ func (c *H2Conn) Reset() {
 	c.noteClosed()
 }
 
+// h2Hooks stop an H2Conn at the points of a race for this package's tests
+// (ruling K25); a server without them (every server outside those tests)
+// runs as if they were not there.
+type h2Hooks struct {
+	// goAwayPublished runs in GoAway once the GOAWAY state is visible to
+	// the other goroutines and before the frame is written, with the write
+	// lock held.
+	goAwayPublished func(*H2Conn)
+	// closeWriteEnter runs in closeWrite before it takes the write lock.
+	closeWriteEnter func(*H2Conn)
+}
+
 // closeGracefully ends the connection for [LoopbackServer.CloseConns] and
 // ActionClose: it drops every stream and begins the graceful close
 // (closeWrite). A connection whose close had begun is left alone.
@@ -325,6 +340,9 @@ func (c *H2Conn) closeGracefully() {
 // 4.2.2.13), which on Windows destroys what the client has not read yet
 // (rulings K33, K34).
 func (c *H2Conn) closeWrite() {
+	if h := c.srv.hooks.Load(); h != nil && h.closeWriteEnter != nil {
+		h.closeWriteEnter(c)
+	}
 	c.wmu.Lock()
 	// The record precedes close_notify, and so anything the client does once
 	// it reads it; the reader records the client's close only from here on.
