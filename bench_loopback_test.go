@@ -25,10 +25,16 @@ package typesafe
 //   - cold-fanout-64: a fresh client, then 64 q3 calls started at once,
 //     until the last answers, then the client is closed; the cold burst of
 //     AC-P4 and K22 (the waiters wait for the leader's response headers,
-//     so a burst pays two round trips of the server). conns/op is the
-//     connections each burst opened: AC-P4 asserts 1 (internal/h2gate's
-//     TestFanOut); here it is recorded. Each burst runs under a 30 s
-//     deadline besides each attempt's own.
+//     so a burst pays two round trips of the server). Each burst runs under
+//     a 30 s deadline besides each attempt's own. Three metrics are
+//     recorded, never asserted. conns/op, the connections each burst
+//     opened, is a sanity count only: on loopback the stock HTTP/2 pool
+//     alone also puts a cold burst on one connection (review W5.1 MINOR 1,
+//     with the gate bypassed), so AC-P4's evidence stays internal/h2gate's
+//     TestFanOut. leaders/op and firstholds/op are the gate's own counters
+//     (h2gate.Stats: cold dials led, and first requests on a new
+//     connection that held the header-write token until their response
+//     headers), 1 each for a burst the gate ran.
 //
 // The server is internal/testsupport's LoopbackServer: TLS on 127.0.0.1
 // with its own HTTP/2 frame writer, answering result.json (and models.json
@@ -52,6 +58,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zchee/typesafe-sdk-go/internal/h2gate"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
@@ -121,28 +128,34 @@ func BenchmarkLoopback(b *testing.B) {
 
 	b.Run("cold-fanout-64", func(b *testing.B) {
 		var bursts, conns int
+		var leaders, firstHolds uint64
 		b.ReportAllocs()
 		for b.Loop() {
 			before := srv.Accepts()
-			if err := coldBurst(b.Context(), opts, state, qs); err != nil {
+			st, err := coldBurst(b.Context(), opts, state, qs)
+			if err != nil {
 				b.Fatal(err)
 			}
 			conns += srv.Accepts() - before
+			leaders += st.Leaders
+			firstHolds += st.FirstHolds
 			bursts++
 		}
 		b.ReportMetric(float64(conns)/float64(bursts), "conns/op")
+		b.ReportMetric(float64(leaders)/float64(bursts), "leaders/op")
+		b.ReportMetric(float64(firstHolds)/float64(bursts), "firstholds/op")
 	})
 }
 
 // coldBurst builds a client from opts, starts fanOut calls at once, waits
-// for all of them under a 30 s deadline, closes the client and returns the
-// first error a call returned.
-func coldBurst(ctx context.Context, opts []ClientOption, state any, qs *Prepared) error {
+// for all of them under a 30 s deadline, closes the client and returns its
+// transport's gate counters and the first error a call returned.
+func coldBurst(ctx context.Context, opts []ClientOption, state any, qs *Prepared) (h2gate.Stats, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	c, err := NewClient(opts...)
 	if err != nil {
-		return err
+		return h2gate.Stats{}, err
 	}
 	defer func() { _ = c.Close() }()
 	var (
@@ -158,5 +171,5 @@ func coldBurst(ctx context.Context, opts []ClientOption, state any, qs *Prepared
 		})
 	}
 	wg.Wait()
-	return first
+	return c.cfg.transport.stats(), first
 }
