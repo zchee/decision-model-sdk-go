@@ -5247,6 +5247,9 @@ and `_spikes/w5.4/render.py` prints the tables below from
 | W5.4-18 | 2026-09-26 08:02:25 UTC | W5.4 K7 data point | `ubuntu-26.04` (AMD EPYC 9V74 with AVX-512) | `go1.27.1 linux/amd64` | not printed by the job | – | `bench.yaml` at 67dcbb0 (main's push run, W5.2's landing; the K35 job without W5.4's report step) | `BenchmarkCall/sdk` min / median / mean 3.945 / 4.266 / 4.809 µs; `/naive` 3.465 / 4.086 / 4.955 µs; **sdk/naive 1.139 / 1.044 / 0.970** (min / median / mean) | GitHub run 36228091342 (push, `main`), CodSpeed run 6ab77c112eddcdb9847b5b7a, K35 guard `125 rows; CodSpeed results: 125 rows in 3 files`; `compare_runs` against W5.4-11 (the same model name, AMD EPYC 9V74 80-Core Processor) lists no model change, only **CPU flags added: `avx512f`, `avx512bw`, `avx512cd`, `avx512dq`, `avx512vl`, `avx512ifma`, `avx512vbmi`, `avx512_vbmi2`, `avx512_vnni`, `avx512_bitalg`, `avx512_vpopcntdq`, `avx512_bf16`, `gfni`, `xtopology`**, and 123 of 125 rows 15 to 50 % faster, the naive rows as much as the SDK's (`BenchmarkCall/sdk` mean 6.204 → 4.809 µs); stdev sdk 3.913 / naive 5.548 µs; IQR outliers sdk 8.7 % / naive 11.3 % of 664293 / 723963 rounds; the mean ratio 0.970 is the smallest margin so far; K7: see W5.4-19 |
 | W5.4-19 | 2026-09-26 17:06:21 JST | W5.4 K7 count | – | – | – | – | the W5.4-10 command again | **Per CPU model (R109 as written): EPYC 7763 3 of 20**, spread 1.29 %; **EPYC 9V74 2 of 20, spread 29.01 %** (6.204 and 4.809 µs: one VM without and one with AVX-512). **Per model and AVX-512 exposure (ruling R109b): EPYC 7763 3 of 20** (1.29 %); **9V74 1**; **9V74 + AVX-512 1**; the 9V45 and the Intel Xeon 6973P-C, both with AVX-512 (`compare_runs` against 7763 runs), have appeared on wave-branch dispatches only. Beside it, the sdk/naive mean ratio over the five counted runs, any host: 0.877, 0.885, 0.872, 0.897, 0.970, spread 11.22 % (no threshold set, R109) | `results/k7-count.txt` (fifth snapshot), `render.py` prints both groupings; not a timing row |
 | W5.4-20 | 2026-09-26 17:06:07 JST | W5.4 report step names AVX-512 exposure | (M), and (L) for the host line | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | W5.4-17's four cases against the step with its new line (`AVX-512 yes/no` from `avx512f` in the first `flags` line of `/proc/cpuinfo`, and a 12-hex SHA-256 digest of the sorted flags); the line's commands alone by `bash -s` over ssh on (L) | (M): no results file exit 1, real file exit 0, no naive row exit 1, truncated JSON exit 5, as before; darwin has no `/proc/cpuinfo`, so the line reads `AVX-512 no` without failing. (L): `- CPU: Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz, 44 CPUs, AVX-512 yes, flags digest e8bd8076a11e` from 112 flags, exit 0 | `results/report-step-check-M.txt` (second run); the host key W5.4-18 needs from every run on; not a timing row |
+| W5.4-21 | 2026-09-26 06:25:17 UTC | W5.4 AC-P7, pre-W5.3 dispatch | `ubuntu-26.04` (Intel Xeon 6973P-C, AVX-512, 4 CPUs) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | – | `bench.yaml` at 419d12e (`gh workflow run bench.yaml --ref wave/w5.4`) | `BenchmarkCall/sdk` min / median / mean 3.328 / 3.651 / 4.079 µs; `/naive` 2.884 / 3.486 / 4.521 µs; **sdk/naive 1.154 / 1.047 / 0.902** (min / median / mean); q20 1.262 / 1.177 / 0.985 | GitHub run 36223193685 (success), CodSpeed run 6ab7654d2eddcdb9847b5a4a; the report step's first run in µs (`results/report-36223193685.md`); guard `125 rows; CodSpeed results: 125 rows in 3 files`; uploaded names identical to W5.4-08's; AVX-512 from `compare_runs` against the 7763 run of W5.4-22 (flags added: `avx512f` and 20 more, `amx_*`); on this host `EncodeState/ascii/6MiB/{encode,check}` are 34.6 and 32.6 % slower than on the 7763 while 115 rows are faster (finding 2); not a K7 run |
+| W5.4-22 | 2026-09-26 07:52:12 UTC | W5.4 AC-P7, pre-W5.3 dispatch | `ubuntu-26.04` (AMD EPYC 7763, no AVX-512, 4 CPUs) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | – | `bench.yaml` at 5a4a4d9 (`gh workflow run bench.yaml --ref wave/w5.4`): the report step fails on missing data (m-8) | `BenchmarkCall/sdk` min / median / mean 5.420 / 5.701 / 6.546 µs; `/naive` 4.749 / 5.460 / 7.368 µs; **sdk/naive 1.141 / 1.044 / 0.889** (min / median / mean; 0.888 from the ns-rounded means in the TSV); q20 1.223 / 1.168 / 0.992 | GitHub run 36227580459 (success in every step: the m-8 check passed on CI), CodSpeed run 6ab779ac2eddcdb9847b5b56; `results/report-36227580459.md`; guard 125 = 125; uploaded names identical to W5.4-08's; not a K7 run |
+| W5.4-23 | 2026-09-26 08:17:54 UTC | W5.4 AC-P7, pre-W5.3 dispatch | `ubuntu-26.04` (Intel Xeon Platinum 8573C, AVX-512, 4 CPUs) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | – | `bench.yaml` at 039179d (`gh workflow run bench.yaml --ref wave/w5.4`): the report step names AVX-512 exposure (R109b) | `BenchmarkCall/sdk` min / median / mean 4.884 / 5.353 / 6.275 µs; `/naive` 4.243 / 5.143 / 6.535 µs; **sdk/naive 1.151 / 1.041 / 0.960** (min / median / mean); q20 1.260 / 1.182 / 0.963 | GitHub run 36228850305 (success in every step), CodSpeed run 6ab77fad9e6b21a34d50e9cf (its check run's time is the When); the host line on CI: `- CPU: INTEL(R) XEON(R) PLATINUM 8573C, 4 CPUs, AVX-512 yes, flags digest e161990560a5`, a fifth CPU model; `results/report-36228850305.md`; guard 125 = 125; uploaded names identical to W5.4-08's; not a K7 run. The statistics of W5.4-21 to -23 come from the report step's tables because the CodSpeed MCP server needed a new sign-in when they were recorded (W5.4-08 showed the two sources equal to the ns) |
 
 ### Tables
 
@@ -5264,6 +5267,9 @@ and `_spikes/w5.4/render.py` prints the tables below from
 | 9c61db9 | push main | 36224817149 | 6ab76ce42eddcdb9847b5adb | 7763 | 1.129 | 1.009 | 0.872 | 5.430 | 5.821 | 6.771 |
 | a4cbb5d | push main | 36225881915 | 6ab771dd1f99e1706f368c69 | 7763 | 1.138 | 1.044 | 0.897 | 5.450 | 5.781 | 6.739 |
 | 67dcbb0 | push main | 36228091342 | 6ab77c112eddcdb9847b5b7a | 9V74 + AVX-512 | 1.139 | 1.044 | 0.970 | 3.945 | 4.266 | 4.809 |
+| 419d12e | workflow_dispatch wave/w5.4 | 36223193685 | 6ab7654d2eddcdb9847b5a4a | Intel Xeon 6973P-C + AVX-512 | 1.154 | 1.047 | 0.902 | 3.328 | 3.651 | 4.079 |
+| 5a4a4d9 | workflow_dispatch wave/w5.4 | 36227580459 | 6ab779ac2eddcdb9847b5b56 | 7763 | 1.141 | 1.044 | 0.888 | 5.420 | 5.701 | 6.546 |
+| 039179d | workflow_dispatch wave/w5.4 | 36228850305 | 6ab77fad9e6b21a34d50e9cf | Intel Xeon Platinum 8573C + AVX-512 | 1.151 | 1.041 | 0.960 | 4.884 | 5.353 | 6.275 |
 
 K7, successful push runs on main from 36221839206 on; blocking needs 20 runs in one group
 with BenchmarkCall/sdk's mean within 5 %.
@@ -5277,13 +5283,13 @@ Per CPU model and AVX-512 exposure (ruling R109b):
 Beside it, the sdk/naive mean ratio over those runs, any host (no threshold set): 11.22 % over 5 runs
 
 Every run above, K7 or not, for comparison:
-- BenchmarkCall/sdk mean: 112.33 % over 12 runs (AMD EPYC 7763: 4.93 % over 8 runs; AMD EPYC 9V45 + AVX-512: n/a (1 run); AMD EPYC 9V74: 0.99 % over 2 runs; AMD EPYC 9V74 + AVX-512: n/a (1 run))
-- sdk/naive mean ratio: 12.70 % over 12 runs (AMD EPYC 7763: 12.70 % over 8 runs; AMD EPYC 9V45 + AVX-512: n/a (1 run); AMD EPYC 9V74: 5.87 % over 2 runs; AMD EPYC 9V74 + AVX-512: n/a (1 run))
+- BenchmarkCall/sdk mean: 112.33 % over 15 runs (AMD EPYC 7763: 7.15 % over 9 runs; AMD EPYC 9V45 + AVX-512: n/a (1 run); AMD EPYC 9V74: 0.99 % over 2 runs; AMD EPYC 9V74 + AVX-512: n/a (1 run); Intel Xeon 6973P-C + AVX-512: n/a (1 run); Intel Xeon Platinum 8573C + AVX-512: n/a (1 run))
+- sdk/naive mean ratio: 12.70 % over 15 runs (AMD EPYC 7763: 12.70 % over 9 runs; AMD EPYC 9V45 + AVX-512: n/a (1 run); AMD EPYC 9V74: 5.87 % over 2 runs; AMD EPYC 9V74 + AVX-512: n/a (1 run); Intel Xeon 6973P-C + AVX-512: n/a (1 run); Intel Xeon Platinum 8573C + AVX-512: n/a (1 run))
 
 ### W5.4 findings
 
 1. **AC-P7 holds on the mean and fails on the minimum and the median.** On
-   all twelve runs, `BenchmarkCall/sdk` / `BenchmarkCall/naive` is 0.872 to
+   all fifteen runs, `BenchmarkCall/sdk` / `BenchmarkCall/naive` is 0.872 to
    0.983 by mean, 1.009 to 1.076 by median and 1.124 to 1.162 by minimum,
    the value CodSpeed's report shows. CodSpeed's overlay times every
    `b.Loop` iteration on its own (rounds = iterations, one per round).
@@ -5303,9 +5309,9 @@ Every run above, K7 or not, for comparison:
    0.872 to 0.983), report-only under R108.** The runs of record come
    after the rebase onto W5.3's landing.
 2. **The host moves every row, and the model name alone does not name the
-   host.** Four model names have appeared: the EPYC 7763 (eight runs), the
+   host.** Five model names have appeared: the EPYC 7763 (nine runs), the
    9V74 (W5.4-04, -11, -18), the 9V45 (W5.4-08) and, on the wave branch,
-   an Intel Xeon 6973P-C. On the 9V45, which exposes AVX-512, every row ran
+   the Intel Xeon 6973P-C (W5.4-21) and Xeon Platinum 8573C (W5.4-23). On the 9V45, which exposes AVX-512, every row ran
    1.4 to 2.7 times faster than on the 7763, and `BenchmarkCall/sdk`'s mean
    went from 6.68 to 3.30 µs. One model name covers VMs with and without
    AVX-512: the 9V74 of W5.4-18 lists `avx512f` and a dozen related flags
@@ -5315,11 +5321,11 @@ Every run above, K7 or not, for comparison:
    with the Intel Xeon 6973P-C run of dispatch 36223193685 (419d12e) marks
    115 rows faster, 8 unchanged, and `EncodeState/ascii/6MiB/encode` and
    `/check` 34.6 and 32.6 % slower (408.7 → 624.6 µs, 131.9 → 195.8 µs).
-   So no single cross-host baseline can exist. Over these twelve runs the
-   mean's spread is 112 %, and 4.9 % on the 7763 alone. The sdk/naive
+   So no single cross-host baseline can exist. Over these fifteen runs the
+   mean's spread is 112 %, and 7.2 % on the 7763 alone. The sdk/naive
    ratio moves less but is not independent of the host: by mean it is
-   0.872 to 0.983 on the 7763, 0.909 on the 9V45 and 0.970 on the 9V74
-   with AVX-512. Taken across hosts, K7 (20 main runs within 5 %) would
+   0.872 to 0.983 on the 7763, 0.909 on the 9V45, 0.970 on the 9V74 with
+   AVX-512, and 0.902 and 0.960 on the two Xeons. Taken across hosts, K7 (20 main runs within 5 %) would
    measure which machine each run got. So ruling R109 (ratified by the
    owner as R115) counts K7 per CPU model and never mixes models, and
    records beside it the sdk/naive mean ratio's spread over the counted
