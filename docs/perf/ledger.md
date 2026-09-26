@@ -5182,3 +5182,115 @@ MAJOR and two NITs:
 | W5.3-95 | 2026-09-26 22:00:10 JST | W5.3 gates of a09ea43 | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 3.71 → – | as W5.3-08, at a09ea43 | every gate ok | `results/gates-M-a09ea43.txt` |
 | W5.3-96 | 2026-09-26 13:01:03 UTC | W5.3 R111 for a09ea43 | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.01 → – | a09ea43's `git archive` tree: `go build ./... && go vet ./... && go test -count=1 ./...` under `set -o pipefail` | 7 packages `ok`, exit 0 | its parent 6b996ed is W5.3-92's 46416b6 plus documentation, and the docs commit after it changes no code; `results/r111-a09ea43-L.txt` |
 | W5.3-97 | 2026-09-26 22:00:01 JST | W5.3 public API after a09ea43 | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | `GOEXPERIMENT=nosimd,noruntimesecret go doc -all .` at a09ea43 against 67dcbb0's | byte-identical (a blank field is not shown) | `results/godoc-M.txt` |
+
+## W5.4: CodSpeed and AC-P7
+
+W5.4 owns `.github/workflows/bench.yaml`'s CodSpeed job and
+[`codspeed.md`](codspeed.md), and reads AC-P7: "CodSpeed reports
+`call/sdk` faster than `call/naive` on the PR run". The repository takes
+no pull requests (R2), so the PR run is two runs of `bench.yaml` on the
+landing commit's tree: the `workflow_dispatch` run on `wave/w5.4` at its
+final head, then `main`'s first push run after the landing. Owner ruling
+R108 reads "faster" on the mean (the total time divided by the rounds,
+`go test`'s ns/op), not on the minimum CodSpeed's report shows, and keeps
+AC-P7 report-only until K7 is met. So every row records the minimum, the
+median and the mean of both rows and the three ratios, and asserts none.
+W5.4 started on aaa9698 before W5.3 (G4) and lands after it: rows up to
+W5.4-08 predate W5.3 and are history; the AC-P7 runs of record come after
+the rebase onto W5.3's landing. Raw outputs are in `_spikes/w5.4/results/`,
+and `_spikes/w5.4/render.py` prints the tables below from
+`results/codspeed-call-stats.tsv`.
+
+### How the numbers were taken
+
+- **CI:** `bench.yaml` on `ubuntu-26.04` (4 vCPUs), Go from `go.mod`'s
+  toolchain line (setup-go printed `Setup go version spec 1.27.1`), no
+  `GOEXPERIMENT`. The statistics are the go runner's, as CodSpeed stored
+  them: `get_benchmark_result` of the CodSpeed MCP server for
+  `internal/benchmark/call_test.go::BenchmarkCall::{sdk,naive}`, copied
+  into the TSV unchanged. From c15ba0c on, the job's report step prints
+  the same statistics from the results files before the upload, and
+  W5.4-08's equal CodSpeed's to the ns. "When" is the CodSpeed run's date
+  as `list_runs` prints it.
+- **CPU model:** from the report step from c15ba0c on. For earlier runs,
+  from CodSpeed's `compare_runs`, which lists an "Environment Differences"
+  section only when two runs' hardware differs, against the EPYC 7763 run
+  of W5.1-25, and from W5.1-26 (the 9V74).
+- **(M) lists:** `go1.27.1 darwin/arm64` with
+  `GOEXPERIMENT=nosimd,noruntimesecret` in the lane's worktree at c15ba0c;
+  the 1x row expansion ran under `/opt/homebrew/opt/util-linux/bin/flock`
+  on the lead's `bench.lock` and is not a timing.
+
+### Rows
+
+| # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| W5.4-01 | 2026-09-26 04:45:51 UTC | W5.4 AC-P7 survey | `ubuntu-26.04` (AMD EPYC 7763) | `go1.27.1 linux/amd64` | not printed by the job | – | `bench.yaml` at f048059: `CodSpeedHQ/action@v5` (runner 5.2.1, go runner 1.3.0), `mode: walltime`, `go test -bench=. ./...`, raw samples on `/tmp` | `BenchmarkCall/sdk` min / median / mean 5.570 / 5.941 / 6.816 µs; `/naive` 4.859 / 5.520 / 7.142 µs; **sdk/naive 1.146 / 1.076 / 0.954** (min / median / mean) | GitHub run 36218293900 (push, `main`), CodSpeed run 6ab74dffc9fea79936132129; stdev sdk 6.554 / naive 9.371 µs; IQR outliers sdk 8.2 % / naive 14.1 % of 470535 / 469017 rounds; main's run before the K35 fix: 11 `EncodeState` rows lost, `BenchmarkCall` complete; not a K7 run |
+| W5.4-02 | 2026-09-26 05:18:11 UTC | W5.4 AC-P7 survey | `ubuntu-26.04` (AMD EPYC 7763) | `go1.27.1 linux/amd64` | not printed by the job | – | f048059's job plus K35 probe steps (f1b1df8, throwaway `wave/p5-codspeedfix-probe`), raw samples on `/tmp` | `BenchmarkCall/sdk` min / median / mean 5.600 / 5.901 / 7.014 µs; `/naive` 4.819 / 5.521 / 7.415 µs; **sdk/naive 1.162 / 1.069 / 0.946** (min / median / mean) | GitHub run 36219879628 (workflow_dispatch, `wave/p5-codspeedfix-probe`), CodSpeed run 6ab75593d47c5a3890bbc64f; stdev sdk 7.067 / naive 11.357 µs; IQR outliers sdk 12.9 % / naive 15.4 % of 464202 / 463863 rounds; 11 `EncodeState` rows lost (W5.1-23), `BenchmarkCall` complete; not a K7 run |
+| W5.4-03 | 2026-09-26 05:27:29 UTC | W5.4 AC-P7 survey | `ubuntu-26.04` (AMD EPYC 7763) | `go1.27.1 linux/amd64` | not printed by the job | – | `bench.yaml` at 57bee0f: `CodSpeedHQ/action@v5` (runner 5.2.1, go runner 1.3.0), `mode: walltime`, `go test -bench=. ./...`, raw samples under `$RUNNER_TEMP` | `BenchmarkCall/sdk` min / median / mean 5.570 / 5.891 / 6.926 µs; `/naive` 4.849 / 5.490 / 7.355 µs; **sdk/naive 1.149 / 1.073 / 0.942** (min / median / mean) | GitHub run 36220344551 (workflow_dispatch, `wave/p5-codspeedfix`), CodSpeed run 6ab757c1b5bd728624a336a7; stdev sdk 7.079 / naive 10.225 µs; IQR outliers sdk 10.7 % / naive 17.4 % of 455731 / 480762 rounds; the K35 fix run (W5.1-25); not a K7 run |
+| W5.4-04 | 2026-09-26 05:27:41 UTC | W5.4 AC-P7 survey | `ubuntu-26.04` (AMD EPYC 9V74) | `go1.27.1 linux/amd64` | not printed by the job | – | 57bee0f's `bench.yaml` without the `TMPDIR` line (9deffbe, throwaway `wave/p5-codspeedfix-bite`) | `BenchmarkCall/sdk` min / median / mean 5.208 / 5.538 / 6.265 µs; `/naive` 4.516 / 5.258 / 6.685 µs; **sdk/naive 1.153 / 1.053 / 0.937** (min / median / mean) | GitHub run 36220346065 (workflow_dispatch, `wave/p5-codspeedfix-bite`), CodSpeed run 6ab757cdbffa2b9b6c44cd57; stdev sdk 5.990 / naive 8.665 µs; IQR outliers sdk 7.7 % / naive 13.3 % of 513872 / 497278 rounds; the K35 guard's bite run (W5.1-26); not a K7 run |
+| W5.4-05 | 2026-09-26 05:29:02 UTC | W5.4 AC-P7 survey | `ubuntu-26.04` (AMD EPYC 7763) | `go1.27.1 linux/amd64` | not printed by the job | – | `bench.yaml` at 3ffe77b: `CodSpeedHQ/action@v5` (runner 5.2.1, go runner 1.3.0), `mode: walltime`, `go test -bench=. ./...`, raw samples on `/tmp` | `BenchmarkCall/sdk` min / median / mean 5.450 / 5.781 / 6.685 µs; `/naive` 4.849 / 5.491 / 7.130 µs; **sdk/naive 1.124 / 1.053 / 0.938** (min / median / mean) | GitHub run 36220416172 (push, `main`), CodSpeed run 6ab7581e0ebd71c0902eb24e; stdev sdk 6.853 / naive 10.167 µs; IQR outliers sdk 8.3 % / naive 14.1 % of 479386 / 474650 rounds; 11 `EncodeState` rows lost; not a K7 run |
+| W5.4-06 | 2026-09-26 05:44:59 UTC | W5.4 AC-P7 survey | `ubuntu-26.04` (AMD EPYC 7763) | `go1.27.1 linux/amd64` | not printed by the job | – | `bench.yaml` at aaa9698: `CodSpeedHQ/action@v5` (runner 5.2.1, go runner 1.3.0), `mode: walltime`, `go test -bench=. ./...`, raw samples under `$RUNNER_TEMP` | `BenchmarkCall/sdk` min / median / mean 5.410 / 5.821 / 7.014 µs; `/naive` 4.779 / 5.471 / 7.133 µs; **sdk/naive 1.132 / 1.064 / 0.983** (min / median / mean) | GitHub run 36221215525 (workflow_dispatch, `wave/p5-codspeedfix`), CodSpeed run 6ab75bdbb5bd728624a3372a; stdev sdk 7.003 / naive 10.677 µs; IQR outliers sdk 13.0 % / naive 13.6 % of 473862 / 483445 rounds; the K35 landing SHA's dispatch (D-K35-rebase); not a K7 run |
+| W5.4-07 | 2026-09-26 05:57:38 UTC | W5.4 AC-P7 survey | `ubuntu-26.04` (AMD EPYC 7763) | `go1.27.1 linux/amd64` | not printed by the job | – | `bench.yaml` at aaa9698: `CodSpeedHQ/action@v5` (runner 5.2.1, go runner 1.3.0), `mode: walltime`, `go test -bench=. ./...`, raw samples under `$RUNNER_TEMP` | `BenchmarkCall/sdk` min / median / mean 5.450 / 5.791 / 6.684 µs; `/naive` 4.758 / 5.680 / 7.625 µs; **sdk/naive 1.145 / 1.020 / 0.877** (min / median / mean) | GitHub run 36221839206 (push, `main`), CodSpeed run 6ab75ed2e412c1cc664ef2d7; stdev sdk 6.843 / naive 11.180 µs; IQR outliers sdk 8.6 % / naive 17.3 % of 479046 / 467010 rounds; **K7 run 1**: the count starts here (D-K35-land) |
+| W5.4-08 | 2026-09-26 06:09:46 UTC | W5.4 AC-P7, pre-W5.3 dispatch | `ubuntu-26.04` (AMD EPYC 9V45, 4 CPUs) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | – | `bench.yaml` at c15ba0c (`gh workflow run bench.yaml --ref wave/w5.4`): aaa9698's job plus the report step | `BenchmarkCall/sdk` min / median / mean 2.844 / 3.044 / 3.303 µs; `/naive` 2.464 / 2.965 / 3.632 µs; **sdk/naive 1.154 / 1.027 / 0.909** (min / median / mean) | GitHub run 36222408328 (workflow_dispatch, `wave/w5.4`), CodSpeed run 6ab761aa075e817cd5b19ada; stdev sdk 2.346 / naive 4.515 µs; IQR outliers sdk 5.8 % / naive 13.9 % of 929948 / 956420 rounds; W5.4's first dispatch, **pre-W5.3** (history, not AC-P7 of record); guard `125 rows; CodSpeed results: 125 rows in 3 files`; the report step's table (`results/report-36222408328.md`) equals CodSpeed's stored statistics to the ns; not a K7 run |
+| W5.4-09 | 2026-09-26 15:04:12 JST | W5.4 discovery | (M), and `ubuntu-26.04` for the CodSpeed side | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 8.50 before and after the 1x run | `GOEXPERIMENT=nosimd,noruntimesecret go test -list 'Benchmark.*' ./...` by package; the guard's own `go test -run '^$' -bench . -benchtime=1x -cpu=1 ./...` expansion; against the `.benchmarks[].uri` rows that W5.4-08's report step lists | functions: 15 in 3 packages (6 root, 5 `internal/benchmark`, 4 `internal/codec`; `BenchmarkLoopback` in two), and the CodSpeed run's 125 URIs reduce to the same 15: **equal**. Rows: 125 local = 125 in CodSpeed: **equal**. Names across runs: `compare_runs` of aaa9698's main run (W5.4-07) with W5.4-08 compares all 125 rows, with no new and no missing ones | `results/list-functions-M.txt`, `results/list-rows-M.txt`, `results/codspeed-uris-36222408328.txt`; CodSpeed's 19 "skipped" rows are URIs from before G5 (14 in `bench_prepare_test.go`, 3 in `bench_config_test.go`, `bench_noop_test.go::BenchmarkNoop`, `bench_call_test.go::BenchmarkCall::sdk`); not a timing row |
+| W5.4-10 | 2026-09-26 15:12:57 JST | W5.4 K7 count | – | – | – | – | `gh run list --workflow bench.yaml --branch main --event push --limit 100`, counting successful runs from 36221839206 on | **1 counted run** (36221839206, aaa9698, EPYC 7763) of 20; the 45 earlier main runs are not counted (D-K35-land: from ca226bb to 3ffe77b 11 rows were lost, and before ca226bb the names differ, G5) | `results/k7-count.txt`; not a timing row |
+
+### Tables
+
+| Commit | Event | GitHub run | CodSpeed run | CPU | sdk/naive min | median | mean | sdk min µs | median µs | mean µs |
+| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| f048059 | push main | 36218293900 | 6ab74dffc9fea79936132129 | 7763 | 1.146 | 1.076 | 0.954 | 5.570 | 5.941 | 6.816 |
+| f1b1df8 | workflow_dispatch wave/p5-codspeedfix-probe | 36219879628 | 6ab75593d47c5a3890bbc64f | 7763 | 1.162 | 1.069 | 0.946 | 5.600 | 5.901 | 7.014 |
+| 57bee0f | workflow_dispatch wave/p5-codspeedfix | 36220344551 | 6ab757c1b5bd728624a336a7 | 7763 | 1.149 | 1.073 | 0.942 | 5.570 | 5.891 | 6.926 |
+| 9deffbe | workflow_dispatch wave/p5-codspeedfix-bite | 36220346065 | 6ab757cdbffa2b9b6c44cd57 | 9V74 | 1.153 | 1.053 | 0.937 | 5.208 | 5.538 | 6.265 |
+| 3ffe77b | push main | 36220416172 | 6ab7581e0ebd71c0902eb24e | 7763 | 1.124 | 1.053 | 0.938 | 5.450 | 5.781 | 6.685 |
+| aaa9698 | workflow_dispatch wave/p5-codspeedfix | 36221215525 | 6ab75bdbb5bd728624a3372a | 7763 | 1.132 | 1.064 | 0.983 | 5.410 | 5.821 | 7.014 |
+| aaa9698 | push main | 36221839206 | 6ab75ed2e412c1cc664ef2d7 | 7763 | 1.145 | 1.020 | 0.877 | 5.450 | 5.791 | 6.684 |
+| c15ba0c | workflow_dispatch wave/w5.4 | 36222408328 | 6ab761aa075e817cd5b19ada | 9V45 | 1.154 | 1.027 | 0.909 | 2.844 | 3.044 | 3.303 |
+
+K7: 1 counted main runs from 36221839206 on (20 needed)
+- counted runs, BenchmarkCall/sdk mean: n/a (1 run) (AMD EPYC 7763: n/a (1 run))
+- counted runs, sdk/naive mean ratio: n/a (1 run) (AMD EPYC 7763: n/a (1 run))
+- every run above, BenchmarkCall/sdk mean: 112.33 % over 8 runs (AMD EPYC 7763: 4.93 % over 6 runs; AMD EPYC 9V45: n/a (1 run); AMD EPYC 9V74: n/a (1 run))
+- every run above, sdk/naive mean ratio: 12.16 % over 8 runs (AMD EPYC 7763: 12.16 % over 6 runs; AMD EPYC 9V45: n/a (1 run); AMD EPYC 9V74: n/a (1 run))
+
+### W5.4 findings
+
+1. **AC-P7 holds on the mean and fails on the minimum and the median.** On
+   all eight runs, `BenchmarkCall/sdk` / `BenchmarkCall/naive` is 0.877 to
+   0.983 by mean, 1.020 to 1.076 by median and 1.124 to 1.162 by minimum,
+   the value CodSpeed's report shows. CodSpeed's overlay times every
+   `b.Loop` iteration on its own (rounds = iterations, one per round).
+   One naive call is shorter than one SDK call, by 0.69 µs at W5.4-07's
+   minimum. The SDK is ahead only once the cost of collecting the naive
+   client's 54 (M) or 68 (L) allocations per call, against the SDK's 22,
+   is counted. That cost falls on a share of later iterations, which have
+   the naive row's larger stdev (1.43 to 1.92 times the SDK's) and its
+   larger IQR-outlier share. The minimum and the median leave those
+   iterations out. R108 reads the mean; the gap is risk K36, a best-effort
+   W5.3 target (`.omc/handoffs/w5.3-codspeed-note.md`). On W5.4-07's
+   flamegraph, `internal/codec.trailing` passes the whole body through
+   sonic's `decoder.Skip` again after `ast.Preorder`, to find where the
+   root value ends. That is 10.5 % of `BenchmarkCall/sdk`'s time, about
+   0.71 µs per call, about the whole gap.
+2. **The CPU model moves every row.** Three models have appeared: the
+   EPYC 7763 (six runs), the 9V74 (W5.4-04) and the 9V45 (W5.4-08). On
+   the 9V45, which has AVX-512, every row ran 1.4 to 2.7 times faster
+   than on the 7763, and `BenchmarkCall/sdk`'s mean went from 6.68 to
+   3.30 µs. Over these eight runs the mean's spread is 112 %, and 4.9 %
+   on the 7763 alone. The sdk/naive ratio holds across models (mean
+   0.909 on the 9V45, 0.937 on the 9V74), but it spreads 12 % across the
+   7763 runs. As written, K7 (20 main runs within 5 %) measures which
+   machine each run got. How K7 is counted across models went to the lead
+   in the W5.4 STATUS of 2026-09-26.
+3. **Noise on one CPU model exceeds CodSpeed's 10 % threshold.** On the
+   7763, the `EncodeBody/rawjson/{64KiB,1MiB}/naive-json` rows moved 13 to
+   14 % between runs with no change to their code. CodSpeed's own check
+   run failed at 1f694b0, 3ffe77b and aaa9698, each time on a single row:
+   B6 `cold-fanout-64` (−11.9 %, −12.2 %) and `rawjson/1MiB/sdk`
+   (−14.3 %). The workflow never requires that check.
+4. **The runner's default build is (L)'s baseline.** W5.4-08's ToolTags
+   equal those of the 84 (L) rows in this ledger, `goexperiment.dwarf5`
+   included (a linux default that darwin lacks). So the job sets no
+   `GOEXPERIMENT`.
