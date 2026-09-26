@@ -43,6 +43,13 @@ jobs:
       - uses: CodSpeedHQ/action@v5
         env:
           CODSPEED_PERF_UNWINDING_MODE: fp
+          # K35: CodSpeed's `testing` overlay keeps one sample per b.Loop
+          # iteration, and the go runner parses a package's raw result files
+          # only after the whole `go test ./...` ends, so they pile up in the
+          # profile folder under $TMPDIR: 5.9 GiB at 125 rows and the default
+          # 3 s. On /tmp the runner user's tmpfs quota cut the writes after
+          # 5.1 GiB and lost 11 rows; the job's temp directory is on the disk.
+          TMPDIR: ${{ runner.temp }}
         with:
           mode: walltime
           # The action's `go` shim hands every `go test` to codspeed-go-runner,
@@ -55,4 +62,42 @@ jobs:
           # src/executor/helpers/introspected_golang/go.sh (default go-runner
           # 1.3.0); CodSpeedHQ/codspeed-go v1.3.0 go-runner/src/cli.rs and
           # go-runner/src/runner/mod.rs.
-          run: go test -bench=. ./...
+          # The log copy feeds the guard below; pipefail keeps go's status.
+          run: set -o pipefail; go test -bench=. ./... 2>&1 | tee "${{ runner.temp }}/codspeed.log"
+
+      # K35 guard: the go runner reports a raw result it cannot write only on
+      # stderr and still exits 0, and the runner then uploads the rest. Fail
+      # when the log holds such a line, or when the benchmarks in the uploaded
+      # results differ from the rows `go test -list` expands to (a 1x run).
+      # Both checks report before the step fails.
+      - name: Check that CodSpeed received every benchmark
+        run: |
+          set -euo pipefail
+          fail=0
+          if grep -E 'failed to [a-z ]*raw results' "$RUNNER_TEMP/codspeed.log"; then
+            echo "::error title=CodSpeed lost results::the go runner could not write raw results (K35)"
+            fail=1
+          fi
+          # One line per row: the package directory, then the name with its
+          # sub-benchmark path (-cpu=1 drops the -GOMAXPROCS suffix).
+          go test -run '^$' -bench . -benchtime=1x -cpu=1 ./... |
+            awk -v mod="$(go list -m)" '
+              /^pkg: / { dir = $2; sub("^" mod, ".", dir) }
+              /^Benchmark[^ \t]*[ \t]+[0-9]+[ \t]+[0-9.]+ ns\/op/ { print dir " " $1 }' |
+            LC_ALL=C sort >"$RUNNER_TEMP/codspeed-expected.txt"
+          # The profile folder is under the CodSpeed step's TMPDIR: the job's
+          # temp directory, or /tmp without the setting above.
+          shopt -s nullglob
+          results=("$RUNNER_TEMP"/profile.*.out/results/*.json /tmp/profile.*.out/results/*.json)
+          # The runner names a row <file>::<Benchmark>::<sub>...; map it the same way.
+          jq -r '.benchmarks[].uri | split("::") as $u
+            | (["."] + ($u[0] | split("/") | .[:-1]) | join("/")) + " " + ($u[1:] | join("/"))' \
+            "${results[@]}" /dev/null | LC_ALL=C sort >"$RUNNER_TEMP/codspeed-written.txt"
+          expected=$(wc -l <"$RUNNER_TEMP/codspeed-expected.txt")
+          written=$(wc -l <"$RUNNER_TEMP/codspeed-written.txt")
+          echo "go test -list expansion: $expected rows; CodSpeed results: $written rows in ${#results[@]} files"
+          if [ "$expected" -eq 0 ] || ! diff -u "$RUNNER_TEMP/codspeed-expected.txt" "$RUNNER_TEMP/codspeed-written.txt"; then
+            echo "::error title=CodSpeed lost results::$written of $expected benchmarks reached the results (K35)"
+            fail=1
+          fi
+          exit "$fail"
