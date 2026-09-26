@@ -3,7 +3,8 @@
 #
 # Coverage is uploaded by the test job of .github/workflows/ci.yaml: one Go
 # coverage profile per runner image, produced by
-# `go test -race -count=1 -coverprofile=coverage.out -covermode=atomic ./...`.
+# `go test -race -count=1 -coverpkg=./... -coverprofile=coverage.out -covermode=atomic ./...`,
+# which credits a block to its package when any test of the module runs it.
 
 # https://docs.codecov.com/docs/codecovyml-reference#codecov
 codecov:

@@ -173,8 +173,14 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # -coverpkg=./... instruments every package of the module in every test
+      # binary, so a block counts as covered when any test of the module runs
+      # it, not only a test of its own package (AC-Q2 as built from W6.5,
+      # owner ruling G10): code that one package's tests drive through
+      # another's API, such as a call stage below the root package, is
+      # credited where it lives.
       - name: go test -race with coverage
-        run: go test -race -count=1 -coverprofile=coverage.out -covermode=atomic ./...
+        run: go test -race -count=1 -coverpkg=./... -coverprofile=coverage.out -covermode=atomic ./...
 
       # Allocation counts need a normal build: under -race sync.Pool.Put drops
       # one value in four, so the codec allocation tests skip themselves there

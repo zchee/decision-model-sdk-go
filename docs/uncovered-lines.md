@@ -4,10 +4,17 @@ Every statement block that the tests never run, outside the paths
 `.codecov.yaml` ignores, with the reason it is not run (AC-Q2 of the port
 plan). `.github/scripts/uncovered-lines.py` checks this file against the
 coverage profile of the ubuntu-26.04 test job in CI (the
-`go test -race -coverprofile` step): it fails on a block without a row, on a
-row whose block is covered now or whose code is gone, and on a count that
-differs, so the table cannot fall behind the code. The measurements behind
-it are in [`perf/ledger.md`](perf/ledger.md) `## W6.3`.
+`go test -race -coverpkg=./... -coverprofile` step): it fails on a block
+without a row, on a row whose block is covered now or whose code is gone,
+and on a count that differs, so the table cannot fall behind the code. The
+measurements behind it are in [`perf/ledger.md`](perf/ledger.md) `## W6.3`.
+
+The scope is the module's tests over each package: `-coverpkg=./...`
+instruments every package in every test binary, so a block is covered when
+any test of the module runs it, whichever package holds the test. This is
+AC-Q2 as built from W6.5 (owner ruling G10); the port plan's sections 8
+and 12 describe W6.3's per-package `-coverprofile`, under which a block
+that only another package's tests ran needed a row of its own.
 
 A row names blocks by their file, the top-level function that holds them
 (or `var name` for a function literal in a package-level variable) and their
@@ -27,8 +34,6 @@ Each reason starts with its class:
   always a range (`0-1`), since a run's scheduling may cover it.
 - **Gap:** reachable, and no test sends the input the reason names; a test
   that sends it would cover the block.
-- **Other package:** covered by another package's tests: `go test -cover`
-  credits a package with its own tests only.
 
 | File | Function | Code | Blocks | Reason |
 | --- | --- | --- | --- | --- |
@@ -99,11 +104,9 @@ Each reason starts with its class:
 | `internal/h2gate/transport.go` | `nopLogger.WarnContext` | `{}` | 1 | Gap: the one warning, `h2: response not HTTP/2`, is reached only by tests that attach a logger. |
 | `internal/h2gate/transport.go` | `(*Transport).RoundTrip` | `t.mu.Unlock()` | 0-1 | Race: a waiter that loops back and finds the connection warm; covered in 4 of 15 runs at 67dcbb0 and in 3 of 6 on f73ab2b's production files ((M) on 16 cores, (L) on 44 and pinned to 4; -race and not). |
 | `internal/h2gate/transport.go` | `(*Transport).RoundTrip` | `t.leave(gen)` | 0-1 | Race: a waiter whose context ends while the leader dials; no test cancels a waiter on purpose. |
-| `internal/h2gate/transport.go` | `reason` | `return "proxy"` | 1 | Other package: root's `TestTransportDebugRecordsHoldNoCredential` logs a proxy's refused CONNECT (`reason=proxy`, K16); h2gate's own tests attach no logger to a proxy failure. |
 | `internal/h2gate/transport.go` | `reason` | `return "not-negotiated"` | 1 | Gap: no test logs a failed ALPN negotiation with a logger attached. |
 | `internal/h2gate/transport.go` | `(*call).gotConn` | `{}` | 1 | Gap: a new HTTP/2 connection for a call that holds the token on a transport with `firstHold` cleared. |
 | `internal/h2gate/transport.go` | `(*call).wroteHeaders` | `tm.Stop()` | 0-1 | Race: `WroteHeaders` arriving on the write goroutine after `send` has given the token back. |
 | `internal/h2gate/transport.go` | `(*Transport).markUnsettled` | `return false` | 1 | Gap: a caller TLS dialer (`WithHTTPTransport`) that returns a non-comparable `net.Conn` value, on a replay that opens a new connection while the call holds the token; the stock connection types are pointers. |
-| `internal/wire/prepared.go` | `(*Builder).GrowLevels` | `b.spans = slices.Grow(b.spans, n)` | 1 | Other package: its one caller is the root package's `(*Questions).Prepare`, which root-package tests run; internal/wire's own tests do not call it. |
 | `internal/wire/prepared.go` | `(*Builder).Choice` | `return err` | 1 | Gap: a choice question name that is not valid UTF-8; the refusal in `begin` is tested through `Noul` only. |
 | `internal/wire/prepared.go` | `(*Builder).Score` | `return err` | 1 | Gap: a score question name that is not valid UTF-8; the refusal in `begin` is tested through `Noul` only. |
