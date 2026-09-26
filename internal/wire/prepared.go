@@ -17,7 +17,6 @@ package wire
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"slices"
 	"strconv"
 	"unicode/utf8"
@@ -182,6 +181,7 @@ type Builder struct {
 	buf     []byte
 	entries []PreparedQuestion
 	spans   []levelSpan
+	keys    []string // the sorted keys of the maps Raw is writing (sortedKeys)
 }
 
 // Grow reserves room for questions more questions and size more bytes of
@@ -344,7 +344,8 @@ func (b *Builder) Raw(name, typ string, fields map[string]any, leaf Leaf) error 
 		return err
 	}
 	var err error
-	for _, key := range slices.Sorted(maps.Keys(fields)) {
+	base := len(b.keys)
+	for _, key := range sortedKeys(&b.keys, fields) {
 		if key == "type" {
 			return &MemberError{Member: key, Err: errTypeField}
 		}
@@ -354,10 +355,11 @@ func (b *Builder) Raw(name, typ string, fields map[string]any, leaf Leaf) error 
 		}
 		b.buf = append(b.buf, ':')
 		var verr *valueError
-		if b.buf, verr = appendValue(b.buf, fields[key], leaf, 0); verr != nil {
+		if b.buf, verr = b.appendValue(b.buf, fields[key], leaf, 0); verr != nil {
 			return &MemberError{Member: key + verr.path, Err: verr.err}
 		}
 	}
+	b.keys = b.keys[:base]
 	b.buf = append(b.buf, '}')
 	return nil
 }

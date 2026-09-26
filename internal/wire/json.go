@@ -17,7 +17,6 @@ package wire
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"math"
 	"slices"
 	"strconv"
@@ -359,8 +358,9 @@ type valueError struct {
 
 // appendValue appends the JSON of v, one of: nil, bool, string, the integer
 // and float kinds, []any, []string, map[string]any, map[string]string, or a
-// value leaf knows. Map members are written in sorted key order.
-func appendValue(dst []byte, v any, leaf Leaf, depth int) ([]byte, *valueError) {
+// value leaf knows. Map members are written in sorted key order, the keys
+// sorted on b's key stack (sortedKeys).
+func (b *Builder) appendValue(dst []byte, v any, leaf Leaf, depth int) ([]byte, *valueError) {
 	if depth > maxValueDepth {
 		return dst, &valueError{err: fmt.Errorf("%w: nested more than %d levels deep (a cycle?)", ErrUnsupportedValue, maxValueDepth)}
 	}
@@ -403,7 +403,7 @@ func appendValue(dst []byte, v any, leaf Leaf, depth int) ([]byte, *valueError) 
 				dst = append(dst, ',')
 			}
 			var verr *valueError
-			if dst, verr = appendValue(dst, e, leaf, depth+1); verr != nil {
+			if dst, verr = b.appendValue(dst, e, leaf, depth+1); verr != nil {
 				verr.path = "[" + strconv.Itoa(i) + "]" + verr.path
 				return dst, verr
 			}
@@ -422,7 +422,8 @@ func appendValue(dst []byte, v any, leaf Leaf, depth int) ([]byte, *valueError) 
 		return append(dst, ']'), nil
 	case map[string]any:
 		dst = append(dst, '{')
-		for i, k := range slices.Sorted(maps.Keys(v)) {
+		base := len(b.keys)
+		for i, k := range sortedKeys(&b.keys, v) {
 			if i > 0 {
 				dst = append(dst, ',')
 			}
@@ -431,15 +432,17 @@ func appendValue(dst []byte, v any, leaf Leaf, depth int) ([]byte, *valueError) 
 			}
 			dst = append(dst, ':')
 			var verr *valueError
-			if dst, verr = appendValue(dst, v[k], leaf, depth+1); verr != nil {
+			if dst, verr = b.appendValue(dst, v[k], leaf, depth+1); verr != nil {
 				verr.path = "." + k + verr.path
 				return dst, verr
 			}
 		}
+		b.keys = b.keys[:base]
 		return append(dst, '}'), nil
 	case map[string]string:
 		dst = append(dst, '{')
-		for i, k := range slices.Sorted(maps.Keys(v)) {
+		base := len(b.keys)
+		for i, k := range sortedKeys(&b.keys, v) {
 			if i > 0 {
 				dst = append(dst, ',')
 			}
@@ -451,6 +454,7 @@ func appendValue(dst []byte, v any, leaf Leaf, depth int) ([]byte, *valueError) 
 				return dst, &valueError{path: "." + k, err: err}
 			}
 		}
+		b.keys = b.keys[:base]
 		return append(dst, '}'), nil
 	default:
 		var ok bool
@@ -465,6 +469,23 @@ func appendValue(dst []byte, v any, leaf Leaf, depth int) ([]byte, *valueError) 
 		return dst, &valueError{err: err}
 	}
 	return dst, nil
+}
+
+// sortedKeys appends the keys of m to *stack, sorts them there and returns
+// them, so that a map's keys cost no allocation once the stack has grown to
+// the deepest nesting's keys. The caller truncates *stack to its length
+// before the call when it has written the members; the keys of a map nested
+// in a member are pushed after the returned ones, and popped, while the
+// caller still ranges over them, and a stack that grows meanwhile leaves the
+// returned ones where they are.
+func sortedKeys[V any](stack *[]string, m map[string]V) []string {
+	base := len(*stack)
+	for k := range m {
+		*stack = append(*stack, k)
+	}
+	keys := (*stack)[base:]
+	slices.Sort(keys)
+	return keys
 }
 
 // appendFloat appends f as typesafe-sdk-python's request path writes a

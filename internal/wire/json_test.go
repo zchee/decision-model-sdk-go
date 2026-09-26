@@ -17,8 +17,11 @@ package wire
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"maps"
 	"math"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -294,6 +297,107 @@ func TestBuilderRawValues(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestBuilderRawKeyStack checks the key stack Raw sorts map keys on
+// (sortedKeys, W5.3): members come out in sorted key order at every level
+// when a nested map pushes more keys than the stack holds while an outer
+// map is still ranging over its own, the stack is empty after each
+// question and after each map written as a value, and a second question of
+// the same shape sorts its keys without allocating.
+func TestBuilderRawKeyStack(t *testing.T) {
+	wide := make(map[string]any, 40)
+	for i := range 40 {
+		wide["k"+strconv.Itoa(39-i)] = i
+	}
+	tests := map[string]struct {
+		fields map[string]any
+	}{
+		"success: a wide map nested in the middle of an outer one": {
+			fields: map[string]any{"b": map[string]any{"z": 1, "wide": wide, "a": 2}, "a": 0, "c": map[string]string{"y": "2", "x": "1"}},
+		},
+		"success: maps inside arrays inside maps": {
+			fields: map[string]any{"list": []any{map[string]any{"q": 1, "p": map[string]string{"n": "o", "m": "l"}}, wide}, "first": wide},
+		},
+		"success: nested keys that sort before the outer ones": {
+			fields: map[string]any{"z": map[string]any{"a": map[string]any{"b": 1, "a": 2}}, "y": 3},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			var b Builder
+			b.Grow(2, 1<<14)
+			for _, q := range []string{"q1", "q2"} {
+				if err := b.Raw(q, "future", tt.fields, nil); err != nil {
+					t.Fatalf("Raw(%s): %v", q, err)
+				}
+				if len(b.keys) != 0 {
+					t.Fatalf("after Raw(%s) the key stack holds %q, want it empty", q, b.keys)
+				}
+			}
+			// The same maps as values in an array, below any map's
+			// truncation: each map pops its own keys.
+			if _, verr := b.appendValue(nil, []any{tt.fields, map[string]string{"b": "1", "a": "2"}}, nil, 0); verr != nil || len(b.keys) != 0 {
+				t.Fatalf("after appendValue (error %v) the key stack holds %q, want it empty", verr, b.keys)
+			}
+			if !raceEnabled() {
+				b.Grow(101, 1<<16)
+				if n := testing.AllocsPerRun(100, func() { _ = b.Raw("q", "future", tt.fields, nil) }); n != 0 {
+					t.Errorf("Raw of a shape the stack has held allocates %v times, want 0", n)
+				}
+			}
+			var p Prepared
+			b2 := Builder{}
+			if err := b2.Raw("q1", "future", tt.fields, nil); err != nil {
+				t.Fatal(err)
+			}
+			if err := b2.Finish(&p); err != nil {
+				t.Fatal(err)
+			}
+			want := `{"q1":{"type":"future"` + refMembers(tt.fields) + `}}`
+			if string(p.Questions) != want {
+				t.Errorf("Questions =\n%s\nwant\n%s", p.Questions, want)
+			}
+		})
+	}
+}
+
+// refMembers writes m's members as TestBuilderRawKeyStack expects them,
+// each preceded by a comma, in sorted key order with its own sort, for maps,
+// []any, map[string]string, strings without escapes and ints.
+func refMembers(m map[string]any) string {
+	var sb strings.Builder
+	for _, k := range slices.Sorted(maps.Keys(m)) {
+		sb.WriteString(`,"` + k + `":` + refValue(m[k]))
+	}
+	return sb.String()
+}
+
+func refValue(v any) string {
+	switch v := v.(type) {
+	case int:
+		return strconv.Itoa(v)
+	case string:
+		return `"` + v + `"`
+	case []any:
+		parts := make([]string, len(v))
+		for i, e := range v {
+			parts[i] = refValue(e)
+		}
+		return "[" + strings.Join(parts, ",") + "]"
+	case map[string]string:
+		var sb strings.Builder
+		for i, k := range slices.Sorted(maps.Keys(v)) {
+			if i > 0 {
+				sb.WriteByte(',')
+			}
+			sb.WriteString(`"` + k + `":"` + v[k] + `"`)
+		}
+		return "{" + sb.String() + "}"
+	case map[string]any:
+		return "{" + strings.TrimPrefix(refMembers(v), ",") + "}"
+	}
+	panic(fmt.Sprintf("refValue: %T", v))
 }
 
 // FuzzAppendJSON checks the invariants AppendJSON keeps on any input (ruling

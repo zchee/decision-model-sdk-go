@@ -29,8 +29,10 @@ import (
 // TestAllocPrepare counts the heap allocations of Questions.Prepare on every
 // set of prepareCases, the set built outside the measured section, and pins
 // the count of the first three cases of the performance ledger's W1.3
-// section. The other sets are measured and logged, with the bytes of every
-// run and the prepared length, for the ledger.
+// section (c1-sketch 9 → 6 with W5.3's P1, which sorts map keys on the
+// Builder's key stack) and of c5-raw-100x3, P1's case (1 710 → 14; 1 700 of
+// the 1 710 sorted the keys). The other sets are measured and logged, with
+// the bytes of every run and the prepared length, for the ledger.
 func TestAllocPrepare(t *testing.T) {
 	testsupport.QuietRuntime(t)
 
@@ -39,12 +41,12 @@ func TestAllocPrepare(t *testing.T) {
 		// records the count without this test pinning it.
 		mallocs int
 	}{
-		"c1-sketch":           {mallocs: 9},
+		"c1-sketch":           {mallocs: 6},
 		"c2-noul-short":       {mallocs: 3},
 		"c3-choice-20x10":     {mallocs: 27},
 		"c4a-score-20x8-text": {mallocs: -1},
 		"c4b-score-20x8-json": {mallocs: -1},
-		"c5-raw-100x3":        {mallocs: -1},
+		"c5-raw-100x3":        {mallocs: 14},
 		"c6-escapes":          {mallocs: -1},
 		"n8a-array-score":     {mallocs: -1},
 		"n8a-array-control":   {mallocs: -1},
