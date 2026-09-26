@@ -3535,3 +3535,63 @@ handler. b002bd5 writes bytes again. In one session under the (M) lock at
 match ddec26a's: `Loopback/call` 111 and 111, and `cold-fanout-64` 8597
 and 8595, whose runs spread by 43 and 6. So W5.1-09/-10's allocation rows
 still hold (`results/b6allocs-M-{b002bd5,ddec26a}.txt`).
+
+## W3.3: telemetry and redaction (AC-P6 unchanged; what logging costs)
+
+W3.3 adds nothing to a successful call's path: the h2gate error-text hook
+(ruling R84) runs only for a DEBUG record a logger keeps, after a dial
+failed; the redacted copy of a response header (R87) is made only when an
+`*APIError`, `*ResponseValidationError` or `*ResponseTooLargeError` is
+built; the scrubbed chain rendering of a stand-in (R95) only when a
+transport error printed a credential. Both rows were measured at c196649,
+the last commit that changes code or tests (`TestAllocLoggedCall`, new),
+on 87d1ac7 (W3.2's landing); the commit that writes this section changes
+documents and raw outputs only. Commands use `R=_spikes/s-c1/run.sh`,
+`O=_spikes/w3.3/results`,
+`SP=/private/tmp/claude-501/-Users-zchee-go-src-github-com-zchee-typesafe-sdk-go/40cb0f1f-c8a9-422c-a3e8-b3afc329b5cb/scratchpad`
+and `BASE=c196649`.
+
+### How the numbers were taken
+
+- (M): `go1.27.1 darwin/arm64`, `GOEXPERIMENT=nosimd,noruntimesecret`,
+  in the lane's worktree at c196649 (clean), under
+  `/opt/homebrew/opt/util-linux/bin/flock` on `$SP/bench.lock`.
+- (L): the tree written by `git archive c196649` and piped over ssh to
+  `/tmp/ts-spike/src-w3.3/meas`; toolchain `/tmp/ts-spike/go/bin/go` with
+  the §11 `GOPATH`, `GOMODCACHE` and `GOCACHE` under `/tmp/ts-spike` and no
+  `GOEXPERIMENT`, under `flock /tmp/ts-spike/bench.lock`; the raw file was
+  copied back.
+- `TestAllocWholeCall` and `TestMemStatsCap` as in W3.2 (three of five
+  runs agree, `testsupport.Spread`); `TestAllocLoggedCall` measures
+  `TestAllocWholeCall`'s q3 call under `DefaultRetry()` with the same
+  rule, once per logger. Counts only: the (M) load (6.7) does not bear on
+  them.
+
+### W3.3 findings
+
+1. **AC-P6 is unchanged on both hosts under `DefaultRetry()` and the
+   default logger: SDK-own 14 allocations, 2 008 B** (floor 8/640, call
+   22/2648), as W3.2-05/-06.
+2. **AC-P5 is unchanged on both hosts:** (i) 38 allocations / 264 032 B
+   (bound 327 680 B) … (vii) 6 104 B, equal to W3.2-05/-06 in every count.
+   The header copy of R87 costs nothing in (ii) and (iii), whose
+   `*ResponseTooLargeError` is built from a Recorder reply without
+   headers; a response with headers pays one map and one slice per
+   credential header, on the error path.
+3. **What logging costs one call (row W3.3-01's `LOG` line):** the default
+   logger (`slog.DiscardHandler`) builds no record and costs nothing,
+   22/2648, pinned equal to AC-P6's call; `WithLogger` at INFO into a
+   handler that keeps and discards the records costs **+1 allocation,
+   +48 B** (the one INFO "response" record per attempt carries six
+   attributes, one past the five a `slog.Record` holds inline, so its
+   attribute slice is allocated); at DEBUG **+3, +96 B** (the two
+   redacted-header values of the DEBUG records); slog's text handler
+   writing to `io.Discard` adds nothing at INFO. A record with five
+   attributes would make INFO logging free of allocations: a W5.3
+   candidate, not a W3.3 change (the record's attributes are the section
+   9 contract).
+
+| # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| W3.3-01 | 2026-09-26 12:05:13 JST | W3.3 AC-P6 under `DefaultRetry()`, AC-P5 memstats, logging cost | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.65 → 6.65 | `BASE=c196649 GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock alloc-M -count=1 -run '^(TestAllocWholeCall\|TestMemStatsCap\|TestAllocLoggedCall)$' -v .` | q3: floor 8/640, call 22/2648, SDK-own 14/2008; AC-P5 (i) 38 allocs / 264032 B, (ii) 1368 B, (iii) 33559896 B, (iv) 33302488 B, (v) 33560536 B, (vi) 2392 B, (vii) 6104 B; LOG default 22/2648, INFO +1/48, DEBUG +3/96, INFO text handler +1/48 | mallocs/bytes, collector off, `GOMAXPROCS(1)`, 3 of 5 runs agree; `results/alloc-M.txt` |
+| W3.3-02 | 2026-09-26 03:05:15 UTC | W3.3 AC-P6 under `DefaultRetry()`, AC-P5 memstats, logging cost | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.02 → 0.02 | `BASE=c196649 sh $R '(L)' $O /tmp/ts-spike/bench.lock alloc-L -count=1 -run '^(TestAllocWholeCall\|TestMemStatsCap\|TestAllocLoggedCall)$' -v .` | identical to W3.3-01 in every count (the minimum of 3 agreeing runs); AC-P5 (i)'s largest run 43/282752 against (M)'s 42/264320, inside the bound | `results/alloc-L.txt` |
