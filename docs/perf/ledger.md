@@ -5190,7 +5190,9 @@ W5.4 owns `.github/workflows/bench.yaml`'s CodSpeed job and
 `call/sdk` faster than `call/naive` on the PR run". The repository takes
 no pull requests (R2), so the PR run is two runs of `bench.yaml` on the
 landing commit's tree: the `workflow_dispatch` run on `wave/w5.4` at its
-final head, then `main`'s first push run after the landing. Owner ruling
+final head, then `main`'s first push run after the landing. That reading
+is W5.4's deviation 1, recorded for the owner's review. W5.1's finding 8
+("AC-P7 is W5.4's pull-request run") means these two runs. Owner ruling
 R108 reads "faster" on the mean (the total time divided by the rounds,
 `go test`'s ns/op), not on the minimum CodSpeed's report shows, and keeps
 AC-P7 report-only until K7 is met. So every row records the minimum, the
