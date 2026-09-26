@@ -29,11 +29,11 @@ import (
 // architecture is keyed by it). The budget holds "while the scratch stays
 // within the 8 MiB ceiling" (frozen-budgets.md AC-P1): sonic grows the
 // scratch of a *struct or map state in runtime.growslice steps, and on arm64
-// the steps of the 6 MiB *struct state end at 9.29 MiB, past the ceiling,
+// the steps of the 6 MiB *struct state end at 8.86 MiB, past the ceiling,
 // so the pool drops the scratch after every call and no call is warm (R22,
 // G2 (b); K24 is W5.3's). Where the steps end depends on the exact length
 // of the body at each step: the flat map that S-E1 encoded alone ended at
-// 9.18 MiB (finding 5), and the same map inside a request body, after
+// 8.76 MiB (finding 5), and the same map inside a request body, after
 // {"state":, ends at 7.51 MiB and is warm. Such a case is recorded, and its
 // scratch must still outgrow the ceiling, so that a change that ends the
 // overshoot fails here and the exception is removed; any other case whose
@@ -66,7 +66,10 @@ func noInput() struct{} { return struct{}{} }
 // pinned to the frozen E(kind) (1, 0 for RawJSON, 1 + m for a state with m
 // maps) and the body to exactly E(kind) + B, so a sonic upgrade or an
 // encoder change that moves either fails here. Its bytes above E_sonic's
-// are at most 112 (frozen; the plan's 1.05 × body + 4 KiB is checked too),
+// are exactly the boxing's, 16 B for a bare string, 24 B for a bare RawJSON
+// and 0 otherwise: no case varies from run to run, on any host or CI image,
+// so the pin is exact, inside the frozen 112 B (also checked, as is the
+// plan's 1.05 × body + 4 KiB),
 // and the scratch the call leaves is within the 8 MiB ceiling, so the pool
 // keeps it. Opening readers is the transport's cost and is not part of it
 // (AC-P6 counts it).
@@ -156,6 +159,9 @@ func TestAllocEncode(t *testing.T) {
 				}
 				if sdk.Mallocs != wantE+b {
 					t.Errorf("body encode = %d allocations, want exactly E(kind) + B = %d + %d (NF1, frozen)", sdk.Mallocs, wantE, b)
+				}
+				if above != k.boxBytes {
+					t.Errorf("body encode bytes = %d above E_sonic's %d, want exactly %d, what boxing the argument allocates (B)", above, esonic.Bytes, k.boxBytes)
 				}
 				if above > encodeWarmBytes {
 					t.Errorf("body encode bytes = %d above E_sonic's %d, want at most %d (AC-P1 warm-pool bytes, frozen)", above, esonic.Bytes, encodeWarmBytes)

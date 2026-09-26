@@ -69,6 +69,9 @@ type stateKind struct {
 	// 0 for RawJSON, which the SDK appends as it is. A state holding m maps
 	// costs sonic 1 + m (frozen-budgets.md AC-P1, G2 (b)).
 	sonic uint64
+	// boxBytes is what boxing a bare state allocates: a string header (16 B)
+	// or a slice header (24 B); 0 for a boxed state.
+	boxBytes uint64
 	// build returns the case for a state whose encoding is about size bytes.
 	build func(tb testing.TB, size int) stateCase
 }
@@ -107,7 +110,7 @@ func (k stateKind) b() uint64 {
 // stateKinds are the kinds AC-P1 budgets, in report order. The sequence of
 // section 6.1.6 uses the boxed ones.
 var stateKinds = []stateKind{
-	{name: "string", bare: true, sonic: 1, build: func(_ testing.TB, size int) stateCase {
+	{name: "string", bare: true, sonic: 1, boxBytes: 16, build: func(_ testing.TB, size int) stateCase {
 		s := stateString(size)
 		return stateCase{boxed: s, pass: func(qs *Prepared) (codec.Body, error) { return encodeBody(s, DefaultModel, qs, nil) }, json: []byte(strconv.Quote(s))}
 	}},
@@ -115,7 +118,7 @@ var stateKinds = []stateKind{
 		var s any = stateString(size)
 		return stateCase{boxed: s, pass: func(qs *Prepared) (codec.Body, error) { return encodeBody(s, DefaultModel, qs, nil) }, json: []byte(strconv.Quote(s.(string)))}
 	}},
-	{name: "RawJSON", bare: true, build: func(tb testing.TB, size int) stateCase {
+	{name: "RawJSON", bare: true, boxBytes: 24, build: func(tb testing.TB, size int) stateCase {
 		raw := RawJSON(nestedMapJSON(tb, size))
 		return stateCase{boxed: raw, pass: func(qs *Prepared) (codec.Body, error) { return encodeBody(raw, DefaultModel, qs, nil) }, json: raw}
 	}},

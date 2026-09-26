@@ -4281,9 +4281,11 @@ and `BASE=6bec0e8`.
 1. **AC-P1 single size: every asserted case costs exactly E(kind) + B on
    both hosts at every size, with E_sonic measured in the same run equal
    to the frozen E(kind)** (1; 0 for RawJSON; 1 + m for a state with m
-   maps: 9, 471, 7 503 and 45 010 for the nested map), and at most 24 B
-   above E_sonic's bytes (the frozen 112 B; 24 is a bare RawJSON's slice
-   header, 16 a bare string's). Each case starts from emptied pools, as a
+   maps: 9, 471, 7 503 and 45 010 for the nested map), and exactly the
+   boxing's bytes above E_sonic's: 16 B for a bare string (its header), 24 B
+   for a bare RawJSON (a slice header), 0 otherwise, on every run of both
+   hosts and the three CI images, so the test pins them exactly (review
+   MINOR 2), inside the frozen 112 B. Each case starts from emptied pools, as a
    process sending only that size does: in a first version the cases
    shared one pooled scratch, grown to 6.5 MiB by the string case, and the
    arm64 overshoot disappeared from every later case.
@@ -4291,7 +4293,7 @@ and `BASE=6bec0e8`.
    level.** Its growslice steps end at 8.86 MiB, past the ceiling, so each
    call pays a fresh scratch and its growth: 23 allocations, 30 469 392 B
    (frozen: 22 and 27.6 MB for S-E1's struct, whose items nest one more
-   struct). The flat map that S-E1 encoded alone ended at 9.18 MiB; inside
+   struct). The flat map that S-E1 encoded alone ended at 8.76 MiB; inside
    a request body, after `{"state":`, the same map ends at 7.51 MiB and is
    warm (2). Where the steps end depends on the body's exact length at
    each step. The test keys the exception by GOARCH (R62) and fails if the
@@ -4340,7 +4342,9 @@ and `BASE=6bec0e8`.
    inputs; the whole decode grows 0.0661 allocations per member visited,
    under the lazy pass's c₁ = 1/15 = 0.0667 (recorded).** The lazy pass
    alone, in `internal/codec`: 86 and 681 against the bounds 89 and 689,
-   ratio 7.92; the budget step's codec list runs it without -race on every
+   ratio 7.92, and the members the pass itself visits are pinned there too
+   (1 011 and 10 011, review MINOR 3), so a pass that also read unflagged
+   answers fails in `internal/codec`, not only through root's AC-P2 pins; the budget step's codec list runs it without -race on every
    image (R110 (3)). Time ratio, `TestLinearityFloodTime`: 9.36–9.57 on (M),
    9.23–9.26 on (L); under `-race` on (M) 9.67 (W5.2-07).
 8. **`TestResponseCapOverTheWire`: one attempt under `DefaultRetry()`,
