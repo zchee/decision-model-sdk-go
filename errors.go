@@ -218,8 +218,10 @@ type APIError struct {
 	// header that carries a credential is "***": a header named
 	// Authorization, Proxy-Authorization, X-Api-Key, Api-Key, Cookie or
 	// Set-Cookie, or whose name contains "token" or "secret" (compared
-	// without regard to case), and a header with a value that holds the
-	// client's API key when the key is at least 8 bytes long. Every other
+	// without regard to case), a header with a value that holds the
+	// client's API key when the key is at least 8 bytes long, and one with
+	// a value that holds a credential of a proxy the SDK's transport chose,
+	// which a proxy's own answer may repeat ([WithProxy]). Every other
 	// header, Retry-After, Retry-After-Ms and X-Typesafe-Request-Id
 	// included, is as the server sent it, so [APIError.RetryAfter] and
 	// [APIError.RequestID] read it. The values of those other headers are
@@ -430,18 +432,40 @@ func newResponseTooLargeError(meta *wire.ResponseMeta, endpoint string, r header
 // connection could not be made, failed or was lost, or a proxy refused it.
 // Retrying may help.
 //
-// Error returns "Connection error: <cause>", the cause's text escaped, cut
-// at 200 characters and with any credential of the request replaced, and,
-// on the transport the SDK builds, the password of the proxy it chose and
-// the Basic token sent for it, which a proxy's answer may repeat. Unwrap
-// returns the transport's error, unless it, or an error it wraps, showed a
-// credential of the request in its text, its %+v or its %#v: then it
-// returns a stand-in whose text has the credentials replaced and which
-// unwraps only to the well-known errors the transport's error matched, such
-// as [context.DeadlineExceeded], [io.ErrUnexpectedEOF] or a
-// [syscall.Errno]. An error that points to the request, which only a
-// caller's RoundTripper, dialer or response body can return, is kept, and
-// errors.As reaches the caller's own request through it.
+// Error returns "Connection error: <cause>", the cause's text escaped and
+// cut at 200 characters, with every credential of the request replaced by
+// "***": the value of each header whose name marks a credential, and the
+// credential after the scheme of an Authorization value, the API key among
+// them, each when it is at least 8 bytes long.
+//
+// On the transport the SDK builds, which a client has unless it is given
+// [WithHTTPTransport] or [WithRoundTripper], the credentials of the proxies
+// its proxy func chose ([WithProxy], or the proxy environment variables)
+// are replaced too, those of the 16 most recent: each proxy URL's password
+// as it is, as the URL escapes it and each of its words between single
+// spaces, and the Basic token net/http sends for it, which a proxy's answer
+// may repeat. They are recorded when net/http asks the func; the SDK never
+// asks it again. With [WithHTTPTransport] or [WithRoundTripper], the
+// transport keeps its own proxy, whose credentials the SDK does not know:
+// they are not replaced.
+//
+// Unwrap returns the transport's error, unless it, or an error it wraps,
+// showed a credential in its text, its %+v or its %#v: then it returns a
+// stand-in whose text has the credentials replaced and which unwraps only
+// to the well-known errors the transport's error matched,
+// [context.DeadlineExceeded], [context.Canceled], [os.ErrDeadlineExceeded],
+// [io.ErrUnexpectedEOF], [io.EOF], [net.ErrClosed] and a [syscall.Errno].
+// An error that points to the request, which only a caller's RoundTripper,
+// dialer or response body can return, is kept, and errors.As reaches the
+// caller's own request through it.
+//
+// A proxy's credential is replaced whatever its length, where a header's
+// is looked for only from 8 bytes. A short password, or a short word of
+// one, may occur in the error's ordinary text, such as "443" or "dial":
+// Error then shows "***" there too, and Unwrap returns the stand-in, so
+// errors.As no longer reaches the [*net.OpError], [*net.DNSError] or
+// [*url.Error] in the transport's error, while errors.Is still matches the
+// well-known errors above.
 type ConnectionError struct {
 	msg   string
 	err   error

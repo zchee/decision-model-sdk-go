@@ -107,14 +107,19 @@ func isCredential(name string, values []string, apiKey string) bool {
 }
 
 // headerRedactor redacts the response header that the error types keep
-// (rulings R87, R93): a header is a credential by its name always, and by
-// holding the client's API key when the key is at least
-// [minKeyNeedleBytes] long ([isCredential]). Its zero value redacts by name
-// alone, for an error built without a client's key, such as UnmarshalJSON's.
-// Build a client's with [newHeaderRedactor] or [config.redactor].
+// and the log records print (rulings R87, R93): a header is a credential by
+// its name always, by holding the client's API key when the key is at least
+// [minKeyNeedleBytes] long ([isCredential]), and, for a response through the
+// SDK's own transport, by holding a credential of a proxy it chose
+// ([proxyCreds]; ruling D-W6-secfix-revise-2-scope-c), which a proxy may
+// repeat in the headers of its own answer to a plain-HTTP request. Its zero
+// value redacts by name alone, for an error built without a client's key,
+// such as UnmarshalJSON's. Build a client's with [config.redactor].
 type headerRedactor struct {
 	// key is the API key when it is long enough to look for, else empty.
 	key string
+	// proxies are the client's transport's proxy credentials, nil for none.
+	proxies *proxyCreds
 }
 
 // newHeaderRedactor returns the redactor for a client whose API key is
@@ -128,7 +133,20 @@ func newHeaderRedactor(apiKey string) headerRedactor {
 }
 
 // redactor returns the redactor for the client c configures.
-func (c *config) redactor() headerRedactor { return newHeaderRedactor(c.apiKey) }
+func (c *config) redactor() headerRedactor {
+	r := newHeaderRedactor(c.apiKey)
+	if c.transport != nil {
+		r.proxies = c.transport.proxies
+	}
+	return r
+}
+
+// credential reports whether the values of the header name must not be
+// printed: [isCredential]'s test for r's key, or one of them holds a
+// credential of r's proxies.
+func (r headerRedactor) credential(name string, values []string) bool {
+	return isCredential(name, values, r.key) || r.proxies.inAny(values)
+}
 
 // header returns h's headers in a new map in which every value of each
 // header that is a credential is replaced by "***", one "***" per value, and
@@ -142,7 +160,7 @@ func (r headerRedactor) header(h http.Header) http.Header {
 	}
 	out := make(http.Header, len(h))
 	for name, values := range h {
-		if !isCredential(name, values, r.key) {
+		if !r.credential(name, values) {
 			out[name] = values
 			continue
 		}
@@ -158,18 +176,19 @@ func (r headerRedactor) header(h http.Header) http.Header {
 // requestID returns the request id in h as the error types show it from the
 // header r redacted ([headerRedactor.header]): the x-typesafe-request-id
 // values joined by ", ", each "***" when one of them holds the client's API
-// key, and whether the header was present. The INFO "response" record reads
-// the id through it, so the record shows "***" where Error does (ruling
-// R87). The header's name is not a credential's ([isSecretHeader]), so only
-// the key is looked for, and the name is not lower-cased as [isCredential]
-// would. h is not copied: one value costs no allocation, and several cost
-// the one string they are joined into.
+// key or a credential of r's proxies, and whether the header was present.
+// The INFO "response" record reads the id through it, so the record shows
+// "***" where Error does (ruling R87). The header's name is not a
+// credential's ([isSecretHeader]), so only the key and the proxies'
+// credentials are looked for, and the name is not lower-cased as
+// [isCredential] would. h is not copied: one value costs no allocation, and
+// several cost the one string they are joined into.
 func (r headerRedactor) requestID(h http.Header) (string, bool) {
 	values := h[wire.RequestIDHeader]
 	if len(values) == 0 {
 		return "", false
 	}
-	if r.key != "" && slices.ContainsFunc(values, func(v string) bool { return strings.Contains(v, r.key) }) {
+	if r.key != "" && slices.ContainsFunc(values, func(v string) bool { return strings.Contains(v, r.key) }) || r.proxies.inAny(values) {
 		return strings.Repeat(", "+redacted, len(values))[len(", "):], true
 	}
 	return strings.Join(values, ", "), true
@@ -177,18 +196,18 @@ func (r headerRedactor) requestID(h http.Header) (string, bool) {
 
 // redactedHeaders is a header map as a log record shows it: a group with one
 // attribute per header, in name order, whose value is the header's values
-// joined by ", ", or "***" when they are a credential ([isCredential]). Build
-// it with [newRedactedHeaders].
+// joined by ", ", or "***" when they are a credential
+// ([headerRedactor.credential]). Build it with [newRedactedHeaders].
 //
 // It is a [slog.LogValuer], so the map is walked and its values joined only
 // when a handler keeps the record. Boxing the value into an attribute still
 // allocates, so a request path that must not allocate with debug records off
 // checks [slog.Logger.Enabled] before it builds the attribute.
 //
-// No rendering prints the map or the key. Every fmt verb prints the redacted
+// No rendering prints the map or a credential. Every fmt verb prints the redacted
 // form ([redactedHeaders.Format]), and so do an unresolved [slog.Value] and
 // [slog.Attr], whose String methods print a LogValuer through fmt. The map
-// and the key sit behind the one pointer field, so the two renderings fmt
+// and the redactor sit behind the one pointer field, so the two renderings fmt
 // makes without calling Format, the %p verb and a redactedHeaders held in an
 // unexported field of another value, print an address.
 type redactedHeaders struct {
@@ -197,15 +216,16 @@ type redactedHeaders struct {
 
 // headerLog is what a [redactedHeaders] renders.
 type headerLog struct {
-	header http.Header
-	apiKey string
+	header   http.Header
+	redactor headerRedactor
 }
 
-// newRedactedHeaders returns header as a log record shows it, with any value
-// that holds apiKey redacted whatever its header's name, when apiKey is at
-// least [minKeyNeedleBytes] long.
-func newRedactedHeaders(header http.Header, apiKey string) redactedHeaders {
-	return redactedHeaders{p: &headerLog{header: header, apiKey: apiKey}}
+// newRedactedHeaders returns header as a log record shows it, each header r
+// counts as a credential redacted ([headerRedactor.credential]): by its
+// name, by a value that holds the client's API key, and by a value that
+// holds a credential of a proxy the client's transport chose.
+func newRedactedHeaders(header http.Header, r headerRedactor) redactedHeaders {
+	return redactedHeaders{p: &headerLog{header: header, redactor: r}}
 }
 
 // LogValue returns the redacted headers as a group value; the zero
@@ -218,7 +238,7 @@ func (r redactedHeaders) LogValue() slog.Value {
 	for _, name := range slices.Sorted(maps.Keys(r.p.header)) {
 		values := r.p.header[name]
 		value := redacted
-		if !isCredential(name, values, r.p.apiKey) {
+		if !r.p.redactor.credential(name, values) {
 			value = strings.Join(values, ", ")
 		}
 		attrs = append(attrs, slog.String(name, value))

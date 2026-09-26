@@ -20,6 +20,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"sync"
 	"testing"
@@ -392,6 +393,7 @@ func TestWrap(t *testing.T) {
 			"RootCAs":     {RootCAs: testsupport.RootCAs(t)},
 			"TLSConfig":   {TLSConfig: &tls.Config{}},
 			"Proxy":       {Proxy: http.ProxyFromEnvironment},
+			"OnProxy":     {OnProxy: func(*url.URL) {}},
 			"DialContext": {DialContext: (&net.Dialer{}).DialContext},
 		} {
 			cfg.APIURL = mustURL(t, exampleURL)

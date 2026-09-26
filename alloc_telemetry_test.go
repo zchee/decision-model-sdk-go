@@ -21,6 +21,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -124,22 +125,36 @@ var sinkID string
 // costs, the reading the record made before R107: that joins them into one
 // string, and requestID builds one string too, of "***" ones when a value
 // holds the key. The header's name is not lower-cased, as isCredential's
-// would be.
+// would be. A client whose transport chose a proxy reads its credential set
+// here too, the one success-path read of the set (ruling D-W6-secfix-m2):
+// one value costs no allocation, with or without the proxy's password.
 func TestAllocRequestID(t *testing.T) {
 	const key = "ts_live_QzXjWvKpYbNmHgFd"
 	r := newHeaderRedactor(key)
+	// A client whose transport chose a proxy (ruling D-W6-secfix-m2): its
+	// set is read on the success path here and nowhere else.
+	withProxies := r
+	withProxies.proxies = new(proxyCreds)
+	withProxies.proxies.record(&url.URL{Scheme: "http", User: url.UserPassword("proxy-user", "hunter2-proxy"), Host: "127.0.0.1:3128"})
 	tests := map[string]struct {
-		values []string // the x-typesafe-request-id values, nil for none
-		asMeta bool     // the count is wire.ResponseMeta.RequestID's, not 0
+		values  []string // the x-typesafe-request-id values, nil for none
+		asMeta  bool     // the count is wire.ResponseMeta.RequestID's, not 0
+		proxies bool     // the redactor holds a proxy's credential
 	}{
-		"success: no request id":                      {},
-		"success: an id without the key":              {values: []string{"req_123"}},
-		"success: an id that holds the key":           {values: []string{"req " + key}},
-		"success: a repeated id without the key":      {values: []string{"req_1", "req_2"}, asMeta: true},
-		"success: a repeated id, one holding the key": {values: []string{"req_1", key, "req_3"}, asMeta: true},
+		"success: no request id":                                  {},
+		"success: an id without the key":                          {values: []string{"req_123"}},
+		"success: an id that holds the key":                       {values: []string{"req " + key}},
+		"success: a repeated id without the key":                  {values: []string{"req_1", "req_2"}, asMeta: true},
+		"success: a repeated id, one holding the key":             {values: []string{"req_1", key, "req_3"}, asMeta: true},
+		"success: an id without a credential, a proxy's set held": {values: []string{"req_123"}, proxies: true},
+		"success: an id that holds a proxy's password":            {values: []string{"req hunter2-proxy"}, proxies: true},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
+			red := r
+			if tt.proxies {
+				red = withProxies
+			}
 			h := http.Header{"Content-Type": {"application/json"}, "Set-Cookie": {"a=1"}}
 			if tt.values != nil {
 				h["X-Typesafe-Request-Id"] = tt.values
@@ -149,7 +164,7 @@ func TestAllocRequestID(t *testing.T) {
 				meta := wire.ResponseMeta{Header: h}
 				want = testing.AllocsPerRun(100, func() { sinkID, _ = meta.RequestID() })
 			}
-			got := testing.AllocsPerRun(100, func() { sinkID, _ = r.requestID(h) })
+			got := testing.AllocsPerRun(100, func() { sinkID, _ = red.requestID(h) })
 			t.Logf("requestID allocates %v times, want %v (id %q)", got, want, sinkID)
 			if got != want {
 				t.Errorf("requestID allocates %v times, want %v", got, want)

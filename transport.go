@@ -138,7 +138,10 @@ func WithTLSConfig(cfg *tls.Config) ClientOption {
 // http.Transport.Proxy does. The default is http.ProxyFromEnvironment
 // (HTTPS_PROXY, HTTP_PROXY, NO_PROXY); nil disables proxies. It configures
 // the SDK's own transport, so it cannot be combined with [WithHTTPTransport]
-// or [WithRoundTripper].
+// or [WithRoundTripper]. The SDK scrubs the credentials of every proxy the
+// func returned, the 16 most recent, from the client's transport errors
+// and from the response headers its errors and log records show, whatever
+// their length ([ConnectionError] says what a short one costs).
 func WithProxy(proxy func(*http.Request) (*url.URL, error)) ClientOption {
 	return func(o *options) { o.transport.proxy, o.transport.proxySet = proxy, true }
 }
@@ -247,11 +250,11 @@ type transport struct {
 	// trace is WithClientTrace's hooks, shielded per request.
 	trace  *httptrace.ClientTrace
 	logger *slog.Logger
-	// proxy is the func that chooses the proxy of the SDK's own transport
-	// (WithProxy's, or http.ProxyFromEnvironment), nil for a caller's
-	// transport (WithHTTPTransport, WithRoundTripper), whose proxy the SDK
-	// does not choose. credentials asks it again for a failed request.
-	proxy func(*http.Request) (*url.URL, error)
+	// proxies are the credentials of the proxies the SDK's own transport
+	// chose (WithProxy's func, or http.ProxyFromEnvironment), recorded where
+	// net/http asks the func; nil for a caller's transport (WithHTTPTransport,
+	// WithRoundTripper), whose proxy the SDK does not choose.
+	proxies *proxyCreds
 
 	closeOnce sync.Once
 	closeErr  error
@@ -355,7 +358,8 @@ func (t *transportOptions) build(api *url.URL, connectTimeout time.Duration, con
 		if t.proxySet {
 			cfg.Proxy = t.proxy
 		}
-		tr.proxy = cfg.Proxy
+		tr.proxies = new(proxyCreds)
+		cfg.OnProxy = tr.proxies.record
 		gate, err = h2gate.NewTransport(cfg)
 	}
 	if err != nil {
@@ -484,17 +488,13 @@ func (t *transport) stats() h2gate.Stats {
 
 // credentials returns the credentials an error of the transport for req may
 // repeat ([callCredentials]): those of req's header and, on the SDK's own
-// transport, the credential of the proxy it chose for req, asked of the
-// proxy func again (it runs on the error path only). A proxy's answer that
-// net/http cannot parse becomes an error net/http builds itself, quoting the
-// answer, before refusedConnect's scrub (internal/h2gate) could see it; a
-// caller's transport keeps its own proxy, which the SDK does not ask.
+// transport, those of every proxy it chose ([proxyCreds]), never asking the
+// proxy func again. A proxy's answer that net/http cannot parse becomes an
+// error net/http builds itself, quoting the answer, before refusedConnect's
+// scrub (internal/h2gate) could see it; a caller's transport keeps its own
+// proxy, which the SDK does not ask.
 func (t *transport) credentials(req *http.Request) credentials {
-	var proxy *url.URL
-	if t.proxy != nil {
-		proxy, _ = t.proxy(req) // an error here is the transport's to report
-	}
-	return callCredentials(req.Header, proxy)
+	return callCredentials(req.Header, t.proxies.credentials())
 }
 
 // transportError maps an error of the SDK's transport to the SDK's error

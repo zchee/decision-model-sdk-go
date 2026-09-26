@@ -15,7 +15,6 @@
 package typesafe
 
 import (
-	"cmp"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -239,15 +238,12 @@ func requestCredentials(h http.Header) credentials {
 }
 
 // callCredentials returns the credentials a transport error of a call may
-// repeat: those of the request with header h ([requestCredentials]) and,
-// when proxy has userinfo, the credential a CONNECT to that proxy carries,
-// which the proxy's own answer may repeat in an error net/http builds from
-// it before the SDK's transport sees a response (review W6.2 MIN-4 and its
-// review's MINOR 1): the token of the Basic Proxy-Authorization value
-// net/http sends for the userinfo, and the password as it is and as the URL
-// escapes it. Each is looked for in the forms and under the length rule of
-// a header's credential.
-func callCredentials(h http.Header, proxy *url.URL) credentials {
+// repeat: those of the request with header h ([requestCredentials]) and
+// proxies, the credentials of the proxies the SDK's own transport chose
+// ([proxyCreds]), which a proxy's answer may repeat in an error net/http
+// builds from it before the SDK's transport sees a response (review W6.2
+// MIN-4, its review's MINOR 1, and ruling D-W6-secfix-m2).
+func callCredentials(h http.Header, proxies credentials) credentials {
 	var c credentials
 	for name, values := range h {
 		if !isSecretHeader(name) {
@@ -261,29 +257,52 @@ func callCredentials(h http.Header, proxy *url.URL) credentials {
 			}
 		}
 	}
-	if proxy != nil && proxy.User != nil {
-		user := proxy.User.Username()
-		password, _ := proxy.User.Password()
-		c.add(base64.StdEncoding.EncodeToString([]byte(user + ":" + password)))
-		c.add(password)
-		c.add(strings.TrimPrefix(url.UserPassword("", password).String(), ":"))
+	for _, v := range proxies {
+		if !slices.Contains(c, v) {
+			c = append(c, v)
+		}
 	}
-	// A whole value is replaced before a credential inside it; equal lengths
-	// in a fixed order, so the result does not depend on map order.
-	slices.SortFunc(c, func(a, b string) int { return cmp.Or(cmp.Compare(len(b), len(a)), strings.Compare(a, b)) })
+	slices.SortFunc(c, longestFirst)
 	return c
 }
 
 // add adds v to c in the forms a text may hold it (see
 // [requestCredentials]), unless it is shorter than [minKeyNeedleBytes].
 func (c *credentials) add(v string) {
-	if !keyNeedle(v) {
+	if keyNeedle(v) {
+		c.addAny(v)
+	}
+}
+
+// addAny adds v to c in the forms a text may hold it, whatever its length;
+// the empty string is not added.
+func (c *credentials) addAny(v string) {
+	if v == "" {
 		return
 	}
 	for _, form := range [...]string{v, quotedForm(strconv.Quote(v)), quotedForm(strconv.QuoteToASCII(v)), jsonForm(v)} {
 		if !slices.Contains(*c, form) {
 			*c = append(*c, form)
 		}
+	}
+}
+
+// addProxy adds to c the credential a request through a proxy whose URL has
+// the userinfo user carries, and what of it the proxy's answer may repeat:
+// the token of the Basic Proxy-Authorization value net/http sends for user,
+// the password as it is and as the URL escapes it, and each word of the
+// password between single spaces, since net/http splits a status line there
+// and quotes one word of it (a malformed status code or version). Unlike a
+// header's credential, each is looked for whatever its length (ruling
+// D-W6-secfix-m2): a short one may then match ordinary text, which the error
+// shows as "***" and whose chain it stands in for ([credentials.cause]).
+func (c *credentials) addProxy(user *url.Userinfo) {
+	password, _ := user.Password()
+	c.addAny(base64.StdEncoding.EncodeToString([]byte(user.Username() + ":" + password)))
+	c.addAny(password)
+	c.addAny(strings.TrimPrefix(url.UserPassword("", password).String(), ":"))
+	for word := range strings.SplitSeq(password, " ") {
+		c.addAny(word)
 	}
 }
 

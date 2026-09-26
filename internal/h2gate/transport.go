@@ -222,6 +222,11 @@ func (t *Transport) Stats() Stats {
 	}
 }
 
+// Parked returns the number of requests waiting at the gate now. It is for
+// a test outside the package that lets a cold burst's leader's dial end only
+// after the burst's other requests have parked.
+func (t *Transport) Parked() int { return int(t.parked.Load()) }
+
 // CloseIdleConnections closes the stock transport's idle connections and
 // cancels its pending dials.
 func (t *Transport) CloseIdleConnections() { t.base.CloseIdleConnections() }

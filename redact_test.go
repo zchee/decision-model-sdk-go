@@ -102,8 +102,8 @@ func TestRedactedHeadersSecretSpellings(t *testing.T) {
 
 			for handlerName, render := range renderers() {
 				out := render(func(logger *slog.Logger) {
-					logger.Debug("request", slog.Any("headers", newRedactedHeaders(c.systemOneHeader, c.apiKey)))
-					logger.Debug("response", slog.Any("headers", newRedactedHeaders(response, c.apiKey)))
+					logger.Debug("request", slog.Any("headers", newRedactedHeaders(c.systemOneHeader, newHeaderRedactor(c.apiKey))))
+					logger.Debug("response", slog.Any("headers", newRedactedHeaders(response, newHeaderRedactor(c.apiKey))))
 				})
 				for _, visible := range []string{"request-visible", "response-visible", "***"} {
 					if !strings.Contains(out, visible) {
@@ -196,7 +196,7 @@ func TestRedactedHeadersFlaggedValue(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			rec := testsupport.NewLogRecorder(nil)
-			rec.Logger().Debug("h", slog.Any("headers", newRedactedHeaders(tt.header, tt.apiKey)))
+			rec.Logger().Debug("h", slog.Any("headers", newRedactedHeaders(tt.header, newHeaderRedactor(tt.apiKey))))
 			var got []string
 			for _, r := range rec.Records() {
 				got = append(got, r.String())
@@ -285,7 +285,7 @@ func TestRedactedHeadersNeverPrintKey(t *testing.T) {
 	for headerName, hc := range headers {
 		for renderName, rc := range renderings {
 			t.Run(headerName+" "+renderName, func(t *testing.T) {
-				got := rc.render(newRedactedHeaders(hc.header, printedKey))
+				got := rc.render(newRedactedHeaders(hc.header, newHeaderRedactor(printedKey)))
 				if strings.Contains(got, printedKey) {
 					t.Fatalf("output %q contains the key", got)
 				}
@@ -364,7 +364,7 @@ func TestAPIKeyNeedleThreshold(t *testing.T) {
 
 			header := http.Header{"Authorization": {"Bearer " + tt.key}, "X-Echo": {"id=" + tt.key}}
 			want := "[Authorization=*** X-Echo=" + tt.wantEcho + "]"
-			if got := fmt.Sprint(newRedactedHeaders(header, tt.key)); got != want {
+			if got := fmt.Sprint(newRedactedHeaders(header, newHeaderRedactor(tt.key))); got != want {
 				t.Errorf("rendered = %q, want %q", got, want)
 			}
 		})

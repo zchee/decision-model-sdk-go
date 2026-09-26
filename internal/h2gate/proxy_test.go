@@ -15,6 +15,7 @@
 package h2gate
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
 	"encoding/base64"
@@ -24,6 +25,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -522,4 +524,178 @@ func TestRefusedConnectScrubsProxyCredential(t *testing.T) {
 			}
 		})
 	}
+}
+
+// heldProxy is a plain proxy on 127.0.0.1 that reads each request, a CONNECT
+// or a forwarded one, and, once open has run, answers it with 407;
+// requests counts the requests read.
+type heldProxy struct {
+	ln       net.Listener
+	release  chan struct{}
+	open     func()
+	requests atomic.Int64
+	wg       sync.WaitGroup
+}
+
+// newHeldProxy starts a heldProxy, open already when held is false. It stops
+// when the test ends.
+func newHeldProxy(t *testing.T, held bool) *heldProxy {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	p := &heldProxy{ln: ln, release: make(chan struct{})}
+	p.open = sync.OnceFunc(func() { close(p.release) })
+	if !held {
+		p.open()
+	}
+	p.wg.Go(func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			p.wg.Go(func() {
+				defer conn.Close()
+				if _, err := http.ReadRequest(bufio.NewReader(conn)); err != nil {
+					return
+				}
+				p.requests.Add(1)
+				<-p.release
+				_, _ = io.WriteString(conn, "HTTP/1.1 407 denied\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+			})
+		}
+	})
+	t.Cleanup(func() {
+		p.open()
+		_ = ln.Close()
+		p.wg.Wait()
+	})
+	return p
+}
+
+// url returns the proxy's URL with userinfo whose password is password.
+func (p *heldProxy) url(password string) *url.URL {
+	return &url.URL{Scheme: "http", User: url.UserPassword("proxy-user", password), Host: p.ln.Addr().String()}
+}
+
+// seenProxies collects the URLs an OnProxy hook got.
+type seenProxies struct {
+	mu   sync.Mutex
+	urls []*url.URL
+}
+
+func (s *seenProxies) onProxy(u *url.URL) {
+	s.mu.Lock()
+	s.urls = append(s.urls, u)
+	s.mu.Unlock()
+}
+
+func (s *seenProxies) got() []*url.URL {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.urls)
+}
+
+// TestOnProxySeesEveryConsult pins Config.OnProxy (ruling D-W6-secfix-m2):
+// the hook of a transport NewTransport built gets the very URL the Proxy
+// func returned, each time the stock transport asks the func and only then.
+// The request that dials asks it; requests sent on the HTTP/2 connection it
+// made ask nothing; a cold burst's waiters, released by their leader's
+// failed dial, ask nothing either, so one consult covers the burst and the
+// hook is the one place its proxy's credential can be recorded; a func that
+// fails reports nothing. A rotating func shows each consult reported in
+// order.
+func TestOnProxySeesEveryConsult(t *testing.T) {
+	counting := func(calls *atomic.Int64, pick func(n int64) *url.URL) func(*http.Request) (*url.URL, error) {
+		return func(*http.Request) (*url.URL, error) { return pick(calls.Add(1)), nil }
+	}
+	isProxyFailure := func(err error) bool {
+		de, ok := errors.AsType[*DialError](err)
+		return ok && de.Proxy
+	}
+
+	t.Run("success: the request that dials asks the func; those on its connection do not", func(t *testing.T) {
+		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(answerExample)})
+		p := testsupport.NewProxy(t, testsupport.ProxyPlain, testsupport.Routes{"example.com:443": srv.Addr()})
+		pu := p.URL()
+		pu.User = url.UserPassword("proxy-user", "hunter2-proxy-password")
+		var calls atomic.Int64
+		var seen seenProxies
+		tr := newTestTransport(t, Config{APIURL: mustURL(t, exampleURL), Proxy: counting(&calls, func(int64) *url.URL { return pu }), OnProxy: seen.onProxy, DialContext: testsupport.Routes{}.DialContext})
+		for i := range 3 {
+			if r := get(t.Context(), tr, exampleURL+"/"+strconv.Itoa(i)); r.Err != nil || r.Status != http.StatusOK {
+				t.Fatalf("request %d: %d %v", i, r.Status, r.Err)
+			}
+		}
+		// The stock transport sends a request on an HTTP/2 connection it
+		// holds without looking for one (GOROOT/src/net/http/transport.go:643-646).
+		if got := seen.got(); calls.Load() != 1 || len(got) != 1 || got[0] != pu {
+			t.Errorf("func calls %d, OnProxy got %v; want 1 and [%v]", calls.Load(), got, pu)
+		}
+	})
+
+	t.Run("error: a cold burst's waiters ask nothing: one consult for the leader's failed dial", func(t *testing.T) {
+		const n = 12
+		a := newHeldProxy(t, true)
+		ua := a.url("alpha-proxy-password")
+		var calls atomic.Int64
+		var seen seenProxies
+		tr := newTestTransport(t, Config{APIURL: mustURL(t, exampleURL), Proxy: counting(&calls, func(int64) *url.URL { return ua }), OnProxy: seen.onProxy, DialContext: testsupport.Routes{}.DialContext})
+		results := make([]result, n)
+		var wg sync.WaitGroup
+		for i := range n {
+			wg.Go(func() { results[i] = get(t.Context(), tr, exampleURL+"/"+strconv.Itoa(i)) })
+		}
+		waitUntil(t, "the leader's CONNECT and 11 parked waiters", func() bool { return a.requests.Load() == 1 && tr.Parked() == n-1 })
+		a.open()
+		wg.Wait()
+		for i, r := range results {
+			if !isProxyFailure(r.Err) {
+				t.Errorf("request %d: error %s, want the leader's proxy failure", i, chain(r.Err))
+			}
+		}
+		if got := seen.got(); calls.Load() != 1 || len(got) != 1 || got[0] != ua {
+			t.Errorf("func calls %d, OnProxy got %v; want 1 and [%v]", calls.Load(), got, ua)
+		}
+	})
+
+	t.Run("error: a rotating func: each failed dial's consult is reported in order", func(t *testing.T) {
+		a, b := newHeldProxy(t, false), newHeldProxy(t, false)
+		urls := [2]*url.URL{a.url("alpha-proxy-password"), b.url("bravo-proxy-password")}
+		var calls atomic.Int64
+		var seen seenProxies
+		tr := newTestTransport(t, Config{APIURL: mustURL(t, exampleURL), Proxy: counting(&calls, func(n int64) *url.URL { return urls[(n-1)%2] }), OnProxy: seen.onProxy, DialContext: testsupport.Routes{}.DialContext})
+		const n = 4
+		for i := range n {
+			if r := get(t.Context(), tr, exampleURL+"/"); !isProxyFailure(r.Err) {
+				t.Fatalf("request %d: error %s, want a proxy failure", i, chain(r.Err))
+			}
+		}
+		got := seen.got()
+		ok := len(got) == n
+		for i := range got {
+			ok = ok && got[i] == urls[i%2]
+		}
+		if !ok || calls.Load() != n || a.requests.Load() != n/2 || b.requests.Load() != n/2 {
+			t.Errorf("OnProxy got %v, func calls %d, CONNECTs %d and %d; want alpha, bravo, alpha, bravo, %d, %d and %d", got, calls.Load(), a.requests.Load(), b.requests.Load(), n, n/2, n/2)
+		}
+	})
+
+	t.Run("error: a func that fails reports nothing", func(t *testing.T) {
+		errNoProxy := errors.New("no proxy for this request")
+		p := newHeldProxy(t, false)
+		pu := p.url("alpha-proxy-password")
+		var seen seenProxies
+		tr := newTestTransport(t, Config{APIURL: mustURL(t, exampleURL), Proxy: func(*http.Request) (*url.URL, error) {
+			return pu, errNoProxy // a URL with an error is not used
+		}, OnProxy: seen.onProxy, DialContext: testsupport.Routes{}.DialContext})
+		if r := get(t.Context(), tr, exampleURL+"/"); !errors.Is(r.Err, errNoProxy) {
+			t.Errorf("error %s, want the func's", chain(r.Err))
+		}
+		if got := seen.got(); len(got) != 0 || p.requests.Load() != 0 {
+			t.Errorf("OnProxy got %v, CONNECTs %d; want none", got, p.requests.Load())
+		}
+	})
 }

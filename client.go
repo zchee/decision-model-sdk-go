@@ -653,7 +653,7 @@ func (c *Client) logRequest(ctx context.Context, rq *request, h http.Header, att
 		n = rq.body.Len()
 	}
 	logger.LogAttrs(ctx, slog.LevelDebug, "request", slog.String("method", rq.method), slog.String("endpoint", rq.logURL),
-		slog.Int("attempt", attempt), slog.Any("headers", newRedactedHeaders(h, c.cfg.apiKey)), slog.Int("body_bytes", n))
+		slog.Int("attempt", attempt), slog.Any("headers", newRedactedHeaders(h, c.cfg.redactor())), slog.Int("body_bytes", n))
 	if n > 0 && logger.Enabled(ctx, LevelTrace) {
 		logger.LogAttrs(ctx, LevelTrace, "request body", slog.String("method", rq.method), slog.String("endpoint", rq.logURL),
 			slog.String("body", string(rq.body.Bytes())))
@@ -665,15 +665,17 @@ func (c *Client) logRequest(ctx context.Context, rq *request, h http.Header, att
 // "<method> <url> <- <status> in <ms>ms (request <id>)", then the redacted
 // headers and the body's length at debug level and the body at LevelTrace.
 // The request id is redacted as the error types' Header is, "***" when it
-// holds the client's API key (ruling R87; typesafe-sdk-python logs it as it
-// arrived); the body is as it arrived.
+// holds the client's API key or a credential of a proxy the client's
+// transport chose (ruling R87; typesafe-sdk-python logs it as it arrived);
+// the body is as it arrived.
 func (c *Client) logResponse(ctx context.Context, rq *request, attempt int, start time.Time, meta *wire.ResponseMeta) {
 	logger := c.cfg.logger
 	if !logger.Enabled(ctx, slog.LevelInfo) {
 		return
 	}
 	id := "-"
-	if v, ok := c.cfg.redactor().requestID(meta.Header); ok {
+	r := c.cfg.redactor()
+	if v, ok := r.requestID(meta.Header); ok {
 		id = safeName(v)
 	}
 	logger.LogAttrs(ctx, slog.LevelInfo, "response", slog.String("method", rq.method), slog.String("endpoint", rq.logURL),
@@ -683,7 +685,7 @@ func (c *Client) logResponse(ctx context.Context, rq *request, attempt int, star
 		return
 	}
 	logger.LogAttrs(ctx, slog.LevelDebug, "response headers", slog.String("method", rq.method), slog.String("endpoint", rq.logURL),
-		slog.Any("headers", newRedactedHeaders(meta.Header, c.cfg.apiKey)), slog.Int("body_bytes", len(meta.Body)))
+		slog.Any("headers", newRedactedHeaders(meta.Header, r)), slog.Int("body_bytes", len(meta.Body)))
 	if len(meta.Body) > 0 && logger.Enabled(ctx, LevelTrace) {
 		logger.LogAttrs(ctx, LevelTrace, "response body", slog.String("method", rq.method), slog.String("endpoint", rq.logURL),
 			slog.String("body", string(meta.Body)))

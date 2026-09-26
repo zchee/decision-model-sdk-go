@@ -145,6 +145,16 @@ type Config struct {
 	// nil are decided once, at build; any other func may apply a proxy, and
 	// the ALPN check then recognises the API hop by its SNI.
 	Proxy func(*http.Request) (*url.URL, error)
+	// OnProxy, when set, is called with every URL Proxy returns without an
+	// error, each time the stock transport asks Proxy: once per attempt at a
+	// connection (GOROOT/src/net/http/transport.go:1051-1058), never for a
+	// request sent on an HTTP/2 connection the stock transport holds, and
+	// never for a waiter at the gate, which shares its leader's dial. The
+	// root package records the proxy's credential there for its scrub
+	// instead of asking Proxy again (review W6.2 MIN-4, P6 critic m-2). It
+	// runs on the goroutine of RoundTrip, and must be safe for concurrent
+	// use.
+	OnProxy func(proxy *url.URL)
 	// DialContext dials TCP connections; nil uses a net.Dialer. Either way
 	// the dial is bounded by ConnectTimeout.
 	DialContext func(ctx context.Context, network, addr string) (net.Conn, error)
@@ -415,7 +425,7 @@ func NewTransport(cfg Config) (*Transport, error) {
 		HTTP2:               strictHTTP2(),
 		IdleConnTimeout:     idleConnTimeout,
 		TLSHandshakeTimeout: connect,
-		Proxy:               cfg.Proxy,
+		Proxy:               observeProxy(cfg.Proxy, cfg.OnProxy),
 		TLSClientConfig:     tlsConfig,
 		DialContext:         boundedDial(dial, connect),
 		// A proxy's refusal of the CONNECT is a proxy failure (K16).
@@ -434,6 +444,21 @@ func NewTransport(cfg Config) (*Transport, error) {
 		log:       cfg.Logger,
 		errorText: cfg.ErrorText,
 	}), nil
+}
+
+// observeProxy returns proxy wrapped so that onProxy sees every URL it
+// returns without an error (Config.OnProxy); proxy itself when either is nil.
+func observeProxy(proxy func(*http.Request) (*url.URL, error), onProxy func(*url.URL)) func(*http.Request) (*url.URL, error) {
+	if proxy == nil || onProxy == nil {
+		return proxy
+	}
+	return func(req *http.Request) (*url.URL, error) {
+		u, err := proxy(req)
+		if err == nil && u != nil {
+			onProxy(u)
+		}
+		return u, err
+	}
 }
 
 // Wrap builds the SDK's transport over a clone of base (the WithHTTPTransport
@@ -461,14 +486,14 @@ func NewTransport(cfg Config) (*Transport, error) {
 //
 // Clone runs base's own first-use setup (transport.go:345), which may give
 // base an empty TLSClientConfig and HTTP2Config and fill its NextProtos, as
-// base's first request would. cfg's RootCAs, TLSConfig, Proxy and
-// DialContext must be zero. Every error Wrap returns is a configuration
+// base's first request would. cfg's RootCAs, TLSConfig, Proxy, OnProxy
+// and DialContext must be zero. Every error Wrap returns is a configuration
 // error.
 func Wrap(base *http.Transport, cfg Config) (*Transport, error) {
 	if base == nil {
 		return nil, errors.New("h2gate: Wrap needs a transport")
 	}
-	if cfg.RootCAs != nil || cfg.TLSConfig != nil || cfg.Proxy != nil || cfg.DialContext != nil {
+	if cfg.RootCAs != nil || cfg.TLSConfig != nil || cfg.Proxy != nil || cfg.OnProxy != nil || cfg.DialContext != nil {
 		return nil, errWrapConfig
 	}
 	tg, err := resolveTarget(cfg)
