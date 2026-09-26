@@ -2,11 +2,11 @@
 
 CodSpeed measures the benchmarks listed in [`benchmarks.md`](benchmarks.md)
 on every push to `main`. This page covers four things. It says what runs
-where and how to read a CodSpeed report. It explains why CodSpeed fails no
-build until risk K7 is retired. And it shows how acceptance criterion AC-P7
-is read in a repository that takes no pull requests, and what arm64 gets
-instead. The numbers behind each statement are in the
-[ledger](ledger.md), section W5.4.
+where and how to read a CodSpeed report. It explains which number fails a
+build, AC-P7's same-run ratio, and why no absolute time does (risk K7). And
+it shows how acceptance criterion AC-P7 is read in a repository that takes
+no pull requests, and what arm64 gets instead. The numbers behind each
+statement are in the [ledger](ledger.md), sections W5.4 and W6-fixes.
 
 ## What runs where
 
@@ -31,15 +31,19 @@ Two steps follow the CodSpeed step:
    fails when the rows in the uploaded results differ from those of a
    `-benchtime=1x -cpu=1` run of every benchmark `go test -list` finds
    (see [`benchmarks.md`](benchmarks.md#codspeed)).
-2. **Report AC-P7 (report-only)** writes a table to the job summary. The
-   table gives the `BenchmarkCall` rows' minimum, median and mean, and the
-   sdk/naive ratios, together with `go version`, the ToolTags, the CPU
-   model, whether the host exposes AVX-512, and a digest of its CPU flags.
-   The step's log lists every uploaded row by its full name. The step
-   compares no value, so no timing fails the job. It fails only when it
-   has nothing to report: when there is no results file, jq cannot read
-   one, or the results hold no `BenchmarkCall/sdk` or `BenchmarkCall/naive`
-   row. A green job with an empty report is how K35 hid lost rows.
+2. **AC-P7 gate (sdk mean below naive mean)** writes a table to the job
+   summary and then decides AC-P7. The table gives the `BenchmarkCall`
+   rows' minimum, median and mean, and the sdk/naive ratios, together with
+   `go version`, the ToolTags, the CPU model, whether the host exposes
+   AVX-512, and a digest of its CPU flags; the step's log lists every
+   uploaded row by its full name. The step fails the job when
+   `BenchmarkCall/sdk`'s mean is not below `BenchmarkCall/naive`'s in the
+   run (owner rulings G8-a and G8-b; see "K7" below), and prints its
+   verdict as the last line of the summary. It also fails when it cannot
+   read what it compares: when there is no results file, jq cannot read
+   one, the results hold no `BenchmarkCall/sdk` or `BenchmarkCall/naive`
+   row or one of them twice, or a row has no positive mean. A green job
+   with an empty report is how K35 hid lost rows.
 
 To run the same thing on (M) without uploading, use the command in
 [`benchmarks.md`](benchmarks.md#codspeed).
@@ -69,9 +73,10 @@ The GitHub job log does not print the run id.
   `BenchmarkDecodeNaiveJSON`. Read the full name.
 - **History.** CodSpeed keeps a row's history under that full name.
   Moving the benchmark, or renaming its file, starts the history over,
-  and K7's count with it. Reports list 19 rows as "skipped": these are
-  names from before owner directive G5 (14 in `bench_prepare_test.go`,
-  3 in `bench_config_test.go`, `bench_noop_test.go::BenchmarkNoop` and
+  and the per-host run count with it. Reports list 19 rows as "skipped":
+  these are names from before owner directive G5 (14 in
+  `bench_prepare_test.go`, 3 in `bench_config_test.go`,
+  `bench_noop_test.go::BenchmarkNoop` and
   `bench_call_test.go::BenchmarkCall::sdk`). CodSpeed shows their last
   results until someone archives them in the project's settings.
 - **The value shown.** CodSpeed's `testing` overlay times every `b.Loop`
@@ -115,77 +120,82 @@ The GitHub job log does not print the run id.
   that row, and archiving the 19 skipped rows. The workflow keeps B6 in the
   run.
 
-## K7: report-only until the noise is known
+## K7: absolute times are report-only; AC-P7 is the gate
 
-Risk K7: walltime on hosted runners is noisy, so CodSpeed results gate
-nothing until 20 runs on `main` show a spread below 5 % for
-`BenchmarkCall/sdk`. The plan then made them blocking; rulings R109,
-R115, R109b, R109c and R109c-corr amend that (below). Until then:
+Risk K7: walltime on hosted runners is noisy. The plan kept CodSpeed
+report-only until 20 runs on `main` showed a spread below 5 % for
+`BenchmarkCall/sdk`, and then made it blocking. The owner withdrew that
+switch (ruling G8-a, critic-p5 Q1 (c)): measured on the mean, the
+statistic AC-P7 reads (ruling R108), the rule cannot be met. The EPYC
+7763's current segment (below) holds three `main` runs of the same SDK
+code, with only documents, tests and CI changed between them:
 
-- No step fails on a timing, and nothing requires CodSpeed's check run.
-- The spread is (largest − smallest) / smallest of `BenchmarkCall/sdk`'s
-  mean: the mean is the statistic AC-P7 reads (ruling R108).
+| `main` run | Commit | `BenchmarkCall/sdk` mean | min |
+| --- | --- | ---: | ---: |
+| 36244496855, W5.3's landing | 653b5b9 | 6.406 µs | 4.829 µs |
+| 36249189420, W5.4's landing | f73ab2b | 5.947 µs | 4.859 µs |
+| 36255318871, W6.3's landing | 93e9db1 | 5.850 µs | 4.769 µs |
+
+Their means are 9.5 % apart by K7's spread formula, (largest − smallest) /
+smallest, and their minimums 1.9 %. A segment's spread can only grow, so
+this one failed the 5 % rule at its second run.
+
+What decides instead (owner rulings G8-a and G8-b, Q1b):
+
+- `bench.yaml`'s **AC-P7 gate** step fails the job when
+  `BenchmarkCall/sdk`'s mean is not below `BenchmarkCall/naive`'s mean in
+  the same run: a ratio of 1.0 or more fails, AC-P7's literal statement
+  with no margin. The two means come from one machine, so a runner of
+  another CPU model (K37) moves the verdict far less than it moves the
+  absolute times. The ratio held on all 24 runs recorded before the
+  ruling, at most 0.983 before W5.3 and 0.880 after (critic-p5 Q1).
+- The verdict compares the two means as the results hold them; its line
+  prints them rounded, for example `AC-P7 verdict: pass BenchmarkCall/sdk
+  mean 4809.4 ns / BenchmarkCall/naive mean 5678.2 ns = 0.846994 < 1.0:
+  AC-P7 holds`. A failure that noise alone could explain is judged by
+  re-running the job (G8-b). CodSpeed's own settings are unchanged, and
+  nothing requires CodSpeed's check run.
+- Every absolute time, the min and median ratios and the `-q20` rows stay
+  report-only (R101 (b): the q3 rows decide AC-P7).
+
+**Report bookkeeping: host groups and segments** (rulings R109, R115,
+R109b, R109c, R109c-corr, R109c-corr-2). They decide nothing since G8-a;
+the ledger keeps them so that an absolute change stays visible within one
+kind of host, and a count on the minimum may be kept beside them as a
+report (G8-a).
+
 - The count starts at `main`'s run of aaa9698 (GitHub run 36221839206,
   CodSpeed run 6ab75ed2e412c1cc664ef2d7), where the K35 fix landed. The
   runs from ca226bb to 3ffe77b lost 11 rows and do not count. Runs before
-  ca226bb have other names (G5).
-- Only successful push runs on `main` count; dispatched runs on branches
-  do not. `BenchmarkLoopback` never counts (R101).
-
-**K7 is counted per CPU host (ruling R109, which the owner ratified as
-R115, refined by R109b).** Hosted runners rotate CPU models, and the
-host sets the level of every row. On identical code, every row ran 1.4 to
-2.7 times faster on an EPYC 9V45 than on an EPYC 7763 (see "Noise"
-above). A spread taken across hosts would measure which machine each run
-got, not noise. Hosts do not even rank rows alike. Against an EPYC 7763
-run, an Intel Xeon 6973P-C run was faster on 115 rows but 33 to 35 %
-slower on `EncodeState/ascii/6MiB/{encode,check}`. So no single baseline
-can serve every host, and a row's history only means something within
-one host group.
-
-One model name does not always name one kind of host. Two runs on an
-"AMD EPYC 9V74" differed only in the CPU flags the VM exposed, AVX-512
-among them, and the one with AVX-512 ran 123 of 125 rows 15 to 50 %
-faster. Counted per model name, that one pair already spreads 29 %. So
-R109b keys K7's groups on the CPU model name plus AVX-512 exposure
-(`avx512f` among the flags). The report step prints that key
-(`AVX-512 yes` or `no`) with a 12-hex digest of the sorted flags, so
-finer splits stay visible.
-
-The 20 runs and the spread below 5 % of `BenchmarkCall/sdk`'s mean apply
-to `main` runs in one such group, within one segment of it (below). Runs
-in another group start their own count, and groups are never mixed.
-Gating stays off. When one group reaches 20 runs within 5 %, the owner
-reconsiders blocking and looks at the cross-host comparison again (R115).
-Beside the count, the ledger
-records the spread of the sdk/naive mean ratio over all counted runs,
-whatever their host, because the ratio is what AC-P7 compares. No
-threshold is set on that ratio spread yet. Every row of the ledger's
-section W5.4 carries the run's CPU model, its AVX-512 exposure and its
-GitHub and CodSpeed run ids. The ledger also gives the count per model
-name alone, as R109 was first written.
-
-**Within a group, K7 is read per segment (rulings R109c and
-R109c-corr).** A change to the SDK's speed moves a group's mean as much
-as noise does, so a spread over runs on both sides of it measures the
-change. A landing opens a new segment of a host group only when it does
-both of two things: it changes a non-test `.go` file on the call path
-(the root package, `internal/codec`, `internal/wire` or
-`internal/h2gate`), and it moves `BenchmarkCall/sdk`'s mean by 5 % or
-more on that group between the last `main` run before it and the first
-`main` run after it. Landings of documents, CI or tests never open one.
-A lower trigger would open segments on noise: the same tree, aaa9698,
-read 7.014 and 6.684 µs on the 7763, 4.93 % apart by K7's spread
-formula. The count and the spread are recorded per group and per
-segment, and the 20 runs within 5 % must fall in one segment. The EPYC
-7763's second segment opened at 653b5b9, W5.3's landing, by ruling and
-not by the rule: W5.3 changed the call path, but its run's mean was
-4.94 % below the last run before it (a4cbb5d), under the 5 % bar
-measured from that run (5.19 % by K7's spread formula, which R109c-corr
-does not name). The lead ruled the segment open, and the owner ratifies
-R109c and R109c-corr with the Phase 5 batch. So the 7763 reads:
-segment 1, aaa9698 to a4cbb5d, 3 runs, spread 1.29 %; segment 2, from
-653b5b9, 1 run, no spread yet. Gating stays off.
+  ca226bb have other names (G5). Only successful push runs on `main`
+  count; dispatched runs on branches do not. `BenchmarkLoopback` never
+  counts (R101).
+- **Per CPU host (R109, ratified as R115, refined by R109b).** Hosted
+  runners rotate CPU models, and the host sets the level of every row: on
+  identical code every row ran 1.4 to 2.7 times faster on an EPYC 9V45
+  than on an EPYC 7763, and an Intel Xeon 6973P-C run was faster than a
+  7763 run on 115 rows but 33 to 35 % slower on
+  `EncodeState/ascii/6MiB/{encode,check}`. One model name does not always
+  name one kind of host either: two "AMD EPYC 9V74" runs differed in the
+  CPU flags the VM exposed, and the one with AVX-512 ran 123 of 125 rows
+  15 to 50 % faster. So a group is the CPU model name plus AVX-512
+  exposure (`avx512f` among the flags); the gate step prints that key
+  (`AVX-512 yes` or `no`) with a 12-hex digest of the sorted flags, so
+  finer splits stay visible. Groups are never mixed.
+- **Per segment (R109c, R109c-corr, R109c-corr-2).** A landing opens a new
+  segment of a group only when it changes a non-test `.go` file on the
+  call path (the root package, `internal/codec`, `internal/wire` or
+  `internal/h2gate`) and moves `BenchmarkCall/sdk`'s mean by 5 % or more
+  by K7's spread formula between the group's last `main` run before it
+  and its first after it. Documents, CI and tests never open one. W5.3's
+  landing, 653b5b9, opened the 7763's second segment by that rule: its run
+  read 5.19 % below a4cbb5d's. The 7763 reads: segment 1, aaa9698 to
+  a4cbb5d, 3 runs, mean spread 1.29 %; segment 2, from 653b5b9, the three
+  runs in the table above.
+- Every row of the ledger's section W5.4 carries the run's CPU model, its
+  AVX-512 exposure and its GitHub and CodSpeed run ids, and the ledger
+  records the spread of the sdk/naive mean ratio over all runs, whatever
+  their host.
 
 To list the candidate runs, then keep the successful ones from 36221839206
 on:
@@ -214,12 +224,14 @@ land on `main` by fast-forward. So the PR run is read as two runs of
 divided by the rounds, which is `go test`'s ns/op and the basis of AC-P6
 and G3. It is not read on the minimum that CodSpeed's report shows, nor on
 the median. AC-P7 holds when both runs show `BenchmarkCall/sdk`'s mean
-below `BenchmarkCall/naive`'s. Its margin is about as large as the mean's
-own run-to-run spread, so under R108 AC-P7 is report-only until K7 is met:
-the ledger records the three statistics and the three ratios of every run,
-and nothing asserts them. **Status: the first half holds on the mean
-(ledger W5.4-29, de27718: 0.835), report-only under K7. The second half,
-`main`'s first run after W5.4 lands, is recorded in the as-built
+below `BenchmarkCall/naive`'s. The owner accepted this two-run reading
+(ruling G8-a, Q2 (a)), and since W6-fixes `bench.yaml` asserts it on
+every run: the AC-P7 gate step fails a run whose same-run mean ratio is
+1.0 or more (see "K7" above), so each of the two runs either holds AC-P7
+or goes red. The ledger still records the three statistics and the three
+ratios of every run. **Status: the first half held on the mean at W5.4
+(ledger W5.4-29, de27718: 0.835), before the gate existed. The second
+half, `main`'s first run after W5.4 lands, is recorded in the as-built
 appendix that Phase 7 (W7) writes.**
 
 The three statistics disagree on these two rows:

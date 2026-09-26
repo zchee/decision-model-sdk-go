@@ -435,8 +435,10 @@ each System One call; CI does not run these tests
   tests leave unrun has a reason in
   [`docs/uncovered-lines.md`](docs/uncovered-lines.md).
 - [CodSpeed](https://codspeed.io/zchee/typesafe-sdk-go) runs every
-  benchmark in walltime mode on `ubuntu-26.04`. The comparison of a whole
-  call against a naive sonic client (AC-P7) is reported, not enforced
+  benchmark in walltime mode on `ubuntu-26.04`. The job fails when a whole
+  call is not faster than a naive sonic client's in the same run (AC-P7:
+  `BenchmarkCall/sdk`'s mean at or above `BenchmarkCall/naive`'s); every
+  absolute time is reported, not enforced
   ([`docs/perf/codspeed.md`](docs/perf/codspeed.md)).
 
 ## License

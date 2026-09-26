@@ -5865,3 +5865,22 @@ or signature moved. The type stays one pointer (8 bytes).
 | # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | W6-fixes-19 | 2026-09-27 05:09:29 JST | W6-fixes 3: the golden, the pins, the marker removed | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | `sh scripts/c3-answers.sh 46dfee0` (46dfee0: commit 2, this commit's parent) | the golden's `type Answers struct, comparable` → `incomparable`, the only changed line; `TestAnswersIncomparable`, `TestPublicAPISurface`, `TestClientOptionsSurface`, `TestRetryPolicyRules` pass; with the marker removed, `TestAnswersIncomparable` (`Answers is comparable, want it not`) and `TestPublicAPISurface` (the golden's line) fail by name | `results/c3-answers-M.txt`; the port-test matrix's XA1 cell names the two pins; `port-test-matrix.py` OK, 129 upstream tests |
+
+### The AC-P7 gate (commit 4; G8-a Q1 (c), G8-b Q1b)
+
+`bench.yaml`'s report step becomes the gate: the job fails when
+`BenchmarkCall/sdk`'s mean is not below `BenchmarkCall/naive`'s in the same
+run (a ratio of 1.0 or more), comparing the two means as the results hold
+them; every absolute time, the min and median ratios and the `-q20` rows
+stay report-only. It also fails, with a named `::error`, when it cannot
+read what it compares: no results file, unreadable JSON, a missing or
+repeated row, or a mean that is not a positive number (a `null` mean would
+otherwise sort below a number in jq and pass). `docs/perf/codspeed.md`'s K7
+section, `benchmarks.md` and the README say so; K7's 20-run/5 % switch is
+withdrawn, and R109b's groups and R109c's segments stay report bookkeeping.
+The run of record is the dispatch at the branch's final head (the lane's
+DONE report).
+
+| # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| W6-fixes-20 | 2026-09-27 05:10:24 JST | W6-fixes 4: the gate step's bash, locally | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | `bash scripts/c4-gate-proof.sh .github/workflows/bench.yaml` (the step's `run:` text read from this commit's workflow file, run as GitHub runs a bash step, `bash --noprofile --norc -eo pipefail`, against one CodSpeed-shaped results set per case; `lscpu` shimmed on macOS); then the same against two mutants of the step | below (4 809.4 / 5 678.2 ns = 0.846994) rc 0; just below (0.99998) rc 0; equal (5 000 / 5 000) rc 1; above (6 406.3 / 5 850.1 = 1.095075) rc 1 with `::error title=AC-P7::BenchmarkCall/sdk mean 6406.3 ns / BenchmarkCall/naive mean 5850.1 ns = 1.095075 >= 1.0: …`; a missing sdk row, a missing naive row, the sdk row in two files, a `null` mean, a zero mean, no results file and unreadable JSON each rc ≠ 0 with a named line (jq's parse error for the last): 11 of 11 as wanted; the mutant `<` → `<=` passes the equal case and the mutant without the one-row check passes the sdk-in-two-files case, so the harness sees both | `results/c4-gate-proof-M.txt`, `c4-gate-mutants-M.txt`; actionlint clean |

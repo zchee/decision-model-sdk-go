@@ -12,8 +12,8 @@ on:
 
 concurrency:
   # One group per main commit, so a later push never cancels or queues behind an
-  # earlier main run (plan risk K7 counts the runs on main); other refs share
-  # one group per ref and cancel superseded runs.
+  # earlier main run (docs/perf/codspeed.md counts the runs on main per host
+  # group); other refs share one group per ref and cancel superseded runs.
   group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
@@ -113,27 +113,34 @@ jobs:
           fi
           exit "$fail"
 
-      # AC-P7, report-only until K7 is met: no value is compared, so no timing
-      # fails the job. CodSpeed's report shows a row's minimum; AC-P7 reads
-      # the mean, which is go test's ns/op and AC-P6's basis (ruling R108).
-      # The table gives both, and the median, for the BenchmarkCall rows,
-      # with the facts a ledger row needs: hosted runners differ in CPU model
-      # from run to run. The log also lists every row the results hold, under
-      # the name CodSpeed keys its history by. The step fails only when it
-      # has nothing to report: no results file, a file jq cannot read, or no
-      # BenchmarkCall/sdk or /naive row, since a green job with an empty
-      # report is how K35 hid lost rows (Phase 4 critic m-8).
-      - name: Report AC-P7 (report-only)
+      # AC-P7 is a gate (owner rulings G8-a, Q1 (c), and G8-b, Q1b): the job
+      # fails when BenchmarkCall/sdk's mean is not below BenchmarkCall/naive's
+      # mean in this run, a same-run ratio at or above 1.0, the two numbers
+      # coming from one machine whatever host the runner got. The mean is go
+      # test's ns/op (ruling R108); the verdict compares the two means as the
+      # results hold them, and the printed means and ratio are rounded. Every
+      # absolute time, the min and median ratios and the -q20 rows are
+      # report-only; K7's 20-run/5 % switch is withdrawn, and its host groups
+      # (R109b) and segments (R109c) stay report bookkeeping in
+      # docs/perf/codspeed.md. The table gives the three statistics of every
+      # BenchmarkCall row with the facts a ledger row needs, and the log lists
+      # every row the results hold, under the name CodSpeed keys its history
+      # by. The step also fails when it cannot read what it compares: no
+      # results file, a file jq cannot read, no BenchmarkCall/sdk or /naive
+      # row or one of them twice, or a row without a positive mean, since a
+      # green job with an empty report is how K35 hid lost rows (Phase 4
+      # critic m-8).
+      - name: AC-P7 gate (sdk mean below naive mean)
         run: |
           set -euo pipefail
           shopt -s nullglob
           results=("$RUNNER_TEMP"/profile.*.out/results/*.json /tmp/profile.*.out/results/*.json)
           if [ "${#results[@]}" -eq 0 ]; then
-            echo "::error title=AC-P7 report::no CodSpeed results file under \$RUNNER_TEMP or /tmp"
+            echo "::error title=AC-P7 gate::no CodSpeed results file under \$RUNNER_TEMP or /tmp"
             exit 1
           fi
           {
-            echo "### AC-P7: \`BenchmarkCall/sdk\` against \`BenchmarkCall/naive\` (report-only, K7)"
+            echo "### AC-P7: \`BenchmarkCall/sdk\` against \`BenchmarkCall/naive\` (gate: sdk mean below naive mean)"
             echo
             echo "- \`$(go version)\`, ToolTags \`$(go list -f '{{context.ToolTags}}' runtime)\`"
             # Hosts of one model name differ in the CPU flags the VM exposes
@@ -149,7 +156,7 @@ jobs:
                 | {key: (.uri | split("::")[2]), value: .stats}] | from_entries as $c
               | def us($s): if $s == null then "–" else ($s | round / 1000 | tostring) end;
                 def ratio($a; $b; $f):
-                  if $c[$a] == null or $c[$b] == null then "–"
+                  if ([$c[$a][$f], $c[$b][$f]] | all(type == "number" and . > 0) | not) then "–"
                   else ($c[$a][$f] / $c[$b][$f] * 1000 | round / 1000 | tostring) end;
                 "| `BenchmarkCall` row | min µs | median µs | mean µs | rounds |",
                 "| --- | ---: | ---: | ---: | ---: |",
@@ -166,10 +173,32 @@ jobs:
           echo "::group::Benchmarks in the uploaded results"
           jq -r '.benchmarks[].uri' "${results[@]}" | LC_ALL=C sort
           echo "::endgroup::"
-          missing=$(jq -rs '["sdk", "naive"] - [.[].benchmarks[].uri
-            | select(startswith("internal/benchmark/call_test.go::BenchmarkCall::")) | split("::")[2]]
-            | join(" ")' "${results[@]}")
-          if [ -n "$missing" ]; then
-            echo "::error title=AC-P7 report::no BenchmarkCall row in the results for: $missing"
-            exit 1
-          fi
+          # The gate, on the one sdk row and the one naive row of the results:
+          # the first word of the verdict is pass, fail or error.
+          verdict=$(jq -rs '
+            [.[].benchmarks[] | select(.uri | startswith("internal/benchmark/call_test.go::BenchmarkCall::"))
+              | {row: (.uri | split("::")[2]), mean: .stats.mean_ns}] as $rows
+            | [$rows[] | select(.row == "sdk") | .mean] as $s
+            | [$rows[] | select(.row == "naive") | .mean] as $n
+            | def ns: . * 10 | round / 10 | tostring;
+              if ($s | length) != 1 or ($n | length) != 1 then
+                "error the results hold \($s | length) BenchmarkCall/sdk and \($n | length) BenchmarkCall/naive rows, want one of each"
+              elif ([$s[0], $n[0]] | all(type == "number" and . > 0) | not) then
+                "error BenchmarkCall/sdk mean \($s[0]) ns, BenchmarkCall/naive mean \($n[0]) ns: want two positive numbers"
+              else
+                "BenchmarkCall/sdk mean \($s[0] | ns) ns / BenchmarkCall/naive mean \($n[0] | ns) ns = \($s[0] / $n[0] * 1000000 | round / 1000000)" as $m
+                | if $s[0] < $n[0] then "pass \($m) < 1.0: AC-P7 holds"
+                  else "fail \($m) >= 1.0: the SDK is not faster than the naive client on the mean" end
+              end' "${results[@]}")
+          echo "AC-P7 verdict: $verdict" | tee -a "$GITHUB_STEP_SUMMARY"
+          case $verdict in
+            "pass "*) ;;
+            "fail "*)
+              echo "::error title=AC-P7::${verdict#fail }"
+              exit 1
+              ;;
+            *)
+              echo "::error title=AC-P7 gate::${verdict#error }"
+              exit 1
+              ;;
+          esac
