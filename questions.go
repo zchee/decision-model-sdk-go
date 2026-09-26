@@ -201,9 +201,10 @@ func (qs *Questions) Prepare() (*Prepared, error) {
 		return nil, newConfigError("At least one question is required.")
 	}
 	var b wire.Builder
-	size, jsonLevels := qs.sizeHint()
-	b.Grow(len(qs.entries), size)
-	b.GrowLevels(jsonLevels)
+	hint := qs.sizeHint()
+	b.Grow(len(qs.entries), hint.bytes)
+	b.GrowLevels(hint.jsonLevels)
+	tables := prepareTables{labels: make([]string, 0, hint.labels), levels: make([]wire.Content, 0, hint.levels)}
 	var seen map[string]struct{} // the names so far, when there are too many to scan
 	if len(qs.entries) > repeatScanLimit {
 		seen = make(map[string]struct{}, len(qs.entries))
@@ -221,9 +222,9 @@ func (qs *Questions) Prepare() (*Prepared, error) {
 		case formNoul:
 			err = b.Noul(e.name, e.noul.Instructions.orNil(), e.noul.Yes.orNil(), e.noul.No.orNil())
 		case formChoice:
-			err = prepareChoice(&b, e.name, &e.choice)
+			err = prepareChoice(&b, &tables, e.name, &e.choice)
 		case formScore:
-			err = prepareScore(&b, e.name, &e.score)
+			err = prepareScore(&b, &tables, e.name, &e.score)
 		case formRaw:
 			err = prepareRaw(&b, e.name, &e.raw)
 		}
@@ -306,9 +307,30 @@ func firstRepeat(s []string) int {
 	return -1
 }
 
+// prepareTables holds the backing arrays of a set's tables (W5.3's P5): the
+// choices' Options tables are cut from labels, and the scores' Levels
+// tables from levels, each at the length sizeHint counted for the set, so
+// a set costs one allocation per table kind instead of one per question.
+// A table is capped at its own length, so no append to it reaches the next.
+type prepareTables struct {
+	labels []string
+	levels []wire.Content
+}
+
+// cut returns the next n elements of *arena as a table of its own, or a
+// new slice when *arena has not room for them.
+func cut[E any](arena *[]E, n int) []E {
+	i := len(*arena)
+	if n > cap(*arena)-i {
+		return make([]E, n)
+	}
+	*arena = (*arena)[:i+n]
+	return (*arena)[i : i+n : i+n]
+}
+
 // prepareChoice checks and writes a choice question.
-func prepareChoice(b *wire.Builder, name string, q *Choice) error {
-	labels := make([]string, len(q.Options))
+func prepareChoice(b *wire.Builder, t *prepareTables, name string, q *Choice) error {
+	labels := cut(&t.labels, len(q.Options))
 	for i := range q.Options {
 		labels[i] = q.Options[i].Label
 	}
@@ -319,11 +341,11 @@ func prepareChoice(b *wire.Builder, name string, q *Choice) error {
 }
 
 // prepareScore checks and writes a score question.
-func prepareScore(b *wire.Builder, name string, q *Score) error {
+func prepareScore(b *wire.Builder, t *prepareTables, name string, q *Score) error {
 	if len(q.Levels) == 0 {
 		return noCriteria(name)
 	}
-	levels := make([]wire.Content, len(q.Levels))
+	levels := cut(&t.levels, len(q.Levels))
 	for i := range q.Levels {
 		if !q.Levels[i].set {
 			return newConfigError(`Score question "` + name + `" level ` + strconv.Itoa(i) + ` is unset; every level needs text or JSON content.`)
@@ -518,9 +540,11 @@ func appendLeaf(dst []byte, v any) ([]byte, bool, error) {
 // punctuation around them, and for a raw question 32 bytes per field plus
 // the length of a field that is a string, RawJSON or Content (W5.3's P3;
 // other values count 32 bytes). Escaping can make the result longer and
-// removing whitespace from JSON shorter. jsonLevels counts the score levels
-// that hold JSON, whose spans the builder records (W5.3's P4).
-func (qs *Questions) sizeHint() (size, jsonLevels int) {
+// removing whitespace from JSON shorter. It also counts the score levels
+// that hold JSON, whose spans the builder records (W5.3's P4), and the
+// choices' options and the scores' levels, the tables' lengths (P5).
+func (qs *Questions) sizeHint() prepareSize {
+	var h prepareSize
 	n := 0
 	for i := range qs.entries {
 		e := &qs.entries[i]
@@ -533,14 +557,16 @@ func (qs *Questions) sizeHint() (size, jsonLevels int) {
 			for j := range e.choice.Options {
 				n += len(e.choice.Options[j].Label) + contentSize(&e.choice.Options[j].Description) + len(`,"":`)
 			}
+			h.labels += len(e.choice.Options)
 		case formScore:
 			n += contentSize(&e.score.Instructions)
 			for j := range e.score.Levels {
 				n += contentSize(&e.score.Levels[j]) + 1
 				if e.score.Levels[j].IsJSON() {
-					jsonLevels++
+					h.jsonLevels++
 				}
 			}
+			h.levels += len(e.score.Levels)
 		case formRaw:
 			n += len(e.raw.Type) + 32*len(e.raw.Fields)
 			for _, v := range e.raw.Fields {
@@ -548,7 +574,16 @@ func (qs *Questions) sizeHint() (size, jsonLevels int) {
 			}
 		}
 	}
-	return n, jsonLevels
+	h.bytes = n
+	return h
+}
+
+// prepareSize is what sizeHint counts of a set for Prepare to reserve.
+type prepareSize struct {
+	bytes      int // the serialised size, estimated
+	jsonLevels int // the score levels that hold JSON
+	labels     int // the choices' options
+	levels     int // the scores' levels
 }
 
 // rawValueSize is the size of a raw field's value as written, before escaping
