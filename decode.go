@@ -19,6 +19,7 @@ import (
 	"log/slog"
 
 	"github.com/zchee/typesafe-sdk-go/internal/codec"
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
@@ -42,17 +43,13 @@ func decodeSystemOne(ctx context.Context, logger *slog.Logger, meta *wire.Respon
 }
 
 // decodeSystemOneInto is decodeSystemOne with spare as the room for the
-// answers ([codec.DecodeSystemOneInto]).
+// answers ([engine.DecodeSystemOneInto], which logs the WARN lines).
 func decodeSystemOneInto(ctx context.Context, logger *slog.Logger, meta *wire.ResponseMeta, endpoint string, r headerRedactor, qs *Prepared, model string, dst *wire.SystemOneResult, spare []wire.AnswerEntry) error {
 	var q *wire.Prepared
 	if qs != nil {
 		q = &qs.w
 	}
-	skipped, err := codec.DecodeSystemOneInto(meta.Body, q, model, dst, spare)
-	if skipped.Count > 0 {
-		logSkipped(ctx, logger, &skipped)
-	}
-	if err != nil {
+	if err := engine.DecodeSystemOneInto(ctx, logger, meta.Body, q, model, dst, spare); err != nil {
 		return newResponseValidationError(meta, endpoint, r, err)
 	}
 	return nil
@@ -66,26 +63,4 @@ func decodeModels(meta *wire.ResponseMeta, endpoint string, r headerRedactor, ds
 		return newResponseValidationError(meta, endpoint, r, err)
 	}
 	return nil
-}
-
-// The WARN lines for answers of unknown types.
-const (
-	msgSkippedAnswer  = "Ignoring answer with unrecognized type"
-	msgSkippedAnswers = "Ignoring more answers with unrecognized types"
-)
-
-// logSkipped logs the answers a decode dropped: one WARN line per named
-// answer, then one counting those past [codec.MaxSkipped]. An answer's name
-// is body text and is not redacted (ruling R103-rev): a name that echoes the
-// client's API key is logged with it, as the Python SDK logs it.
-func logSkipped(ctx context.Context, logger *slog.Logger, skipped *codec.Skipped) {
-	if logger == nil || !logger.Enabled(ctx, slog.LevelWarn) {
-		return
-	}
-	for _, s := range skipped.Named() {
-		logger.LogAttrs(ctx, slog.LevelWarn, msgSkippedAnswer, slog.String("answer", safeName(s.Name)), slog.String("type", safeName(s.Type)))
-	}
-	if rest := skipped.Count - len(skipped.Named()); rest > 0 {
-		logger.LogAttrs(ctx, slog.LevelWarn, msgSkippedAnswers, slog.Int("count", rest))
-	}
 }

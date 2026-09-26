@@ -30,6 +30,7 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
@@ -383,7 +384,7 @@ func TestUnknownAnswerTypeThroughClient(t *testing.T) {
 		ty, _ := r.Attr("type")
 		warned = append(warned, r.Message+" "+a.String()+" "+ty.String())
 	}
-	if diff := gocmp.Diff([]string{msgSkippedAnswer + " mystery aurora"}, warned); diff != "" {
+	if diff := gocmp.Diff([]string{engine.MsgSkippedAnswer + " mystery aurora"}, warned); diff != "" {
 		t.Errorf("WARN records (-want +got):\n%s", diff)
 	}
 }

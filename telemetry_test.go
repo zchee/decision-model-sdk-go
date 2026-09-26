@@ -587,7 +587,7 @@ func TestLogWarnCapThroughClient(t *testing.T) {
 		n := strconv.Itoa(i)
 		twelve = append(twelve, `"u`+n+`":{"type":"t`+n+`"}`)
 		if i < 8 {
-			wantTwelve = append(wantTwelve, "WARN "+msgSkippedAnswer+" answer=u"+n+" type=t"+n)
+			wantTwelve = append(wantTwelve, "WARN "+engine.MsgSkippedAnswer+" answer=u"+n+" type=t"+n)
 		}
 	}
 	tests := map[string]struct {
@@ -596,11 +596,11 @@ func TestLogWarnCapThroughClient(t *testing.T) {
 		want    []string
 	}{
 		"success: 12 unknown answers, 8 records and a summary": {
-			level: slog.LevelWarn, answers: twelve, want: append(wantTwelve, "WARN "+msgSkippedAnswers+" count=4"),
+			level: slog.LevelWarn, answers: twelve, want: append(wantTwelve, "WARN "+engine.MsgSkippedAnswers+" count=4"),
 		},
 		"success: a name and a type escaped and cut": {
 			level: slog.LevelWarn, answers: []string{`"a\u001b[2Jb\\":{"type":"` + long + `"}`},
-			want: []string{"WARN " + msgSkippedAnswer + ` answer=a\x1b[2Jb\\ type=` + long[:128] + "\u2026"},
+			want: []string{"WARN " + engine.MsgSkippedAnswer + ` answer=a\x1b[2Jb\\ type=` + long[:128] + "\u2026"},
 		},
 		"success: nothing at ERROR": {
 			level: slog.LevelError, answers: twelve,

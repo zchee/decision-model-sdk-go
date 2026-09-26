@@ -28,6 +28,7 @@ import (
 	gocmp "github.com/google/go-cmp/cmp"
 
 	"github.com/zchee/typesafe-sdk-go/internal/codec"
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
@@ -224,8 +225,8 @@ func TestDecodeAsOptionalFieldAndUnknownAnswer(t *testing.T) {
 		t.Errorf("MarshalJSON() = %s, want neither the request id nor the future answer", payload)
 	}
 	warns := logs.At(slog.LevelWarn)
-	if len(warns) != 1 || warns[0].Message != msgSkippedAnswer {
-		t.Fatalf("WARN records = %v, want one %q", warns, msgSkippedAnswer)
+	if len(warns) != 1 || warns[0].Message != engine.MsgSkippedAnswer {
+		t.Fatalf("WARN records = %v, want one %q", warns, engine.MsgSkippedAnswer)
 	}
 	for key, want := range map[string]string{"answer": "future", "type": "future"} {
 		if v, _ := warns[0].Attr(key); v.String() != want {

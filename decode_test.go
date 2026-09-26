@@ -24,6 +24,7 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
@@ -158,7 +159,7 @@ func TestUnknownAnswerTypeSkipped(t *testing.T) {
 		t.Errorf("answers (-want +got):\n%s", diff)
 	}
 	got := rec.Records()
-	if len(got) != 1 || got[0].String() != "WARN "+msgSkippedAnswer+" answer=mystery type=aurora" {
+	if len(got) != 1 || got[0].String() != "WARN "+engine.MsgSkippedAnswer+" answer=mystery type=aurora" {
 		t.Errorf("records = %v, want one WARN naming mystery and aurora", got)
 	}
 	if !strings.Contains(string(meta.Body), `"mystery":{"type":"aurora"`) {
@@ -182,25 +183,25 @@ func TestUnknownAnswerTypeWarnCap(t *testing.T) {
 		"success: nine unknown answers, eight lines and a summary": {
 			answers: answers,
 			want: []string{
-				"WARN " + msgSkippedAnswer + " answer=u0 type=t0", "WARN " + msgSkippedAnswer + " answer=u1 type=t1",
-				"WARN " + msgSkippedAnswer + " answer=u2 type=t2", "WARN " + msgSkippedAnswer + " answer=u3 type=t3",
-				"WARN " + msgSkippedAnswer + " answer=u4 type=t4", "WARN " + msgSkippedAnswer + " answer=u5 type=t5",
-				"WARN " + msgSkippedAnswer + " answer=u6 type=t6", "WARN " + msgSkippedAnswer + " answer=u7 type=t7",
-				"WARN " + msgSkippedAnswers + " count=1",
+				"WARN " + engine.MsgSkippedAnswer + " answer=u0 type=t0", "WARN " + engine.MsgSkippedAnswer + " answer=u1 type=t1",
+				"WARN " + engine.MsgSkippedAnswer + " answer=u2 type=t2", "WARN " + engine.MsgSkippedAnswer + " answer=u3 type=t3",
+				"WARN " + engine.MsgSkippedAnswer + " answer=u4 type=t4", "WARN " + engine.MsgSkippedAnswer + " answer=u5 type=t5",
+				"WARN " + engine.MsgSkippedAnswer + " answer=u6 type=t6", "WARN " + engine.MsgSkippedAnswer + " answer=u7 type=t7",
+				"WARN " + engine.MsgSkippedAnswers + " count=1",
 			},
 		},
 		"success: eight unknown answers, no summary": {
 			answers: answers[:8],
 			want: []string{
-				"WARN " + msgSkippedAnswer + " answer=u0 type=t0", "WARN " + msgSkippedAnswer + " answer=u1 type=t1",
-				"WARN " + msgSkippedAnswer + " answer=u2 type=t2", "WARN " + msgSkippedAnswer + " answer=u3 type=t3",
-				"WARN " + msgSkippedAnswer + " answer=u4 type=t4", "WARN " + msgSkippedAnswer + " answer=u5 type=t5",
-				"WARN " + msgSkippedAnswer + " answer=u6 type=t6", "WARN " + msgSkippedAnswer + " answer=u7 type=t7",
+				"WARN " + engine.MsgSkippedAnswer + " answer=u0 type=t0", "WARN " + engine.MsgSkippedAnswer + " answer=u1 type=t1",
+				"WARN " + engine.MsgSkippedAnswer + " answer=u2 type=t2", "WARN " + engine.MsgSkippedAnswer + " answer=u3 type=t3",
+				"WARN " + engine.MsgSkippedAnswer + " answer=u4 type=t4", "WARN " + engine.MsgSkippedAnswer + " answer=u5 type=t5",
+				"WARN " + engine.MsgSkippedAnswer + " answer=u6 type=t6", "WARN " + engine.MsgSkippedAnswer + " answer=u7 type=t7",
 			},
 		},
 		"success: a name and a type escaped and cut": {
 			answers: []string{`"a\u001b[2Jb\\":{"type":"` + long + `"}`},
-			want:    []string{"WARN " + msgSkippedAnswer + ` answer=a\x1b[2Jb\\ type=` + long[:128] + "…"},
+			want:    []string{"WARN " + engine.MsgSkippedAnswer + ` answer=a\x1b[2Jb\\ type=` + long[:128] + "…"},
 		},
 	}
 	for name, tt := range tests {

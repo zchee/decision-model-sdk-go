@@ -405,7 +405,7 @@ func TestServerEchoedKeyShownAsReceived(t *testing.T) {
 				switch {
 				case r.Level > LevelTrace:
 					got.Logged = append(got.Logged, r.Message)
-					if r.Message == msgSkippedAnswer {
+					if r.Message == engine.MsgSkippedAnswer {
 						a, _ := r.Attr("answer")
 						got.Warned = append(got.Warned, a.String())
 						continue // body text, shown as received (R103-rev)
@@ -426,7 +426,7 @@ func TestServerEchoedKeyShownAsReceived(t *testing.T) {
 			}
 			wantLogged := logged
 			if tt.warned != nil {
-				wantLogged = append(slices.Clone(logged), msgSkippedAnswer)
+				wantLogged = append(slices.Clone(logged), engine.MsgSkippedAnswer)
 			}
 			want := shown{
 				Error: tt.want, V: tt.want, PlusV: tt.want,
