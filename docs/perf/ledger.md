@@ -2044,6 +2044,8 @@ Commands use `R=_spikes/s-c1/run.sh` (W0.5's runner), `O=_spikes/w2.0/results`,
 `SP=/private/tmp/claude-501/-Users-zchee-go-src-github-com-zchee-typesafe-sdk-go/c8084031-5323-4873-8c36-a19f65c9e6ff/scratchpad`
 and `BASE=8686b40`.
 
+F-7 (ruling V28): row W2.0-06 describes 8686b40, and the landed head (45fd018) decodes slower on (L), +0.31 … +2.88 % in the SDK cells of verify-p2's interleaved A/B, which W5.3 re-measures and attributes.
+
 ### How the numbers were taken
 
 - (M): `go1.27.1 darwin/arm64`, `GOEXPERIMENT=nosimd,noruntimesecret`. Every
@@ -3061,3 +3063,51 @@ the lane branch; the code measured last is 68fc345 (92eac6d, 68fc345).
 The six `-v` files over 512 KB are filtered per R89 (4), keeping the
 close records as well; each header gives the size before the filter and
 the pass and failure counts.
+
+## W3.2: the retry loop (AC-P6 under `DefaultRetry()`)
+
+W3.2 completes `RetryPolicy` and runs every call through one loop that
+asks the policy after a failed attempt (`retryState.wait`); the success
+path does one `time.Now()` more and nothing else: the policy is copied
+onto `send`'s stack, the retry state stays there, and the timer is made
+only when a retry waits. `TestAllocWholeCall` now builds its
+client with `WithRetry(DefaultRetry())`, the production policy (ruling
+R88b), where it had `newTestClient`'s single attempt. Measured at
+873d847, the last commit of the branch that changes code or tests; the
+commit that adds this section changes documents and raw outputs only.
+Commands use `R=_spikes/s-c1/run.sh` (W0.5's runner),
+`O=_spikes/w3.2/results`,
+`SP=/private/tmp/claude-501/-Users-zchee-go-src-github-com-zchee-typesafe-sdk-go/40cb0f1f-c8a9-422c-a3e8-b3afc329b5cb/scratchpad`
+and `BASE=873d847`.
+
+### How the numbers were taken
+
+- (M): `go1.27.1 darwin/arm64`, `GOEXPERIMENT=nosimd,noruntimesecret`,
+  under `/opt/homebrew/opt/util-linux/bin/flock` on `$SP/bench.lock`.
+- (L): the tree written by `git archive $BASE` and piped over ssh to
+  `/tmp/ts-spike/src-w3.2/meas`; toolchain `/tmp/ts-spike/go/bin/go` with
+  the §11 `GOPATH`, `GOMODCACHE` and `GOCACHE` under `/tmp/ts-spike` and no
+  `GOEXPERIMENT`, under `flock /tmp/ts-spike/bench.lock`.
+- `TestAllocWholeCall` and `TestMemStatsCap` as in W2.3, with the
+  three-of-five rule and `testsupport.Spread` of p2-cifix-2.
+
+### W3.2 findings
+
+1. **AC-P6 is unchanged on both hosts under `DefaultRetry()`: SDK-own 14
+   allocations, 2 008 B** (floor 8/640, call 22/2648).
+2. **AC-P5's allocation counts are unchanged, and each case is 80 B
+   heavier on both hosts:** (i) 38 allocations / 264 032 B (bound
+   327 680 B), (ii) 1 368 B, (iii) 33 559 896 B, (iv) 33 302 488 B,
+   (v) 33 560 536 B, (vi) 2 392 B, (vii) 6 104 B, against W2.5-01's
+   263 952, 1 288, 33 559 816, 33 302 408, 33 560 456, 2 312 and 6 024 B.
+   `TestMemStatsCap` passes `Retry(NoRetry())` to force one attempt, and
+   the `CallOption` closure `Retry` returns now carries the policy, 80 B
+   where the Phase 2 policy was empty: 16 B → 96 B in the allocator. A
+   first cut held the policy through a pointer, which moved it to the heap
+   of its own (one allocation more, 80 B); the options now hold it by
+   value. A call without `Retry`, AC-P6's, pays nothing.
+
+| # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| W3.2-01 | 2026-09-26 10:09:14 JST | W3.2 AC-P6 whole call under `DefaultRetry()` and AC-P5 memstats | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.88 → 6.88 | `BASE=873d847 GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock alloc-M -count=1 -run '^(TestAllocWholeCall\|TestMemStatsCap)$' -v .` | q3: floor 8/640, call 22/2648, SDK-own 14/2008; AC-P5 (i) 38 allocs / 264032 B, (ii) 1368 B, (iii) 33559896 B, (iv) 33302488 B, (v) 33560536 B, (vi) 2392 B, (vii) 6104 B | mallocs/bytes, collector off, `GOMAXPROCS(1)`, 3 of 5 runs agree; `results/alloc-M.txt` |
+| W3.2-02 | 2026-09-26 01:09:20 UTC | W3.2 AC-P6 whole call under `DefaultRetry()` and AC-P5 memstats | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.30 → 0.36 | `BASE=873d847 sh $R '(L)' $O /tmp/ts-spike/bench.lock alloc-L -count=1 -run '^(TestAllocWholeCall\|TestMemStatsCap)$' -v .` | identical to W3.2-01 in every count | `results/alloc-L.txt` |
