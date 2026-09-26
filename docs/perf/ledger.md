@@ -4229,7 +4229,10 @@ functional half, the `…Functional` tests of `alloc_functional_test.go`, in
 both builds; it writes `TestResponseCapOverTheWire` (critic-p3 M-2, R106 as
 V50 worded it) and folds the root package's allocation tests into one list
 in `ci.yaml`, from which the step builds both its `-run` pattern and its
-`-list` count guard (R92; `TestAllocLoggedCall` joins, R102). No
+`-list` count guard (R92; `TestAllocLoggedCall` joins, R102, and the
+R103 revert's `TestAllocRequestID`), with a second list for
+`internal/codec`'s allocation tests (R110 (3)); the step also fails on a
+test of a root `!race` file that its list lacks. No
 production file changes. Every row measures 93c18a0 (main 3ffe77b plus
 this wave's six commits), a clean tree. Raw outputs are in
 `_spikes/w5.2/results/`, and `_spikes/w5.2/render.py` prints the tables
@@ -4245,8 +4248,8 @@ and `BASE=93c18a0`.
 | AC-P2 | `TestAllocDecodeFixtures` | `TestAllocDecodeFixturesFunctional` |
 | AC-P6 (N = 14) | `TestAllocWholeCall` | `TestAllocWholeCallFunctional` |
 | AC-P5 (i)–(vii) | `TestMemStatsCap` | `TestMemStatsCapFunctional`; over a real connection, `TestResponseCapOverTheWire` |
-| AC-P8 allocations | `TestLinearityFlood`; the lazy pass's c₀ + c₁ × members: `internal/codec` `TestLazyPassAllocations` | – |
-| AC-P8 time | `TestLinearityFloodTime` (every build) | – |
+| AC-P8 allocations | `TestLinearityFlood` (`alloc_decode_test.go`: the ratio, the members visited); the lazy pass's c₀ + c₁ × members: `TestLazyPassAllocations` (`internal/codec/decode_bench_test.go`, R110 (3)), run by ci.yaml's allocation-budget step on all three images | – |
+| AC-P8 time | `TestLinearityFloodTime` (`alloc_decode_cases_test.go`, every build) | – |
 | Prepare (R50), payloads (W2.4), logging (W3.3) | `TestAllocPrepare`, `TestAllocResponseJSON`, `TestAllocLoggedCall`, kept as they were | their packages' functional tests |
 
 ### How the numbers were taken
@@ -4289,7 +4292,9 @@ and `BASE=93c18a0`.
    a request body, after `{"state":`, the same map ends at 7.51 MiB and is
    warm (2). Where the steps end depends on the body's exact length at
    each step. The test keys the exception by GOARCH (R62) and fails if the
-   exception stops overshooting. On (L) every kind is warm at 6 MiB
+   exception stops overshooting; R110 (1) adds this in-body row to
+   frozen-budgets.md beside S-E1's, with the exception narrowed to
+   `*struct/6MiB`. On (L) every kind is warm at 6 MiB
    (6.44 MiB for the growslice kinds). A nested map is encoded in the map's
    random order and reaches its steady state after up to three unmeasured
    calls on (M) (scratch 6.47–7.73 MiB over the five invocations); the test
@@ -4319,16 +4324,21 @@ and `BASE=93c18a0`.
    1/2 304), W3.4's probe numbers, now in the test.** The functional half
    checks that the floor's prebuilt request is byte for byte the call's.
 6. **AC-P5: (i)–(v) as at W3.4; (vi) and (vii) bounded by W5.2** at their
-   first read buffer + 64 KiB (65 901 B and 69 632 B; measured 2 392 and
-   6 104 B), the rule of the frozen cases. Every run is checked against its
-   bound. K32's residual stays in (i): spread +4/+288 on (M), +5/+18 720 on
+   first read buffer + 64 KiB, the rule of the frozen cases (R110 (2)):
+   65 901 B = 365 B (Content-Length + 1) + 65 536 B, and 69 632 B = 4 096 B
+   (R27's first undeclared buffer) + 65 536 B. Measured 2 392 B = 384 +
+   2 008 and 6 104 B = 4 096 + 2 008 on both hosts and the three CI images
+   (maximum 6 152 B on xcode-27): margins 27.6 × and 11.3 ×, since the
+   bound catches a buffer sized from a declared length, not steady-state
+   noise. Every run is checked against its bound. K32's residual stays in (i): spread +4/+288 on (M), +5/+18 720 on
    (L) (maximum 43/282 752), within 327 680 B.
 7. **AC-P8: allocation ratio 7.61 (90 → 685); members visited, counted
    from the fixtures with encoding/json, 1 011 and 10 011, frozen-budgets'
    inputs; the whole decode grows 0.0661 allocations per member visited,
    under the lazy pass's c₁ = 1/15 = 0.0667 (recorded).** The lazy pass
    alone, in `internal/codec`: 86 and 681 against the bounds 89 and 689,
-   ratio 7.92. Time ratio, `TestLinearityFloodTime`: 9.33–9.62 on (M),
+   ratio 7.92; the budget step's codec list runs it without -race on every
+   image (R110 (3)). Time ratio, `TestLinearityFloodTime`: 9.33–9.62 on (M),
    9.20–9.25 on (L); under `-race` on (M) 9.53 (W5.2-07).
 8. **`TestResponseCapOverTheWire`: one attempt under `DefaultRetry()`,
    `*ResponseTooLargeError` with status 200 and the 16 MiB limit; the SDK
