@@ -201,7 +201,9 @@ func (qs *Questions) Prepare() (*Prepared, error) {
 		return nil, newConfigError("At least one question is required.")
 	}
 	var b wire.Builder
-	b.Grow(len(qs.entries), qs.sizeHint())
+	size, jsonLevels := qs.sizeHint()
+	b.Grow(len(qs.entries), size)
+	b.GrowLevels(jsonLevels)
 	var seen map[string]struct{} // the names so far, when there are too many to scan
 	if len(qs.entries) > repeatScanLimit {
 		seen = make(map[string]struct{}, len(qs.entries))
@@ -516,8 +518,9 @@ func appendLeaf(dst []byte, v any) ([]byte, bool, error) {
 // punctuation around them, and for a raw question 32 bytes per field plus
 // the length of a field that is a string, RawJSON or Content (W5.3's P3;
 // other values count 32 bytes). Escaping can make the result longer and
-// removing whitespace from JSON shorter.
-func (qs *Questions) sizeHint() int {
+// removing whitespace from JSON shorter. jsonLevels counts the score levels
+// that hold JSON, whose spans the builder records (W5.3's P4).
+func (qs *Questions) sizeHint() (size, jsonLevels int) {
 	n := 0
 	for i := range qs.entries {
 		e := &qs.entries[i]
@@ -534,6 +537,9 @@ func (qs *Questions) sizeHint() int {
 			n += contentSize(&e.score.Instructions)
 			for j := range e.score.Levels {
 				n += contentSize(&e.score.Levels[j]) + 1
+				if e.score.Levels[j].IsJSON() {
+					jsonLevels++
+				}
 			}
 		case formRaw:
 			n += len(e.raw.Type) + 32*len(e.raw.Fields)
@@ -542,7 +548,7 @@ func (qs *Questions) sizeHint() int {
 			}
 		}
 	}
-	return n
+	return n, jsonLevels
 }
 
 // rawValueSize is the size of a raw field's value as written, before escaping

@@ -42,8 +42,8 @@ func TestSizeHintCoversRawValues(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if hint, got := qs.sizeHint(), len(p.w.Questions); hint < got {
-				t.Errorf("sizeHint = %d, below the prepared length %d: the buffer grows", hint, got)
+			if hint, _ := qs.sizeHint(); hint < len(p.w.Questions) {
+				t.Errorf("sizeHint = %d, below the prepared length %d: the buffer grows", hint, len(p.w.Questions))
 			}
 		})
 	}

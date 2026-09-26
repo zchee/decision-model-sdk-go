@@ -191,6 +191,13 @@ func (b *Builder) Grow(questions, size int) {
 	b.entries = slices.Grow(b.entries, questions)
 }
 
+// GrowLevels reserves room for the spans of n more JSON score levels, the
+// levels [Builder.Finish] points at their compact bytes, so that a Builder
+// told how many there are records them without regrowing.
+func (b *Builder) GrowLevels(n int) {
+	b.spans = slices.Grow(b.spans, n)
+}
+
 // begin writes the separator, the name and the opening of a question object
 // whose type is typ, and records its entry.
 func (b *Builder) begin(name, typ string, kind Kind) error {

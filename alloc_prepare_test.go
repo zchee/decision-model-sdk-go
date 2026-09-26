@@ -34,9 +34,11 @@ import (
 // Builder's key stack) and of c5-raw-100x3, P1's case (1 710 → 14; 1 700 of
 // the 1 710 sorted the keys), and of the two NIT 8 score sets, P2's cases,
 // whose criteria the falsiness check no longer copies, and P3's, whose
-// buffer the size hint now covers (with P1 to P3, 252 → 10 and 1 215 → 13).
-// The other sets are measured and logged, with the bytes of every run and
-// the prepared length, for the ledger.
+// buffer the size hint now covers (with P1 to P3, 252 → 10 and 1 215 → 13),
+// and of the two score sets, c4b-score-20x8-json P4's case, whose level
+// spans Prepare now reserves (36 → 28), and c4a-score-20x8-text, which has
+// no spans to reserve (27). The other sets are measured and logged, with the
+// bytes of every run and the prepared length, for the ledger.
 func TestAllocPrepare(t *testing.T) {
 	testsupport.QuietRuntime(t)
 
@@ -48,8 +50,8 @@ func TestAllocPrepare(t *testing.T) {
 		"c1-sketch":           {mallocs: 6},
 		"c2-noul-short":       {mallocs: 3},
 		"c3-choice-20x10":     {mallocs: 27},
-		"c4a-score-20x8-text": {mallocs: -1},
-		"c4b-score-20x8-json": {mallocs: -1},
+		"c4a-score-20x8-text": {mallocs: 27},
+		"c4b-score-20x8-json": {mallocs: 28},
 		"c5-raw-100x3":        {mallocs: 14},
 		"c6-escapes":          {mallocs: -1},
 		"n8a-array-score":     {mallocs: 10},
