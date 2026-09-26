@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+  # The repository takes no pull requests (ruling R2), so AC-P7's "PR run"
+  # is a workflow_dispatch run on the wave branch before it lands, then the
+  # main run after it (docs/perf/codspeed.md).
   pull_request:
   workflow_dispatch:
 
@@ -35,11 +38,19 @@ jobs:
         with:
           persist-credentials: false
 
+      # setup-go reads go.mod's toolchain line (go1.27.1) before its go line
+      # unless GOTOOLCHAIN=local is set (setup-go v7 src/installer.ts,
+      # parseGoVersionFile).
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
-      # No GOEXPERIMENT override: the runner's default is the Go 1.27 baseline.
+      # No GOEXPERIMENT. The measurement rule's GOEXPERIMENT=nosimd,noruntimesecret
+      # is for a host whose Go env file sets experiments (the maintainer's
+      # darwin/arm64 sets simd,runtimesecret); it restores the Go 1.27
+      # baseline there. The runner has no such file, so its default already
+      # is the baseline, and the report step below prints its ToolTags
+      # (docs/support.md#measurement-rule).
       - uses: CodSpeedHQ/action@v5
         env:
           CODSPEED_PERF_UNWINDING_MODE: fp
@@ -101,3 +112,44 @@ jobs:
             fail=1
           fi
           exit "$fail"
+
+      # AC-P7, report-only until K7 is met, so the step never fails the job.
+      # CodSpeed's report shows a row's minimum; go test's ns/op, which AC-P6
+      # reads, is the mean. The table gives both, and the median, for the
+      # BenchmarkCall rows, with the facts a ledger row needs: hosted runners
+      # differ in CPU model from run to run. The log also lists every row the
+      # results hold, under the name CodSpeed keys its history by.
+      - name: Report AC-P7 (report-only)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          results=("$RUNNER_TEMP"/profile.*.out/results/*.json /tmp/profile.*.out/results/*.json)
+          {
+            echo "### AC-P7: \`BenchmarkCall/sdk\` against \`BenchmarkCall/naive\` (report-only, K7)"
+            echo
+            echo "- \`$(go version)\`, ToolTags \`$(go list -f '{{context.ToolTags}}' runtime)\`"
+            echo "- CPU: $(lscpu | sed -n 's/^Model name: *//p'), $(nproc) CPUs"
+            echo
+            jq -rs '
+              [.[].benchmarks[] | select(.uri | startswith("internal/benchmark/call_test.go::BenchmarkCall::"))
+                | {key: (.uri | split("::")[2]), value: .stats}] | from_entries as $c
+              | def ns($s): if $s == null then "–" else ($s | round | tostring) end;
+                def ratio($a; $b; $f):
+                  if $c[$a] == null or $c[$b] == null then "–"
+                  else ($c[$a][$f] / $c[$b][$f] * 1000 | round / 1000 | tostring) end;
+                "| `BenchmarkCall` row | min ns | median ns | mean ns | rounds |",
+                "| --- | ---: | ---: | ---: | ---: |",
+                (["sdk", "naive", "naive-json", "floor", "sdk-q20", "naive-q20", "naive-json-q20", "floor-q20"][] as $r
+                  | "| \($r) | \(ns($c[$r].min_ns)) | \(ns($c[$r].median_ns)) | \(ns($c[$r].mean_ns)) | \($c[$r].rounds // "–") |"),
+                "",
+                "| Ratio, below 1 = sdk faster | min | median | mean |",
+                "| --- | ---: | ---: | ---: |",
+                (["", "-q20"][] as $q
+                  | "| sdk\($q) / naive\($q) | \(ratio("sdk\($q)"; "naive\($q)"; "min_ns")) | \(ratio("sdk\($q)"; "naive\($q)"; "median_ns")) | \(ratio("sdk\($q)"; "naive\($q)"; "mean_ns")) |")' \
+              "${results[@]}" /dev/null
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          # The uploaded rows by name, so two runs' logs can be compared.
+          echo "::group::Benchmarks in the uploaded results"
+          jq -r '.benchmarks[].uri' "${results[@]}" /dev/null | LC_ALL=C sort
+          echo "::endgroup::"
