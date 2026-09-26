@@ -42,7 +42,8 @@ func (k AnswerKind) String() string { return wire.Kind(k).String() }
 // (https://docs.typesafe.ai/primitives/noul).
 //
 // The zero NoulAnswer is not an answer a response carried: its Present is
-// false. [DecodeAs] leaves one in an optional field whose answer is absent.
+// false, and MarshalJSON writes it null. [DecodeAs] leaves one in an
+// optional field whose answer is absent.
 type NoulAnswer struct {
 	w       wire.NoulAnswer
 	present bool
@@ -52,7 +53,8 @@ type NoulAnswer struct {
 // an answer read from a response, through [Answers] or [DecodeAs], and
 // false for the zero NoulAnswer, which is what DecodeAs leaves in a field
 // tagged optional when the response has no answer for it. The Python SDK
-// holds None there.
+// holds None there, which it dumps as null, and so does MarshalJSON for an
+// answer that is not present.
 func (a NoulAnswer) Present() bool { return a.present }
 
 // Noul returns the probability, from 0 to 1, that the answer is yes or the
@@ -62,16 +64,23 @@ func (a NoulAnswer) Noul() float64 { return a.w.Noul }
 // MarshalJSON returns the answer as the Python SDK's model_dump_json writes
 // it, such as {"type":"noul","noul":0.98}. A noul that arrived as -0.0 is
 // written 0.0, where Python writes -0.0: the response reads every zero as
-// 0. Present plays no part: the zero NoulAnswer is written
-// {"type":"noul","noul":0.0}, not null.
-func (a NoulAnswer) MarshalJSON() ([]byte, error) { return wire.AppendNoulAnswer(nil, &a.w) }
+// 0. An answer that is not Present, such as the zero NoulAnswer, is written
+// null, as Python writes an optional answer the response did not carry
+// (None).
+func (a NoulAnswer) MarshalJSON() ([]byte, error) {
+	if !a.present {
+		return []byte("null"), nil
+	}
+	return wire.AppendNoulAnswer(nil, &a.w)
+}
 
 // ChoiceAnswer is the answer to a choice question: the option picked and the
 // probability of every option. See the choice primitive
 // (https://docs.typesafe.ai/primitives/choice).
 //
 // The zero ChoiceAnswer is not an answer a response carried: its Present is
-// false. [DecodeAs] leaves one in an optional field whose answer is absent.
+// false, and MarshalJSON writes it null. [DecodeAs] leaves one in an
+// optional field whose answer is absent.
 type ChoiceAnswer struct {
 	w       wire.ChoiceAnswer
 	present bool
@@ -110,8 +119,14 @@ func (a ChoiceAnswer) Probabilities() iter.Seq2[string, float64] {
 // {"type":"choice","choice":"billing","confidence":0.9,"probabilities":{"billing":0.9,"support":0.1}},
 // the probabilities in the order of Probabilities. A float that arrived as
 // -0.0 is written 0.0, where Python writes -0.0: the response reads every
-// zero as 0. Present plays no part, as for [NoulAnswer.MarshalJSON].
-func (a ChoiceAnswer) MarshalJSON() ([]byte, error) { return wire.AppendChoiceAnswer(nil, &a.w) }
+// zero as 0. An answer that is not Present is written null, as
+// [NoulAnswer.MarshalJSON] says.
+func (a ChoiceAnswer) MarshalJSON() ([]byte, error) {
+	if !a.present {
+		return []byte("null"), nil
+	}
+	return wire.AppendChoiceAnswer(nil, &a.w)
+}
 
 // ScoreAnswer is the answer to a score question: the expected score, the
 // question's rubric as the response echoes it, and the probability of every
@@ -119,7 +134,8 @@ func (a ChoiceAnswer) MarshalJSON() ([]byte, error) { return wire.AppendChoiceAn
 // (https://docs.typesafe.ai/primitives/score).
 //
 // The zero ScoreAnswer is not an answer a response carried: its Present is
-// false. [DecodeAs] leaves one in an optional field whose answer is absent.
+// false, and MarshalJSON writes it null. [DecodeAs] leaves one in an
+// optional field whose answer is absent.
 type ScoreAnswer struct {
 	w       wire.ScoreAnswer
 	present bool
@@ -187,9 +203,14 @@ func (a ScoreAnswer) Probabilities() iter.Seq2[uint32, float64] {
 // bytes hold an escape, whitespace, a repeated member name (Python keeps
 // the last) or a number spelled otherwise than Python spells it. A float
 // that arrived as -0.0 is written 0.0, where Python writes -0.0: the
-// response reads every zero as 0. Present plays no part, as for
-// [NoulAnswer.MarshalJSON].
-func (a ScoreAnswer) MarshalJSON() ([]byte, error) { return wire.AppendScoreAnswer(nil, &a.w) }
+// response reads every zero as 0. An answer that is not Present is written
+// null, as [NoulAnswer.MarshalJSON] says.
+func (a ScoreAnswer) MarshalJSON() ([]byte, error) {
+	if !a.present {
+		return []byte("null"), nil
+	}
+	return wire.AppendScoreAnswer(nil, &a.w)
+}
 
 // Answer is one answer of any kind: Kind says which of Noul, Choice and
 // Score holds it.

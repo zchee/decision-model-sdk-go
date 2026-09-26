@@ -182,6 +182,16 @@ func TestDecodeAsOptionalFieldAndUnknownAnswer(t *testing.T) {
 	if diff := gocmp.Diff(NoulAnswer{}, got.Missing, typedCmp); diff != "" {
 		t.Errorf("Missing is not the zero NoulAnswer (-want +got):\n%s", diff)
 	}
+	// The upstream model_dump holds "missing": None; the struct marshals the
+	// absent answer as null (ruling R99 Q3) and the others as their kinds.
+	dump, err := testsupport.StdlibMarshal(got)
+	if err != nil {
+		t.Fatalf("json.Marshal(typed struct): %v", err)
+	}
+	wantDump := `{"Spam":{"type":"noul","noul":0.98},"Tone":{"type":"choice","choice":"friendly","confidence":0.9,"probabilities":{"friendly":0.9,"hostile":0.1}},"Missing":null}`
+	if diff := gocmp.Diff(wantDump, string(dump)); diff != "" {
+		t.Errorf("json.Marshal(typed struct) (-want +got):\n%s", diff)
+	}
 
 	answers := resp.Answers()
 	if a, _ := answers.Noul("spam"); a.Noul() != 0.98 {

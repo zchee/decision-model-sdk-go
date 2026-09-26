@@ -184,8 +184,8 @@ func TestAttemptHeader(t *testing.T) {
 // accessor that reads an answer from a response gives one that is present
 // (Answers' Get and its kind's accessor, Noul, Choice and Score, and the
 // Nouls, Choices and Scores iterators), an accessor of another kind and the
-// zero value give one that is not, and the bit changes nothing that
-// MarshalJSON writes. The sizes pin what the bit costs: §4's "same size as
+// zero value give one that is not, and MarshalJSON writes one that is not
+// as null (ruling R99 Q3). The sizes pin what the bit costs: §4's "same size as
 // the wire value" holds for none of the three any more (W7 note).
 func TestAnswerPresent(t *testing.T) {
 	answers := upstreamResponse(t).Answers()
@@ -237,23 +237,29 @@ func TestAnswerPresent(t *testing.T) {
 		})
 	}
 
-	t.Run("success: MarshalJSON writes the same bytes with the bit set or clear", func(t *testing.T) {
-		pairs := map[string][2]interface{ MarshalJSON() ([]byte, error) }{
-			"noul":   {byNameNoul, NoulAnswer{w: byNameNoul.w}},
-			"choice": {byNameChoice, ChoiceAnswer{w: byNameChoice.w}},
-			"score":  {byNameScore, ScoreAnswer{w: byNameScore.w}},
+	t.Run("success: MarshalJSON writes a present answer's kind and a copy without the bit as null", func(t *testing.T) {
+		pairs := map[string]struct {
+			present, absent interface{ MarshalJSON() ([]byte, error) }
+			want            string
+		}{
+			"noul":   {present: byNameNoul, absent: NoulAnswer{w: byNameNoul.w}, want: `{"type":"noul","noul":0.98}`},
+			"choice": {present: byNameChoice, absent: ChoiceAnswer{w: byNameChoice.w}, want: `{"type":"choice","choice":"friendly","confidence":0.9,"probabilities":{"friendly":0.9,"hostile":0.1}}`},
+			"score":  {present: byNameScore, absent: ScoreAnswer{w: byNameScore.w}, want: `{"type":"score","score":1.7,"confidence":0.8,"legend":{"0":"bad","1":"ok","2":"great"},"probabilities":{"0":0.1,"1":0.1,"2":0.8}}`},
 		}
 		for kind, p := range pairs {
-			set, err := p[0].MarshalJSON()
+			got, err := p.present.MarshalJSON()
 			if err != nil {
 				t.Fatalf("%s: %v", kind, err)
 			}
-			unset, err := p[1].MarshalJSON()
+			if diff := gocmp.Diff(p.want, string(got)); diff != "" {
+				t.Errorf("%s: MarshalJSON of the present answer (-want +got):\n%s", kind, diff)
+			}
+			got, err = p.absent.MarshalJSON()
 			if err != nil {
 				t.Fatalf("%s: %v", kind, err)
 			}
-			if diff := gocmp.Diff(string(unset), string(set)); diff != "" {
-				t.Errorf("%s: MarshalJSON depends on Present (-unset +set):\n%s", kind, diff)
+			if string(got) != "null" {
+				t.Errorf("%s: MarshalJSON of the same value without the bit = %s, want null", kind, got)
 			}
 		}
 	})

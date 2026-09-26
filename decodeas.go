@@ -73,7 +73,8 @@ func Ask[T any](ctx context.Context, c *Client, state any, opts ...CallOption) (
 // modified; resp itself is not changed, and must not be nil. Answers that
 // no field of T names are ignored. Each field read has Present true; an
 // optional field without an answer is left as the zero answer, whose
-// Present is false.
+// Present is false and which marshals as null, as the Python SDK holds and
+// dumps None there.
 //
 // A T that PreparedFor refuses fails with its [*ConfigError]. Otherwise the
 // fields are read in their order in T, and the first that does not fit
