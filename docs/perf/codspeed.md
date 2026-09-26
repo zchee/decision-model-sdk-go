@@ -220,6 +220,21 @@ That the SDK's single call is slower than the naive client's (by about
 0.7 µs on amd64) is risk K36. Taking that time off the SDK's call path is
 a best-effort target for W5.3, not part of AC-P7.
 
+W5.3 (on `main` from 653b5b9) scans a well-formed body once. The
+traversal runs over the body cut just before the root's closing brace,
+and the second pass, `internal/codec.trailing` running sonic's
+`decoder.Skip` over the whole body to find where the root value ends, now
+runs only on a body the cut cannot take (`traverse` in
+`internal/codec/decode.go`). Compared on the same host group before and
+after W5.3, `BenchmarkCall/sdk`'s minimum fell by 0.56 to 0.77 µs on the
+EPYC 7763 and by 0.38 µs on the 9V74 with AVX-512, while
+`BenchmarkCall/naive`'s did not move. The minimum's gap went from 0.60 to
+0.78 µs (ratio 1.124 to 1.162) to 0.04 and 0.07 µs (1.008, 1.015) on the
+7763, and from 0.48 to 0.12 µs (1.139 to 1.035) on the 9V74 with AVX-512.
+The median ratio went from 1.009 to 1.076 down to 0.932 to 0.941. So
+since W5.3 the SDK is faster by median and by mean, and still 1 to 4 %
+slower by the minimum that CodSpeed shows (ledger W5.4, finding 5).
+
 ## arm64 (K18)
 
 In this repository CodSpeed measures linux/amd64 only. Its arm64 machines

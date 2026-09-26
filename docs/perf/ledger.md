@@ -5250,6 +5250,11 @@ and `_spikes/w5.4/render.py` prints the tables below from
 | W5.4-21 | 2026-09-26 06:25:17 UTC | W5.4 AC-P7, pre-W5.3 dispatch | `ubuntu-26.04` (Intel Xeon 6973P-C, AVX-512, 4 CPUs) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | – | `bench.yaml` at 419d12e (`gh workflow run bench.yaml --ref wave/w5.4`) | `BenchmarkCall/sdk` min / median / mean 3.328 / 3.651 / 4.079 µs; `/naive` 2.884 / 3.486 / 4.521 µs; **sdk/naive 1.154 / 1.047 / 0.902** (min / median / mean); q20 1.262 / 1.177 / 0.985 | GitHub run 36223193685 (success), CodSpeed run 6ab7654d2eddcdb9847b5a4a; the report step's first run in µs (`results/report-36223193685.md`); guard `125 rows; CodSpeed results: 125 rows in 3 files`; uploaded names identical to W5.4-08's; AVX-512 from `compare_runs` against the 7763 run of W5.4-22 (flags added: `avx512f` and 20 more, `amx_*`); on this host `EncodeState/ascii/6MiB/{encode,check}` are 34.6 and 32.6 % slower than on the 7763 while 115 rows are faster (finding 2); not a K7 run |
 | W5.4-22 | 2026-09-26 07:52:12 UTC | W5.4 AC-P7, pre-W5.3 dispatch | `ubuntu-26.04` (AMD EPYC 7763, no AVX-512, 4 CPUs) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | – | `bench.yaml` at 5a4a4d9 (`gh workflow run bench.yaml --ref wave/w5.4`): the report step fails on missing data (m-8) | `BenchmarkCall/sdk` min / median / mean 5.420 / 5.701 / 6.546 µs; `/naive` 4.749 / 5.460 / 7.368 µs; **sdk/naive 1.141 / 1.044 / 0.889** (min / median / mean; 0.888 from the ns-rounded means in the TSV); q20 1.223 / 1.168 / 0.992 | GitHub run 36227580459 (success in every step: the m-8 check passed on CI), CodSpeed run 6ab779ac2eddcdb9847b5b56; `results/report-36227580459.md`; guard 125 = 125; uploaded names identical to W5.4-08's; not a K7 run |
 | W5.4-23 | 2026-09-26 08:17:54 UTC | W5.4 AC-P7, pre-W5.3 dispatch | `ubuntu-26.04` (Intel Xeon Platinum 8573C, AVX-512, 4 CPUs) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | – | `bench.yaml` at 039179d (`gh workflow run bench.yaml --ref wave/w5.4`): the report step names AVX-512 exposure (R109b) | `BenchmarkCall/sdk` min / median / mean 4.884 / 5.353 / 6.275 µs; `/naive` 4.243 / 5.143 / 6.535 µs; **sdk/naive 1.151 / 1.041 / 0.960** (min / median / mean); q20 1.260 / 1.182 / 0.963 | GitHub run 36228850305 (success in every step), CodSpeed run 6ab77fad9e6b21a34d50e9cf (its check run's time is the When); the host line on CI: `- CPU: INTEL(R) XEON(R) PLATINUM 8573C, 4 CPUs, AVX-512 yes, flags digest e161990560a5`, a fifth CPU model; `results/report-36228850305.md`; guard 125 = 125; uploaded names identical to W5.4-08's; not a K7 run. The statistics of W5.4-21 to -23 come from the report step's tables because the CodSpeed MCP server needed a new sign-in when they were recorded (W5.4-08 showed the two sources equal to the ns) |
+| W5.4-24 | 2026-09-26 22:17:56 JST | W5.4 rebase onto W5.3's landing | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | `git -c rebase.autoStash=false rebase --gpg-sign origin/main` of b4faf7c (14 commits on aaa9698) onto 653b5b9; `git range-diff aaa9698..b4faf7c 653b5b9..e80c897`; at e80c897 the §11 chain with `GOEXPERIMENT=nosimd,noruntimesecret` (govulncheck by `go run golang.org/x/vuln/cmd/govulncheck@latest`), `go test -race -count=1 ./...`, `actionlint .github/workflows/bench.yaml`, flow-style sequences in bench.yaml by `yq` | one conflict, in 419d12e: the end of this ledger, resolved as main's `## W4.2` to `## W5.3` then `## W5.4`, unchanged; range-diff: 12 of 14 commits `=`, and 419d12e → 3e6217d and aaaefc4 → e26971a `!` in hunk context only (main's W5.3 rows and AC-P2 row); the `## W5.4` section and the three benchmarks.md sentences byte-identical to b4faf7c's; no `.go`, `go.mod` or `go.sum` differs from 653b5b9 at any of the 14 commits. Gates: chain exit 0 (`0 issues.`, `No vulnerabilities found.`), -race 7 of 7 packages `ok`, actionlint exit 0, 0 flow-style sequences of 2 | pushed as e80c897 with `--force-with-lease=refs/heads/wave/w5.4:b4faf7c` at 22:19:24 JST; the gates ended 22:18:51 JST; not a timing row |
+| W5.4-25 | 2026-09-26 12:26:43 UTC | W5.4 K36 after W5.3 | `ubuntu-26.04` (AMD EPYC 7763, no AVX-512) | `go1.27.1 linux/amd64` | not printed by the job | – | `bench.yaml` at 6b996ed (W5.3's final head, `gh workflow run bench.yaml --ref wave/w5.3`; aaa9698's job, without W5.4's report step) | `BenchmarkCall/sdk` min / median / mean 4.849 / 5.099 / 5.969 µs; `/naive` 4.809 / 5.470 / 7.054 µs; **sdk/naive 1.008 / 0.932 / 0.846** (min / median / mean) | GitHub run 36241378827, CodSpeed run 6ab7ba038faaebcc20e4bfc0; statistics from `get_benchmark_result`; CPU: `compare_runs` against W5.4-22 (5a4a4d9, EPYC 7763) lists no environment difference, marks `BenchmarkCall/sdk` 11.78 % faster, 25 rows improved and 2 regressed (`EncodeBody/rawjson/{64KiB,1MiB}/naive-json`, −11.33 and −10.12 %, K37's rows); stdev sdk 6.668 / naive 9.614 µs; IQR outliers sdk 9.0 % / naive 14.0 % of 520221 / 483901 rounds; guard `125 rows; CodSpeed results: 125 rows in 3 files` (job log); post-W5.3, W5.3's R90 dispatch; not a K7 run |
+| W5.4-26 | 2026-09-26 13:12:31 UTC | W5.4 K36 after W5.3 | `ubuntu-26.04` (AMD EPYC 9V74 with AVX-512) | `go1.27.1 linux/amd64` | not printed by the job | – | `bench.yaml` at 653b5b9 (W5.3's landing SHA, `gh workflow run bench.yaml --ref wave/w5.3`; aaa9698's job, without W5.4's report step) | `BenchmarkCall/sdk` min / median / mean 3.565 / 3.865 / 4.317 µs; `/naive` 3.446 / 4.146 / 5.409 µs; **sdk/naive 1.035 / 0.932 / 0.798** (min / median / mean) | GitHub run 36243812608, CodSpeed run 6ab7c4bffa0671d207a85d80; statistics from `get_benchmark_result`; CPU: `compare_runs` against W5.4-25 lists `AMD EPYC 7763 64-Core Processor` → `AMD EPYC 9V74 80-Core Processor` and the 14 flags W5.4-18 lists (`avx512f` …, `gfni`, `xtopology`), so the same group as W5.4-18; stdev sdk 3.965 / naive 7.289 µs; IQR outliers sdk 7.2 % / naive 16.7 % of 734468 / 636097 rounds; guard `125 rows; CodSpeed results: 125 rows in 3 files` (job log); post-W5.3, W5.3's pre-landing dispatch; not a K7 run |
+| W5.4-27 | 2026-09-26 13:25:04 UTC | W5.4 K7 data point, `main`'s first run after W5.3 | `ubuntu-26.04` (AMD EPYC 7763, no AVX-512) | `go1.27.1 linux/amd64` | not printed by the job | – | `bench.yaml` at 653b5b9 (main's push run, W5.3's landing; aaa9698's job without W5.4's report step) | `BenchmarkCall/sdk` min / median / mean 4.829 / 5.290 / 6.406 µs; `/naive` 4.759 / 5.620 / 7.281 µs; **sdk/naive 1.015 / 0.941 / 0.880** (min / median / mean) | GitHub run 36244496855 (success, 13:25:43 UTC), CodSpeed run 6ab7c7b062642697e5f7ee46; statistics from `get_benchmark_result`; CPU: `compare_runs` against W5.4-25 (6b996ed, EPYC 7763) lists no environment difference and all 125 rows unchanged; guard `125 rows; CodSpeed results: 125 rows in 3 files`; stdev sdk 7.219 / naive 9.963 µs; IQR outliers sdk 12.6 % / naive 13.4 % of 516907 / 470106 rounds; CodSpeed's own check `CodSpeed Performance Analysis` failed (13:25:09 UTC) against the base its details link names, 67dcbb0's run (W5.4-18, 9V74 with AVX-512), a comparison across host groups (finding 2, K37); **K7 run 4 on the EPYC 7763** |
+| W5.4-28 | 2026-09-26 22:26:57 JST | W5.4 K7 count | – | – | – | – | the W5.4-10 command again | **Per model and AVX-512 exposure (R109b): EPYC 7763 4 of 20** (`BenchmarkCall/sdk` mean 6.684, 6.771, 6.739 and 6.406 µs, spread 5.69 %); **9V74 1**; **9V74 + AVX-512 1**. Per model name only (R109 as written): 7763 4 (5.69 %), 9V74 2 (29.01 %). Beside it, the sdk/naive mean ratio over the six counted runs, any host: 0.877, 0.885, 0.872, 0.897, 0.970, 0.880, spread 11.22 % (no threshold set). Gating stays off. The 7763's spread was 1.29 % over its three runs before W5.3; 653b5b9's mean is 4.8 % below their average (6.731 µs), which is W5.3's speed-up of the SDK, not noise. So a spread over `main` runs that cross a landing which changes `BenchmarkCall`'s time measures that change as well as the noise. Whether K7's count restarts at such a landing, as it restarted at aaa9698 when rows had been lost, is left to the lead; no restart is applied here. The flags digest that the report step prints (R109b) is known for no counted run: `main`'s job prints it only once W5.4 lands | `results/k7-count.txt` (sixth snapshot), `render.py`; not a timing row |
 
 ### Tables
 
@@ -5270,21 +5275,24 @@ and `_spikes/w5.4/render.py` prints the tables below from
 | 419d12e | workflow_dispatch wave/w5.4 | 36223193685 | 6ab7654d2eddcdb9847b5a4a | Intel Xeon 6973P-C + AVX-512 | 1.154 | 1.047 | 0.902 | 3.328 | 3.651 | 4.079 |
 | 5a4a4d9 | workflow_dispatch wave/w5.4 | 36227580459 | 6ab779ac2eddcdb9847b5b56 | 7763 | 1.141 | 1.044 | 0.888 | 5.420 | 5.701 | 6.546 |
 | 039179d | workflow_dispatch wave/w5.4 | 36228850305 | 6ab77fad9e6b21a34d50e9cf | Intel Xeon Platinum 8573C + AVX-512 | 1.151 | 1.041 | 0.960 | 4.884 | 5.353 | 6.275 |
+| 6b996ed | workflow_dispatch wave/w5.3 | 36241378827 | 6ab7ba038faaebcc20e4bfc0 | 7763 | 1.008 | 0.932 | 0.846 | 4.849 | 5.099 | 5.969 |
+| 653b5b9 | workflow_dispatch wave/w5.3 | 36243812608 | 6ab7c4bffa0671d207a85d80 | 9V74 + AVX-512 | 1.035 | 0.932 | 0.798 | 3.565 | 3.865 | 4.317 |
+| 653b5b9 | push main | 36244496855 | 6ab7c7b062642697e5f7ee46 | 7763 | 1.015 | 0.941 | 0.880 | 4.829 | 5.290 | 6.406 |
 
 K7, successful push runs on main from 36221839206 on; blocking needs 20 runs in one group
 with BenchmarkCall/sdk's mean within 5 %.
 Per CPU model (ruling R109 as written):
-- AMD EPYC 7763: 3 of 20 runs; BenchmarkCall/sdk mean spread 1.29 % over 3 runs
+- AMD EPYC 7763: 4 of 20 runs; BenchmarkCall/sdk mean spread 5.69 % over 4 runs
 - AMD EPYC 9V74: 2 of 20 runs; BenchmarkCall/sdk mean spread 29.01 % over 2 runs
 Per CPU model and AVX-512 exposure (ruling R109b):
-- AMD EPYC 7763: 3 of 20 runs; BenchmarkCall/sdk mean spread 1.29 % over 3 runs
+- AMD EPYC 7763: 4 of 20 runs; BenchmarkCall/sdk mean spread 5.69 % over 4 runs
 - AMD EPYC 9V74: 1 of 20 runs; BenchmarkCall/sdk mean spread n/a (1 run)
 - AMD EPYC 9V74 + AVX-512: 1 of 20 runs; BenchmarkCall/sdk mean spread n/a (1 run)
-Beside it, the sdk/naive mean ratio over those runs, any host (no threshold set): 11.22 % over 5 runs
+Beside it, the sdk/naive mean ratio over those runs, any host (no threshold set): 11.22 % over 6 runs
 
 Every run above, K7 or not, for comparison:
-- BenchmarkCall/sdk mean: 112.33 % over 15 runs (AMD EPYC 7763: 7.15 % over 9 runs; AMD EPYC 9V45 + AVX-512: n/a (1 run); AMD EPYC 9V74: 0.99 % over 2 runs; AMD EPYC 9V74 + AVX-512: n/a (1 run); Intel Xeon 6973P-C + AVX-512: n/a (1 run); Intel Xeon Platinum 8573C + AVX-512: n/a (1 run))
-- sdk/naive mean ratio: 12.70 % over 15 runs (AMD EPYC 7763: 12.70 % over 9 runs; AMD EPYC 9V45 + AVX-512: n/a (1 run); AMD EPYC 9V74: 5.87 % over 2 runs; AMD EPYC 9V74 + AVX-512: n/a (1 run); Intel Xeon 6973P-C + AVX-512: n/a (1 run); Intel Xeon Platinum 8573C + AVX-512: n/a (1 run))
+- BenchmarkCall/sdk mean: 112.33 % over 18 runs (AMD EPYC 7763: 17.50 % over 11 runs; AMD EPYC 9V45 + AVX-512: n/a (1 run); AMD EPYC 9V74: 0.99 % over 2 runs; AMD EPYC 9V74 + AVX-512: 11.40 % over 2 runs; Intel Xeon 6973P-C + AVX-512: n/a (1 run); Intel Xeon Platinum 8573C + AVX-512: n/a (1 run))
+- sdk/naive mean ratio: 23.20 % over 18 runs (AMD EPYC 7763: 16.20 % over 11 runs; AMD EPYC 9V45 + AVX-512: n/a (1 run); AMD EPYC 9V74: 5.87 % over 2 runs; AMD EPYC 9V74 + AVX-512: 21.59 % over 2 runs; Intel Xeon 6973P-C + AVX-512: n/a (1 run); Intel Xeon Platinum 8573C + AVX-512: n/a (1 run))
 
 ### W5.4 findings
 
@@ -5349,3 +5357,40 @@ Every run above, K7 or not, for comparison:
    equal those of the 84 (L) rows in this ledger, `goexperiment.dwarf5`
    included (a linux default that darwin lacks). So the job sets no
    `GOEXPERIMENT`.
+5. **After W5.3 the SDK is faster by median as well as by mean, and 1 to
+   4 % slower by minimum.** W5.3 (on `main` from 653b5b9) scans a
+   well-formed body once: the traversal runs over the body cut before the
+   root's closing brace, and the whole-body pass with `trailing`'s
+   `decoder.Skip` runs only on a body the cut cannot take (`traverse` in
+   `internal/codec/decode.go`). Compared within one host group, never
+   across groups (finding 2), with the gap = sdk − naive in µs:
+
+   | Host group | Runs | min gap (sdk/naive) | median gap (sdk/naive) | mean sdk/naive |
+   | --- | --- | ---: | ---: | ---: |
+   | EPYC 7763 | 9 before W5.3 (W5.4-01 to -03, -05 to -07, -13, -15, -22) | +0.601 to +0.781 (1.124 to 1.162) | +0.050 to +0.421 (1.009 to 1.076) | 0.872 to 0.983 |
+   | EPYC 7763 | 2 after W5.3: 6b996ed (W5.4-25), 653b5b9 on `main` (W5.4-27) | +0.040, +0.070 (1.008, 1.015) | −0.371, −0.330 (0.932, 0.941) | 0.846, 0.880 |
+   | EPYC 9V74 + AVX-512 | before W5.3: 67dcbb0 (W5.4-18) | +0.480 (1.139) | +0.180 (1.044) | 0.970 |
+   | EPYC 9V74 + AVX-512 | after W5.3: 653b5b9 (W5.4-26) | +0.119 (1.035) | −0.281 (0.932) | 0.798 |
+
+   `BenchmarkCall/sdk`'s minimum fell by 0.56 to 0.77 µs on the 7763
+   (5.410 to 5.600 → 4.829 and 4.849 µs) and by 0.38 µs on the 9V74 with
+   AVX-512 (3.945 → 3.565 µs). `BenchmarkCall/naive`'s minimum stayed
+   inside its earlier range on the 7763 (4.759 and 4.809 µs against 4.749
+   to 4.859) and moved by −0.02 µs on the 9V74. W5.3's own A/B of K36 alone moved the SDK's
+   (L) minimum by −0.564 µs (W5.3-03), the size of the drop on CI, and
+   finding 1 put `trailing` at about 0.71 µs per call. So K36's gap is
+   almost closed by minimum and reversed by median; the mean, which AC-P7
+   reads (R108), holds with a wider margin than before (0.798 to 0.880
+   against 0.872 to 0.983 on the same groups). CodSpeed's report, which
+   shows the minimum, still shows `BenchmarkCall/sdk` 0.8 to 3.5 % slower.
+   The AC-P7 runs of record on the rebased branch follow in the rows after
+   W5.4-28.
+
+### Commit trailers (R118)
+
+The rebase changed no commit message. The commits from c15ba0c to afe4905
+(b6a40b8 to 9550a22 after the rebase) carry `Co-Authored-By` and the first
+lane's `Claude-Session` line; b4faf7c (e80c897) carries `Co-Authored-By`
+only, as ruling R118 allows from 08:30 UTC. The successor lane's commits
+carry the lines its harness gives at commit time: `Co-Authored-By` and a
+`Claude-Session` line with its own session.
