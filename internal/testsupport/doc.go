@@ -37,6 +37,10 @@
 //     strict or h2-offering ALPN.
 //   - [Recorder]: an in-memory [net/http.RoundTripper] that records requests
 //     and returns canned replies.
+//   - [FloorCall]: the floor of one whole call, which the allocation test
+//     and the call/floor benchmark share; [NewFixtureServer]: a
+//     LoopbackServer answering result.json and models.json, for the
+//     loopback benchmarks.
 //   - [SumGetBody]: the SHA-256 digest of the bytes a request's GetBody
 //     reads, so a test can assert that every attempt sends the same body.
 //   - [LogRecorder]: a [log/slog.Handler] that keeps every record.
