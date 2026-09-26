@@ -101,7 +101,6 @@ Each reason starts with its class:
 | `internal/h2gate/transport.go` | `(*Transport).RoundTrip` | `t.leave(gen)` | 0-1 | Race: a waiter whose context ends while the leader dials; no test cancels a waiter on purpose. |
 | `internal/h2gate/transport.go` | `reason` | `return "proxy"` | 1 | Gap: no test logs a proxy dial failure with a logger attached. |
 | `internal/h2gate/transport.go` | `reason` | `return "not-negotiated"` | 1 | Gap: no test logs a failed ALPN negotiation with a logger attached. |
-| `internal/h2gate/transport.go` | `(*Transport).send` | `closeBody(req)` | 0-1 | Race: a request whose context ends while it waits for the header-write token (K28d, W6.1). |
 | `internal/h2gate/transport.go` | `(*call).gotConn` | `{}` | 1 | Gap: a new HTTP/2 connection for a call that holds the token on a transport with `firstHold` cleared. |
 | `internal/h2gate/transport.go` | `(*call).wroteHeaders` | `tm.Stop()` | 0-1 | Race: `WroteHeaders` arriving on the write goroutine after `send` has given the token back. |
 | `internal/h2gate/transport.go` | `(*Transport).markUnsettled` | `return false` | 1 | Gap: a caller TLS dialer (`WithHTTPTransport`) that returns a non-comparable `net.Conn` value, on a replay that opens a new connection while the call holds the token; the stock connection types are pointers. |

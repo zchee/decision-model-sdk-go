@@ -102,16 +102,42 @@
 // A caller's hooks run while their request holds the header-write token:
 // every hook from GetConn to WroteHeaders (a new connection's DNS, connect
 // and TLS hooks included), and, under FirstHold, every hook until the
-// response headers. A hook that blocks
-// holds the token, so every other request on the transport waits for it in
-// send, bounded only by its own context; the FirstHold bound is armed at
-// WroteHeaders and does not reach a hook that blocks before it, and a
-// caller with no deadline (the root package's WithNoTimeout) waits without
-// a bound (risk K28d, ruling R85; verifier finding F-2). The root package's
-// WithClientTrace documents the contract, hooks must return promptly; the
-// shield above covers panics and ordering, not a hook that never returns.
-// Bounding the token wait by the hold bound, with a fall-through to the
-// stock transport, is owed to W6.1.
+// response headers. A hook that blocks holds the token, and every other
+// request on the transport waits for it in send (the FirstHold bound is
+// armed at WroteHeaders and does not reach a hook that blocks before it).
+// That wait is bounded by the hold bound, ConnectTimeout plus the TLS
+// handshake timeout (20 s by default), whatever the caller's deadline, the
+// root package's WithNoTimeout included: a request that has waited that
+// long goes out without the token, counted in Stats.TokenExpiries (risk
+// K28d, ruling R85; verifier finding F-2). What it meets next depends on
+// where the hook blocks:
+//
+//   - In GotConn or later, until the response headers: nothing; it goes out
+//     on the same connection under HTTP2Only, so the others wait at most
+//     the hold bound.
+//   - In GetConn on a cold transport: the gate, so the others wait at most
+//     the gate's wait bound (waitBound: the dial and the handshake, and the
+//     CONNECT exchange and the proxy's handshake when a proxy may apply)
+//     plus the hold bound.
+//   - In a new connection's DNS, connect or TLS hooks (DNSStart,
+//     ConnectStart, TLSHandshakeStart): that connection, the only one
+//     MaxConnsPerHost 1 allows, for which net/http's per-host wait is
+//     bounded by the request's own context alone (net/http calls
+//     TLSHandshakeStart before it arms TLSHandshakeTimeout). The others
+//     wait until the hook returns or their own deadline, without a bound
+//     under WithNoTimeout: the K28d residual.
+//
+// The bound is the longest a FirstHold keeps the token, and it fires only
+// after a stall, so the measured AC-P4 clauses do not move. A free token is
+// taken in send at once, without a timer; only a request that finds it
+// held enters waitToken, which arms the timer and counts the entry in
+// tokenWaits, a diagnostic counter of the Transport (an atomic touched on
+// that slow path only, read by the fast-path test and never by send;
+// ruling D-W6.1-minor2). Requests that
+// go out without the token may exceed a server's stream limit, and the
+// stock transport retries a stream the server refuses. Hooks must return
+// promptly: the shield above covers panics and ordering, and the bound a
+// hook that blocks once its request has a connection.
 //
 // # Logging
 //

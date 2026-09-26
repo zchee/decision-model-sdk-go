@@ -95,6 +95,9 @@ type Stats struct {
 	SettleHolds uint64
 	// HoldExpiries counts FirstHolds that the hold bound ended.
 	HoldExpiries uint64
+	// TokenExpiries counts requests that waited the hold bound for the
+	// header-write token and went out without it (R85).
+	TokenExpiries uint64
 }
 
 // settings is what a Transport needs besides the stock transport.
@@ -145,6 +148,9 @@ type Transport struct {
 
 	dials, leaders, releases, failures, handovers, coldResets atomic.Uint64
 	fallThroughs, firstHolds, holdExpiries, settleHolds       atomic.Uint64
+	tokenExpiries                                             atomic.Uint64
+
+	tokenWaits atomic.Uint64 // waitToken entries, for tests: a free token enters none
 }
 
 // maxUnsettled bounds the connections remembered as unsettled. A mark is
@@ -202,16 +208,17 @@ func (t *Transport) debugEnabled(ctx context.Context) bool {
 // Stats returns a snapshot of the counters.
 func (t *Transport) Stats() Stats {
 	return Stats{
-		Dials:        t.dials.Load(),
-		Leaders:      t.leaders.Load(),
-		Releases:     t.releases.Load(),
-		Failures:     t.failures.Load(),
-		Handovers:    t.handovers.Load(),
-		ColdResets:   t.coldResets.Load(),
-		FallThroughs: t.fallThroughs.Load(),
-		FirstHolds:   t.firstHolds.Load(),
-		SettleHolds:  t.settleHolds.Load(),
-		HoldExpiries: t.holdExpiries.Load(),
+		Dials:         t.dials.Load(),
+		Leaders:       t.leaders.Load(),
+		Releases:      t.releases.Load(),
+		Failures:      t.failures.Load(),
+		Handovers:     t.handovers.Load(),
+		ColdResets:    t.coldResets.Load(),
+		FallThroughs:  t.fallThroughs.Load(),
+		FirstHolds:    t.firstHolds.Load(),
+		SettleHolds:   t.settleHolds.Load(),
+		HoldExpiries:  t.holdExpiries.Load(),
+		TokenExpiries: t.tokenExpiries.Load(),
 	}
 }
 
@@ -415,13 +422,20 @@ func closeBody(req *http.Request) {
 // generation req leads, or nil.
 func (t *Transport) send(req *http.Request, gen *generation) (*http.Response, error) {
 	ctx := req.Context()
+	held := true
 	select {
 	case t.token <- struct{}{}:
-	case <-ctx.Done():
-		closeBody(req)
-		return nil, context.Cause(ctx)
+	default:
+		var err error
+		if held, err = t.waitToken(ctx); err != nil {
+			closeBody(req)
+			return nil, err
+		}
 	}
 	c := &call{t: t, ctx: ctx, gen: gen}
+	if !held {
+		c.given.Store(true) // out without the token: nothing to give back
+	}
 	// The token goes back on every exit, a panic unwinding through the stock
 	// RoundTrip included; the call below returns it as early as before.
 	defer c.finish()
@@ -451,6 +465,31 @@ func (t *Transport) send(req *http.Request, gen *generation) (*http.Response, er
 		return nil, fmt.Errorf("%w: the response is %s", ErrNotNegotiated, resp.Proto)
 	}
 	return resp, nil
+}
+
+// waitToken waits for the header-write token when another request holds
+// it, at most the hold bound, and reports whether the caller now holds it,
+// or the context's cause when the context ended first. A holder keeps the
+// token until its HEADERS are written, or under FirstHold until its response
+// headers or the hold bound, unless a caller's trace hook blocks before
+// either (risk K28d): so a waiter that has waited the hold bound goes out
+// without the token, counted in TokenExpiries, as a waiter at the gate falls
+// through when its bound ends (K19, ruling R85). Only a waiter pays for the
+// timer; a free token is taken in send without one.
+func (t *Transport) waitToken(ctx context.Context) (bool, error) {
+	t.tokenWaits.Add(1)
+	tm := time.NewTimer(t.holdBound)
+	defer tm.Stop()
+	select {
+	case t.token <- struct{}{}:
+		return true, nil
+	case <-ctx.Done():
+		return false, context.Cause(ctx)
+	case <-tm.C:
+		t.tokenExpiries.Add(1)
+		t.log.DebugContext(ctx, "h2: token wait expired", "bound", t.holdBound)
+		return false, nil
+	}
 }
 
 // call is one request's passage through the stock transport, as its

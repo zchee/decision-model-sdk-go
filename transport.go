@@ -196,10 +196,24 @@ func WithRoundTripper(rt http.RoundTripper) ClientOption {
 // Hooks must return promptly. The SDK's own transport (the default one and
 // [WithHTTPTransport]'s clone) lets one request at a time write its headers,
 // and a request's hooks run while it holds that turn, the first request on
-// a new connection until its response headers arrive: a hook that blocks,
-// in GotConn for example, stalls every other call on the client until each
-// call's own deadline, and without a bound under [WithNoTimeout]. The
-// shield above covers a panic, not a hook that does not return.
+// a new connection until its response headers arrive. How long a hook that
+// blocks holds every other call on the client depends on where it blocks,
+// whatever the calls' deadlines, [WithNoTimeout] included:
+//
+//   - In GotConn or a later hook, until its response headers: for up to
+//     the connect timeout plus the TLS handshake timeout (20 s by default),
+//     after which the waiting calls go out without their turn.
+//   - In GetConn, while the client has no connection yet: for up to the
+//     wait for its first connection (the same two timeouts, and a proxy's
+//     CONNECT and handshake when a proxy may apply) plus the bound above.
+//   - In the DNS, connect or TLS handshake hooks of its request's new
+//     connection: until the hook returns. The transport keeps one
+//     connection per host, so the other calls wait for that one until their
+//     own deadlines, without a bound under [WithNoTimeout]; net/http arms
+//     the TLS handshake timeout only after TLSHandshakeStart.
+//
+// The shield above covers a panic; the bound covers a hook that blocks once
+// its request has a connection, not one that blocks the dial.
 func WithClientTrace(trace *httptrace.ClientTrace) ClientOption {
 	return func(o *options) {
 		if trace == nil {
