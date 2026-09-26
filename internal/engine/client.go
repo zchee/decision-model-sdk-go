@@ -83,6 +83,11 @@ type Config[R any] struct {
 
 	// Retry is the retry policy of a call that passes none.
 	Retry R
+
+	// Random is the jitter source of the retry backoff; nil means
+	// math/rand/v2's Float64. No option sets it: tests write it, before the
+	// client's first call, to pin the jitter of a whole call.
+	Random func() float64
 }
 
 // Redactor returns the redactor of the response headers the error types
@@ -105,6 +110,11 @@ type ConfigRef[R any] struct {
 // how errors name its endpoints, and its counters. R is the root package's
 // RetryPolicy ([Config]).
 type Client[R any] struct {
+	// _ keeps the root package's Client incomparable, as it has been since
+	// its first release, now that no field of its own is a func: == on two
+	// clients does not compile, and a client cannot be a map key.
+	_ [0]func()
+
 	// cfg holds the key and the header templates, two pointers away from
 	// the Client ([ConfigRef]).
 	cfg *ConfigRef[R]
@@ -116,11 +126,6 @@ type Client[R any] struct {
 
 	closed   atomic.Bool
 	attempts atomic.Uint64
-
-	// random is the jitter source of the retry backoff; nil means
-	// math/rand/v2's Float64. Only tests set it, before the first call
-	// ([Client.SetRandom]).
-	random func() float64
 }
 
 // NewClient returns the state of a client configured by cfg, whose errors
@@ -147,15 +152,6 @@ func (c *Client[R]) Closed() *atomic.Bool { return &c.closed }
 
 // Attempts counts the attempts the client sent.
 func (c *Client[R]) Attempts() *atomic.Uint64 { return &c.attempts }
-
-// Random returns the jitter source of the retry backoff, nil for
-// math/rand/v2's Float64.
-func (c *Client[R]) Random() func() float64 { return c.random }
-
-// SetRandom sets the jitter source of the retry backoff. Only tests call it,
-// before the client's first call, as they set the root package's field of
-// the same name before W6.5.
-func (c *Client[R]) SetRandom(random func() float64) { c.random = random }
 
 // Prepared is the state behind the root package's Prepared: the bytes a
 // request sends as "questions" and the tables the decoder matches answers

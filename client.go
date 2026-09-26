@@ -307,7 +307,7 @@ func (m Models) List(ctx context.Context, opts ...CallOption) (*ModelsResponse, 
 // 9). Neither decode nor the policy, a copy on send's stack, escapes, so a
 // first attempt that succeeds allocates nothing here.
 func (c *Client) send(ctx context.Context, rq *engine.Request, policy RetryPolicy, meta *wire.ResponseMeta, decode func(headerRedactor) error) (headerRedactor, error) {
-	r := retryState{policy: &policy, start: time.Now(), random: c.eng().Random()}
+	r := retryState{policy: &policy, start: time.Now(), random: c.cfg().Random}
 	for attempt := 0; ; attempt++ {
 		var (
 			red headerRedactor
