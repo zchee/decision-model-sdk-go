@@ -154,7 +154,8 @@ jobs:
       # The list is the one place that names them (plan section 11, ruling
       # R92): the pattern is built from it and the -list guard counts the tests
       # the pattern matches against its length, so a renamed or deleted test
-      # fails the step instead of leaving it with less to run.
+      # fails the step instead of leaving it with less to run, and a test of a
+      # !race file that the list lacks fails it too.
       - name: go test without -race (root allocation budgets)
         run: |
           tests=(
@@ -169,7 +170,16 @@ jobs:
             TestAllocResponseJSON    # response payloads (W2.4)
             TestAllocTypedDecode     # AC-P3 (W4.2)
             TestAllocLoggedCall      # what logging costs a call (W3.3, ruling R102)
+            TestAllocRequestID       # a logged request id's cost (R103 revert)
           )
+          # Every test of a //go:build !race file must be listed, or no step
+          # runs it: the -race step leaves the file out.
+          budgets="$(grep -l '^//go:build !race' -- *_test.go | xargs grep -ho '^func Test[A-Za-z0-9_]*' | sed 's/^func //' | tr -d '\r' | sort)"
+          missing="$(comm -23 <(printf '%s\n' "$budgets") <(printf '%s\n' "${tests[@]}" | sort))"
+          if [ -n "$missing" ]; then
+            echo "::error::tests built only without -race and missing from the list: $(echo $missing)"
+            exit 1
+          fi
           pattern="^($(IFS='|'; echo "${tests[*]}"))\$"
           listed="$(go test -list "$pattern" . | grep -c '^Test')" || true
           if [ "$listed" != "${#tests[@]}" ]; then
