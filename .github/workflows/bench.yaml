@@ -44,11 +44,11 @@ jobs:
         env:
           CODSPEED_PERF_UNWINDING_MODE: fp
           # K35: CodSpeed's `testing` overlay keeps one sample per b.Loop
-          # iteration, and the go runner parses a package's raw result files
-          # only after the whole `go test ./...` ends, so they pile up in the
-          # profile folder under $TMPDIR: 5.9 GiB at 125 rows and the default
-          # 3 s. On /tmp the runner user's tmpfs quota cut the writes after
-          # 5.1 GiB and lost 11 rows; the job's temp directory is on the disk.
+          # iteration, and the go runner reads the raw result files only after
+          # the whole `go test ./...` ends, so they pile up in the profile
+          # folder under $TMPDIR: 5.9 GiB at 125 rows and the default 3 s. On
+          # ubuntu-26.04, /tmp is a tmpfs whose usrquota caps the runner user
+          # at 80 % (6.24 GiB), which lost 11 rows; runner.temp is on the disk.
           TMPDIR: ${{ runner.temp }}
         with:
           mode: walltime

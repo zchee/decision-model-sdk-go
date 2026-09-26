@@ -142,6 +142,26 @@ GOEXPERIMENT=nosimd,noruntimesecret codspeed run --skip-upload -m walltime -- go
 Without `-m walltime` the runner takes the mode from the shell session
 (`codspeed use <mode>`); walltime is CodSpeed's only instrument for Go.
 
+CodSpeed's `testing` overlay stores one sample per `b.Loop` iteration: a
+result's `rounds` equals the row's iteration count. The go runner writes each
+benchmark's samples as indented JSON into its profile folder under `$TMPDIR`
+and reads the files only after the whole `go test ./...` ends. At about 16
+bytes per iteration and the default 3 s, the 125 rows leave 5.9 GiB there;
+`EncodeState/ascii/1KiB/check` alone leaves 631 MiB. On `ubuntu-26.04`, `/tmp`
+is a tmpfs of half the RAM (7.8 GiB) mounted with `usrquota`, and the runner
+user may fill 80 % of it: 6.24 GiB, of which the job's build files take
+0.6 GiB. From W5.1's landing (ca226bb) the go runner printed `failed to write
+raw results: … disk quota exceeded` for the 11 `EncodeState` rows after
+`ascii/1KiB/encode`, and the job still passed with 114 rows (risk K35).
+`bench.yaml` now points the CodSpeed step's `TMPDIR` at the job's temp
+directory on the runner's disk (91 GiB free), so no benchmark and no
+`-benchtime` changes. A guard step fails the job when the log holds a `failed
+to … raw results` line, or when the rows in the uploaded results differ from
+those of a `-benchtime=1x -cpu=1` run of every benchmark `go test -list`
+finds, and prints the difference. A new fast benchmark adds hundreds of MiB to
+the folder, and the guard names any row that does not arrive. Ledger rows
+W5.1-22 to W5.1-26 hold the evidence and the runs.
+
 CodSpeed results are report-only until 20 runs on `main` show a spread
 below 5 % for `BenchmarkCall/sdk` (K7). B6 runs in CodSpeed with the rest,
 report-only, and is never a gate (ruling R101): its rows are wall clock over
