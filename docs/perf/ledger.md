@@ -2773,3 +2773,117 @@ and `BASE=e8bddc3`.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | W2.5-01 | 2026-09-26 06:01:38 JST | W2.5 AC-P6 whole call and AC-P5 memstats | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.88 → 6.41 | `BASE=e8bddc3 GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock alloc-M -count=1 -run '^(TestAllocWholeCall\|TestMemStatsCap)$' -v .` | q3: floor 8/640, call 22/2648, SDK-own 14/2008; AC-P5 (i) 38 allocs / 263952 B, (ii) 1288 B, (iii) 33559816 B, (iv) 33302408 B, (v) 33560456 B, (vi) 2312 B, (vii) 6024 B | mallocs/bytes, collector off, `GOMAXPROCS(1)`, 3 of 5 runs agree; `results/alloc-M.txt` |
 | W2.5-02 | 2026-09-25 21:01:55 UTC | W2.5 AC-P6 whole call and AC-P5 memstats | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.00 → 0.00 | `BASE=e8bddc3 sh $R '(L)' $O /tmp/ts-spike/bench.lock alloc-L -count=1 -run '^(TestAllocWholeCall\|TestMemStatsCap)$' -v .` | identical to W2.5-01 in every count | `results/alloc-L.txt` |
+| W2.5-03 | 2026-09-25 23:47:39 UTC | K32 before the fix: `TestMemStatsCap` at b5b1a2b, 20 invocations without load, then 20 next to 44 loops | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.81 → 0.82; 0.82 → 4.36 (44 loops) | `flock /tmp/ts-spike/bench.lock taskset -c 0,1 ./root.test -test.count=20 -test.cpu 2 -test.run '^TestMemStatsCap$' -test.v` (`go test -c .` of b5b1a2b; the loops `nice -n 19 yes`, unpinned) | PASS 20/20 each, the three-of-five rule holding; case (i)'s first run 42/264240 in all 40 invocations; a later run above 38/263952 in 3 of the 20 without load (39/264000, 40/264048, 39/264016) and in 1 of the 20 with loops (39/264000); CI 36201375147 had two such runs in one invocation (42 39 38 38 39) and failed | `results/l-k32-memcap-before-unloaded.txt`, `results/l-k32-memcap-before-contended.txt` |
+| W2.5-04 | 2026-09-25 23:48:14 UTC | K32: case (i) under a heap profile, 10 × 40 runs, each run's stacks diffed against a run at the minimum | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 2.95 → 2.95 | `K32_RUNS=40 K32_SKIP0=1 flock /tmp/ts-spike/bench.lock taskset -c 0,1 ./root.test -test.count=10 -test.cpu 2 -test.memprofilerate=1 -test.run '^TestK32Probe$' -test.v` (`k32-probe.go.txt` as `zz_k32_probe_test.go` at b5b1a2b) | 386 of the 390 runs after the first at 38/263952; each of the other 4 has one allocation more, made by the runtime: `runtime.buildTypeAssertCache` under `errors.As` in `attemptError` (client.go:455), +48 B; `buildTypeAssertCache` and `runtime.buildInterfaceSwitchCache` under `errors.Is` in `readBody` (client.go:523), +48 B and +64 B; `buildTypeAssertCache` under `io.Copy` in the Recorder (recorder.go:121), +48 B | `results/l-k32-probe.txt` |
+| W2.5-05 | 2026-09-25 23:50:00 UTC | K32: the same with `runtime.LockOSThread` over the series (GOMAXPROCS is 1 already) | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.51 → 0.51 | the W2.5-04 command with `K32_LOCK=1` | 386 of 390 at 38/263952; 4 above by one allocation of 48, 48, 80 and 112 B, from the same two builders under `io.Copy`, under `fmt.(*pp).handleMethods` printing the cause, and under `errors.Is`: pinning the thread leaves them | `results/l-k32-probe-lockosthread.txt` |
+| W2.5-06 | 2026-09-26 08:45:28 JST (file mtime) | K32: case (i)'s first run, and every stack of a run at the minimum | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | not taken (allocation counts, R17) | `GOEXPERIMENT=nosimd,noruntimesecret K32_RUNS=12 go test -count=1 -run '^TestK32Probe$' -memprofilerate=1 -v .` at b5b1a2b; then `K32_RUNS=6 K32_SKIP0=1 K32_DUMP_REF=1`, the same (09:14:23 JST, file mtime) | first run 42/264240, the others 38/263952; the first run's four more are fmt's printer, allocated by the pool's `New` (176 B), and three growths of its buffer (16, 32 and 64 B): the collections of the cases before it emptied the pool and the success call that re-warms does not print; a run at the minimum allocates fmt's per-P pool array again (`sync.(*Pool).pinSlow`, 128 B, dropped by each collection) and takes the printer back from the victim cache | `results/m-k32-probe.txt`, `results/m-k32-probe-refstacks.txt` |
+| W2.5-07 | 2026-09-26 09:10:25 JST | K32 after the fix (deb3e43): `TestMemStatsCap` ×20 without load | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 2.52 → 2.43 | `TREE=3d1205c GOEXPERIMENT=nosimd,noruntimesecret FLOCK=$FL sh $C '(M)' $O $SP/bench.lock m-k32-memcap-unloaded 0 -count=20 -cpu 2 -run '^TestMemStatsCap$' -v .` (`proof.sh`) | PASS 20/20, every run of every case within its bound; (i) `call=38/263952 max=42/264240 spread=+4/+288` in all 20; one later run 39/264032 | `results/m-k32-memcap-unloaded.txt` |
+| W2.5-08 | 2026-09-26 09:10:33 JST | K32 after the fix, next to 16 loops | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 2.43 → 5.88 (noisy by design) | the W2.5-07 command with `m-k32-memcap-contended 16` | PASS 20/20; (i) as in W2.5-07; later runs 39/264016 twice, in two invocations | `results/m-k32-memcap-contended.txt` |
+| W2.5-09 | 2026-09-26 00:10:21 UTC | K32 after the fix, without load | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.05 → 0.12 | `TREE=3d1205c sh $C '(L)' $O /tmp/ts-spike/bench.lock l-k32-memcap-unloaded 0 -exec 'taskset -c 0,1' -count=20 -cpu 2 -run '^TestMemStatsCap$' -v .` (`proof.sh`) | PASS 20/20; (i) min 38/263952, max 42/264240; later runs 39/264000 and 39/264016 once each | `results/l-k32-memcap-unloaded.txt` |
+| W2.5-10 | 2026-09-26 00:10:33 UTC | K32 after the fix, next to 44 loops | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.12 → 10.00 (noisy by design) | the W2.5-09 command with `l-k32-memcap-contended 44` | PASS 20/20; (i) 42 then 38 ×4 in all 20 | `results/l-k32-memcap-contended.txt` |
+| W2.5-11 | 2026-09-26 09:11:53 JST | K32 mutant: case (i)'s bound lowered to 263 999 B | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 3.52 → 3.48 | the W2.5-07 command in a detached worktree with the mutant, `m-k32-mutant 0 -count=1` | FAIL, as it must: `run 1: TotalAlloc delta 264240 B exceeds the frozen bound 263999 B (AC-P5)` | `results/m-k32-mutant.txt` |
+| W2.5-12 | 2026-09-26 00:10:46 UTC | K33 after the fix (3d1205c): the clean-close and GOAWAY rows, `-race`, 1, 2 and 4 Ps, 44 loops | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 10.00 → 15.30 (noisy by design) | `TREE=3d1205c sh $C '(L)' $O /tmp/ts-spike/bench.lock l-k33-race-contended 44 -exec 'taskset -c 0,1' -timeout 60m -race -count=50 -cpu 1,2,4 -run "$K33" -v .` (`proof.sh`) | PASS 300/300; close records in order in all 300; frames the server drained after its close began: SETTINGS (the client's acknowledgement) in 216 runs, SETTINGS then RST_STREAM in 2, RST_STREAM in 1, none in 81 | `results/l-k33-race-contended.txt` |
+| W2.5-13 | 2026-09-26 09:10:43 JST | K33 after the fix, the same rows, 16 loops | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 5.88 → 6.89 (noisy by design) | the W2.5-07 command with `m-k33-race-contended 16 -timeout 60m -race -count=50 -cpu 1,2,4 -run "$K33" -v .` | PASS 300/300; drained SETTINGS in 187 runs, none in 113 | `results/m-k33-race-contended.txt` |
+| W2.5-14 | 2026-09-26 09:11:59 JST | K33 mutant: `CloseConns` closes an HTTP/2 connection at once, as before the fix | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 3.48 → 3.16 | the W2.5-07 command in a detached worktree with the mutant, `m-k33-mutant 0 -count=5 -run '^(TestLoopbackCloseConnsDrains\|TestTransportErrorsBecomeConnectionOrTimeout)$' -v . ./internal/testsupport/` | FAIL, as it must: the close records fail in 10 of 10 runs of the two root rows and 10 of 10 of `TestLoopbackCloseConnsDrains` (no CloseWriteSeq, no PeerClosedSeq, nothing drained), while every client-side assertion passes: macOS, like Linux, lets the client read close_notify before the reset | `results/m-k33-mutant.txt` |
+| W2.5-15 | 2026-09-26 09:10:55 JST | gates at 3d1205c: `-race ./...`, then ci.yaml's root allocation step with its `-list` guard | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.89 → 5.65 | `proof.sh`'s last two runs (`m-race-all 0 -timeout 60m -race -count=1 ./...`; the step's two lines as ci.yaml has them) | ok in all five packages; guard 7 names; the step ok | `results/m-race-all.txt`, `results/m-root-alloc-step.txt` |
+| W2.5-16 | 2026-09-26 00:10:57 UTC | the same gates | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 15.30 → 11.23 (W2.5-12's loops decaying) | as W2.5-15 | ok in all five packages; guard 7 names; the step ok | `results/l-race-all.txt`, `results/l-root-alloc-step.txt` |
+
+### W2.5 K32 and K33: the CI failures on b5b1a2b
+
+CI 36201375147 on b5b1a2b failed in two root tests (rulings K32, K33).
+Lane `p2-cifix-2` fixed both in tests and `internal/testsupport`; no
+production file changed.
+
+**K32: `TestMemStatsCap` case (i).** The alloc helper's three-of-five rule
+failed on ubuntu-26.04 (42 39 38 38 39 allocations), with every run inside
+the frozen 327 680 B. A heap profile of each run (W2.5-04 to -06) names
+every allocation above the minimum. On the first run it is fmt's printer
+and its buffer (+4, 288 B): the collections of the cases before (i)
+emptied fmt's pool, and the success call that re-warms the pools does not
+print. On any later run it is one allocation of 48 to 112 B made by the
+Go runtime, `runtime.buildTypeAssertCache` or
+`runtime.buildInterfaceSwitchCache`, under `errors.Is` and `errors.As` on
+the error chain, fmt printing the cause, or `io.Copy` in the Recorder. On
+a lookup that misses such a cache, `runtime.typeAssert` and
+`runtime.interfaceSwitch` build a larger one with probability 1/1024,
+then 1/(size of the cache) (`runtime/iface.go`: "Only bother updating
+the cache ~1 in 1000 times"). The draw is random, so identical calls can
+differ, and W2.5's scrub added lookups to (i)'s error path, which raised
+the odds from no observed case before W2.5 to about one run in a
+hundred (4 in 390 on (L), W2.5-04). The needle build is not involved: `requestCredentials`
+sorts its needles. The only effect of map order is which of two
+`jsonForm` calls opens a tiny-allocator block, with equal counts. The
+collector is off and GOMAXPROCS is 1 already (`QuietRuntime`), and
+`LockOSThread` leaves the rate unchanged (W2.5-05). So the source is
+outside the SDK (the charter's cause 1), and the fix is in the test
+(deb3e43): AC-P5 is a set of bounds (R26), so `TestMemStatsCap` checks
+each case's bound on every run and logs the minimum, the maximum and the
+spread (`testsupport.Spread`). The exact pins of AC-P1, AC-P2 and AC-P6
+keep `StableMin`'s agreement rule, whose odds of failing from this source
+are negligible when no run is lost to a pool (three of five runs would
+have to draw). (i)'s spread before and after the fix is the same, and its
+value is unchanged: 38 / 263 952 B, maximum 42 / 264 240 B (the first
+run), with a later run 1 or 2 allocations (48 to 112 B) above the minimum
+now and then. For precision on W2.5 finding 2: the minimum's allocation
+for fmt is the pool's per-P array (`sync.(*Pool).pinSlow`, 128 B), which
+every collection drops; the printer itself comes back from the pool's
+victim cache (W2.5-06).
+
+**K33: the clean-close and GOAWAY rows of
+`TestTransportErrorsBecomeConnectionOrTimeout`.** On windows-2025 under
+`-race`, their calls ended in `wsarecv: An established connection was
+aborted by the software in your host machine.` (WSAECONNABORTED) instead
+of `io.ErrUnexpectedEOF` and the GOAWAY. `CloseConns` closed the socket
+right after the handler's last frame, and a fresh client connection
+still writes then: the client acknowledges the server's SETTINGS after
+it sends its request, so the acknowledgement was still unread in the
+server's buffer, or arrived after the close. W2.5-12 and -13 count it
+among the frames the server drained after its close began: in 216 and
+187 of 300 runs. A socket closed with unread data, or one that data
+reaches after its close, is ended with a TCP reset (RFC 1122 section
+4.2.2.13). Linux and macOS let the client read the in-band close_notify
+before the reset, which is why only Windows failed (W2.5-14 shows the
+client-side assertions passing on macOS with the old close). On Windows
+the reset destroys what the client has not read yet. `CloseConns` now
+ends an HTTP/2 connection as a server that is done with it (3d1205c): it
+drops the streams, sends close_notify and a TCP FIN after the frames
+already written (under the write lock, so a GOAWAY in flight leaves
+first), and its reader keeps reading and discarding until the client
+closes its side or 5 s pass; only then is the socket closed. Other
+connections and `LoopbackServer.Close` keep the immediate close.
+`ConnInfo` records the order by sequence number (K29): `GoAwaySeq`,
+`CloseWriteSeq` (taken before close_notify leaves), `PeerClosedSeq`,
+`ClosedSeq`, and `Drained`, the frames drained. The two rows check
+GOAWAY < close_notify and FIN < the client's close < the socket's close.
+The client closes only after it read everything before close_notify, so
+it read the GOAWAY before the server closed. The client-side assertions
+are unchanged, and no Windows alternative cause was added. The first
+contended run on (L), with `CloseWriteSeq` taken after the writes, failed
+16 of 300 on the record's order alone: the client had reacted to
+close_notify before the closing goroutine took its number. The record
+was moved before the writes; no row cites that run.
+
+Audit of the other rows that close a loopback connection mid-stream: the
+connection-reset row (`H2Conn.Reset`, a reset by design) accepts any
+non-dial `*ConnectionError`, which a reset on either side of the response
+headers gives. The proxy's 502 has read the whole CONNECT request before
+it closes. The two rows that hold a stream end by the client's reset, not
+a server close. In `internal/h2gate`, `TestConnClose`'s clean close and
+`TestReplay`'s tcp-close warm the connection first, and now take the same
+`CloseConns` path; its reset rows are resets by design.
+`TestLoopbackConnEnd` acknowledges SETTINGS before its request.
+
+Row variables: `C=_spikes/w2.2/contend.sh`, `O=_spikes/w2.5/results`,
+`K33='^TestTransportErrorsBecomeConnectionOrTimeout$/(clean_close_mid-body|GOAWAY_after_the_request)'`,
+`SP=/private/tmp/claude-501/-Users-zchee-go-src-github-com-zchee-typesafe-sdk-go/40cb0f1f-c8a9-422c-a3e8-b3afc329b5cb/scratchpad`
+(the (M) lock), `FL=/opt/homebrew/opt/util-linux/bin/flock`; (L) ran
+the section 11 tar pipe of 3d1205c in `/tmp/ts-spike/src-p2-cifix-2` with
+the section 11 environment and no `GOEXPERIMENT`. `_spikes/w2.5/proof.sh`
+runs W2.5-07 to -10, -12, -13, -15 and -16 in that order on one host.
+W2.5-03 to -05 ran a pinned binary under the (L) lock with a small wrapper
+that wrote the header lines of their files (host, go version, loops,
+start and end with load). `_spikes/w2.5/k32-probe.go.txt` is the probe of
+W2.5-04 to -06, never committed as Go. The section 11 lint chain passed
+at 3d1205c (`results/m-lint.txt`), with govulncheck run through
+`go run golang.org/x/vuln/cmd/govulncheck@latest`: the installed binary
+is built with go1.26 and cannot load Go 1.27 sources.
