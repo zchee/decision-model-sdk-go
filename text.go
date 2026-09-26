@@ -352,7 +352,9 @@ const maxChainErrors = 64
 // chain wraps (errors.Unwrap, both forms) holds a credential
 // ([credentials.printed]), in which case it returns a [scrubbedError]
 // standing in for err, so that no printed form of the SDK error or of
-// anything it unwraps to shows the credential.
+// anything it unwraps to shows the credential. The stand-in keeps err's
+// text and the rendering of its chain ([credentials.detail]), each with its
+// credentials replaced.
 //
 // An error whose fields point to the request, such as a caller's error type
 // that keeps the *http.Request, is kept: fmt prints a pointer inside a value
@@ -364,7 +366,7 @@ func (c credentials) cause(err error) error {
 		return err
 	}
 	msg, _ := c.redact(err.Error())
-	s := &scrubbedError{msg: msg}
+	s := &scrubbedError{msg: msg, detail: c.detail(err)}
 	for _, sentinel := range causeSentinels {
 		if errors.Is(err, sentinel) {
 			s.sentinels = append(s.sentinels, sentinel)
@@ -374,6 +376,50 @@ func (c credentials) cause(err error) error {
 		s.sentinels = append(s.sentinels, errno)
 	}
 	return s
+}
+
+// maxDetailChars caps a [scrubbedError]'s rendering of the chain it stands
+// in for, in characters counted after escaping: one line holding the
+// transport error's text and the text of each cause it wraps, which a
+// sentence's 200 characters would cut before the first cause.
+const maxDetailChars = 1024
+
+// detail returns the rendering of err's chain that a [scrubbedError] prints
+// for %+v and %#v (ruling R95): the %+v form of err, then that of each error
+// its chain wraps (errors.Unwrap, both forms, depth first, at most
+// [maxChainErrors]) whose text the rendering does not already hold, joined
+// by ": ", with every credential replaced by "***" ([credentials.redact]),
+// then escaped, a line break as \n, and cut at [maxDetailChars]; the
+// credentials are replaced before the cut. So a cause the transport's text
+// does not print, such as one only errors.Unwrap reaches, still shows, as
+// the Python SDK's rebuilt chain does, but as text. It runs on the error
+// path only.
+func (c credentials) detail(err error) string {
+	var b strings.Builder
+	stack := []error{err}
+	for n := 0; len(stack) > 0 && n < maxChainErrors; n++ {
+		e := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if e == nil {
+			continue
+		}
+		if text := fmt.Sprintf("%+v", e); !strings.Contains(b.String(), text) {
+			if b.Len() > 0 {
+				b.WriteString(": ")
+			}
+			b.WriteString(text)
+		}
+		switch u := e.(type) { //nolint:errorlint // visits each link of the chain as it is; errors.As would skip links.
+		case interface{ Unwrap() error }:
+			stack = append(stack, u.Unwrap())
+		case interface{ Unwrap() []error }:
+			for _, w := range slices.Backward(u.Unwrap()) {
+				stack = append(stack, w)
+			}
+		}
+	}
+	text, _ := c.redact(b.String())
+	return string(appendSafeText(make([]byte, 0, min(len(text), maxDetailChars)+4), text, maxDetailChars, false))
 }
 
 // inChain reports whether a printed form of err, or of an error its chain
@@ -425,14 +471,28 @@ var causeSentinels = [...]error{context.DeadlineExceeded, context.Canceled, os.E
 // [syscall.Errno] the transport error matched, so errors.Is(err,
 // context.DeadlineExceeded) or errors.Is(err, syscall.ECONNRESET) still
 // answers as it would have, and to nothing else: errors.As cannot reach the
-// transport's error or any value inside it.
+// transport's error or any value inside it. %+v and %#v print the
+// rendering of the transport error's chain with its credentials replaced
+// ([credentials.detail]), so a cause's diagnostic survives as text; every
+// other verb prints the text, as for any error.
 type scrubbedError struct {
 	msg       string
+	detail    string
 	sentinels []error
 }
 
 // Error returns the transport error's text with its credentials replaced.
 func (e *scrubbedError) Error() string { return e.msg }
+
+// Format writes the rendering of the transport error's chain for %+v and
+// %#v, and the text, under the verb and its flags, for every other verb.
+func (e *scrubbedError) Format(f fmt.State, verb rune) {
+	if verb == 'v' && (f.Flag('+') || f.Flag('#')) {
+		_, _ = io.WriteString(f, e.detail)
+		return
+	}
+	_, _ = fmt.Fprintf(f, fmt.FormatString(f, verb), e.msg)
+}
 
 // Unwrap returns the sentinels the transport's error matched.
 func (e *scrubbedError) Unwrap() []error { return e.sentinels }

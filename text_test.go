@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -493,6 +494,103 @@ func TestCredentialsCause(t *testing.T) {
 	if got := creds.cause(nil); got != nil {
 		t.Errorf("cause(nil) = %v, want nil", got)
 	}
+}
+
+// unwrapOnly is an error whose text leaves out the cause it wraps, as a
+// Python exception's str() leaves out its __cause__ and __context__.
+type unwrapOnly struct {
+	msg   string
+	cause error
+}
+
+func (e unwrapOnly) Error() string { return e.msg }
+func (e unwrapOnly) Unwrap() error { return e.cause }
+
+// plusOnly is an error that prints the cause it holds only under %+v and
+// does not unwrap to it, as a formatter that shows a stack or a cause does.
+type plusOnly struct {
+	msg   string
+	cause error
+}
+
+func (e plusOnly) Error() string { return e.msg }
+
+func (e plusOnly) Format(f fmt.State, verb rune) {
+	if verb == 'v' && f.Flag('+') {
+		_, _ = fmt.Fprintf(f, "%s: %s", e.msg, e.cause)
+		return
+	}
+	_, _ = io.WriteString(f, e.msg)
+}
+
+// TestScrubbedErrorFormat pins ruling R95: a stand-in for a transport error
+// whose chain printed a credential keeps, as text, the rendering of that
+// chain with the credentials replaced, and prints it for %+v and %#v, so a
+// cause's diagnostic ("Rejected authorization: ***; provider: ***", as
+// test_transport_errors_do_not_expose_credentials asserts of the rebuilt
+// cause) survives whether the transport's text prints the cause (%w), only
+// errors.Unwrap reaches it, or only its %+v prints it; every other verb
+// prints the stand-in's text, with its flags. No verb shows a form of a
+// credential. The rendering is one line, escaped, cut at 1024 characters
+// after the credentials are replaced.
+func TestScrubbedErrorFormat(t *testing.T) {
+	creds := requestCredentials(http.Header{"Authorization": {"Bearer " + quirkyKey}, "X-Client-Secret": {"provider-credential"}})
+	top := fmt.Sprintf("Illegal header value %q", "Bearer "+quirkyKey)
+	cause := func() error {
+		return errors.New("Rejected authorization: " + quirkyKey + "; provider: provider-credential")
+	}
+	const detail = `Illegal header value "***": Rejected authorization: ***; provider: ***`
+	secrets := []string{quirkyKey, quotedForm(strconv.Quote(quirkyKey)), jsonForm(quirkyKey), "provider-credential"}
+	tests := map[string]struct {
+		err  error
+		text string // the stand-in's Error()
+	}{
+		"success: the text prints the cause (%w)": {
+			err: fmt.Errorf("%s: %w", top, cause()), text: detail,
+		},
+		"success: only errors.Unwrap reaches the cause": {
+			err: unwrapOnly{msg: top, cause: cause()}, text: `Illegal header value "***"`,
+		},
+		"success: only %+v prints the cause": {
+			err: plusOnly{msg: top, cause: cause()}, text: `Illegal header value "***"`,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := creds.cause(tt.err)
+			if _, ok := got.(*scrubbedError); !ok { //nolint:errorlint // the stand-in itself, not a link of its chain
+				t.Fatalf("cause = %T %v, want a *scrubbedError", got, got)
+			}
+			want := map[string]string{
+				"%v": tt.text, "%s": tt.text, "%q": strconv.Quote(tt.text), "%x": fmt.Sprintf("%x", tt.text),
+				"%-80v": fmt.Sprintf("%-80s", tt.text), "%+v": detail, "%#v": detail,
+			}
+			for verb, w := range want {
+				if out := fmt.Sprintf(verb, got); out != w {
+					t.Errorf("%s = %q, want %q", verb, out, w)
+				}
+			}
+			for _, verb := range []string{"%v", "%+v", "%#v", "%s", "%q", "%x", "%d", "%T"} {
+				out := fmt.Sprintf(verb, got)
+				for _, secret := range secrets {
+					if strings.Contains(out, secret) {
+						t.Errorf("%s of the stand-in holds %q: %s", verb, secret, out)
+					}
+				}
+			}
+		})
+	}
+	t.Run("success: a rendering of many lines is escaped and cut after the scrub", func(t *testing.T) {
+		frames := strings.Repeat("frame\n", 300)
+		got := creds.cause(plusOnly{msg: "boom", cause: errors.New("Bearer " + quirkyKey + "\n" + frames)})
+		out := fmt.Sprintf("%+v", got)
+		if !strings.HasPrefix(out, `boom: ***\nframe\nframe`) || !strings.HasSuffix(out, "…") || strings.Contains(out, "\n") {
+			t.Errorf("%%+v = %.80q…, want one escaped line starting with the scrubbed text and cut", out)
+		}
+		if n := utf8.RuneCountInString(out); n > maxDetailChars+1 {
+			t.Errorf("%%+v is %d characters, want at most %d and the ellipsis", n, maxDetailChars)
+		}
+	})
 }
 
 // TestJSONFormMatchesEncodingJSON checks jsonForm against the encoder a
