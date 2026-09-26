@@ -144,23 +144,37 @@ jobs:
 
       # Allocation counts need a normal build: under -race sync.Pool.Put drops
       # one value in four, so the codec allocation tests skip themselves there
-      # (ruling R18). W5.2 replaces or extends this step with the root
-      # package's allocation budgets, preceded by the section 11 -list count
-      # guards (6 + 1):
-      # go test -count=1 -run '^(TestAllocEncode|TestAllocDecodeFixtures|TestAllocTypedDecode|TestAllocWholeCall|TestMemStatsCap|TestLinearityFlood|TestAllocScratchSequence)$' .
+      # (ruling R18).
       - name: go test without -race (allocation tests)
         run: go test -count=1 ./internal/codec/ ./internal/wire/ ./internal/testsupport/
 
-      # The root package's pinned Prepare counts (ruling R50), the request
-      # body's NF1 counts (W1.2), the decode budgets of AC-P2 and AC-P8
-      # (W2.0), the whole call's AC-P6 and AC-P5 budgets (W2.3), the
-      # response payloads' counts (W2.4), and the typed decode's AC-P3
-      # count (W4.2); W5.2 folds the names into the ALLOC list above and
-      # this step into its own.
-      - name: go test without -race (root allocation tests)
+      # The root package's allocation budgets, each built with //go:build !race
+      # (GOROOT/src/sync/pool.go:104-107: under -race Put drops one value in
+      # four), and the AC-P8 time ratio, which also runs in the -race step.
+      # The list is the one place that names them (plan section 11, ruling
+      # R92): the pattern is built from it and the -list guard counts the tests
+      # the pattern matches against its length, so a renamed or deleted test
+      # fails the step instead of leaving it with less to run.
+      - name: go test without -race (root allocation budgets)
         run: |
-          test "$(go test -list '^(TestAllocPrepare|TestAllocBodyKinds|TestAllocDecodeFixtures|TestLinearityFlood|TestAllocWholeCall|TestMemStatsCap|TestAllocResponseJSON|TestAllocTypedDecode)$' . | grep -c '^Test')" -eq 8
-          go test -count=1 -run '^(TestAllocPrepare|TestAllocBodyKinds|TestAllocDecodeFixtures|TestLinearityFlood|TestAllocWholeCall|TestMemStatsCap|TestAllocResponseJSON|TestAllocTypedDecode)$' -v .
+          tests=(
+            TestAllocPrepare        # Prepare's pinned counts (ruling R50)
+            TestAllocBodyKinds      # AC-P1 at 1 KiB, the request body (W1.2)
+            TestAllocDecodeFixtures # AC-P2 (W2.0)
+            TestLinearityFlood      # AC-P8 (W2.0)
+            TestAllocWholeCall      # AC-P6, N = 14 (W3.4)
+            TestMemStatsCap         # AC-P5 (W2.3)
+            TestAllocResponseJSON   # response payloads (W2.4)
+            TestAllocTypedDecode    # AC-P3 (W4.2)
+            TestAllocLoggedCall     # what logging costs a call (W3.3, ruling R102)
+          )
+          pattern="^($(IFS='|'; echo "${tests[*]}"))\$"
+          listed="$(go test -list "$pattern" . | grep -c '^Test')" || true
+          if [ "$listed" != "${#tests[@]}" ]; then
+            echo "::error::go test -list matched ${listed:-no} tests of the ${#tests[@]} listed: $pattern"
+            exit 1
+          fi
+          go test -count=1 -run "$pattern" -v .
 
       # OIDC authentication: the action exchanges the job's id-token (hence
       # `id-token: write` above) and ignores any token input. It needs the Codecov
