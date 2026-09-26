@@ -157,3 +157,37 @@ func TestAllocRequestID(t *testing.T) {
 		})
 	}
 }
+
+// TestAllocSecretHeaderName pins the by-name credential test at no
+// allocation (W5.3, from D-r103revert-rereview): isSecretHeader folds an
+// ASCII name's letters in place where strings.ToLower copied every
+// mixed-case name, which cost the redacted header copy of each error one
+// allocation per header and a transport error's credential scan one per
+// request header. The redacted copy of a four-header response is its map
+// and the replaced value alone, and a request header with no credential
+// costs its scan nothing.
+func TestAllocSecretHeaderName(t *testing.T) {
+	for _, name := range []string{"Content-Type", "X-Typesafe-Request-Id", "Authorization", "X-Access-Token", "Date", "set-cookie"} {
+		if n := testing.AllocsPerRun(100, func() { sinkBool = isSecretHeader(name) }); n != 0 {
+			t.Errorf("isSecretHeader(%q) allocates %v times, want 0", name, n)
+		}
+	}
+	h := http.Header{"Content-Type": {"application/json"}, "Date": {"Sat, 26 Sep 2026 11:00:00 GMT"}, "X-Typesafe-Request-Id": {"req_7f3c9a2e5b1d"}, "Set-Cookie": {"session=opaque"}}
+	redacted := testing.AllocsPerRun(100, func() { sinkHeader = headerRedactor{}.header(h) })
+	req := http.Header{"Content-Type": {"application/json"}, "Accept": {"application/json"}, "User-Agent": {"typesafe-sdk-go"}, "X-Typesafe-Sdk": {"go"}}
+	creds := testing.AllocsPerRun(100, func() { sinkCreds = requestCredentials(req) })
+	t.Logf("SECRET header copy of 4 headers %v allocations, credential scan %v", redacted, creds)
+	if redacted != 3 {
+		t.Errorf("the redacted copy of a 4-header response allocates %v times, want 3 (the map and the one replaced value)", redacted)
+	}
+	if creds != 0 {
+		t.Errorf("the credential scan of a request header without a credential allocates %v times, want 0", creds)
+	}
+}
+
+// Sinks keep TestAllocSecretHeaderName's results alive.
+var (
+	sinkBool   bool
+	sinkHeader http.Header
+	sinkCreds  credentials
+)

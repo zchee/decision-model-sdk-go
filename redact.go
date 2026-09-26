@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
@@ -35,10 +36,48 @@ var secretHeaderNames = []string{"authorization", "proxy-authorization", "x-api-
 // isSecretHeader reports whether the value of the header name is a
 // credential by its name, compared without regard to case: one of
 // secretHeaderNames, or a name that contains "token" or "secret"
-// (py:_core/logging.py:32-34).
+// (py:_core/logging.py:32-34). The rule is strings.ToLower's: an ASCII
+// name, as every name on the wire is (net/http refuses others), is
+// compared with its letters folded in place, which allocates nothing,
+// where lower-casing a mixed-case name such as "Content-Type" copies it
+// (W5.3, from D-r103revert-rereview); a name with any other byte is
+// lower-cased as before.
 func isSecretHeader(name string) bool {
-	lower := strings.ToLower(name)
-	return slices.Contains(secretHeaderNames, lower) || strings.Contains(lower, "token") || strings.Contains(lower, "secret")
+	for i := range len(name) {
+		if name[i] >= utf8.RuneSelf {
+			lower := strings.ToLower(name)
+			return slices.Contains(secretHeaderNames, lower) || strings.Contains(lower, "token") || strings.Contains(lower, "secret")
+		}
+	}
+	for _, secret := range secretHeaderNames {
+		if strings.EqualFold(name, secret) {
+			return true
+		}
+	}
+	return containsFoldASCII(name, "token") || containsFoldASCII(name, "secret")
+}
+
+// containsFoldASCII reports whether the ASCII string s contains sub, which is
+// lower case, with the letters of s compared in lower case.
+func containsFoldASCII(s, sub string) bool {
+	for i := range len(s) - len(sub) + 1 {
+		j := 0
+		for j < len(sub) && lowerASCII(s[i+j]) == sub[j] {
+			j++
+		}
+		if j == len(sub) {
+			return true
+		}
+	}
+	return false
+}
+
+// lowerASCII returns c in lower case when it is an ASCII capital letter.
+func lowerASCII(c byte) byte {
+	if 'A' <= c && c <= 'Z' {
+		return c + 'a' - 'A'
+	}
+	return c
 }
 
 // minKeyNeedleBytes is the shortest API key the SDK looks for inside other

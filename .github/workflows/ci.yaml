@@ -175,6 +175,7 @@ jobs:
             TestAllocTypedDecode     # AC-P3 (W4.2)
             TestAllocLoggedCall      # what logging costs a call (W3.3, ruling R102)
             TestAllocRequestID       # a logged request id's cost (R103 revert)
+            TestAllocSecretHeaderName # redaction by name without a copy (W5.3)
           )
           codec=(
             TestEncodeStateAllocations # AC-P1, the state encode alone (W1.2)
