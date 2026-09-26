@@ -30,6 +30,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/net/http2"
@@ -43,6 +44,11 @@ const maxFrameSize = 16384
 
 // defaultWindow is the initial flow-control window of RFC 9113.
 const defaultWindow = 65535
+
+// drainBound is how long a connection [LoopbackServer.CloseConns] is ending
+// waits for the client to close its side before the server closes the
+// socket anyway.
+const drainBound = 5 * time.Second
 
 // Errors a handler sees from its ResponseWriter.
 var (
@@ -85,6 +91,11 @@ type H2Conn struct {
 	goAway     bool
 	goAwayLast uint32
 	closed     bool
+
+	// draining is set once CloseConns has begun to end the connection:
+	// nothing can be written after close_notify, so the reader only reads
+	// and discards until the client closes its side.
+	draining atomic.Bool
 }
 
 // h2stream is the server's state of one stream.
@@ -198,6 +209,9 @@ func (c *H2Conn) GoAway(lastStreamID uint32, code ErrCode) error {
 	}
 	c.mu.Unlock()
 	err := c.fr.WriteGoAway(lastStreamID, http2.ErrCode(code), nil)
+	if err == nil {
+		c.srv.noteConn(c.index, func(ci *ConnInfo) { ci.GoAwaySeq = c.srv.seq.Add(1) })
+	}
 	c.wmu.Unlock()
 	if err != nil {
 		c.Close()
@@ -260,6 +274,7 @@ func (c *H2Conn) SetMaxConcurrentStreams(n uint32) error {
 func (c *H2Conn) Close() {
 	c.shutdown()
 	_ = c.nc.Close()
+	c.noteClosed()
 }
 
 // Reset ends the connection abruptly: it sets SO_LINGER to 0 on the TCP
@@ -273,20 +288,56 @@ func (c *H2Conn) Reset() {
 		_ = tc.SetLinger(0)
 	}
 	_ = raw.Close()
+	c.noteClosed()
 }
 
-// shutdown marks the connection closed and releases every stream.
-func (c *H2Conn) shutdown() {
+// closeGracefully ends the connection for [LoopbackServer.CloseConns]: it
+// drops every stream, sends close_notify and FIN after the frames already
+// written (under the write lock, so a frame in flight, a GOAWAY among them,
+// leaves first) and leaves the socket to the reader, which discards what
+// the client still sends until it reads the end of the client's side or
+// drainBound passes, and then closes it (serve). A connection whose close
+// had begun is left alone.
+func (c *H2Conn) closeGracefully() {
+	if !c.shutdown() {
+		return
+	}
+	c.wmu.Lock()
+	// The record precedes close_notify, and so anything the client does once
+	// it reads it; the reader records the client's close only from here on.
+	c.srv.noteConn(c.index, func(ci *ConnInfo) { ci.CloseWriteSeq = c.srv.seq.Add(1) })
+	c.draining.Store(true)
+	_ = c.nc.CloseWrite() // close_notify
+	if cw, ok := c.nc.NetConn().(interface{ CloseWrite() error }); ok {
+		_ = cw.CloseWrite() // FIN
+	}
+	c.wmu.Unlock()
+	_ = c.nc.SetReadDeadline(time.Now().Add(drainBound))
+}
+
+// noteClosed records the socket's first close.
+func (c *H2Conn) noteClosed() {
+	c.srv.noteConn(c.index, func(ci *ConnInfo) {
+		if ci.ClosedSeq == 0 {
+			ci.ClosedSeq = c.srv.seq.Add(1)
+		}
+	})
+}
+
+// shutdown marks the connection closed and releases every stream; it
+// reports whether this call closed it.
+func (c *H2Conn) shutdown() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed {
-		return
+		return false
 	}
 	c.closed = true
 	for _, st := range c.streams {
 		c.dropLocked(st)
 	}
 	c.cond.Broadcast()
+	return true
 }
 
 // dropLocked ends a stream on the server side without writing anything.
@@ -342,6 +393,12 @@ func (c *H2Conn) serve() {
 	}
 	for {
 		f, err := c.fr.ReadFrame()
+		if c.draining.Load() {
+			if !c.drain(f, err) {
+				return
+			}
+			continue
+		}
 		if err != nil {
 			if se, ok := errors.AsType[http2.StreamError](err); ok {
 				_ = c.write(func() error { return c.fr.WriteRSTStream(se.StreamID, se.Code) })
@@ -353,6 +410,23 @@ func (c *H2Conn) serve() {
 			return
 		}
 	}
+}
+
+// drain takes one read of a connection CloseConns is ending: it records a
+// frame as drained and reports true to read on, or records the end of the
+// client's side (io.EOF) and reports false. Any other error (the drain's
+// deadline, a reset) ends the read too, unrecorded.
+func (c *H2Conn) drain(f http2.Frame, err error) bool {
+	switch {
+	case err == nil:
+		c.srv.noteConn(c.index, func(ci *ConnInfo) { ci.Drained = append(ci.Drained, f.Header().Type.String()) })
+		return true
+	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
+		c.srv.noteConn(c.index, func(ci *ConnInfo) { ci.PeerClosedSeq = c.srv.seq.Add(1) })
+		return false
+	}
+	_, streamErr := errors.AsType[http2.StreamError](err)
+	return streamErr
 }
 
 // handleFrame processes one frame; it reports false when the connection

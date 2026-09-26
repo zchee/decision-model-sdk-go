@@ -127,6 +127,37 @@ func TestTransportErrorsBecomeConnectionOrTimeout(t *testing.T) {
 			}
 		}
 	}
+	// closedGracefully checks, besides servedOnce, the server's record of how
+	// CloseConns ended the one connection (ruling K33): close_notify and FIN,
+	// then the end of the client's side read, then the socket's close, so
+	// nothing the client sent was left unread for the kernel to answer with
+	// a reset that would destroy the last frames on Windows; with goAway,
+	// the GOAWAY frame left before close_notify. The client closes its side
+	// only after it read everything before close_notify, so it read the
+	// GOAWAY before the server closed. The order is by sequence number
+	// (K29).
+	closedGracefully := func(srv *testsupport.LoopbackServer, goAway bool) func(t *testing.T) {
+		return func(t *testing.T) {
+			servedOnce(srv)(t)
+			var ci testsupport.ConnInfo
+			waitFor(t, 5*time.Second, "the server to close the connection", func() bool {
+				conns := srv.Conns()
+				if len(conns) != 1 {
+					return false
+				}
+				ci = conns[0]
+				return ci.ClosedSeq != 0
+			})
+			ok := 0 < ci.CloseWriteSeq && ci.CloseWriteSeq < ci.PeerClosedSeq && ci.PeerClosedSeq < ci.ClosedSeq
+			if goAway {
+				ok = ok && 0 < ci.GoAwaySeq && ci.GoAwaySeq < ci.CloseWriteSeq
+			}
+			if !ok {
+				t.Errorf("close records %+v, want GOAWAY (when sent) < close_notify and FIN < the client's close < the socket's close", ci)
+			}
+			t.Logf("close records %+v", ci)
+		}
+	}
 	hold := func(r *http.Request, release <-chan struct{}) {
 		select {
 		case <-r.Context().Done():
@@ -196,7 +227,7 @@ func TestTransportErrorsBecomeConnectionOrTimeout(t *testing.T) {
 						hold(r, release)
 					}
 				})
-				tg.after = servedOnce(srv)
+				tg.after = closedGracefully(srv, false)
 				return tg
 			},
 			check: func(t *testing.T, err error) {
@@ -219,7 +250,7 @@ func TestTransportErrorsBecomeConnectionOrTimeout(t *testing.T) {
 						hold(r, release)
 					}
 				})
-				tg.after = servedOnce(srv)
+				tg.after = closedGracefully(srv, true)
 				return tg
 			},
 			check: func(t *testing.T, err error) {

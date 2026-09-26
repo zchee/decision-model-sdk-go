@@ -202,6 +202,21 @@ type ConnInfo struct {
 	// HandshakeErr is the server side's TLS handshake error, if any (for
 	// example the refusal behind alert 120 in ALPNHTTP1Only mode).
 	HandshakeErr string
+	// GoAwaySeq, CloseWriteSeq, PeerClosedSeq and ClosedSeq record how an
+	// HTTP/2 connection ended, as numbers of one sequence the server shares
+	// across its connections, so they order events without a clock (K29); 0
+	// means the event did not happen. GoAwaySeq is the last GOAWAY frame
+	// written; CloseWriteSeq is [LoopbackServer.CloseConns] beginning to
+	// close, taken before its close_notify and FIN leave; PeerClosedSeq is
+	// the reader reading the end of the client's side after that; ClosedSeq
+	// is the socket's close. CloseWriteSeq < PeerClosedSeq < ClosedSeq shows
+	// that the socket closed with nothing the client sent left unread
+	// (ruling K33).
+	GoAwaySeq, CloseWriteSeq, PeerClosedSeq, ClosedSeq int64
+	// Drained lists the types of the frames the reader read and discarded
+	// once CloseConns had begun to close the connection: what the client
+	// was still sending when the server's close_notify reached it.
+	Drained []string
 }
 
 // LoopbackServer is a TLS server on 127.0.0.1 for transport tests. HTTP/2
@@ -224,6 +239,7 @@ type LoopbackServer struct {
 	accepts   atomic.Int64
 	overLimit atomic.Int64
 	maxActive atomic.Int64
+	seq       atomic.Int64 // the sequence of ConnInfo's close records
 
 	mu       sync.Mutex
 	closed   bool
@@ -304,7 +320,11 @@ func (s *LoopbackServer) MaxActiveStreams() int { return int(s.maxActive.Load())
 func (s *LoopbackServer) Conns() []ConnInfo {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return slices.Clone(s.conns)
+	out := slices.Clone(s.conns)
+	for i := range out {
+		out[i].Drained = slices.Clone(out[i].Drained)
+	}
+	return out
 }
 
 // Requests returns every request seen so far, in arrival order.
@@ -330,10 +350,47 @@ func (s *LoopbackServer) LiveH2Conns() []*H2Conn {
 	return out
 }
 
-// CloseConns closes every open connection at once, without GOAWAY, as
-// [H2Conn.Close] does: TLS close_notify on a connection past its handshake,
-// then TCP FIN. The listener stays open.
+// CloseConns ends every open connection without GOAWAY; the listener stays
+// open. An HTTP/2 connection ends as a server that is done with it should:
+// its streams are dropped, TLS close_notify and a TCP FIN follow the frames
+// already written, and the server keeps reading, discarding whatever the
+// client still sends, until the client closes its side or [drainBound]
+// passes; only then does it close the socket. It returns once close_notify
+// and FIN are sent, without waiting for the client, and
+// [ConnInfo.CloseWriteSeq] and the records after it tell how the close
+// went. Any other connection (HTTP/1.1, or one still in its handshake) is
+// closed at once: close_notify when past the handshake, then FIN.
+//
+// Closing a socket that holds unread data, or one that data reaches after
+// its close, makes the kernel end the connection with a TCP reset instead
+// of FIN (RFC 1122 section 4.2.2.13), and a client that has not yet read the
+// server's last frames and close_notify when the reset arrives loses them
+// on Windows, where its read fails with WSAECONNABORTED (ruling K33). A
+// fresh client connection writes after its request (its SETTINGS
+// acknowledgement, for one), so the close must not race those writes.
 func (s *LoopbackServer) CloseConns() {
+	s.mu.Lock()
+	conns := make([]net.Conn, 0, len(s.raw))
+	for c := range s.raw {
+		conns = append(conns, c)
+	}
+	h2 := make(map[net.Conn]*H2Conn, len(s.h2))
+	for c := range s.h2 {
+		h2[c.nc] = c
+	}
+	s.mu.Unlock()
+	for _, c := range conns {
+		if hc, ok := h2[c]; ok {
+			hc.closeGracefully()
+			continue
+		}
+		_ = c.Close()
+	}
+}
+
+// closeRaw closes every open connection at once: close_notify on a
+// connection past its handshake, then FIN, with no wait for the client.
+func (s *LoopbackServer) closeRaw() {
 	s.mu.Lock()
 	conns := make([]net.Conn, 0, len(s.raw))
 	for c := range s.raw {
@@ -343,6 +400,13 @@ func (s *LoopbackServer) CloseConns() {
 	for _, c := range conns {
 		_ = c.Close()
 	}
+}
+
+// noteConn updates the record of connection idx.
+func (s *LoopbackServer) noteConn(idx int, update func(*ConnInfo)) {
+	s.mu.Lock()
+	update(&s.conns[idx])
+	s.mu.Unlock()
 }
 
 // Close stops the listener, closes every connection and waits for the
@@ -359,7 +423,7 @@ func (s *LoopbackServer) Close() {
 	_ = s.ln.Close()
 	_ = s.h1ln.Close()
 	_ = s.h1.Close()
-	s.CloseConns()
+	s.closeRaw()
 	waitGroupTimeout(s.tb, &s.wg, "LoopbackServer", 10*time.Second)
 }
 

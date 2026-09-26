@@ -851,6 +851,75 @@ func TestLoopbackConnEnd(t *testing.T) {
 	}
 }
 
+// TestLoopbackCloseConnsDrains checks the close choreography of CloseConns
+// (ruling K33) against a client that writes after the server began to
+// close, as a fresh HTTP/2 client does: the frames already written and
+// close_notify reach the client, then io.EOF, never a reset; the server
+// reads and discards the client's late frame; and it closes the socket only
+// after it read the end of the client's side. The records order the events
+// by sequence number (K29), and a GOAWAY written before CloseConns leaves
+// before close_notify.
+func TestLoopbackCloseConnsDrains(t *testing.T) {
+	tests := map[string]struct {
+		goAway bool
+		want   []frame
+	}{
+		"success: a clean close after the response headers": {
+			want: []frame{{Type: "HEADERS", StreamID: 1, Status: "200"}},
+		},
+		"success: GOAWAY, then a clean close": {
+			goAway: true,
+			want:   []frame{{Type: "GOAWAY", LastID: 1, Code: CodeInternalError}},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			closed := make(chan struct{})
+			var srv *LoopbackServer
+			srv = NewLoopbackServer(t, ServerConfig{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				conn := srv.LiveH2Conns()[0]
+				if tt.goAway {
+					if err := conn.GoAway(1, CodeInternalError); err != nil {
+						t.Errorf("GoAway: %v", err)
+					}
+				} else {
+					w.WriteHeader(http.StatusOK)
+					w.(http.Flusher).Flush()
+				}
+				srv.CloseConns()
+				close(closed)
+				<-r.Context().Done()
+			})})
+			c := dialRaw(t, srv.Addr())
+			c.serverSettings() // acknowledged before the request: the PING below is the only late frame
+			c.request(1, "/", true)
+			recv(t, closed, "CloseConns")
+			if err := c.fr.WritePing(false, [8]byte{'k', '3', '3'}); err != nil {
+				t.Fatalf("PING after CloseConns: %v", err)
+			}
+			c.expect(tt.want...)
+			if _, err := c.next(); !errors.Is(err, io.EOF) || isConnReset(err) {
+				t.Fatalf("read after the frames: %v, want io.EOF", err)
+			}
+			_ = c.conn.Close()
+			var ci ConnInfo
+			waitFor(t, "the server to close the socket", func() bool {
+				ci = srv.Conns()[0]
+				return ci.ClosedSeq != 0
+			})
+			if diff := gocmp.Diff([]string{"PING"}, ci.Drained); diff != "" {
+				t.Errorf("drained frames (-want +got):\n%s", diff)
+			}
+			if ordered := 0 < ci.CloseWriteSeq && ci.CloseWriteSeq < ci.PeerClosedSeq && ci.PeerClosedSeq < ci.ClosedSeq; !ordered {
+				t.Errorf("close records %+v, want 0 < CloseWriteSeq < PeerClosedSeq < ClosedSeq", ci)
+			}
+			if goAway := 0 < ci.GoAwaySeq && ci.GoAwaySeq < ci.CloseWriteSeq; goAway != tt.goAway {
+				t.Errorf("close records %+v: GOAWAY before close_notify = %t, want %t", ci, goAway, tt.goAway)
+			}
+		})
+	}
+}
+
 // TestLoopbackRequestBody checks what a handler sees of a request body over
 // HTTP/2: the length net/http's servers report, and the end of a body that
 // the client ends with trailers.
