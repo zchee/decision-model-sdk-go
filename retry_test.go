@@ -1174,6 +1174,10 @@ func TestCancelPendingRetry(t *testing.T) {
 	tests := map[string]struct {
 		policy RetryPolicy
 		reply  testsupport.Reply
+		// then, when set, answers every attempt after the first.
+		then *testsupport.Reply
+		// attempts is how many attempts the call makes; zero means 1.
+		attempts int
 		// took is the fake time the transport takes to answer.
 		took time.Duration
 		// ctx returns the call's context and the function that ends it,
@@ -1258,6 +1262,38 @@ func TestCancelPendingRetry(t *testing.T) {
 				}
 			},
 		},
+		"error: a cancellation during a wait longer than the caller's deadline": {
+			// The deadline (10 s) comes before the wait's end (60 s), so the
+			// call waits for the context, which the cancellation ends
+			// first: context.Canceled itself, not a timeout (review R1).
+			policy: DefaultRetry().NoBudget(),
+			reply:  rtReply(429, `{}`, "Retry-After", "60"),
+			ctx: func(t *testing.T) (context.Context, func()) {
+				parent, cancel := context.WithCancel(bubbleCtx(t))
+				ctx, stop := context.WithTimeout(parent, 10*time.Second)
+				t.Cleanup(stop)
+				return ctx, cancel
+			},
+			check: func(t *testing.T, _ context.Context, err error) { assertCancelled(t, err) },
+		},
+		"success: a deadline just after the wait's end lets the retry run": {
+			// One nanosecond of the caller's time is left when the wait
+			// ends, so the retry starts and succeeds (review R-N1).
+			reply: rtReply(429, `{}`, "Retry-After", "1"),
+			then:  new(rtReply(200, `{"models":[]}`)),
+			ctx: func(t *testing.T) (context.Context, func()) {
+				ctx, cancel := context.WithTimeout(bubbleCtx(t), time.Second+time.Nanosecond)
+				t.Cleanup(cancel)
+				return ctx, nil
+			},
+			attempts: 2,
+			waited:   time.Second,
+			check: func(t *testing.T, _ context.Context, err error) {
+				if err != nil {
+					t.Errorf("error = %T %v, want the retry's success", err, err)
+				}
+			},
+		},
 		"error: a cancellation before a zero wait": {
 			reply: rtReply(429, `{}`, "Retry-After-Ms", "0"),
 			ctx: func(t *testing.T) (context.Context, func()) {
@@ -1272,7 +1308,10 @@ func TestCancelPendingRetry(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				ctx, end := tt.ctx(t)
-				rec := &testsupport.Recorder{Respond: func(testsupport.RecordedRequest) testsupport.Reply {
+				rec := &testsupport.Recorder{Respond: func(r testsupport.RecordedRequest) testsupport.Reply {
+					if r.Index > 0 && tt.then != nil {
+						return *tt.then
+					}
 					time.Sleep(tt.took)
 					if tt.cancelInReply {
 						end()
@@ -1295,9 +1334,11 @@ func TestCancelPendingRetry(t *testing.T) {
 					t.Errorf("the call ran %v of fake time, want %v", got, tt.waited)
 				}
 				tt.check(t, ctx, err)
-				if n := c.Stats().Attempts; n != 1 || rec.Count() != 1 {
-					t.Errorf("Stats().Attempts = %d, the transport saw %d; want 1 and 1", n, rec.Count())
+				want := max(tt.attempts, 1)
+				if rec.Count() != want {
+					t.Errorf("the transport saw %d requests, want %d", rec.Count(), want)
 				}
+				assertAttempts(t, c, want)
 			})
 		})
 	}
