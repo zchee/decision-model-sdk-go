@@ -3141,10 +3141,13 @@ and the row's `BASE`.
 
 W5.1 adds `internal/testsupport/naive`, the comparator of owner decision
 G3 (a), and the benchmark set B1–B6 of the Rust reference, which
-[`benchmarks.md`](benchmarks.md) describes. B4 (`Retry-After` and the
-backoff) waits for W3.2's `retry.go`. The rows below were measured at
-6afc8a3, `wave/w5.1` on e9ad7aa, before any Phase 3 wave landed. So
-`call/sdk` is the W2.3 client under its one-attempt default policy. W3.4
+[`benchmarks.md`](benchmarks.md) describes. Rows W5.1-01 to -08 were
+measured at 6afc8a3, `wave/w5.1` on e9ad7aa, before any Phase 3 wave
+landed. So their `call/sdk` is the W2.3 client under its one-attempt
+default policy. B4 (`Retry-After` and the backoff) needed W3.2's
+`retry.go`. It was added at 1ca60e1, after the rebase onto W3.2's landing
+(87d1ac7), and rows W5.1-09 to -15 were taken there: B4, a B6 re-run
+after b3fd5db changed the loopback server's close path, and the gates. W3.4
 re-measures the time clause of AC-P6 on the client as Phase 3 leaves it
 and freezes it. W5.1 reports that clause and the "≤ 0.5 × naive" clause
 of AC-P2; it asserts neither.
@@ -3280,9 +3283,12 @@ use `R=_spikes/s-c1/run.sh` (W0.5's runner), `O=_spikes/w5.1/results`,
      `leaders/op` and `firstholds/op`; the rows after the W3.2 rebase
      record them.
    - The B/op and allocs/op of these rows include the server's.
-8. **CodSpeed discovery.** `go test -list 'Benchmark.*' ./...` lists 12
-   benchmark functions: 8 in the root and 4 in `internal/codec`
-   (`results/list-M.txt`). The local
+8. **CodSpeed discovery.** At 6afc8a3, `go test -list 'Benchmark.*' ./...`
+   listed 12 benchmark functions: 8 in the root and 4 in
+   `internal/codec` (`results/list-M.txt`). At 1ca60e1 it lists 14:
+   B4 adds `BenchmarkRetryAfter` and `BenchmarkBackoff`
+   (`results/list-M-1ca60e1.txt`). A `-benchtime 1x` run of all of them
+   gave 125 results on each host and exited 0 (W5.1-12, -13). The local
    `codspeed run --skip-upload -m walltime -- go test -bench=. ./...` on
    (M) passes no `-run` (R5, R5-corr). It ran all 12, gave 118 results,
    exited 0 and printed no warning (`results/codspeed-M.txt`). The
@@ -3297,7 +3303,38 @@ use `R=_spikes/s-c1/run.sh` (W0.5's runner), `O=_spikes/w5.1/results`,
    tree of 6afc8a3, which 5d5afc8 leaves unchanged, at 10:38:23 and
    11:23:52 JST, and in the review at 5d5afc8 at 11:31:22 JST. The one `go test -race -count=1 ./...` on
    (L) that R62 asks for, since the comparator pins sonic's behaviour,
-   passed (`results/race-L.txt`).
+   passed (`results/race-L.txt`). After the rebase onto 87d1ac7,
+   gates.sh passed each of the ten commits up to B4 alone on (M)
+   (W5.1-15). Build, vet and `go test -race` passed at 1ca60e1 on (L)
+   (W5.1-14).
+10. **B4: reading a server's wait and computing the backoff cost well
+    under a microsecond and allocate nothing, except the date form.**
+    Medians of 10 on (M) and (L):
+    - `RetryAfter/seconds`: 88.8 ns and 166.7 ns.
+    - `RetryAfter/ms`: 79.9 ns and 158.3 ns.
+    - `RetryAfter/http-date`: 267.2 ns and 455.1 ns, with 1 allocation of
+      32 B from `http.ParseTime`.
+    - `Backoff` at retry 1, 6 and 1000: 53.5–54.6 ns and 86.8–95.9 ns.
+    - `Backoff/schedule`, `DefaultRetry`'s two waits: 117.8 ns and
+      190.2 ns.
+
+    The cap row costs no more than retry 1, because the cap is taken in
+    log2 space before any doubling. These costs are recorded, not
+    targets. Each runs once per retry, beside a wait of at least
+    hundreds of milliseconds. They are the same order as the Rust
+    reference's B4 (39–118 ns on macOS, 90–262 ns on Linux).
+11. **B6 re-run after b3fd5db: no change beyond noise.** At 1ca60e1, the
+    median of 10 over the median of 5 at 6afc8a3 is:
+    - `Loopback/call`: 0.982 (M) and 1.004 (L).
+    - `Loopback/cold-fanout-64`: 0.911 (M) and 0.976 (L).
+
+    b3fd5db changed how the loopback server closes a connection after a
+    GOAWAY. B6 never closes one mid-run, so no change was expected. The
+    (M) cold burst's 9 % is within that host's spread (min 2.507 against
+    median 2.670 ms). Every burst on both hosts had `leaders/op`,
+    `firstholds/op` and `conns/op` of 1.000: the gate led one dial and
+    held the first request until its response headers. `new-conns` for
+    the warm call stayed 0.
 
 | # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -3309,6 +3346,13 @@ use `R=_spikes/s-c1/run.sh` (W0.5's runner), `O=_spikes/w5.1/results`,
 | W5.1-06 | 2026-09-26 11:11:16 JST | W5.1 CodSpeed discovery | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | `GOEXPERIMENT=nosimd,noruntimesecret go test -list 'Benchmark.*' ./...` | 12 functions: root `Assembly`, `Call`, `HeaderTemplateClone`, `EncodeBody`, `Loopback`, `Noop`, `Prepare`, `FalsyJSON`; codec `Decode`, `DecodeNaiveSonic`, `DecodeNaiveJSON`, `EncodeState` | `results/list-M.txt` |
 | W5.1-07 | 2026-09-26 11:11:27 JST | W5.1 local CodSpeed run (R5-corr: no `-run`) | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.67 → 6.71 | `GOEXPERIMENT=nosimd,noruntimesecret codspeed run --skip-upload -m walltime -- go test -bench=. ./...` under `flock $SP/bench.lock` | codspeed-runner 5.3.1, exit 0, 118 benchmark results from the 12 functions, no warning; `Call/sdk` 5.458 µs, `Call/naive` 4.254 µs (one sample each, walltime) | report-only (K7); the runner prints 0 B/op; `results/codspeed-M.txt` |
 | W5.1-08 | 2026-09-26 11:21:25 JST | W5.1 gates per commit | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | `sh _spikes/w5.1/gates.sh <scratchpad> 9e45600 ae69b05 23b5a6c 89b6109 6afc8a3` | PASS × 5 (11:21:25 → 11:22:31 JST): build, vet, gofumpt -extra, modernize, golangci-lint, staticcheck, tidy -diff, `go test -race` | not a timing row; `results/gates-M.txt` |
+| W5.1-09 | 2026-09-26 11:55:16 JST | W5.1 B4, and the B6 re-run after b3fd5db | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 13.84 → 15.34 | `BASE=1ca60e1 GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock MAXLOAD=16 sh $R '(M)' $O $SP/bench.lock b46-M -run '^$' -bench '^Benchmark(RetryAfter\|Backoff\|Loopback)$' -benchmem -count=10 .` | RetryAfter seconds 88.8 ns, ms 79.9 ns, http-date 267.2 ns (1 alloc); Backoff 53.5–54.6 ns, schedule 117.8 ns (0 allocs); Loopback/call 70.73 µs (new-conns 0), cold-fanout-64 2.670 ms (conns, leaders, firstholds 1.000 /op) | medians of 10; at 1ca60e1 (87d1ac7 + W5.1); `results/b46-M.txt` |
+| W5.1-10 | 2026-09-26 02:55:10 UTC | W5.1 B4, and the B6 re-run after b3fd5db | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.13 → 0.92 | `BASE=1ca60e1 MAXLOAD=44 sh $R '(L)' $O /tmp/ts-spike/bench.lock b46-L -run '^$' -bench '^Benchmark(RetryAfter\|Backoff\|Loopback)$' -benchmem -count=10 .` | RetryAfter seconds 166.7 ns, ms 158.3 ns, http-date 455.1 ns (1 alloc); Backoff 86.8–95.9 ns, schedule 190.2 ns (0 allocs); Loopback/call 80.18 µs (new-conns 0), cold-fanout-64 3.369 ms (conns, leaders, firstholds 1.000 /op) | medians of 10; `results/b46-L.txt` |
+| W5.1-11 | 2026-09-26 11:55:16 JST | W5.1 CodSpeed discovery after B4 | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | `GOEXPERIMENT=nosimd,noruntimesecret go test -list 'Benchmark.*' ./...` | 14 functions: W5.1-06's 12 plus `RetryAfter` and `Backoff` | `results/list-M-1ca60e1.txt` |
+| W5.1-12 | 2026-09-26 11:57:05 JST | W5.1 every benchmark once | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 15.34 → 15.34 | `BASE=1ca60e1 GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock MAXLOAD=16 sh $R '(M)' $O $SP/bench.lock onex-M -run '^$' -bench . -benchtime 1x -benchmem ./...` | 125 results, exit 0 | not a timing row; `results/onex-M.txt` |
+| W5.1-13 | 2026-09-26 02:57:00 UTC | W5.1 every benchmark once | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.92 → 0.92 | `BASE=1ca60e1 MAXLOAD=44 sh $R '(L)' $O /tmp/ts-spike/bench.lock onex-L -run '^$' -bench . -benchtime 1x -benchmem ./...` | 125 results, exit 0 | not a timing row; `results/onex-L.txt` |
+| W5.1-14 | 2026-09-26 02:57:01 UTC | W5.1 R62 gate after the rebase | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.92 → 1.38 | `go build ./... && go vet ./... && go test -race -count=1 ./...` | ok for all 6 packages | not a timing row; `results/race-L-1ca60e1.txt` |
+| W5.1-15 | 2026-09-26 11:57:55 JST | W5.1 gates per commit after the rebase | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | `sh _spikes/w5.1/gates.sh <scratchpad> $(git rev-list --reverse 87d1ac7..1ca60e1)` | PASS × 10 (4e3dd73 … 1ca60e1, → 12:00:54 JST): build, vet, gofumpt -extra, modernize, golangci-lint, staticcheck, tidy -diff, `go test -race` | not a timing row; `results/gates-M-1ca60e1.txt` |
 
 <a id="w51-tables"></a>
 
@@ -3411,3 +3455,33 @@ B6, bench-{M,L}.txt (-count=5):
 | --- | ---: | ---: | ---: | ---: | ---: |
 | `Loopback/call` | 69.990 µs / 72.009 µs | 77.677 µs / 79.852 µs | 14130 / 111 | 13843 / 111 | 0.000 / 0.000 |
 | `Loopback/cold-fanout-64` | 2.717 ms / 2.932 ms | 3.422 ms / 3.452 ms | 1053189 / 8592 | 1078480 / 8586 | 1.000 / 1.000 |
+
+B4 at 1ca60e1 (on W3.2's landing), b46-{M,L}.txt (-count=10):
+
+| Benchmark | (M) ns/op min / median | (L) ns/op min / median | (M) B/op / allocs | (L) B/op / allocs |
+| --- | ---: | ---: | ---: | ---: |
+| `RetryAfter/seconds` | 87.3 ns / 88.8 ns | 165.1 ns / 166.7 ns | 0 / 0 | 0 / 0 |
+| `RetryAfter/ms` | 78.4 ns / 79.9 ns | 157.5 ns / 158.3 ns | 0 / 0 | 0 / 0 |
+| `RetryAfter/http-date` | 262.3 ns / 267.2 ns | 453.5 ns / 455.1 ns | 32 / 1 | 32 / 1 |
+| `Backoff/retry-1` | 53.0 ns / 54.0 ns | 90.8 ns / 95.9 ns | 0 / 0 | 0 / 0 |
+| `Backoff/retry-6` | 52.6 ns / 53.5 ns | 86.8 ns / 86.8 ns | 0 / 0 | 0 / 0 |
+| `Backoff/retry-1000` | 52.7 ns / 54.6 ns | 86.7 ns / 86.8 ns | 0 / 0 | 0 / 0 |
+| `Backoff/schedule` | 115.6 ns / 117.8 ns | 183.4 ns / 190.2 ns | 0 / 0 | 0 / 0 |
+
+B6 re-run at 1ca60e1 (after b3fd5db's graceful close), b46-{M,L}.txt (-count=10):
+
+| Benchmark | (M) ns/op min / median | (L) ns/op min / median | (M) B/op / allocs | (L) B/op / allocs | metric (M) / (L) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `Loopback/call` | 67.421 µs / 70.734 µs | 78.597 µs / 80.182 µs | 13635 / 111 | 13658 / 111 | 0.000 / 0.000 |
+| `Loopback/cold-fanout-64` | 2.507 ms / 2.670 ms | 3.276 ms / 3.369 ms | 1000994 / 8590 | 1017272 / 8585 | 1.000 / 1.000 |
+
+| `Loopback/cold-fanout-64` metric, median | (M) / (L) |
+| --- | ---: |
+| conns/op | 1.000 / 1.000 |
+| leaders/op | 1.000 / 1.000 |
+| firstholds/op | 1.000 / 1.000 |
+
+| B6 median ns/op, 1ca60e1 / 6afc8a3 | (M) / (L) |
+| --- | ---: |
+| `Loopback/call` | 0.982 / 1.004 |
+| `Loopback/cold-fanout-64` | 0.911 / 0.976 |
