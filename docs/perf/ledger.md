@@ -3902,3 +3902,59 @@ The earlier (M) run, under more load:
 | q20 `call/sdk` / `call/naive-json`, median ns/op | 0.644 | 0.335 |
 
 Every series' minimum is the same on (M) and (L).
+
+## W4.2: the typed decode (AC-P3)
+
+W4.2 adds `DecodeAs[T]` and `Ask[T]`: the answers a response already
+holds are copied into the answer fields of a struct type, through
+W4.1's cached plan and one reflect field pointer per field, without
+`unsafe`. `TestAllocTypedDecode` (root, `//go:build !race`, a bound name
+of section 11) measures on `result.json`, in one run, the decode that
+fills `Answers()` as a call makes it (the pooled decoder warm, a fresh
+result, the question set `Ask` sends for the test's `reviewAnswers` and
+the call's model, interned) and `DecodeAs[reviewAnswers]` of the decoded
+response; then a whole `SystemOne` call over the Recorder with that
+question set, and `Ask[reviewAnswers]` over the same Recorder. Counts are
+`runtime.ReadMemStats` deltas under `testsupport.QuietRuntime` (collector
+off, `GOMAXPROCS(1)`), the minimum that three of five runs share. The
+test pins `DecodeAs` at exactly 1/144 B, AC-P3's inequality, and
+`Ask = SystemOne + DecodeAs` (AC-P6: `Ask` adds nothing to a call). Raw
+outputs are in `_spikes/w4.2/results/`, written by
+`_spikes/w4.2/gates.sh` (the measurement, then `-race ./...` and
+ci.yaml's root allocation step). Commands use `R=_spikes/s-c1/run.sh`
+(W0.5's runner), `O=_spikes/w4.2/results`, the lead's `SP` (whose
+`bench.lock` the lanes share) and `BASE=662799c`, the last commit of the
+branch that changes code or tests; (L) ran the tree `git archive 662799c`
+wrote, piped over ssh to `/tmp/ts-spike/src-w4.2`, with the section 11
+toolchain and caches under `/tmp/ts-spike` and no `GOEXPERIMENT`, under
+`flock /tmp/ts-spike/bench.lock`. The branch was measured three times,
+at each of its bases while W4.1's review fix pass moved it, with the same
+counts and bytes every time; these rows are the last, on W4.1's landing
+head 9fef4ba. (M) was loaded by other lanes' runs (the Load column says
+noisy): allocation counts do not depend on load (ruling R17), and they
+did not move.
+
+| # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| W4.2-01 | 2026-09-26 10:34:53 JST | W4.2 AC-P3 typed decode | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 24.32 → 24.32 (noisy) | `BASE=662799c GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock alloc-M -count=1 -run '^TestAllocTypedDecode$' -v .` | `result.json` (364 B): Answers() decode 4/688 B; `DecodeAs[reviewAnswers]` 1/144 B; `SystemOne` 22/2648 B; `Ask[reviewAnswers]` 23/2792 B | mallocs/bytes, collector off, `GOMAXPROCS(1)`, 3 of 5 runs agree (all 5 did); `results/alloc-M.txt` |
+| W4.2-02 | 2026-09-26 01:35:20 UTC | W4.2 AC-P3 typed decode | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 3.17 → 3.17 | `BASE=662799c sh $R '(L)' $O /tmp/ts-spike/bench.lock alloc-L -count=1 -run '^TestAllocTypedDecode$' -v .` | identical to W4.2-01 in every count and byte | `results/alloc-L.txt` |
+| W4.2-03 | 2026-09-26 10:34:54 JST | gates at 662799c: `-race ./...`, then ci.yaml's root allocation step with its `-list` guard | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 24.32 → 19.91 (noisy) | `BASE=662799c GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock race-all-M -timeout 60m -race -count=1 ./...`; the step's two lines as ci.yaml has them | ok in all five packages; guard 8 names; the step ok | `results/race-all-M.txt`, `results/root-alloc-step-M.txt` |
+| W4.2-04 | 2026-09-26 01:35:21 UTC | the same gates | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 3.17 → 2.76 | as W4.2-03, `race-all` | ok in all five packages; guard 8 names; the step ok | `results/race-all-L.txt`, `results/root-alloc-step-L.txt` |
+
+### W4.2 findings
+
+1. **AC-P3 holds on both hosts: `DecodeAs` costs 1 allocation where the
+   decode it reads costs 4.** The one allocation is the struct being
+   decoded (144 B, `reviewAnswers`'s size): `reflect.Value.Interface`,
+   which yields each field's pointer without boxing an answer, makes the
+   compiler move the `T` to the heap. The answers themselves are copies
+   of `Answers()`'s values and share their slices, so they cost nothing
+   at any size. Storing each answer with `reflect.Value.Set` instead was
+   measured at 4/304 B (each answer escapes as well) and dropped. Zero
+   would need `unsafe` field offsets or a per-type pool of `T` values
+   that keeps a response's slices alive between calls; section 6.6 keeps
+   offsets out unless W4.3's S-D2 shows reflect more than 2x slower, and
+   the pool is not worth one allocation.
+2. **`Ask` adds nothing to a call beyond `DecodeAs`** (AC-P6, R77/R28):
+   23 = 22 + 1 on both hosts. `PreparedFor[T]` is a cache hit (W4.1: 0
+   allocations) and the call options pass through.
