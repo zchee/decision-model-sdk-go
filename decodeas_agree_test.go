@@ -27,12 +27,29 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
-// The struct types of TestDecodeAsAgreesWithAnswers, one per fixture the
-// decoder accepts (result.json and type-last.json share reviewAnswers, the
-// floods are in decodeas_flood_test.go). Each types every answer of its
-// fixture, in the order the fixture's answers first appear, with the
-// options and levels the answer names; a field for a name the fixture does
-// not end up answering is optional.
+// The struct types of TestDecodeAsAgreesWithAnswers, at least one per
+// fixture the decoder accepts (result.json and type-last.json share
+// reviewAnswers, result.json also has interleavedAnswers, the floods are in
+// decodeas_flood_test.go). Each types every answer of its fixture, in the
+// order the fixture's answers first appear, with the options and levels
+// the answer names; a field for a name the fixture does not end up
+// answering is optional.
+
+// interleavedAnswers types result.json with fields that are not answer
+// fields before, between and after the answer fields, an unexported one
+// among them: PreparedFor ignores them, so each answer field's index in
+// the struct differs from its position in the plan, and DecodeAs must
+// write through the index and leave the other fields alone.
+type interleavedAnswers struct {
+	ID      string
+	seen    bool
+	Spam    NoulAnswer `typesafe:"kind=noul;name=spam"`
+	Count   int
+	Tone    ChoiceAnswer `typesafe:"kind=choice;name=tone;options=friendly|hostile"`
+	Extra   []byte
+	Quality ScoreAnswer `typesafe:"kind=score;name=quality;levels=bad|ok|great"`
+	Note    string
+}
 
 // duplicatesAnswers types duplicates.json: the answers of its last answers
 // member, and optional fields for the three answers of the superseded one,
@@ -169,6 +186,27 @@ func TestDecodeAsAgreesWithAnswers(t *testing.T) {
 	}{
 		"success: result.json":    {fixture: "result.json", agree: agreeAs[reviewAnswers]()},
 		"success: type-last.json": {fixture: "type-last.json", agree: agreeAs[reviewAnswers]()},
+		"success: result.json into answer fields among other fields": {
+			fixture: "result.json",
+			agree:   agreeAs[interleavedAnswers](),
+			then: func(t *testing.T, got any) {
+				t.Helper()
+				v := got.(interleavedAnswers)
+				type view struct {
+					ID, Note       string
+					Seen, NilExtra bool
+					Count          int
+					Spam           float64
+					Choice         string
+					Score          float64
+				}
+				want := view{NilExtra: true, Spam: 0.98, Choice: "friendly", Score: 1.7}
+				gotView := view{ID: v.ID, Note: v.Note, Seen: v.seen, NilExtra: v.Extra == nil, Count: v.Count, Spam: v.Spam.Noul(), Choice: v.Tone.Choice(), Score: v.Quality.Score()}
+				if diff := gocmp.Diff(want, gotView); diff != "" {
+					t.Errorf("interleaved fields (-want +got):\n%s", diff)
+				}
+			},
+		},
 		"success: duplicates.json": {
 			fixture: "duplicates.json",
 			agree:   agreeAs[duplicatesAnswers](),
@@ -227,6 +265,7 @@ func TestDecodeAsAgreesWithAnswers(t *testing.T) {
 		typed = append(typed, tt.fixture)
 	}
 	slices.Sort(typed)
+	typed = slices.Compact(typed) // result.json has two struct types
 	if diff := gocmp.Diff(typed, accepted); diff != "" {
 		t.Fatalf("the fixtures the decoder accepts and the struct types here differ (-typed +accepted):\n%s", diff)
 	}

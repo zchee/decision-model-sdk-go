@@ -71,8 +71,8 @@ type reviewAnswers struct {
 }
 
 // typedCmp compares answer values with their unexported wire value and
-// presence bit.
-var typedCmp = gocmp.AllowUnexported(NoulAnswer{}, ChoiceAnswer{}, ScoreAnswer{})
+// presence bit, and interleavedAnswers with its unexported field.
+var typedCmp = gocmp.AllowUnexported(NoulAnswer{}, ChoiceAnswer{}, ScoreAnswer{}, interleavedAnswers{})
 
 // TestResultWith pins the helper against the fixture it rebuilds.
 func TestResultWith(t *testing.T) {
