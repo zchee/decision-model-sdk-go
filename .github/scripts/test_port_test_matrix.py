@@ -1,8 +1,9 @@
 """Tests for port-test-matrix.py.
 
 Run from the repository root with ``uvx pytest -q .github/scripts``. Type-check
-the scripts and these tests with ``uvx --with pytest mypy --strict
-.github/scripts``: mypy needs pytest installed next to it to see its types.
+the scripts and these tests with ``uvx --with pytest --with types-PyYAML mypy
+--strict .github/scripts``: mypy needs pytest installed next to it to see its
+types, and types-PyYAML for the yaml import of uncovered-lines.py.
 """
 
 from __future__ import annotations
@@ -1371,7 +1372,349 @@ class TestDeviations:
         _fake_go(monkeypatch, _fake_run(stdout=GO_LIST_OK))
 
 
+RULING_TABLE = (
+    "| Ruling | Date (UTC) | Plan text amended | As built | Pinned by | Owner |\n"
+    "| --- | --- | --- | --- | --- | --- |\n"
+)
+APPENDIX_TABLE = (
+    "| # | Appendix B row (Python SDK 0.7.1) | Bold | Deviation keys | Rulings |\n"
+    "| --- | --- | --- | --- | --- |\n"
+)
+AS_BUILT_DEV = _dev(
+    "| one | p | g | w | A1 |", "| two | p | g | w | — |", "| three | p | g | w | — |"
+)
+GOOD_RULINGS = (
+    '| R1, R1-corr | 2026-09-25 | §5 | built (deviation "two") | `TestOne` | — |',
+    '| G8-a | 2026-09-26 | §8 | built (deviation "three") | `TestThree/case` | G8-a |',
+    "| D-W2.2b | 2026-09-26 | process | built | process | — |",
+)
+GOOD_APPENDIX = (
+    '| 1 | Row one | yes | deviation "one" | R1 |',
+    "| 2 | Row two | no | — | — |",
+)
+
+
+def _as_built(rulings: tuple[str, ...], appendix: tuple[str, ...]) -> str:
+    """Return a record with one ruling table (lines 7-) and one Appendix B table.
+
+    With the three good rulings the Appendix B rows start at line 15.
+    """
+    return (
+        "# As built\n\n## Phase 1\n\n"
+        + RULING_TABLE
+        + "\n".join(rulings)
+        + "\n\n## Appendix B, row by row\n\n"
+        + APPENDIX_TABLE
+        + "\n".join(appendix)
+        + "\n"
+    )
+
+
+def _deviations_of(text: str) -> list[Any]:
+    deviations, failures = ptm.parse_deviations(text, "d.md")
+    assert failures == []
+    return list(deviations)
+
+
+class TestAsBuilt:
+    @pytest.mark.parametrize(
+        ("cell", "want"),
+        [
+            pytest.param("R1", ("R1",), id="plain"),
+            pytest.param(
+                "R99-rev, R103-rev-corr", ("R99-rev", "R103-rev-corr"), id="suffixes"
+            ),
+            pytest.param("R109c-corr-2", ("R109c-corr-2",), id="letter-and-number"),
+            pytest.param("G8-a, K28d, F1-b", ("G8-a", "K28d", "F1-b"), id="kinds"),
+            pytest.param(
+                "D-W2.2b, D-W6.5-retry-3", ("D-W2.2b", "D-W6.5-retry-3"), id="wave-ids"
+            ),
+        ],
+    )
+    def test_ruling_ids_are_split_on_commas(
+        self, cell: str, want: tuple[str, ...]
+    ) -> None:
+        assert ptm.ruling_ids(cell, "f:1") == (want, [])
+
+    @pytest.mark.parametrize(
+        ("cell", "want"),
+        [
+            pytest.param("R1 R2", "'R1 R2'", id="no-comma"),
+            pytest.param("r1", "'r1'", id="lower-case"),
+            pytest.param("R1,", "''", id="trailing-comma"),
+            pytest.param("G7 (6)", "'G7 (6)'", id="item-number"),
+        ],
+    )
+    def test_anything_else_is_not_a_ruling_id(self, cell: str, want: str) -> None:
+        _, failures = ptm.ruling_ids(cell, "f:1")
+        assert failures == [f"f:1: {want} is not a ruling id"]
+
+    def test_the_record_is_read(self) -> None:
+        record = ptm.parse_as_built(_as_built(GOOD_RULINGS, GOOD_APPENDIX), "a.md")
+        assert record.failures == []
+        assert [(r.line, r.ids) for r in record.rulings] == [
+            (7, ("R1", "R1-corr")),
+            (8, ("G8-a",)),
+            (9, ("D-W2.2b",)),
+        ]
+        assert [
+            (a.line, a.number, a.bold, a.keys, a.rulings) for a in record.appendix
+        ] == [
+            (15, "1", True, ("one",), ("R1",)),
+            (16, "2", False, (), ()),
+        ]
+
+    def test_other_tables_are_ignored(self) -> None:
+        text = "| Column | Content |\n| --- | --- |\n| Ruling | x |\n\n" + _as_built(
+            GOOD_RULINGS, GOOD_APPENDIX
+        )
+        record = ptm.parse_as_built(text, "a.md")
+        assert record.failures == []
+        assert len(record.rulings) == 3
+
+    @pytest.mark.parametrize(
+        ("rulings", "want"),
+        [
+            pytest.param(
+                (*GOOD_RULINGS, "| R1 | d | p | b | x | o |"),
+                ["a.md:10: ruling R1 already has the row at line 7"],
+                id="repeated-id",
+            ),
+            pytest.param(
+                ("| R1 | d | p | b | x |",),
+                ["a.md:7: expected 6 cells, found 5"],
+                id="short",
+            ),
+            pytest.param(
+                ("| — | d | p | b | x | o |",),
+                ["a.md:7: '—' is not a ruling id"],
+                id="blank-id",
+            ),
+        ],
+    )
+    def test_bad_ruling_rows_fail(
+        self, rulings: tuple[str, ...], want: list[str]
+    ) -> None:
+        record = ptm.parse_as_built(
+            _as_built(rulings, ("| 1 | x | no | — | — |",)), "a.md"
+        )
+        assert record.failures == want
+
+    def test_a_record_without_a_ruling_table_fails(self) -> None:
+        text = "# As built\n\n" + APPENDIX_TABLE + "| 1 | x | no | — | — |\n"
+        record = ptm.parse_as_built(text, "a.md")
+        header = " | ".join(ptm.RULING_HEADER)
+        assert record.failures == [
+            f"a.md: no ruling table (a table headed | {header} |)"
+        ]
+
+    def test_a_header_without_its_separator_fails(self) -> None:
+        text = RULING_TABLE.splitlines()[0] + "\n| R1 | d | p | b | x | o |\n"
+        record = ptm.parse_as_built(text, "a.md")
+        assert record.failures[0] == (
+            "a.md:2: the header must be followed by a separator of 6 cells"
+        )
+
+    @pytest.mark.parametrize(
+        ("row", "want"),
+        [
+            pytest.param(
+                "| 1 | Row one | maybe | — | — |",
+                "a.md:15: Bold is 'maybe', want yes or no",
+                id="bold-value",
+            ),
+            pytest.param(
+                "| 2 | Row one | no | — | — |",
+                "a.md:15: row numbered '2', want 1",
+                id="numbering",
+            ),
+            pytest.param(
+                "| 1 | Row one | no | see above | — |",
+                "a.md:15: Deviation keys is 'see above', want — or deviation "
+                '"<key>" citations',
+                id="keys-cell",
+            ),
+            pytest.param(
+                "| 1 | Row one | no | — | R1 and R2 |",
+                "a.md:15: 'R1 and R2' is not a ruling id",
+                id="rulings-cell",
+            ),
+        ],
+    )
+    def test_bad_appendix_rows_fail(self, row: str, want: str) -> None:
+        record = ptm.parse_as_built(_as_built(GOOD_RULINGS, (row,)), "a.md")
+        assert record.failures == [want]
+
+    @pytest.mark.parametrize("copies", [0, 2])
+    def test_exactly_one_appendix_table(self, copies: int) -> None:
+        text = "# As built\n\n" + RULING_TABLE + GOOD_RULINGS[2] + "\n"
+        for _ in range(copies):
+            text += "\n" + APPENDIX_TABLE + "| 1 | x | no | — | — |\n"
+        record = ptm.parse_as_built(text, "a.md")
+        assert record.failures[0].startswith(f"a.md: {copies} Appendix B tables")
+
+    def _check(
+        self,
+        rulings: tuple[str, ...],
+        appendix: tuple[str, ...],
+        dev: str = AS_BUILT_DEV,
+        listed: dict[str, set[str]] | None = None,
+    ) -> list[str]:
+        record = ptm.parse_as_built(_as_built(rulings, appendix), "a.md")
+        assert record.failures == []
+        failures: list[str] = ptm.check_as_built(
+            record, _deviations_of(dev), listed, "a.md", "d.md"
+        )
+        return failures
+
+    def test_a_closed_set_passes(self) -> None:
+        assert self._check(GOOD_RULINGS, GOOD_APPENDIX) == []
+
+    def test_a_key_cited_nowhere_fails(self) -> None:
+        dev = AS_BUILT_DEV + "| four | p | g | w | — |\n"
+        assert self._check(GOOD_RULINGS, GOOD_APPENDIX, dev) == [
+            "d.md:8: the key 'four' is cited by no Appendix B row and no ruling of a.md"
+        ]
+
+    def test_a_citation_that_is_no_key_fails_in_either_table(self) -> None:
+        rulings = (*GOOD_RULINGS, '| R2 | d | p | built (deviation "gone") | x | o |')
+        appendix = (
+            '| 1 | Row one | yes | deviation "one"; deviation "lost" | R1 |',
+            GOOD_APPENDIX[1],
+        )
+        assert self._check(rulings, appendix) == [
+            'a.md:10: deviation "gone" is not a key of d.md',
+            'a.md:16: deviation "lost" is not a key of d.md',
+        ]
+
+    def test_a_bold_row_needs_a_deviation_or_rulings(self) -> None:
+        dev = _dev("| two | p | g | w | — |", "| three | p | g | w | — |")
+        appendix = ("| 1 | Row one | yes | — | — |", GOOD_APPENDIX[1])
+        assert self._check(GOOD_RULINGS, appendix, dev) == [
+            (
+                "a.md:15: Appendix B row 1 is bold but names neither a deviation "
+                "nor the rulings that replaced it"
+            )
+        ]
+
+    def test_a_bold_row_may_stand_by_rulings_alone(self) -> None:
+        dev = _dev("| two | p | g | w | — |", "| three | p | g | w | — |")
+        appendix = ("| 1 | Row one | yes | — | R1, G8-a |", GOOD_APPENDIX[1])
+        assert self._check(GOOD_RULINGS, appendix, dev) == []
+
+    def test_an_appendix_ruling_needs_a_row(self) -> None:
+        appendix = ('| 1 | Row one | yes | deviation "one" | R404 |', GOOD_APPENDIX[1])
+        assert self._check(GOOD_RULINGS, appendix) == [
+            "a.md:15: ruling R404 has no row in a ruling table"
+        ]
+
+    def test_quoted_go_names_must_be_listed(self) -> None:
+        rulings = (
+            *GOOD_RULINGS,
+            "| R2 | d | p | b | `codec.TestFour`, `wire.TestFour`, `TestGone` | o |",
+        )
+        listed = {
+            "example.com/m": {"TestOne", "TestThree"},
+            "example.com/m/internal/codec": {"TestFour"},
+        }
+        assert self._check(rulings, GOOD_APPENDIX, listed=listed) == [
+            "a.md:10: TestFour is not listed by go test -list '.*' -tags live ./...",
+            "a.md:10: TestGone is not listed by go test -list '.*' -tags live ./...",
+        ]
+        assert self._check(rulings, GOOD_APPENDIX, listed=None) == []
+
+    def test_the_summary_counts_the_closed_set(self) -> None:
+        record = ptm.parse_as_built(_as_built(GOOD_RULINGS, GOOD_APPENDIX), "a.md")
+        assert ptm.as_built_summary(record, _deviations_of(AS_BUILT_DEV)) == (
+            "as-built: 2 Appendix B rows (1 bold: 1 reach matrix rows, 0 no upstream "
+            "test, 0 by ruling only), 3 keys (1 from Appendix B, 2 from rulings "
+            "only), 4 rulings, 2 Go names"
+        )
+
+    @pytest.mark.usefixtures("pinned")
+    def test_main_checks_the_record_given_with_as_built(
+        self,
+        upstream: Path,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        matrix = (
+            _full(
+                (
+                    '| A1 | `test_one` | deviation "one" | deviation |',
+                    "| A2 | `test_two` | `TestTwo` | ported |",
+                ),
+                "| B1 | `test_three` | `TestThree` | ported |",
+            )
+            + "\nRows by status: 1 deviation, 0 planned, 2 ported.\n"
+        )
+        files = TestMain._files(tmp_path, matrix=matrix)
+        dev = tmp_path / "deviations.md"
+        dev.write_text(AS_BUILT_DEV)
+        built = tmp_path / "as-built.md"
+        built.write_text(_as_built(GOOD_RULINGS, GOOD_APPENDIX))
+        args = ["--upstream", str(upstream), *files, "--deviations", str(dev)]
+
+        assert ptm.main([*args, "--as-built", str(built)]) == 0
+        assert caplog.messages == []
+        assert capsys.readouterr().out == (
+            "port-test-matrix: OK, 3 upstream tests (1 deviation, 0 planned, 2 "
+            "ported); as-built: 2 Appendix B rows (1 bold: 1 reach matrix rows, 0 "
+            "no upstream test, 0 by ruling only), 3 keys (1 from Appendix B, 2 "
+            "from rulings only), 4 rulings, 2 Go names\n"
+        )
+
+        built.write_text(_as_built(GOOD_RULINGS[1:], GOOD_APPENDIX))
+        assert ptm.main([*args, "--as-built", str(built)]) == 1
+        assert caplog.messages == [
+            f"{built}:14: ruling R1 has no row in a ruling table",
+            (
+                f"{dev}:6: the key 'two' is cited by no Appendix B row and no "
+                f"ruling of {built}"
+            ),
+            "port-test-matrix: 2 failure(s)",
+        ]
+
+        caplog.clear()
+        assert ptm.main([*args, "--as-built", str(tmp_path / "no.md")]) == 1
+        assert caplog.messages[0].startswith(f"{tmp_path / 'no.md'}: cannot read (")
+
+        caplog.clear()
+        no_dev = ["--upstream", str(upstream), *files, "--as-built", str(built)]
+        assert ptm.main(no_dev) == 1
+        assert caplog.messages == [
+            "--as-built needs --deviations: check 8 compares the two",
+            "port-test-matrix: 1 failure(s)",
+        ]
+
+    @pytest.fixture
+    def upstream(self, tmp_path: Path) -> Path:
+        return _upstream_repo(tmp_path)
+
+    @pytest.fixture
+    def pinned(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(ptm, "upstream_head", lambda _: ptm.PINNED_COMMIT)
+        monkeypatch.setattr(ptm, "EXPECTED_TEST_COUNT", len(UPSTREAM))
+        _fake_go(monkeypatch, _fake_run(stdout=GO_LIST_OK))
+
+
 class TestRepositoryDeviations:
+    def test_the_repository_record_closes_the_set(self) -> None:
+        root = SCRIPT.parents[2]
+        deviations, failures = ptm.parse_deviations(
+            (root / "docs" / "deviations.md").read_text(), "docs/deviations.md"
+        )
+        assert failures == []
+        record = ptm.parse_as_built(
+            (root / "docs" / "as-built.md").read_text(), "docs/as-built.md"
+        )
+        assert record.failures == []
+        got = ptm.check_as_built(
+            record, deviations, None, "docs/as-built.md", "docs/deviations.md"
+        )
+        assert got == []
+
     def test_the_repository_table_matches_the_matrix(self) -> None:
         root = SCRIPT.parents[2]
         rows = ptm.parse_matrix((root / "docs" / "port-test-matrix.md").read_text())

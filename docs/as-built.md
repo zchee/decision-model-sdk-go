@@ -11,7 +11,8 @@ authoritative over the plan text, which was never edited after its
 approval.
 
 This page is the record of those changes: one table per phase, a row per
-ruling that changed the contract. It names tests, rulings
+ruling that changed the contract, and at the end the plan's Appendix B row
+by row against [`deviations.md`](deviations.md). It names tests, rulings
 and ledger rows, not source files, so a later move of code does not break
 it. For what the SDK does differently from the Python SDK, read
 [`deviations.md`](deviations.md); for every performance number, the
@@ -30,6 +31,9 @@ it. For what the SDK does differently from the Python SDK, read
 
 A deviation that the change created or reshaped is cited as
 `deviation "<key>"`, the key of its row in [`deviations.md`](deviations.md).
+`.github/scripts/port-test-matrix.py --as-built` checks, in CI, every
+citation on this page against that table, every key of that table against
+this page, and every test name against `go test -list`.
 
 ## Phase 0: foundation and spikes
 
@@ -372,3 +376,68 @@ of short inputs found by W6.2, the Marshaler validation (K26), the
 negative-zero spelling (K27), CodSpeed's per-iteration samples (K35) and
 the Go 1.27.1 linker's panic when `RetryPolicy` loses its marker field
 stay internal notes.
+
+## Appendix B, row by row
+
+The plan's Appendix B mapped the Python SDK's behaviour to the Go port's in
+47 rows and marked the deviations in bold. The table takes them in the
+plan's order: the row's Python side as the plan wrote it, whether the plan
+marked it a deviation, the rows of [`deviations.md`](deviations.md) that
+carry it now, and the rulings that changed it. A bold row names at least
+one of the two. The deviation table's last column lists the upstream tests
+each key replaces, or `—` when no upstream test reaches the behaviour.
+
+| # | Appendix B row (Python SDK 0.7.1) | Bold | Deviation keys | Rulings |
+| --- | --- | --- | --- | --- |
+| 1 | Sync and async clients | yes | deviation "Sync and async clients → one `*Client`, `context.Context`" | — |
+| 2 | httpx per-phase timeouts; `http_client.timeout` precedence | yes | deviation "one deadline per attempt"; deviation "a custom transport owns its timeouts" | — |
+| 3 | `transport=`/`http_client=` mutually exclusive; supplied client closed with the SDK client | yes | deviation "one transport option, two kinds" | R67, R79 |
+| 4 | httpx honours proxy env variables | yes | deviation "the ALPN check applies to the API hop" | R20, K16 |
+| 5 | `.nouls/.choices/.scores` cached copies | no | deviation "`iter.Seq2` filters" | — |
+| 6 | `response_model=` (questions passed separately; `Optional` fields default to `None`) | no | deviation "typed answers by struct tags" | R94, R99 |
+| 7 | Picklable/copyable errors and responses | no | deviation "errors are values"; deviation "no process pools"; deviation "responses are values" | D-W3.1 |
+| 8 | `request_id` raises when absent | no | — | — |
+| 9 | `raw_http_response` | no | — | — |
+| 10 | Response constructible without HTTP response; `raw_http_response` raises | yes | deviation "empty `Meta()`" | — |
+| 11 | Responses serialise to the payload and read back | no | — | R80 |
+| 12 | Frozen models | no | deviation "unexported fields with getters" | — |
+| 13 | `Usage` counts optional; negative accepted | yes | deviation "usage counts" | R70 |
+| 14 | `RetryPolicy.exceptions` | yes | deviation "`RetryPolicy.exceptions` → dropped; `Predicate` kept" | R88 |
+| 15 | `TYPESAFE_LOG_LEVEL` | yes | deviation "`TYPESAFE_LOG_LEVEL` not read" | — |
+| 16 | DEBUG logs full bodies | yes | deviation "bodies at LevelTrace" | — |
+| 17 | Unknown-answer WARN per answer | yes | deviation "unknown answers logged at most 8 times" | — |
+| 18 | SDK/runtime headers | no | deviation "SDK headers" | R63 |
+| 19 | NaN/Infinity written | yes | deviation "NaN and infinities refused" | R36 |
+| 20 | No response size limit | yes | deviation "response size limit" | R26, R27 |
+| 21 | Any nesting depth | yes | deviation "nesting depth" | R73 |
+| 22 | ALPN chooses | yes | deviation "HTTP/2 only on https" | G2 |
+| 23 | Server messages verbatim; a non-JSON plain-text body never cut (`pytest:test_errors.py:148`; a JSON body without a message member is cut at 200 + `…` by Python too, `:149`) | yes | deviation "plain-text body cut at 200" | R58 |
+| 24 | `Retry-After` float ms | no | deviation "`Retry-After` precision" | R73 |
+| 25 | Empty explicit default model sent | yes | deviation "configuration checked at build" | R63 |
+| 26 | Base URL checked at first request | yes | deviation "configuration checked at build" | R63 |
+| 27 | Caller framing headers sent | yes | deviation "caller headers" | R66 |
+| 28 | Redaction by header name | no | deviation "stored headers redacted"; deviation "redaction by source" | R87, R107 |
+| 29 | Transport error text verbatim | yes | deviation "cause via `errors.Unwrap` unless it printed a credential" | R81, R82 |
+| 30 | Typed noul sends `null` outcomes / empty criteria | no | deviation "Typed noul sends `null` outcomes / empty criteria" | — |
+| 31 | Duplicate question names keep the last | yes | deviation "duplicate question names refused" | R94 |
+| 32 | Body that is not an object fails at `''` | no | deviation "root path" | — |
+| 33 | Answer `type` pre-pass, then first error in wire/schema order | yes | deviation "legend value path" | R70 |
+| 34 | Duplicate keys: last wins (top-level members, answer names, members, `type`) | no | — | R24 |
+| 35 | Level keys via pydantic lax `int` (`" 1"`, `"1_0"`, `"1.0"`, `"-1"`, `"4294967296"` accepted) | yes | deviation "score level keys" | — |
+| 36 | 2xx in retry statuses retries a non-validating body | yes | deviation "2xx in retry statuses retries a non-validating body → never; `Predicate` can opt in" | R88 |
+| 37 | Raw dict questions | no | deviation "raw question field order" | R37, R38 |
+| 38 | `str` subclasses / abstract containers / top-level `None` refused | no | deviation "`any` state" | R48, R49 |
+| 39 | Unknown fields rejected on typed questions | no | deviation "not representable" | — |
+| 40 | HTTP/2 transparent replays invisible | no | — | — |
+| 41 | `tests/test_public_sync.py`: dev→public sync tooling (skipped outside the dev repository) | yes | deviation "dev→public sync tooling not ported" | — |
+| 42 | `.github/scripts/release_notes.py` | yes | deviation "no release-notes script" | — |
+| 43 | sybil doctests over README, `docs/*.md` and docstrings (live) | no | deviation "no sybil" | — |
+| 44 | `__all__` and constructor-kwargs snapshots | no | — | R120 |
+| 45 | `model_validate_json` rejects raw control characters (U+0000–U+001F) and lone surrogates inside strings | yes | deviation "lone surrogates" | R14 |
+| 46 | `1e400` in a float member (`noul`, `probabilities`): `from_json` → ±inf, accepted (`py:_core/json.py:29-35`) | yes | deviation "non-finite numbers in a response" | R73 |
+| 47 | pyrefly expectation fixtures (`tests/typing/`: negative expectations and three positive fixtures) | no | deviation "pyrefly fixtures"; deviation "typed tag rules" | R96 |
+
+Rows 8, 9, 11, 34 and 40 are parity, as the plan wrote them. Row 33 is
+parity for the order of failures since R70; its residual is the legend
+value path. Row 45 splits: a raw control character is refused as Python
+refuses it (R14), and a lone surrogate is the deviation.

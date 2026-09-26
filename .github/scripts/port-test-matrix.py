@@ -108,6 +108,24 @@ status is 0 only when every check passes.
    and each key's cell names exactly the rows that cite it. A partial
    deviation citing two rows (``deviation "a" … deviation "b"``) is listed
    under both keys.
+8. As-built record (only with ``--as-built FILE``, which needs
+   ``--deviations``). FILE's ruling tables, headed ``| Ruling | Date (UTC) |
+   Plan text amended | As built | Pinned by | Owner |``, hold one row per
+   ruling that changed the port plan: the Ruling cell is ruling ids separated
+   by commas (``R81``, ``R99-rev``, ``G8-a``, ``D-W2.2b``), and an id has one
+   row in all of them. FILE also holds exactly one Appendix B table, headed
+   ``| # | Appendix B row (Python SDK 0.7.1) | Bold | Deviation keys |
+   Rulings |``: the plan's Appendix B transcribed row by row, numbered 1, 2,
+   …, Bold ``yes`` or ``no``, Deviation keys ``—`` or ``deviation "<key>"``
+   citations, Rulings ``—`` or the ids of ruling-table rows. The plan lives
+   outside the repository, so the transcription itself was checked by hand.
+   FILE and the deviation table agree in both directions: every citation in
+   FILE is a key, and every key is cited by the Appendix B table or by a
+   ruling row, so no deviation lacks the plan row or the ruling it came from;
+   a bold row names a key or the rulings that replaced it. Every
+   backtick-quoted ``Test…``, ``Benchmark…``, ``Fuzz…`` or ``Example…`` name
+   in a ruling table (a ``/sub`` suffix is ignored) must be listed by the
+   ``go test -list`` run, as for ``ported`` rows.
 
 ``go test -list`` runs even when no row needs it, so a module that stops
 compiling under ``-tags live`` fails this check from the first wave on.
@@ -168,6 +186,28 @@ _STATUS_LINE = re.compile(r"Rows by status: (?P<counts>.+)\.")
 _ROW_ID = re.compile(r"[A-Z]+\d+")
 DEVIATION_HEADER = ("Key", "Python SDK 0.7.1", "Go SDK", "Why", "Matrix rows")
 NO_ROWS = "—"
+RULING_HEADER = (
+    "Ruling",
+    "Date (UTC)",
+    "Plan text amended",
+    "As built",
+    "Pinned by",
+    "Owner",
+)
+APPENDIX_HEADER = (
+    "#",
+    "Appendix B row (Python SDK 0.7.1)",
+    "Bold",
+    "Deviation keys",
+    "Rulings",
+)
+BOLD = {"yes": True, "no": False}
+_RULING_ID = re.compile(
+    r"D-[A-Za-z0-9.]+(?:-[A-Za-z0-9.]+)*|[A-Z]\d+[a-z]?(?:-[a-z0-9]+)*"
+)
+_GO_NAME = re.compile(
+    r"(?:([A-Za-z_]\w*)\.)?((?:Test|Benchmark|Fuzz|Example)[A-Za-z0-9_]*)(?:/\S*)?"
+)
 
 
 @dataclass(frozen=True)
@@ -201,6 +241,35 @@ class Matrix:
     """Parsed matrix rows plus the parse failures found on the way."""
 
     rows: list[Row] = field(default_factory=list)
+    failures: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class RulingRow:
+    """One row of an as-built ruling table: its ids and its cells."""
+
+    line: int
+    ids: tuple[str, ...]
+    cells: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class AppendixRow:
+    """One row of the as-built Appendix B table."""
+
+    line: int
+    number: str
+    bold: bool
+    keys: tuple[str, ...]
+    rulings: tuple[str, ...]
+
+
+@dataclass
+class AsBuilt:
+    """The as-built record's tables plus the parse failures found on the way."""
+
+    rulings: list[RulingRow] = field(default_factory=list)
+    appendix: list[AppendixRow] = field(default_factory=list)
     failures: list[str] = field(default_factory=list)
 
 
@@ -627,11 +696,7 @@ def _missing_tests(
     """Return one failure per identifier that ``go test -list`` did not list."""
     failures = []
     for pkg, name in idents:
-        found = any(
-            name in names and (pkg is None or path == pkg or path.endswith(f"/{pkg}"))
-            for path, names in listed.items()
-        )
-        if not found:
+        if not _is_listed(pkg, name, listed):
             shown = f"{pkg}.{name}" if pkg else name
             failures.append(
                 f"row {row.row_id} ({row.key}): {shown} is not listed by "
@@ -918,6 +983,258 @@ def check_deviations(
     return failures
 
 
+def _tables(
+    text: str, header: tuple[str, ...], source: str
+) -> tuple[list[list[tuple[int, list[str]]]], list[str]]:
+    """Return the body rows of every table of ``text`` headed ``header``.
+
+    Args:
+        text: the Markdown document.
+        header: the header cells that select a table.
+        source: the name used in failure messages.
+
+    Returns:
+        One list of ``(line number, cells)`` pairs per selected table, in
+        document order, and one failure per selected table whose header is
+        not followed by a separator of as many cells and per body row with
+        another number of cells (the row is left out).
+    """
+    found: list[list[tuple[int, list[str]]]] = []
+    failures: list[str] = []
+    current: list[tuple[int, list[str]]] | None = None
+    header_seen = False
+    lines_in_table = 0
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        body = _table_line(line)
+        if body is None:
+            lines_in_table, header_seen, current = 0, False, None
+            continue
+        lines_in_table += 1
+        cells = _cells(body)
+        where = f"{source}:{lineno}"
+        if lines_in_table == 1:
+            header_seen = tuple(cells) == header
+        elif lines_in_table == 2 and header_seen:
+            if _is_separator(cells) and len(cells) == len(header):
+                current = []
+                found.append(current)
+            else:
+                failures.append(
+                    f"{where}: the header must be followed by a separator of "
+                    f"{len(header)} cells"
+                )
+        elif current is not None:
+            if len(cells) == len(header):
+                current.append((lineno, cells))
+            else:
+                failures.append(
+                    f"{where}: expected {len(header)} cells, found {len(cells)}"
+                )
+    return found, failures
+
+
+def ruling_ids(cell: str, where: str) -> tuple[tuple[str, ...], list[str]]:
+    """Split a cell of ruling ids separated by commas (check 8).
+
+    Returns:
+        The ids, and one failure per part that is not exactly one ruling id.
+    """
+    ids: list[str] = []
+    failures: list[str] = []
+    for part in cell.split(","):
+        token = part.strip()
+        if _RULING_ID.fullmatch(token):
+            ids.append(token)
+        else:
+            failures.append(f"{where}: {token!r} is not a ruling id")
+    return tuple(ids), failures
+
+
+def cited_keys(cell: str) -> list[str]:
+    """Return every non-blank reference a cell cites as ``deviation "<key>"``."""
+    return [m.group(1) for m in _QUOTED_DEVIATION.finditer(cell) if m.group(1).strip()]
+
+
+def _appendix_row(cells: list[str], lineno: int, where: str) -> AppendixRow | list[str]:
+    """Turn the cells of one Appendix B row into a row or its failures."""
+    number, _, bold, keys_cell, rulings_cell = cells
+    failures: list[str] = []
+    if bold not in BOLD:
+        failures.append(f"{where}: Bold is {bold!r}, want yes or no")
+    keys = tuple(cited_keys(keys_cell))
+    if keys_cell != NO_ROWS and not keys:
+        failures.append(
+            f"{where}: Deviation keys is {keys_cell!r}, want {NO_ROWS} or "
+            'deviation "<key>" citations'
+        )
+    rulings: tuple[str, ...] = ()
+    if rulings_cell != NO_ROWS:
+        rulings, id_failures = ruling_ids(rulings_cell, where)
+        failures += id_failures
+    if failures:
+        return failures
+    return AppendixRow(lineno, number, BOLD[bold], keys, rulings)
+
+
+def parse_as_built(text: str, source: str) -> AsBuilt:
+    """Read the as-built record's ruling tables and Appendix B table (check 8).
+
+    Args:
+        text: the Markdown document.
+        source: the name used in failure messages.
+
+    Returns:
+        The rows, and the failures: a malformed table or row, a Ruling cell
+        that is not ids, an id with two rows, no ruling table, not exactly
+        one Appendix B table, and a row of it numbered out of sequence.
+    """
+    record = AsBuilt()
+    tables, failures = _tables(text, RULING_HEADER, source)
+    record.failures += failures
+    first: dict[str, int] = {}
+    for lineno, cells in (row for table in tables for row in table):
+        ids, id_failures = ruling_ids(cells[0], f"{source}:{lineno}")
+        record.failures += id_failures
+        for rid in ids:
+            if (seen := first.setdefault(rid, lineno)) != lineno:
+                record.failures.append(
+                    f"{source}:{lineno}: ruling {rid} already has the row at line {seen}"
+                )
+        record.rulings.append(RulingRow(lineno, ids, tuple(cells)))
+    if not tables:
+        header = " | ".join(RULING_HEADER)
+        record.failures.append(
+            f"{source}: no ruling table (a table headed | {header} |)"
+        )
+
+    tables, failures = _tables(text, APPENDIX_HEADER, source)
+    record.failures += failures
+    if len(tables) != 1:
+        header = " | ".join(APPENDIX_HEADER)
+        record.failures.append(
+            f"{source}: {len(tables)} Appendix B tables (headed | {header} |), want 1"
+        )
+    for want, (lineno, cells) in enumerate(tables[0] if tables else [], start=1):
+        where = f"{source}:{lineno}"
+        if cells[0] != str(want):
+            record.failures.append(f"{where}: row numbered {cells[0]!r}, want {want}")
+        parsed = _appendix_row(cells, lineno, where)
+        if isinstance(parsed, list):
+            record.failures += parsed
+        else:
+            record.appendix.append(parsed)
+    return record
+
+
+def _is_listed(pkg: str | None, name: str, listed: dict[str, set[str]]) -> bool:
+    """Report whether ``go test -list`` printed ``name``, in ``pkg`` if given."""
+    return any(
+        name in names and (pkg is None or path == pkg or path.endswith(f"/{pkg}"))
+        for path, names in listed.items()
+    )
+
+
+def as_built_go_names(record: AsBuilt) -> list[tuple[int, str | None, str]]:
+    """Return ``(line, package or None, name)`` per Go name a ruling row quotes."""
+    return [
+        (row.line, m.group(1), m.group(2))
+        for row in record.rulings
+        for cell in row.cells
+        for span in _BACKTICK.findall(cell)
+        if (m := _GO_NAME.fullmatch(span))
+    ]
+
+
+def check_as_built(
+    record: AsBuilt,
+    deviations: list[Deviation],
+    listed: dict[str, set[str]] | None,
+    source: str,
+    dev_source: str,
+) -> list[str]:
+    """Return the failures of check 8 beyond parsing.
+
+    Args:
+        record: the parsed as-built record.
+        deviations: the rows :func:`parse_deviations` returned.
+        listed: the :func:`parse_go_list` map, or ``None`` to leave the Go
+            names unchecked.
+        source: the as-built document's name, for messages.
+        dev_source: the deviation document's name, for messages.
+
+    Returns:
+        One failure per citation that is no key, per key that nothing in the
+        record cites, per bold Appendix B row with neither a key nor a
+        ruling, per Appendix B ruling without a row, and per quoted Go name
+        that ``go test -list`` did not print.
+    """
+    failures: list[str] = []
+    keys = {d.key for d in deviations}
+    ruled = {rid for row in record.rulings for rid in row.ids}
+    cited: set[str] = set()
+
+    def cite(key: str, where: str) -> None:
+        cited.add(key)
+        if key not in keys:
+            failures.append(f'{where}: deviation "{key}" is not a key of {dev_source}')
+
+    for rrow in record.rulings:
+        for cell in rrow.cells:
+            for key in cited_keys(cell):
+                cite(key, f"{source}:{rrow.line}")
+    for arow in record.appendix:
+        where = f"{source}:{arow.line}"
+        if arow.bold and not arow.keys and not arow.rulings:
+            failures.append(
+                f"{where}: Appendix B row {arow.number} is bold but names neither "
+                "a deviation nor the rulings that replaced it"
+            )
+        for key in arow.keys:
+            cite(key, where)
+        failures += [
+            f"{where}: ruling {rid} has no row in a ruling table"
+            for rid in arow.rulings
+            if rid not in ruled
+        ]
+    failures += [
+        f"{dev_source}:{d.line}: the key {d.key!r} is cited by no Appendix B row "
+        f"and no ruling of {source}"
+        for d in deviations
+        if d.key not in cited
+    ]
+    if listed is not None:
+        failures += [
+            f"{source}:{line}: {name} is not listed by go test -list '.*' -tags "
+            "live ./..."
+            for line, pkg, name in as_built_go_names(record)
+            if not _is_listed(pkg, name, listed)
+        ]
+    return failures
+
+
+def as_built_summary(record: AsBuilt, deviations: list[Deviation]) -> str:
+    """Return what the as-built record holds, for the success line.
+
+    A bold Appendix B row "reaches matrix rows" when one of its keys lists
+    matrix rows, has "no upstream test" when its keys list none, and stands
+    "by ruling only" when it cites no key.
+    """
+    rows = {d.key: d.rows for d in deviations}
+    bold = [row for row in record.appendix if row.bold]
+    by_ruling = sum(1 for row in bold if not row.keys)
+    reach = sum(1 for row in bold if any(rows.get(key) for key in row.keys))
+    from_appendix = {key for row in record.appendix for key in row.keys}
+    names = {name for _, _, name in as_built_go_names(record)}
+    return (
+        f"as-built: {len(record.appendix)} Appendix B rows ({len(bold)} bold: "
+        f"{reach} reach matrix rows, {len(bold) - reach - by_ruling} no upstream "
+        f"test, {by_ruling} by ruling only), {len(rows)} keys "
+        f"({len(from_appendix)} from Appendix B, {len(rows) - len(from_appendix)} "
+        f"from rulings only), {sum(len(r.ids) for r in record.rulings)} rulings, "
+        f"{len(names)} Go names"
+    )
+
+
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     """Parse the command line; ``--upstream`` is required."""
     repo = Path(__file__).resolve().parents[2]
@@ -964,6 +1281,12 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         type=Path,
         metavar="FILE",
         help="deviation table the matrix's citations must match (check 7)",
+    )
+    parser.add_argument(
+        "--as-built",
+        type=Path,
+        metavar="FILE",
+        help="as-built record checked against --deviations (check 8)",
     )
     return parser.parse_args(argv)
 
@@ -1032,6 +1355,7 @@ def main(argv: list[str] | None = None) -> int:
     summary = status_summary(matrix.rows)
     if text:
         failures += check_status_line(text, summary, str(args.matrix))
+    deviations: list[Deviation] = []
     if args.deviations is not None:
         try:
             dev_text = args.deviations.read_text(encoding="utf-8")
@@ -1041,13 +1365,30 @@ def main(argv: list[str] | None = None) -> int:
             deviations, dev_failures = parse_deviations(dev_text, str(args.deviations))
             failures += dev_failures
             failures += check_deviations(matrix.rows, deviations, str(args.deviations))
+    record: AsBuilt | None = None
+    if args.as_built is not None and args.deviations is None:
+        failures.append("--as-built needs --deviations: check 8 compares the two")
+    elif args.as_built is not None:
+        try:
+            built_text = args.as_built.read_text(encoding="utf-8")
+        except OSError as exc:
+            failures.append(f"{args.as_built}: cannot read ({exc.strerror})")
+        else:
+            record = parse_as_built(built_text, str(args.as_built))
+            failures += record.failures
+            failures += check_as_built(
+                record, deviations, listed, str(args.as_built), str(args.deviations)
+            )
 
     if failures:
         for failure in failures:
             _LOG.error("%s", failure)
         _LOG.error("port-test-matrix: %d failure(s)", len(failures))
         return 1
-    print(f"port-test-matrix: OK, {len(upstream)} upstream tests ({summary})")
+    line = f"port-test-matrix: OK, {len(upstream)} upstream tests ({summary})"
+    if record is not None:
+        line += f"; {as_built_summary(record, deviations)}"
+    print(line)
     return 0
 
 
