@@ -513,8 +513,10 @@ func appendLeaf(dst []byte, v any) ([]byte, bool, error) {
 
 // sizeHint estimates the serialised size of the set, so that the builder's
 // buffer rarely grows: the text and JSON lengths plus the member names and
-// punctuation around them. Escaping can make the result longer and removing
-// whitespace from JSON shorter.
+// punctuation around them, and for a raw question 32 bytes per field plus
+// the length of a field that is a string, RawJSON or Content (W5.3's P3;
+// other values count 32 bytes). Escaping can make the result longer and
+// removing whitespace from JSON shorter.
 func (qs *Questions) sizeHint() int {
 	n := 0
 	for i := range qs.entries {
@@ -535,9 +537,28 @@ func (qs *Questions) sizeHint() int {
 			}
 		case formRaw:
 			n += len(e.raw.Type) + 32*len(e.raw.Fields)
+			for _, v := range e.raw.Fields {
+				n += rawValueSize(v)
+			}
 		}
 	}
 	return n
+}
+
+// rawValueSize is the size of a raw field's value as written, before escaping
+// or compaction, when the value is a string, RawJSON or Content, and 0
+// otherwise, whose size sizeHint's 32 bytes per field stand for.
+func rawValueSize(v any) int {
+	switch v := v.(type) {
+	case string:
+		return len(v) + 2
+	case RawJSON:
+		return len(v)
+	case Content:
+		return contentSize(&v)
+	default:
+		return 0
+	}
 }
 
 // contentSize is the size of c as written, before escaping, plus its quotes.

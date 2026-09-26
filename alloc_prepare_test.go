@@ -33,9 +33,10 @@ import (
 // section (c1-sketch 9 → 6 with W5.3's P1, which sorts map keys on the
 // Builder's key stack) and of c5-raw-100x3, P1's case (1 710 → 14; 1 700 of
 // the 1 710 sorted the keys), and of the two NIT 8 score sets, P2's cases,
-// whose criteria the falsiness check no longer copies (with P1, 252 → 15
-// and 1 215 → 18). The other sets are measured and logged, with the bytes of
-// every run and the prepared length, for the ledger.
+// whose criteria the falsiness check no longer copies, and P3's, whose
+// buffer the size hint now covers (with P1 to P3, 252 → 10 and 1 215 → 13).
+// The other sets are measured and logged, with the bytes of every run and
+// the prepared length, for the ledger.
 func TestAllocPrepare(t *testing.T) {
 	testsupport.QuietRuntime(t)
 
@@ -51,9 +52,9 @@ func TestAllocPrepare(t *testing.T) {
 		"c4b-score-20x8-json": {mallocs: -1},
 		"c5-raw-100x3":        {mallocs: 14},
 		"c6-escapes":          {mallocs: -1},
-		"n8a-array-score":     {mallocs: 15},
+		"n8a-array-score":     {mallocs: 10},
 		"n8a-array-control":   {mallocs: -1},
-		"n8b-map-score":       {mallocs: 18},
+		"n8b-map-score":       {mallocs: 13},
 		"n8b-map-control":     {mallocs: -1},
 	}
 	if diff := gocmp.Diff(slices.Sorted(maps.Keys(prepareCases)), slices.Sorted(maps.Keys(tests))); diff != "" {
