@@ -586,11 +586,15 @@ type errorView struct {
 
 // sameErrorValues compares the errors of an errorView by identity, so that an
 // Unwrap chain of a copy must hold the very values the original's does. An
-// error of a type that cannot be compared is different from every other, so
-// that a row fails where == would panic.
+// error that cannot be compared (a comparable struct whose interface field
+// holds a slice, say) is different from every other, so that a row fails
+// where == would panic.
 var sameErrorValues = gocmp.Comparer(func(a, b error) bool {
-	ta, tb := reflect.TypeOf(a), reflect.TypeOf(b)
-	return ta == tb && (ta == nil || ta.Comparable()) && a == b //nolint:errorlint // identity is the point: errors.Is would accept a wrapped error.
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	va, vb := reflect.ValueOf(a), reflect.ValueOf(b)
+	return va.Type() == vb.Type() && va.Comparable() && vb.Comparable() && a == b //nolint:errorlint // identity is the point: errors.Is would accept a wrapped error.
 })
 
 // errorTypeName returns the name errorView.Type holds for T.
@@ -619,8 +623,8 @@ func errorViewOf(e Error) errorView {
 	return v
 }
 
-// unwrappedErrors returns what err unwraps to one level down, through either form
-// of Unwrap.
+// unwrappedErrors returns what err unwraps to one level down, through either
+// form of Unwrap.
 func unwrappedErrors(err error) []error {
 	switch u := err.(type) { //nolint:errorlint // one level of this error only, not the chain.
 	case interface{ Unwrap() error }:
@@ -670,8 +674,8 @@ func listModelsError[T Error](t *testing.T, rec *testsupport.Recorder) T {
 	return e
 }
 
-// responseValidationError builds the *ResponseValidationError the SDK builds for a
-// response with status and header, whose body decoding failed with err.
+// responseValidationError builds the *ResponseValidationError the SDK builds
+// for a response with status and header, whose body decoding failed with err.
 func responseValidationError(status int, header http.Header, err error) *ResponseValidationError {
 	return newResponseValidationError(&wire.ResponseMeta{Status: status, Header: header, Body: []byte(`{}`)}, "", err)
 }
@@ -687,14 +691,14 @@ func responseValidationError(status int, header http.Header, err error) *Respons
 //
 // The rows, by upstream row: 1 TypeSafeError is "*ConfigError"; 2
 // TypeSafeAPIConnectionError is "*ConnectionError"; 3 to 11 are the status
-// rows "row 3" to "row 11", built by newAPIError as the SDK builds them, except
-// row 4 (a message set by the caller, so a literal); the 429 runs a second
-// time through the client; 12 is "row 12" (and "*ResponseValidationError", with a
-// request id, which upstream's row lacks); 13 is "*TimeoutError"; 14, whose
-// httpx Timeout object has no Go counterpart (one deadline per attempt,
-// Appendix B), is "row 14", the deadline that came from the caller's context
-// alone. The other rows are the Go types with no upstream row and the fields
-// no upstream row sets.
+// rows "row 3" to "row 11", built by newAPIError as the SDK builds them,
+// except row 4 (a message set by the caller, so a literal); the 429 runs a
+// second time through the client; 12 is "row 12" (and
+// "*ResponseValidationError", with a request id, which upstream's row lacks);
+// 13 is "*TimeoutError"; 14, whose httpx Timeout object has no Go counterpart
+// (one deadline per attempt, Appendix B), is "row 14", the deadline that came
+// from the caller's context alone. The other rows are the Go types with no
+// upstream row and the fields no upstream row sets.
 func TestErrorsAsRoundTrip(t *testing.T) {
 	decodeErr := &codec.DecodeError{Path: codec.FieldPath{Top: "answers", Name: "q", HasName: true, Member: "noul"}, Err: errors.New("missing")}
 	cause := errors.New("proxyconnect tcp: connection refused")
