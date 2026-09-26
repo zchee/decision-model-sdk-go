@@ -582,6 +582,62 @@ func TestAskValidationFieldPaths(t *testing.T) {
 	}
 }
 
+// TestTypedErrorWrapsDecodeError pins what a typed failure wraps (ruling
+// R99-rev): FieldPath names the answer in the lifted model's form, while
+// the decode error Unwrap returns keeps the answer's place in the body,
+// under "answers", and says the response data is invalid (the decoder's
+// "invalid response data: …", not a JSON failure's "invalid JSON: …").
+// Both entry points wrap the same error.
+func TestTypedErrorWrapsDecodeError(t *testing.T) {
+	tests := map[string]struct {
+		body              []byte
+		outer, inner, msg string
+	}{
+		"error: a pick T does not list": {
+			body:  resultWith(spamJSON, `"tone":{"type":"choice","choice":"unknown","confidence":0.9,"probabilities":{"friendly":0.9,"hostile":0.1}}`, qualityJSON),
+			outer: "tone.choice",
+			inner: "answers.tone.choice",
+			msg:   "invalid response data: " + errTypedOption.Error(),
+		},
+		"error: a required answer absent": {
+			body:  resultWith(toneJSON, qualityJSON),
+			outer: "spam",
+			inner: "answers.spam",
+			msg:   "invalid response data: " + errTypedMissing.Error(),
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			var resp SystemOneResponse
+			if err := resp.UnmarshalJSON(tt.body); err != nil {
+				t.Fatalf("UnmarshalJSON: %v", err)
+			}
+			c := newTestClient(t, replying(http.StatusOK, tt.body))
+			for form, run := range map[string]func() error{
+				"DecodeAs": func() error { _, err := DecodeAs[typedSystemOneResponse](&resp); return err },
+				"Ask":      func() error { _, err := Ask[typedSystemOneResponse](t.Context(), c, "x"); return err },
+			} {
+				err := run()
+				var rve *ResponseValidationError
+				if !errors.As(err, &rve) {
+					t.Fatalf("%s: err = %T %v, want *ResponseValidationError", form, err, err)
+				}
+				inner := errors.Unwrap(rve)
+				if reflect.TypeOf(inner) != reflect.TypeFor[*codec.DecodeError]() {
+					t.Fatalf("%s: Unwrap = %T, want the *codec.DecodeError itself", form, inner)
+				}
+				de, _ := errors.AsType[*codec.DecodeError](inner)
+				type view struct{ Outer, Inner, Msg string }
+				want := view{Outer: tt.outer, Inner: tt.inner, Msg: tt.msg}
+				got := view{Outer: rve.FieldPath, Inner: renderFieldPath(de.Path), Msg: de.Error()}
+				if diff := gocmp.Diff(want, got); diff != "" {
+					t.Errorf("%s: the typed error and the decode error it wraps (-want +got):\n%s", form, diff)
+				}
+			}
+		})
+	}
+}
+
 // checkTypedError checks that err is the *ResponseValidationError of a 200
 // response carrying body and the request id req-invalid, failing at path,
 // with endpoint in its text.

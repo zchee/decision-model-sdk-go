@@ -314,7 +314,11 @@ func newAPIError(meta *wire.ResponseMeta, endpoint string, r headerRedactor) *AP
 // Error renders "<Endpoint>: <StatusCode> Invalid response data at
 // '<FieldPath>'. (request_id=<id>)", as the Python SDK's str() of
 // TypeSafeAPIResponseValidationError does. Unwrap returns the decoder's
-// failure, whose type is internal to the SDK.
+// failure, whose type is internal to the SDK. A failure of a typed decode
+// ([DecodeAs], [Ask]) names FieldPath as the Python SDK's response model
+// with one field per answer names it, such as "tone.choice", while the
+// failure it wraps keeps the answer's place in the body,
+// "answers.tone.choice" (ruling R99-rev).
 type ResponseValidationError struct {
 	// StatusCode is the HTTP status code.
 	StatusCode int
