@@ -3608,3 +3608,265 @@ and the row's `BASE`.
 | W3.3-02 | 2026-09-26 03:05:15 UTC | W3.3 AC-P6 under `DefaultRetry()`, AC-P5 memstats, logging cost | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.02 → 0.02 | `BASE=c196649 sh $R '(L)' $O /tmp/ts-spike/bench.lock alloc-L -count=1 -run '^(TestAllocWholeCall\|TestMemStatsCap\|TestAllocLoggedCall)$' -v .` | identical to W3.3-01 in every count (the minimum of 3 agreeing runs); AC-P5 (i)'s largest run 43/282752 against (M)'s 42/264320, inside the bound | `results/alloc-L.txt` |
 | W3.3-03 | 2026-09-26 12:56:34 JST | W3.3 review fix pass on ca226bb: AC-P6 under `DefaultRetry()`, AC-P5 memstats, logging cost | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 8.44 → 8.44 | `BASE=fc5164f GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock alloc-M-fix -count=1 -run '^(TestAllocWholeCall\|TestMemStatsCap\|TestAllocLoggedCall)$' -v .` | identical to W3.3-01 in every count: q3 SDK-own 14/2008; AC-P5 (i) 38 allocs / 264032 B … (vii) 6104 B; LOG default 22/2648, INFO +1/48, DEBUG +3/96 | mallocs/bytes, collector off, `GOMAXPROCS(1)`, 3 of 5 runs agree; `results/alloc-M-fix.txt` |
 | W3.3-04 | 2026-09-26 03:56:36 UTC | W3.3 review fix pass on ca226bb: AC-P6 under `DefaultRetry()`, AC-P5 memstats, logging cost | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 2.45 → 2.45 | `BASE=fc5164f sh $R '(L)' $O /tmp/ts-spike/bench.lock alloc-L-fix -count=1 -run '^(TestAllocWholeCall\|TestMemStatsCap\|TestAllocLoggedCall)$' -v .` | identical to W3.3-02 in every count | `results/alloc-L-fix.txt` |
+
+## W3.4: the AC-P6 re-freeze at the end of Phase 3
+
+W3.4 measures the client as Phase 3 leaves it, with W3.1 (1ecc6f5), W3.2's
+retry loop (87d1ac7), W5.1's benchmarks and comparator (ca226bb) and W3.3's
+telemetry and redaction (1f694b0) on main, and freezes AC-P6 from it: the
+allocation clause, N, and the time clause of owner decision G3 (a)
+([`frozen-budgets.md`](frozen-budgets.md)). Every row measures 1f694b0,
+main's head, as it is. W3.4-05 and -06 run a probe,
+`_spikes/w3.4/probe_test.go.txt`, copied as `zz_w34_probe_test.go` into a
+copy of that tree for the run only, as W2.5's K32 probe was; it pins
+nothing and is not one of the repository's tests. The commits that write
+this section change documents, raw outputs, and the comments and failure
+messages of `TestAllocWholeCall`'s pins, whose values stay 14 and 8/640.
+Raw outputs are in `_spikes/w3.4/results/`, and `_spikes/w3.4/render.py`
+prints the tables below from them; it exits non-zero when a series'
+minimum differs between the hosts. Commands use `R=_spikes/s-c1/run.sh`,
+`O=_spikes/w3.4/results`,
+`SP=/private/tmp/claude-501/-Users-zchee-go-src-github-com-zchee-typesafe-sdk-go/40cb0f1f-c8a9-422c-a3e8-b3afc329b5cb/scratchpad`
+and `BASE=1f694b0`.
+
+### How the numbers were taken
+
+- (M): `go1.27.1 darwin/arm64`, `GOEXPERIMENT=nosimd,noruntimesecret`, in
+  the lane's worktree at 1f694b0 (clean but for the untracked
+  `_spikes/w3.4/`), under `/opt/homebrew/opt/util-linux/bin/flock` on
+  `$SP/bench.lock`. Other lanes were working on (M): the allocation rows
+  ran at a load of 14 to 31, which counts do not depend on (R17), and the
+  first `BenchmarkCall` row at 13.10 → 17.44, so W3.4-08 repeated it with
+  the load gate at 8 (it waited the runner's five minutes and started at
+  8.53).
+- (L): the worktree without `.git`, copied with the section 11
+  `tar | ssh` pipe to `/tmp/ts-spike/src-w3.4/meas`, and again to
+  `/tmp/ts-spike/src-w3.4/probe` with the probe added; toolchain
+  `/tmp/ts-spike/go/bin/go` with the section 11 `GOPATH`, `GOMODCACHE` and
+  `GOCACHE` under `/tmp/ts-spike` and no `GOEXPERIMENT`, under
+  `flock /tmp/ts-spike/bench.lock`; the raw files were copied back.
+- AC-P6's allocation clause: `TestAllocWholeCall` as in W3.2 and W3.3 (the
+  q3 call under `DefaultRetry()`, the default logger, three of five runs
+  equal to the minimum, `testsupport.StableMin`). W3.4-01 and -02 are the
+  rows of record, W3.3-01's command at 1f694b0. W3.4-03 and -04 run the
+  same command with `-count=20`, 100 runs of every series per host; each
+  series' "runs of" line lists every run, and `render.py` takes the
+  minimum, the maximum and the spread of each counter over all of them, as
+  `testsupport.Spread` does over one invocation's runs (critic-p2 m-1: the
+  exact pins keep the three-of-five rule; the rows state the maximum and
+  the spread).
+- Logging: W3.3's `TestAllocLoggedCall`, whose `info-discard` logger is the
+  charter's "`WithLogger` at INFO into a discard-like recorder".
+- q20 and call options: `TestW34Probe` measures, with the same method, the
+  whole call asking the twenty questions `result-20.json` answers (its
+  floor, SDK-own and ITEM split), and the q3 call with one call option of
+  each kind and with all five (ruling R97-corr). "hoisted" passes options
+  built before the measured section; "inline" builds them inside it, as
+  `c.SystemOne(ctx, s, qs, Header("X-A", "b"))` does. `Header("X-A", "b")`,
+  `Model("m")` and `Retry(NoRetry())` are review W3.2 MINOR 4's shapes;
+  `Timeout(DefaultTimeout)` and `ExtraBody("x", RawJSON("1"))` are added.
+- Time: `internal/benchmark`'s `BenchmarkCall` (G5), all eight rows,
+  `-count=10`, as W5.1-01 and -03. The tables give the minimum and the
+  median of the ten samples and the minimum allocs/op.
+
+### W3.4 findings
+
+1. **AC-P6's allocation clause is frozen at N = 14: SDK-own 14
+   allocations, 2 008 B, on both hosts** (floor 8/640: the Recorder's round
+   trip 7/624 and E_sonic 1/16; call 22/2 648). That is W2.3's count with
+   one attempt, W3.2's under `DefaultRetry()` and W3.3's with telemetry:
+   Phase 3's retry loop, logging and redaction add nothing to a call whose
+   first attempt succeeds. The composition, from the ITEM line, identical
+   on both hosts:
+
+   | Allocation | Count / B | Where |
+   | --- | ---: | --- |
+   | `context.WithTimeout` | 4 / 272 | the attempt's deadline: the timerCtx, its `AfterFunc` closure and `*time.Timer`, the CancelFunc closure (W2.3 finding 2) |
+   | decode | 4 / 688 | the visitor's three fold slices and `wire.Answers.Grow` (AC-P2's `result.json` pin is 4) |
+   | `readBody` | 1 / 384 | the response buffer, `result.json` declared |
+   | `*http.Request` | 1 / 320 | `Request.WithContext` |
+   | URL copy | 1 / 144 | the attempt's copy of the endpoint URL (R66 NIT 5) |
+   | `*SystemOneResponse` | 1 / 112 | the result |
+   | `codec.Body.Open` | 1 / 64 | the attempt's body reader |
+   | `GetBody` | 1 / 24 | the `body.GetBody` method value |
+   | header map | 0 / 0 | the first attempt sends the client's template itself (R77) |
+   | **SDK-own** | **14 / 2 008** | |
+
+   Against R28's provisional composition of 15, the header map went from 2
+   to 0 (R77) and the URL copy added 1. The Rust port's 12 is not reached;
+   W5.3's candidates are R79 NIT 3's four (the 4 of `context.WithTimeout`,
+   the `GetBody` method value, `new(SystemOneResponse)`, the URL copy) and
+   W2.3 finding 2's (one slab for the fold slices, −2; no attempt deadline
+   under an earlier caller deadline; answer entries presized in the
+   response's allocation).
+2. **The minimum is stable; the maximum is one allocation more, once.**
+   Over 100 runs per host (W3.4-03, -04), every series of
+   `TestAllocWholeCall` spreads +0/+0 on (M); on (L) the call spreads
+   +1/+48 in one run of 100 (23/2 696, so SDK-own 15 in that run) and every
+   other series +0/+0. That is K32's residual (K32-res): the runtime builds
+   a type assertion's cache on about one miss in 1024, at random, and a
+   successful call makes such lookups too. It is why the pin takes the
+   minimum that three of five runs share and does not bound every run: at
+   the observed rate of 1 run in 200 across the two hosts, three of five
+   runs are hit in about 10 × 0.005³ ≈ 1.3 × 10⁻⁶ of invocations. All 20
+   invocations passed on each host. The same happened elsewhere in the
+   files: `TestAllocLoggedCall`'s `info-discard` once on (L) and
+   `info-text` once on (M), +1/+48 each; `TestMemStatsCap` (i) 79 of 100
+   runs at 38/264 032 on both hosts with a maximum of 42/264 320 (M) and
+   43/282 752 (L), (iv) +1/+48 once on each host and (v) once on (M), every
+   run inside its AC-P5 bound.
+3. **What N does not count, recorded (W3.4-05, -06, identical on both
+   hosts):**
+   - **q20**: SDK-own 34 allocations, 9 248 B (call 42/9 888, floor
+     8/640). The split is q3's except the decode, 24/6 008 (AC-P2's
+     `result-20.json` pin is 24), and `readBody`, 1/2 304. R28 recorded
+     35 for the S-C1 prototype; W5.1 read 42 − 8 from allocs/op.
+   - **Call options** (R97-corr): a call that passes any option moves
+     `callOptions` (the 160 B class) to the heap once, whatever the number
+     of options. Against the call without options, hoisted:
+     `Retry(NoRetry())` +1/+160 (that move alone), `Timeout` +2/+176,
+     `Model` +3/+192, `ExtraBody` +2/+192, `Header` +7/+720 (which also
+     builds the call's own header), all five +11/+784. Inline, the same except
+     `ExtraBody` +4/+216 and all five +13/+808: the caller's
+     `RawJSON("1")` conversion and its boxing in an `any`, made inside the
+     section. `Header`, `Model` and `Retry` equal review W3.2 MINOR 4's
+     29/3 368, 25/2 840 and 23/2 808. W5.3 evaluates R97-corr's option (c).
+   - **Logging** (W3.3's test, unchanged since W3.3-01): the default
+     logger 22/2 648, the call AC-P6 counts; `WithLogger` at INFO into a
+     handler that keeps and discards the records +1/+48 (ruling R102: an
+     INFO record of five attributes would make it free, a W5.3
+     candidate); at DEBUG +3/+96; INFO into slog's text handler on
+     `io.Discard` +1/+48.
+   - A real transport adds 1 per attempt, the context's Done channel
+     (R28); these rows use the Recorder.
+4. **AC-P6's time clause is frozen per G3 (a) and holds on amd64, the
+   gate: q3 `call/sdk` 6.205 µs against `call/naive` 6.969 µs on (L), 0.890
+   by medians of 10 and 0.898 by minima** (W3.4-09; W5.1-03: 0.887). Since
+   W5.1's rows, measured at 6afc8a3 before any Phase 3 wave landed,
+   `call/sdk` is 1.6 % slower on (L), and `call/naive` 1.2 % and
+   `call/floor` 0.6 % slower in the same session, so the margin went from
+   11.3 % to 11.0 %. q20, recorded (ruling R101 (b)): 25.89 against
+   26.42 µs, 0.980, a margin of 2.0 % (W5.1: 1.7 %), still a W5.3 input.
+   On arm64 the clause is recorded, not gated (K18), and fails as it did
+   at W5.1 (K23, the decode): q3 1.274 by medians (5.126 against
+   4.022 µs; W5.1: 1.333) and q20 1.737 (W5.1: 1.880), from W3.4-08. The
+   earlier (M) run, W3.4-07, gave 1.304 and 2.008 under a load of 13 to 17,
+   so on (M) these ratios move by several per cent from run to run; the
+   ± 53 % of W3.4-08's `call/sdk` is two slow samples of ten (7.9 and
+   8.5 µs), and its minimum is 5.041 µs. Against the encoding/json client,
+   reported only: q3 0.367 (L) and 0.567 (M), q20 0.335 and 0.622.
+5. **Gates.** `go test -race -count=1 ./...` on (L), once (R62), passed in
+   all seven packages (W3.4-10). On (M), each commit of the branch passed
+   the section 11 lint chain and `go test -race -count=1 ./...` (W3.4-11).
+
+| # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| W3.4-01 | 2026-09-26 13:13:24 JST | W3.4 AC-P6 re-freeze: whole call under `DefaultRetry()`, AC-P5 memstats, logging cost | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 14.46 → 23.47, noisy | `BASE=1f694b0 GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock alloc-M -count=1 -run '^(TestAllocWholeCall\|TestMemStatsCap\|TestAllocLoggedCall)$' -v .` | q3: floor 8/640, call 22/2648, SDK-own **14/2008 (N = 14, frozen)**; ITEM header 0/0, URL 1/144, WithTimeout 4/272, Request 1/320, body.Open 1/64, GetBody 1/24, `*SystemOneResponse` 1/112, readBody 1/384, decode 4/688; AC-P5 (i) 38 allocs / 264032 B, (ii) 1368 B, (iii) 33559896 B, (iv) 33302488 B, (v) 33560536 B, (vi) 2392 B, (vii) 6104 B; LOG default 22/2648, INFO +1/48, DEBUG +3/96, INFO text handler +1/48 | mallocs/bytes, collector off, `GOMAXPROCS(1)`, 3 of 5 runs agree; counts do not depend on load (R17); `results/alloc-M.txt` |
+| W3.4-02 | 2026-09-26 04:14:18 UTC | W3.4 AC-P6 re-freeze: whole call under `DefaultRetry()`, AC-P5 memstats, logging cost | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.08 → 0.08 | `BASE=1f694b0 sh $R '(L)' $O /tmp/ts-spike/bench.lock alloc-L -count=1 -run '^(TestAllocWholeCall\|TestMemStatsCap\|TestAllocLoggedCall)$' -v .` | identical to W3.4-01 in every count | `results/alloc-L.txt` |
+| W3.4-03 | 2026-09-26 13:13:26 JST | W3.4 the same, 20 invocations: minimum, maximum and spread of every series | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 23.47 → 28.24, noisy | the W3.4-01 command with `alloc-M-x20 -count=20` | PASS 20/20; 100 runs per series; `TestAllocWholeCall` every series +0/+0 (call 22/2648 in 100 of 100); AC-P5 (i) 38/264032 in 79, max 42/264320, (iv) and (v) +1/+48 once each; LOG `info-text` +1/+48 once | [W3.4 tables](#w34-tables); `results/alloc-M-x20.txt` |
+| W3.4-04 | 2026-09-26 04:14:20 UTC | W3.4 the same, 20 invocations | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.08 → 0.88 | the W3.4-02 command with `alloc-L-x20 -count=20` | PASS 20/20; the call 22/2648 in 99 of 100, one run 23/2696 (+1/+48, K32-res), every other `TestAllocWholeCall` series +0/+0; AC-P5 (i) 38/264032 in 79, max 43/282752, (iv) +1/+48 once; LOG `info-discard` +1/+48 once | [W3.4 tables](#w34-tables); `results/alloc-L-x20.txt` |
+| W3.4-05 | 2026-09-26 13:13:41 JST | W3.4 probe: the q20 call; the q3 call with each call option | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 30.55 → 30.55, noisy | in `git archive 1f694b0` with `_spikes/w3.4/probe_test.go.txt` as `zz_w34_probe_test.go`: `BASE='1f694b0 + …' GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock probe-M -count=10 -run '^TestW34Probe$' -v .` | q20: floor 8/640, call 42/9888, SDK-own 34/9248 (decode 24/6008, readBody 1/2304, the rest as q3); options, hoisted: Header +7/720, Model +3/192, Timeout +2/176, ExtraBody +2/192, Retry +1/160, all five +11/784; inline: ExtraBody +4/216, all five +13/808, the others as hoisted | 10 invocations, 3 of 5 runs agree in each; `results/probe-M.txt` |
+| W3.4-06 | 2026-09-26 04:14:26 UTC | W3.4 probe | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.88 → 0.88 | in `/tmp/ts-spike/src-w3.4/probe/wt-w3.4`: `BASE='1f694b0 + …' sh $R '(L)' /tmp/ts-spike/src-w3.4/meas/wt-w3.4/$O /tmp/ts-spike/bench.lock probe-L -count=10 -run '^TestW34Probe$' -v .` | identical to W3.4-05 in every minimum | `results/probe-L.txt` |
+| W3.4-07 | 2026-09-26 13:14:54 JST | W3.4 B5 `call/sdk` against `call/naive` | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 13.10 → 17.44, noisy | `BASE=1f694b0 GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock MAXLOAD=16 sh $R '(M)' $O $SP/bench.lock call-M -run '^$' -bench '^BenchmarkCall$' -benchmem -count=10 ./internal/benchmark/` | q3: sdk 5.246 µs ± 13 %, naive 4.022 µs (1.304); q20: sdk 27.29 µs, naive 13.59 µs (2.008); allocs sdk 22 / floor 8 / naive 54 / naive-json 114 (q20: 42 / 8 / 127 / 517) | waited 1 × 60 s; superseded as the (M) row of record by W3.4-08; `results/call-M.txt`, `results/benchstat-call-M.txt` |
+| W3.4-08 | 2026-09-26 13:22:55 JST | W3.4 B5 `call/sdk` against `call/naive` | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 8.53 → 8.15 | the W3.4-07 command with `MAXLOAD=8` and `call-M-2` | q3: sdk 5.126 µs ± 53 % (min 5.041), naive 4.022 µs (sdk/naive **1.274**), naive-json 9.046 µs, floor 519.3 ns; q20: sdk 24.87 µs, naive 14.32 µs (1.737); allocs as W3.4-07 | arm64 recorded, not gated (G3, K18, K23); waited 5 × 60 s and ran at 8.53; `results/call-M-2.txt`, `results/benchstat-call-M-2.txt` |
+| W3.4-09 | 2026-09-26 04:14:34 UTC | W3.4 B5 `call/sdk` against `call/naive` | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.81 → 1.43 | `BASE=1f694b0 MAXLOAD=44 sh $R '(L)' $O /tmp/ts-spike/bench.lock call-L -run '^$' -bench '^BenchmarkCall$' -benchmem -count=10 ./internal/benchmark/` | q3: sdk 6.205 µs ± 0 %, naive 6.969 µs ± 3 % (sdk/naive **0.890**, 0.898 by minima: AC-P6's time clause holds), naive-json 16.90 µs, floor 765.2 ns; q20: sdk 25.89 µs, naive 26.42 µs (0.980, margin 2.0 %); allocs sdk 22 / floor 8 / naive 68 / naive-json 114 (q20: 42 / 8 / 247 / 517) | amd64 = the gate (G3); `results/call-L.txt`, `results/benchstat-call-L.txt` |
+| W3.4-10 | 2026-09-26 04:16:17 UTC | W3.4 R62 race run | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 1.39 → 1.37 | `BASE=1f694b0 sh $R '(L)' $O /tmp/ts-spike/bench.lock race-L -race -count=1 ./...` | ok in all 7 packages | not a timing row; `results/race-L.txt` |
+
+<a id="w34-tables"></a>
+
+### W3.4 tables
+
+Printed by `_spikes/w3.4/render.py` from the raw files.
+
+Allocation series, alloc-{M,L}-x20.txt (20 invocations × 5 runs):
+
+| Test | Series | Runs (M) / (L) | (M) min / max / spread | (L) min / max / spread | At the minimum (M) / (L) |
+| --- | --- | ---: | --- | --- | ---: |
+| `TestAllocWholeCall` | E_sonic | 100 / 100 | 1/16 / 1/16 / +0/+0 | 1/16 / 1/16 / +0/+0 | 100 / 100 |
+| `TestAllocWholeCall` | floor round trip | 100 / 100 | 7/624 / 7/624 / +0/+0 | 7/624 / 7/624 / +0/+0 | 100 / 100 |
+| `TestAllocWholeCall` | call/sdk | 100 / 100 | 22/2648 / 22/2648 / +0/+0 | 22/2648 / 23/2696 / +1/+48 | 100 / 99 |
+| `TestAllocWholeCall` | item header map | 100 / 100 | 0/0 / 0/0 / +0/+0 | 0/0 / 0/0 / +0/+0 | 100 / 100 |
+| `TestAllocWholeCall` | item URL copy | 100 / 100 | 1/144 / 1/144 / +0/+0 | 1/144 / 1/144 / +0/+0 | 100 / 100 |
+| `TestAllocWholeCall` | item context.WithTimeout | 100 / 100 | 4/272 / 4/272 / +0/+0 | 4/272 / 4/272 / +0/+0 | 100 / 100 |
+| `TestAllocWholeCall` | item Request (WithContext) | 100 / 100 | 1/320 / 1/320 / +0/+0 | 1/320 / 1/320 / +0/+0 | 100 / 100 |
+| `TestAllocWholeCall` | item body.Open | 100 / 100 | 1/64 / 1/64 / +0/+0 | 1/64 / 1/64 / +0/+0 | 100 / 100 |
+| `TestAllocWholeCall` | item GetBody method value | 100 / 100 | 1/24 / 1/24 / +0/+0 | 1/24 / 1/24 / +0/+0 | 100 / 100 |
+| `TestAllocWholeCall` | item *SystemOneResponse | 100 / 100 | 1/112 / 1/112 / +0/+0 | 1/112 / 1/112 / +0/+0 | 100 / 100 |
+| `TestAllocWholeCall` | item readBody | 100 / 100 | 1/384 / 1/384 / +0/+0 | 1/384 / 1/384 / +0/+0 | 100 / 100 |
+| `TestAllocWholeCall` | item decode | 100 / 100 | 4/688 / 4/688 / +0/+0 | 4/688 / 4/688 / +0/+0 | 100 / 100 |
+| `TestMemStatsCap` | i-declared-16MiB-sent-10B | 100 / 100 | 38/264032 / 42/264320 / +4/+288 | 38/264032 / 43/282752 / +5/+18720 | 79 / 79 |
+| `TestMemStatsCap` | ii-declared-16MiB+1 | 100 / 100 | 16/1368 / 16/1368 / +0/+0 | 16/1368 / 16/1368 / +0/+0 | 100 / 100 |
+| `TestMemStatsCap` | iii-undeclared-16MiB+1 | 100 / 100 | 29/33559896 / 29/33559896 / +0/+0 | 29/33559896 / 29/33559896 / +0/+0 | 100 / 100 |
+| `TestMemStatsCap` | iv-declared-16MiB | 100 / 100 | 26/33302488 / 27/33302536 / +1/+48 | 26/33302488 / 27/33302536 / +1/+48 | 99 / 99 |
+| `TestMemStatsCap` | v-undeclared-16MiB | 100 / 100 | 32/33560536 / 33/33560584 / +1/+48 | 32/33560536 / 32/33560536 / +0/+0 | 99 / 100 |
+| `TestMemStatsCap` | vi-declared-result.json | 100 / 100 | 20/2392 / 20/2392 / +0/+0 | 20/2392 / 20/2392 / +0/+0 | 100 / 100 |
+| `TestMemStatsCap` | vii-undeclared-result.json | 100 / 100 | 20/6104 / 20/6104 / +0/+0 | 20/6104 / 20/6104 / +0/+0 | 100 / 100 |
+| `TestAllocLoggedCall` | call/default | 100 / 100 | 22/2648 / 22/2648 / +0/+0 | 22/2648 / 22/2648 / +0/+0 | 100 / 100 |
+| `TestAllocLoggedCall` | call/info-discard | 100 / 100 | 23/2696 / 23/2696 / +0/+0 | 23/2696 / 24/2744 / +1/+48 | 100 / 99 |
+| `TestAllocLoggedCall` | call/debug-discard | 100 / 100 | 25/2744 / 25/2744 / +0/+0 | 25/2744 / 25/2744 / +0/+0 | 100 / 100 |
+| `TestAllocLoggedCall` | call/info-text | 100 / 100 | 23/2696 / 24/2744 / +1/+48 | 23/2696 / 23/2696 / +0/+0 | 99 / 100 |
+
+Probe series, probe-{M,L}.txt (10 invocations × 5 runs):
+
+| Test | Series | Runs (M) / (L) | (M) min / max / spread | (L) min / max / spread | At the minimum (M) / (L) |
+| --- | --- | ---: | --- | --- | ---: |
+| `TestW34Probe` | q20 E_sonic | 50 / 50 | 1/16 / 1/16 / +0/+0 | 1/16 / 1/16 / +0/+0 | 50 / 50 |
+| `TestW34Probe` | q20 floor round trip | 50 / 50 | 7/624 / 7/624 / +0/+0 | 7/624 / 8/672 / +1/+48 | 50 / 49 |
+| `TestW34Probe` | q20 call/sdk | 50 / 50 | 42/9888 / 42/9888 / +0/+0 | 42/9888 / 42/9888 / +0/+0 | 50 / 50 |
+| `TestW34Probe` | item header map | 50 / 50 | 0/0 / 0/0 / +0/+0 | 0/0 / 0/0 / +0/+0 | 50 / 50 |
+| `TestW34Probe` | item URL copy | 50 / 50 | 1/144 / 1/144 / +0/+0 | 1/144 / 1/144 / +0/+0 | 50 / 50 |
+| `TestW34Probe` | item context.WithTimeout | 50 / 50 | 4/272 / 4/272 / +0/+0 | 4/272 / 4/272 / +0/+0 | 50 / 50 |
+| `TestW34Probe` | item Request (WithContext) | 50 / 50 | 1/320 / 1/320 / +0/+0 | 1/320 / 1/320 / +0/+0 | 50 / 50 |
+| `TestW34Probe` | item body.Open | 50 / 50 | 1/64 / 1/64 / +0/+0 | 1/64 / 1/64 / +0/+0 | 50 / 50 |
+| `TestW34Probe` | item GetBody method value | 50 / 50 | 1/24 / 1/24 / +0/+0 | 1/24 / 1/24 / +0/+0 | 50 / 50 |
+| `TestW34Probe` | item *SystemOneResponse | 50 / 50 | 1/112 / 1/112 / +0/+0 | 1/112 / 1/112 / +0/+0 | 50 / 50 |
+| `TestW34Probe` | item readBody | 50 / 50 | 1/2304 / 1/2304 / +0/+0 | 1/2304 / 1/2304 / +0/+0 | 50 / 50 |
+| `TestW34Probe` | item decode | 50 / 50 | 24/6008 / 24/6008 / +0/+0 | 24/6008 / 24/6008 / +0/+0 | 50 / 50 |
+| `TestW34Probe` | opt none inline | 50 / 50 | 22/2648 / 22/2648 / +0/+0 | 22/2648 / 22/2648 / +0/+0 | 50 / 50 |
+| `TestW34Probe` | opt Header inline | 50 / 50 | 29/3368 / 29/3368 / +0/+0 | 29/3368 / 29/3368 / +0/+0 | 50 / 50 |
+| `TestW34Probe` | opt Header hoisted | 50 / 50 | 29/3368 / 29/3368 / +0/+0 | 29/3368 / 29/3368 / +0/+0 | 50 / 50 |
+| `TestW34Probe` | opt Model inline | 50 / 50 | 25/2840 / 26/2888 / +1/+48 | 25/2840 / 25/2840 / +0/+0 | 49 / 50 |
+| `TestW34Probe` | opt Model hoisted | 50 / 50 | 25/2840 / 25/2840 / +0/+0 | 25/2840 / 25/2840 / +0/+0 | 50 / 50 |
+| `TestW34Probe` | opt Timeout inline | 50 / 50 | 24/2824 / 24/2824 / +0/+0 | 24/2824 / 24/2824 / +0/+0 | 50 / 50 |
+| `TestW34Probe` | opt Timeout hoisted | 50 / 50 | 24/2824 / 24/2824 / +0/+0 | 24/2824 / 24/2824 / +0/+0 | 50 / 50 |
+| `TestW34Probe` | opt ExtraBody inline | 50 / 50 | 26/2864 / 27/2912 / +1/+48 | 26/2864 / 26/2864 / +0/+0 | 49 / 50 |
+| `TestW34Probe` | opt ExtraBody hoisted | 50 / 50 | 24/2840 / 24/2840 / +0/+0 | 24/2840 / 24/2840 / +0/+0 | 50 / 50 |
+| `TestW34Probe` | opt Retry inline | 50 / 50 | 23/2808 / 23/2808 / +0/+0 | 23/2808 / 23/2808 / +0/+0 | 50 / 50 |
+| `TestW34Probe` | opt Retry hoisted | 50 / 50 | 23/2808 / 23/2808 / +0/+0 | 23/2808 / 23/2808 / +0/+0 | 50 / 50 |
+| `TestW34Probe` | opt all5 inline | 50 / 50 | 35/3456 / 35/3456 / +0/+0 | 35/3456 / 36/3504 / +1/+48 | 50 / 49 |
+| `TestW34Probe` | opt all5 hoisted | 50 / 50 | 33/3432 / 33/3432 / +0/+0 | 33/3432 / 33/3432 / +0/+0 | 50 / 50 |
+
+B5, call-M-2.txt (M) and call-L.txt (L) (-count=10), against W5.1's call-{M,L}.txt (-count=10):
+
+| Benchmark | (M) ns/op min / median | (M) W5.1 median, W3.4 / W5.1 | (L) ns/op min / median | (L) W5.1 median, W3.4 / W5.1 | allocs/op (M) / (L) | B/op median (M) / (L) |
+| --- | --- | --- | --- | --- | ---: | ---: |
+| `Call/sdk` | 5.041 µs / 5.126 µs | 4.821 µs, 1.063 | 6.176 µs / 6.205 µs | 6.104 µs, 1.016 | 22 / 22 | 2990 / 2994 |
+| `Call/floor` | 469.8 ns / 519.3 ns | 467.1 ns, 1.112 | 762.6 ns / 765.2 ns | 760.6 ns, 1.006 | 8 / 8 | 678 / 694 |
+| `Call/naive` | 3.742 µs / 4.022 µs | 3.616 µs, 1.112 | 6.874 µs / 6.968 µs | 6.885 µs, 1.012 | 54 / 68 | 11386 / 8986 |
+| `Call/naive-json` | 8.531 µs / 9.046 µs | 8.244 µs, 1.097 | 16.834 µs / 16.897 µs | 16.811 µs, 1.005 | 114 / 114 | 7898 / 7946 |
+| `Call/sdk-q20` | 24.088 µs / 24.869 µs | 23.733 µs, 1.048 | 25.722 µs / 25.887 µs | 25.383 µs, 1.020 | 42 / 42 | 11438 / 11396 |
+| `Call/floor-q20` | 524.0 ns / 537.7 ns | 497.8 ns, 1.080 | 797.4 ns / 799.9 ns | 770.8 ns, 1.038 | 8 / 8 | 684 / 692 |
+| `Call/naive-q20` | 13.189 µs / 14.320 µs | 12.625 µs, 1.134 | 26.156 µs / 26.422 µs | 25.817 µs, 1.023 | 127 / 247 | 40369 / 34657 |
+| `Call/naive-json-q20` | 38.998 µs / 40.013 µs | 38.944 µs, 1.027 | 77.031 µs / 77.258 µs | 76.720 µs, 1.007 | 517 / 517 | 31004 / 31215 |
+
+| Ratio | (M) call-M-2.txt | (L) call-L.txt |
+| --- | ---: | ---: |
+| q3 `call/sdk` / `call/naive`, median ns/op | 1.274 | 0.890 |
+| q3 `call/sdk` / `call/naive`, min ns/op | 1.347 | 0.898 |
+| q3 `call/sdk` / `call/naive-json`, median ns/op | 0.567 | 0.367 |
+| q20 `call/sdk` / `call/naive`, median ns/op | 1.737 | 0.980 |
+| q20 `call/sdk` / `call/naive`, min ns/op | 1.826 | 0.983 |
+| q20 `call/sdk` / `call/naive-json`, median ns/op | 0.622 | 0.335 |
+
+The earlier (M) run, under more load:
+
+| Ratio | (M) call-M.txt | (L) call-L.txt |
+| --- | ---: | ---: |
+| q3 `call/sdk` / `call/naive`, median ns/op | 1.304 | 0.890 |
+| q3 `call/sdk` / `call/naive`, min ns/op | 1.362 | 0.898 |
+| q3 `call/sdk` / `call/naive-json`, median ns/op | 0.568 | 0.367 |
+| q20 `call/sdk` / `call/naive`, median ns/op | 2.008 | 0.980 |
+| q20 `call/sdk` / `call/naive`, min ns/op | 1.913 | 0.983 |
+| q20 `call/sdk` / `call/naive-json`, median ns/op | 0.644 | 0.335 |
+
+Every series' minimum is the same on (M) and (L).
