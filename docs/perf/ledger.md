@@ -3076,9 +3076,15 @@ R88b), where it had `newTestClient`'s single attempt. W3.2-01 and -02
 were measured at 873d847, the last commit of the first pass that changes
 code or tests; W3.2-03 and -04 at bb54320, the last such commit of the
 review's fix pass, whose code change (MINOR 3: no attempt once the
-caller's deadline ended the wait) is on the retry path only. The commits
-that write this section change documents and raw outputs only. Commands
-use `R=_spikes/s-c1/run.sh` (W0.5's runner), `O=_spikes/w3.2/results`,
+caller's deadline ended the wait) is on the retry path only. Both were
+taken before the branch was rebased onto 1ecc6f5 (W3.1's landing, over
+p2-cifix-3): as rebased, 873d847 is ac993bb and bb54320 is 954ff7b, the
+same trees but for main's own changes, and the raw headers keep the
+measured SHA. W3.2-05 and -06 measure 170c958, the last commit on the
+rebased branch that changes code or tests (the re-check's RT19 rows,
+over ruling R100's RT9 records check). The commits that write this section change documents and raw
+outputs only. Commands use `R=_spikes/s-c1/run.sh` (W0.5's runner),
+`O=_spikes/w3.2/results`,
 `SP=/private/tmp/claude-501/-Users-zchee-go-src-github-com-zchee-typesafe-sdk-go/40cb0f1f-c8a9-422c-a3e8-b3afc329b5cb/scratchpad`
 and the row's `BASE`.
 
@@ -3118,8 +3124,9 @@ and the row's `BASE`.
    by-value form for now (no allocation added); W3.4 records the cost per
    option-bearing call, and W5.3 evaluates a 48 B policy (the statuses and
    the predicate behind one pointer, `callOptions` in the 112 B class).
-3. **The review's fix pass leaves every count as it was:** W3.2-03 and
-   W3.2-04 at bb54320 equal W3.2-01 in every count on both hosts.
+3. **The review's fix pass and the rebase leave every count as it was:**
+   W3.2-03 and -04 at bb54320, and W3.2-05 and -06 at 170c958 on
+   1ecc6f5, equal W3.2-01 in every count on both hosts.
 
 | # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -3127,3 +3134,5 @@ and the row's `BASE`.
 | W3.2-02 | 2026-09-26 01:09:20 UTC | W3.2 AC-P6 whole call under `DefaultRetry()` and AC-P5 memstats | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.30 → 0.36 | `BASE=873d847 sh $R '(L)' $O /tmp/ts-spike/bench.lock alloc-L -count=1 -run '^(TestAllocWholeCall\|TestMemStatsCap)$' -v .` | identical to W3.2-01 in every count | `results/alloc-L.txt` |
 | W3.2-03 | 2026-09-26 11:10:05 JST | W3.2 review fix pass: AC-P6 under `DefaultRetry()` and AC-P5 memstats | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 5.17 → 5.17 | `BASE=bb54320 GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock alloc-M-fix -count=1 -run '^(TestAllocWholeCall\|TestMemStatsCap)$' -v .` | identical to W3.2-01 in every count: q3 SDK-own 14/2008; AC-P5 (i) 38 allocs / 264032 B … (vii) 6104 B | mallocs/bytes, collector off, `GOMAXPROCS(1)`, 3 of 5 runs agree; `results/alloc-M-fix.txt` |
 | W3.2-04 | 2026-09-26 02:10:07 UTC | W3.2 review fix pass: AC-P6 under `DefaultRetry()` and AC-P5 memstats | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.04 → 0.04 | `BASE=bb54320 sh $R '(L)' $O /tmp/ts-spike/bench.lock alloc-L-fix -count=1 -run '^(TestAllocWholeCall\|TestMemStatsCap)$' -v .` | identical to W3.2-01 in every count | `results/alloc-L-fix.txt` |
+| W3.2-05 | 2026-09-26 11:41:47 JST | W3.2 rebased onto 1ecc6f5: AC-P6 under `DefaultRetry()` and AC-P5 memstats | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 10.75 → 10.75 | `BASE=170c958 GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock alloc-M-rebased -count=1 -run '^(TestAllocWholeCall\|TestMemStatsCap)$' -v .` | identical to W3.2-01 in every count: q3 SDK-own 14/2008; AC-P5 (i) 38 allocs / 264032 B … (vii) 6104 B | mallocs/bytes, collector off, `GOMAXPROCS(1)`, 3 of 5 runs agree; `results/alloc-M-rebased.txt` |
+| W3.2-06 | 2026-09-26 02:41:54 UTC | W3.2 rebased onto 1ecc6f5: AC-P6 under `DefaultRetry()` and AC-P5 memstats | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.03 → 0.03 | `BASE=170c958 sh $R '(L)' $O /tmp/ts-spike/bench.lock alloc-L-rebased -count=1 -run '^(TestAllocWholeCall\|TestMemStatsCap)$' -v .` | identical to W3.2-01 in every count | `results/alloc-L-rebased.txt` |
