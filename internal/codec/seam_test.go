@@ -25,8 +25,14 @@ package codec
 //   - TestSeamImports: encoding/json imported by internal/wire, by
 //     internal/h2gate or by a root test file; encoding/json/v2 imported by an
 //     internal/codec file; internal/testsupport imported by a non-test file
-//     of the root package. (internal/testsupport importing encoding/json
-//     passes by design.)
+//     of the root package; unsafe or sonic imported by a package below
+//     internal/codec, which the exemptions of internal/codec do not cover
+//     (review V77 MINOR 1, S7d). (internal/testsupport importing
+//     encoding/json passes by design.)
+//   - TestSeamOneUnsafeFile: a second codec file importing unsafe, or a
+//     package below internal/codec importing it (S7d).
+//   - TestSeamRootRawPointers and TestSeamCodecUnsafeIsNoCopyString
+//     (seam_rawptr_test.go) list theirs.
 //   - TestSeamTransitiveImports: encoding/json imported by a root test file,
 //     sonic's encoder imported by a root file, internal/codec imported by an
 //     external test of internal/wire (each also fails TestSeamImports).
@@ -237,8 +243,9 @@ func TestSeamImports(t *testing.T) {
 		t.Fatal("the module walk did not find internal/codec importing sonic; every rule would pass vacuously")
 	}
 
+	// internal/codec itself, not a package below it (review V77 MINOR 1).
 	confined := func(f goFile) bool {
-		return !under(f.dir, "internal/codec") && !under(f.dir, "internal/testsupport/naive")
+		return f.dir != "internal/codec" && !under(f.dir, "internal/testsupport/naive")
 	}
 	rules := map[string]struct {
 		applies func(f goFile) bool
@@ -269,7 +276,7 @@ func TestSeamImports(t *testing.T) {
 				if !isJSONLibrary(p) {
 					return false
 				}
-				if under(f.dir, "internal/codec") {
+				if f.dir == "internal/codec" {
 					// sonic is the codec; encoding/json only for the
 					// json.Number type of sonic's ast.Visitor (W2.0).
 					return !under(p, sonicPath) && p != "encoding/json"
@@ -318,15 +325,17 @@ func TestSeamImports(t *testing.T) {
 }
 
 // TestSeamOneUnsafeFile checks NF6's "one unsafe.String bridge": of the
-// non-test files of internal/codec, exactly one imports unsafe, nocopy.go,
-// which holds NoCopyString. A second importer, even one that only uses
-// unsafe.Sizeof, fails; test files may use unsafe to check aliasing.
+// non-test files of internal/codec and of any package below it, exactly one
+// imports unsafe, nocopy.go, which holds NoCopyString. A second importer,
+// even one that only uses unsafe.Sizeof, fails, and so does one in a
+// sub-package (review V77 MINOR 1); test files may use unsafe to check
+// aliasing.
 func TestSeamOneUnsafeFile(t *testing.T) {
 	mod := findModule(t)
 	var importers []string
 	codecFiles := 0
 	for _, f := range moduleFiles(t, mod.root) {
-		if f.dir != "internal/codec" || f.test {
+		if !under(f.dir, "internal/codec") || f.test {
 			continue
 		}
 		codecFiles++
@@ -368,29 +377,18 @@ func goList(t *testing.T, root string, args ...string) string {
 // instead what section 4 asks of it: its files, tests included, import no
 // JSON library directly, in the build configuration of the host (where
 // TestSeamImports reads every file whatever its constraints); the JSON layer
-// is internal/codec's.
+// is internal/codec's. internal/engine, which holds the call stages W6.5
+// moved out of the root package (rootCodeDirs), has the same row (review
+// V77 MINOR 1).
 func TestSeamTransitiveImports(t *testing.T) {
 	mod := findModule(t)
-	t.Run("root package imports no JSON library directly (R41)", func(t *testing.T) {
-		out := goList(t, mod.root, "-f", `{{join .Imports "\n"}}{{"\n"}}{{join .TestImports "\n"}}{{"\n"}}{{join .XTestImports "\n"}}`, ".")
-		const wirePath = modulePath + "/internal/wire"
-		sawWire := false
-		for line := range strings.Lines(out) {
-			p := strings.TrimSpace(line)
-			if p == wirePath {
-				sawWire = true
-			}
-			if isJSONLibrary(p) {
-				t.Errorf("the root package imports %q directly; only internal/codec may import a JSON library", p)
-			}
+	for _, dir := range rootCodeDirs {
+		name := "root package imports no JSON library directly (R41)"
+		if dir != "." {
+			name = dir + " imports no JSON library directly (R41, root code; review V77 MINOR 1)"
 		}
-		// The root package's types wrap internal/wire values (section 4):
-		// without it in the list the row would pass on an empty or mangled
-		// listing.
-		if !sawWire {
-			t.Errorf("go list does not show the root package importing %s:\n%s", wirePath, out)
-		}
-	})
+		t.Run(name, func(t *testing.T) { checkNoDirectJSON(t, mod, dir) })
+	}
 
 	tests := map[string]struct {
 		dir     string // slash-separated, from the module root
@@ -422,6 +420,39 @@ func TestSeamTransitiveImports(t *testing.T) {
 				t.Fatalf("go list printed no dependencies for %s", tt.pattern)
 			}
 		})
+	}
+}
+
+// checkNoDirectJSON checks that the files of the root-code package in dir
+// (rootCodeDirs), its tests included, import no JSON library directly in the
+// build configuration of the host, and that the package imports
+// internal/wire. A directory that does not exist yet is skipped.
+func checkNoDirectJSON(t *testing.T, mod module, dir string) {
+	t.Helper()
+	if _, err := os.Stat(filepath.Join(mod.root, filepath.FromSlash(dir))); err != nil {
+		t.Skipf("%s does not exist yet: %v", dir, err)
+	}
+	pattern := "."
+	if dir != "." {
+		pattern = "./" + dir
+	}
+	out := goList(t, mod.root, "-f", `{{join .Imports "\n"}}{{"\n"}}{{join .TestImports "\n"}}{{"\n"}}{{join .XTestImports "\n"}}`, pattern)
+	const wirePath = modulePath + "/internal/wire"
+	sawWire := false
+	for line := range strings.Lines(out) {
+		p := strings.TrimSpace(line)
+		if p == wirePath {
+			sawWire = true
+		}
+		if isJSONLibrary(p) {
+			t.Errorf("%s imports %q directly; only internal/codec may import a JSON library", dir, p)
+		}
+	}
+	// The root package's types wrap internal/wire values (section 4),
+	// and internal/engine's state holds them: without it in the list the
+	// row would pass on an empty or mangled listing.
+	if !sawWire {
+		t.Errorf("go list does not show %s importing %s:\n%s", dir, wirePath, out)
 	}
 }
 
