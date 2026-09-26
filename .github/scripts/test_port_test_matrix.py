@@ -1161,3 +1161,223 @@ class TestMain:
         with pytest.raises(SystemExit) as exc:
             ptm.main([])
         assert exc.value.code == 2
+
+
+DEV_HEADER = (
+    "| Key | Python SDK 0.7.1 | Go SDK | Why | Matrix rows |\n"
+    "| --- | --- | --- | --- | --- |"
+)
+
+
+def _dev(*rows: str) -> str:
+    return f"# Deviations\n\n{DEV_HEADER}\n" + "\n".join(rows) + "\n"
+
+
+class TestDeviations:
+    def test_rows_of_every_deviation_table_are_read_and_other_tables_skipped(
+        self,
+    ) -> None:
+        text = (
+            _dev("| a | p | g | w | A1, A2 |", "| b \\| c | p | g | w | — |")
+            + "\n| x | y |\n| --- | --- |\n| 1 | 2 |\n\n"
+            + _dev("| d | p | g | w | B1 |")
+        )
+        rows, failures = ptm.parse_deviations(text, "dev.md")
+        assert failures == []
+        assert [(r.key, sorted(r.rows), r.line) for r in rows] == [
+            ("a", ["A1", "A2"], 5),
+            ("b | c", [], 6),
+            ("d", ["B1"], 16),
+        ]
+
+    @pytest.mark.parametrize(
+        ("text", "want"),
+        [
+            pytest.param("# nothing\n", "dev.md: no deviation table", id="no-table"),
+            pytest.param(
+                "| Key | Python SDK 0.7.1 | Go SDK | Why | Matrix rows |\n"
+                "| --- | --- | --- | --- |\n| a | p | g | w | A1 |\n",
+                "dev.md:2: a deviation table's header must be followed by a "
+                "separator of 5 cells",
+                id="short-separator",
+            ),
+            pytest.param(
+                _dev("| a | p | g | A1 |"),
+                "dev.md:5: expected 5 cells, found 4",
+                id="four-cells",
+            ),
+            pytest.param(
+                _dev("|  | p | g | w | A1 |"),
+                "dev.md:5: the key cell is blank",
+                id="blank-key",
+            ),
+            pytest.param(
+                _dev("| a | p | g | w | A1; A2 |"),
+                "dev.md:5: 'a': the Matrix rows cell 'A1; A2' is not distinct",
+                id="bad-separator",
+            ),
+            pytest.param(
+                _dev("| a | p | g | w | A1, A1 |"),
+                "dev.md:5: 'a': the Matrix rows cell 'A1, A1' is not distinct",
+                id="repeated-id",
+            ),
+            pytest.param(
+                _dev("| a | p | g | w | a1 |"),
+                "dev.md:5: 'a': the Matrix rows cell 'a1' is not distinct",
+                id="lowercase-id",
+            ),
+            pytest.param(
+                _dev("| a | p | g | w | A1 |", "| a | p | g | w | A2 |"),
+                "dev.md:6: the key 'a' repeats line 5",
+                id="repeated-key",
+            ),
+        ],
+    )
+    def test_malformed_tables_fail(self, text: str, want: str) -> None:
+        _, failures = ptm.parse_deviations(text, "dev.md")
+        assert len(failures) == 1
+        assert failures[0].startswith(want)
+
+    @staticmethod
+    def _check(matrix_rows: tuple[str, ...], dev_rows: tuple[str, ...]) -> list[str]:
+        rows = _rows(_matrix(*matrix_rows))
+        deviations, failures = ptm.parse_deviations(_dev(*dev_rows), "dev.md")
+        assert failures == []
+        result: list[str] = ptm.check_deviations(rows, deviations, "dev.md")
+        return result
+
+    def test_citations_and_keys_agree_in_both_directions(self) -> None:
+        # A2 inherits A1's citations; a key no row cites lists no rows.
+        rows = (
+            '| A1 | `test_one` | partial deviation "a" + deviation "b" + `TestX` | deviation |',
+            "| A2 | `test_two` | same deviation | deviation |",
+        )
+        dev = (
+            "| a | p | g | w | A1, A2 |",
+            "| b | p | g | w | A2, A1 |",
+            "| c | p | g | w | — |",
+        )
+        assert self._check(rows, dev) == []
+
+    def test_a_ported_row_citing_a_deviation_counts(self) -> None:
+        rows = ('| A1 | `test_one` | `TestX` + deviation "a" (one case) | ported |',)
+        assert self._check(rows, ("| a | p | g | w | — |",)) == [
+            "dev.md:5: 'a' does not name the rows citing it: A1"
+        ]
+
+    @pytest.mark.parametrize(
+        ("rows", "dev", "want"),
+        [
+            pytest.param(
+                ('| A1 | `test_one` | deviation "a" | deviation |',),
+                ("| b | p | g | w | — |",),
+                ['rows A1 cite deviation "a", which dev.md does not list'],
+                id="unlisted-citation",
+            ),
+            pytest.param(
+                (
+                    '| A1 | `test_one` | deviation "a" | deviation |',
+                    "| A2 | `test_two` | same deviation | deviation |",
+                ),
+                ("| a | p | g | w | A1 |",),
+                ["dev.md:5: 'a' does not name the rows citing it: A2"],
+                id="inherited-citation-missing",
+            ),
+            pytest.param(
+                ('| A1 | `test_one` | deviation "a" | deviation |',),
+                ("| a | p | g | w | A1, B7 |",),
+                ["dev.md:5: 'a' names rows that do not cite it: B7"],
+                id="extra-row",
+            ),
+            pytest.param(
+                ('| A1 | `test_one` | deviation "a" | deviation |',),
+                ("| a | p | g | w | A1 |", "| b | p | g | w | A1 |"),
+                ["dev.md:6: 'b' names rows that do not cite it: A1"],
+                id="row-listed-under-the-wrong-key",
+            ),
+            pytest.param(
+                ('| A1 | `test_one` | deviation "A" | deviation |',),
+                ("| a | p | g | w | A1 |",),
+                [
+                    'rows A1 cite deviation "A", which dev.md does not list',
+                    "dev.md:5: 'a' names rows that do not cite it: A1",
+                ],
+                id="keys-are-case-sensitive",
+            ),
+        ],
+    )
+    def test_disagreements_fail(
+        self, rows: tuple[str, ...], dev: tuple[str, ...], want: list[str]
+    ) -> None:
+        assert self._check(rows, dev) == want
+
+    @pytest.mark.usefixtures("pinned")
+    def test_main_checks_the_table_given_with_deviations(
+        self,
+        upstream: Path,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        matrix = (
+            _full(
+                (
+                    '| A1 | `test_one` | deviation "a" | deviation |',
+                    "| A2 | `test_two` | `TestTwo` | ported |",
+                ),
+                "| B1 | `test_three` | `TestThree` | ported |",
+            )
+            + "\nRows by status: 1 deviation, 0 planned, 2 ported.\n"
+        )
+        dev = tmp_path / "deviations.md"
+        files = TestMain._files(tmp_path, matrix=matrix)
+
+        dev.write_text(_dev("| a | p | g | w | A1 |"))
+        code = ptm.main(["--upstream", str(upstream), *files, "--deviations", str(dev)])
+        assert code == 0
+        assert caplog.messages == []
+        assert "(1 deviation, 0 planned, 2 ported)" in capsys.readouterr().out
+
+        dev.write_text(_dev("| b | p | g | w | A1 |"))
+        code = ptm.main(["--upstream", str(upstream), *files, "--deviations", str(dev)])
+        assert code == 1
+        assert caplog.messages == [
+            f'rows A1 cite deviation "a", which {dev} does not list',
+            f"{dev}:5: 'b' names rows that do not cite it: A1",
+            "port-test-matrix: 2 failure(s)",
+        ]
+
+        caplog.clear()
+        code = ptm.main(
+            [
+                "--upstream",
+                str(upstream),
+                *files,
+                "--deviations",
+                str(tmp_path / "no.md"),
+            ]
+        )
+        assert code == 1
+        assert caplog.messages[0].startswith(f"{tmp_path / 'no.md'}: cannot read (")
+
+    @pytest.fixture
+    def upstream(self, tmp_path: Path) -> Path:
+        return _upstream_repo(tmp_path)
+
+    @pytest.fixture
+    def pinned(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(ptm, "upstream_head", lambda _: ptm.PINNED_COMMIT)
+        monkeypatch.setattr(ptm, "EXPECTED_TEST_COUNT", len(UPSTREAM))
+        _fake_go(monkeypatch, _fake_run(stdout=GO_LIST_OK))
+
+
+class TestRepositoryDeviations:
+    def test_the_repository_table_matches_the_matrix(self) -> None:
+        root = SCRIPT.parents[2]
+        rows = ptm.parse_matrix((root / "docs" / "port-test-matrix.md").read_text())
+        assert rows.failures == []
+        deviations, failures = ptm.parse_deviations(
+            (root / "docs" / "deviations.md").read_text(), "docs/deviations.md"
+        )
+        assert failures == []
+        assert ptm.check_deviations(rows.rows, deviations, "docs/deviations.md") == []

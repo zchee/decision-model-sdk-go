@@ -75,8 +75,10 @@ jobs:
         run: uvx --with pyyaml pytest -q -p no:cacheprovider .github/scripts
 
       # --no-planned: since W6.4 no row is planned, and a new one fails.
+      # --deviations: every deviation the matrix cites is a row of
+      # docs/deviations.md, and each row lists exactly the rows citing it.
       - name: Check the port test matrix against the upstream tests
-        run: uv run --script .github/scripts/port-test-matrix.py --upstream upstream --no-planned
+        run: uv run --script .github/scripts/port-test-matrix.py --upstream upstream --no-planned --deviations docs/deviations.md
       # uncovered-lines.py runs in the test job, which has the coverage profile.
 
       # XD1: every Go block of README.md and docs/**/*.md sits under an

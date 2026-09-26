@@ -11,7 +11,7 @@ or to a documented deviation. This script enforces that mapping.
 Usage (from the repository root)::
 
     .github/scripts/port-test-matrix.py --upstream PATH [--write FILE]
-        [--names FILE] [--matrix FILE] [--no-planned]
+        [--names FILE] [--matrix FILE] [--no-planned] [--deviations FILE]
 
 Checks, in order. Every failure is logged to stderr on its own line, followed
 by a failure count; on success one summary line goes to stdout. The exit
@@ -75,14 +75,16 @@ status is 0 only when every check passes.
      unqualified (``TestX``, never ``typesafe.TestX``): the root import path
      ends in ``/typesafe-sdk-go``, not ``/typesafe``, so a qualified name
      could never match it.
-   - ``deviation``: the Go cell must cite the Appendix B row of the port plan
-     (the deviation table that ships with the port) as the word ``deviation``
-     followed by a double-quoted, non-blank reference, as in
-     ``deviation "one deadline per attempt"``. Appendix B rows carry no
-     numbers, and ``B<n>`` would read as one of the plan's benchmark IDs
-     B1-B6, so there is no numeric form. A cell containing ``same deviation``
-     takes the citation of the nearest row above it in the same group that
-     carries one; rows without a citation in between are skipped.
+   - ``deviation``: the Go cell must cite a row of the deviation table
+     (``docs/deviations.md``, which grew out of the port plan's Appendix B)
+     as the word ``deviation`` followed by a double-quoted, non-blank
+     reference, the row's key, as in ``deviation "one deadline per
+     attempt"``. The rows carry no numbers, and ``B<n>`` would read as one
+     of the plan's benchmark IDs B1-B6, so there is no numeric form. A cell
+     containing ``same deviation`` takes the citation of the nearest row
+     above it in the same group that carries one; rows without a citation
+     in between are skipped. With ``--deviations`` the reference must be a
+     key of that table (check 7).
      Backtick-quoted ``Test…`` identifiers in a deviation cell (partial
      deviations such as ``deviation "…" + `TestX```) must exist, as for
      ``ported``.
@@ -95,6 +97,17 @@ status is 0 only when every check passes.
    ``Rows by status: <counts>.``, where <counts> is the text the summary
    line prints (``32 deviation, 6 planned, 91 ported``), so the document
    cannot show counts its rows do not have.
+7. Deviation table (only with ``--deviations FILE``). FILE holds one or more
+   tables whose header row is ``| Key | Python SDK 0.7.1 | Go SDK | Why |
+   Matrix rows |``, each followed by a separator row of five cells, then
+   rows of five cells; other tables are ignored. A key may not be blank or
+   repeated, and the last cell lists the IDs of the matrix rows that cite
+   the key, comma-separated, or is ``—`` when none does. The two must
+   agree in both directions: every reference a matrix row cites, in any
+   status and a ``same deviation`` row's inherited one included, is a key,
+   and each key's cell names exactly the rows that cite it. A partial
+   deviation citing two rows (``deviation "a" … deviation "b"``) is listed
+   under both keys.
 
 ``go test -list`` runs even when no row needs it, so a module that stops
 compiling under ``-tags live`` fails this check from the first wave on.
@@ -152,6 +165,9 @@ _GO_IDENT = re.compile(r"(?:Test|Benchmark|Fuzz|Example)\w*")
 _QUOTED_DEVIATION = re.compile(r'\bdeviation\s+"([^"]*)"')
 _SAME_DEVIATION = re.compile(r"\bsame deviation\b")
 _STATUS_LINE = re.compile(r"Rows by status: (?P<counts>.+)\.")
+_ROW_ID = re.compile(r"[A-Z]+\d+")
+DEVIATION_HEADER = ("Key", "Python SDK 0.7.1", "Go SDK", "Why", "Matrix rows")
+NO_ROWS = "—"
 
 
 @dataclass(frozen=True)
@@ -169,6 +185,15 @@ class Row:
     def key(self) -> str:
         """Return the ``tests/<file>::<name>`` key used by the name list."""
         return f"{self.file}::{self.upstream}"
+
+
+@dataclass(frozen=True)
+class Deviation:
+    """One row of the deviation table: its key and the rows citing it."""
+
+    line: int
+    key: str
+    rows: frozenset[str]
 
 
 @dataclass
@@ -758,6 +783,141 @@ def check_status_line(text: str, summary: str, source: str) -> list[str]:
     return []
 
 
+def _deviation_row(cells: list[str], lineno: int, where: str) -> Deviation | str:
+    """Turn the cells of one deviation table row into a row or a failure."""
+    if len(cells) != len(DEVIATION_HEADER):
+        return f"{where}: expected {len(DEVIATION_HEADER)} cells, found {len(cells)}"
+    key, rows_cell = cells[0], cells[-1]
+    if not key:
+        return f"{where}: the key cell is blank"
+    if rows_cell == NO_ROWS:
+        return Deviation(lineno, key, frozenset())
+    ids = [part.strip() for part in rows_cell.split(",")]
+    if not all(_ROW_ID.fullmatch(i) for i in ids) or len(set(ids)) != len(ids):
+        return (
+            f"{where}: {key!r}: the Matrix rows cell {rows_cell!r} is not distinct "
+            f"comma-separated row IDs or {NO_ROWS}"
+        )
+    return Deviation(lineno, key, frozenset(ids))
+
+
+def parse_deviations(text: str, source: str) -> tuple[list[Deviation], list[str]]:
+    """Parse the deviation tables of a document (check 7).
+
+    Args:
+        text: the Markdown document.
+        source: the name used in failure messages.
+
+    Returns:
+        The rows of every deviation table, in document order, and one
+        failure per malformed row, repeated key or table without its
+        separator; a document without a deviation table is a failure.
+    """
+    rows: list[Deviation] = []
+    failures: list[str] = []
+    lines_in_table = 0
+    deviation_table = False
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        body = _table_line(line)
+        if body is None:
+            lines_in_table, deviation_table = 0, False
+            continue
+        lines_in_table += 1
+        cells = _cells(body)
+        where = f"{source}:{lineno}"
+        if lines_in_table == 1:
+            deviation_table = tuple(cells) == DEVIATION_HEADER
+            continue
+        if not deviation_table:
+            continue
+        if lines_in_table == 2:
+            if not _is_separator(cells) or len(cells) != len(DEVIATION_HEADER):
+                failures.append(
+                    f"{where}: a deviation table's header must be followed by a "
+                    f"separator of {len(DEVIATION_HEADER)} cells"
+                )
+                deviation_table = False
+            continue
+        parsed = _deviation_row(cells, lineno, where)
+        if isinstance(parsed, str):
+            failures.append(parsed)
+        else:
+            rows.append(parsed)
+    if not rows and not failures:
+        header = " | ".join(DEVIATION_HEADER)
+        failures.append(f"{source}: no deviation table (a table headed | {header} |)")
+    first: dict[str, Deviation] = {}
+    for row in rows:
+        if (seen := first.get(row.key)) is not None:
+            failures.append(
+                f"{source}:{row.line}: the key {row.key!r} repeats line {seen.line}"
+            )
+        first.setdefault(row.key, row)
+    return rows, failures
+
+
+def citations(rows: list[Row]) -> dict[str, set[str]]:
+    """Return the IDs of the matrix rows citing each deviation reference.
+
+    A row cites every non-blank ``deviation "<reference>"`` in its Go cell;
+    a row with none that says ``same deviation`` cites what the nearest row
+    above it in its group cites, as check 5 reads it.
+    """
+    cited: dict[str, set[str]] = {}
+    above: dict[str, list[str]] = {}
+    for row in rows:
+        keys = [
+            m.group(1)
+            for m in _QUOTED_DEVIATION.finditer(row.go_cell)
+            if m.group(1).strip()
+        ]
+        if keys:
+            above[row.file] = keys
+        elif _SAME_DEVIATION.search(row.go_cell):
+            keys = above.get(row.file, [])
+        for key in keys:
+            cited.setdefault(key, set()).add(row.row_id)
+    return cited
+
+
+def check_deviations(
+    rows: list[Row], deviations: list[Deviation], source: str
+) -> list[str]:
+    """Return the failures of check 7: citations and table rows disagreeing.
+
+    Args:
+        rows: the matrix rows, in document order.
+        deviations: the rows :func:`parse_deviations` returned.
+        source: the deviation document's name, for messages.
+
+    Returns:
+        One failure per reference no key matches, per key whose cell leaves
+        out a row citing it, and per key whose cell names a row that does
+        not cite it.
+    """
+    failures: list[str] = []
+    table = {d.key: d for d in deviations}
+    cited = citations(rows)
+    for key, ids in sorted(cited.items()):
+        if (d := table.get(key)) is None:
+            failures.append(
+                f'rows {", ".join(sorted(ids))} cite deviation "{key}", which '
+                f"{source} does not list"
+            )
+        elif missing := ids - d.rows:
+            failures.append(
+                f"{source}:{d.line}: {key!r} does not name the rows citing it: "
+                f"{', '.join(sorted(missing))}"
+            )
+    for d in deviations:
+        if extra := d.rows - cited.get(d.key, set()):
+            failures.append(
+                f"{source}:{d.line}: {d.key!r} names rows that do not cite it: "
+                f"{', '.join(sorted(extra))}"
+            )
+    return failures
+
+
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     """Parse the command line; ``--upstream`` is required."""
     repo = Path(__file__).resolve().parents[2]
@@ -798,6 +958,12 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--no-planned",
         action="store_true",
         help="fail on any row whose status is still planned",
+    )
+    parser.add_argument(
+        "--deviations",
+        type=Path,
+        metavar="FILE",
+        help="deviation table the matrix's citations must match (check 7)",
     )
     return parser.parse_args(argv)
 
@@ -866,6 +1032,15 @@ def main(argv: list[str] | None = None) -> int:
     summary = status_summary(matrix.rows)
     if text:
         failures += check_status_line(text, summary, str(args.matrix))
+    if args.deviations is not None:
+        try:
+            dev_text = args.deviations.read_text(encoding="utf-8")
+        except OSError as exc:
+            failures.append(f"{args.deviations}: cannot read ({exc.strerror})")
+        else:
+            deviations, dev_failures = parse_deviations(dev_text, str(args.deviations))
+            failures += dev_failures
+            failures += check_deviations(matrix.rows, deviations, str(args.deviations))
 
     if failures:
         for failure in failures:
