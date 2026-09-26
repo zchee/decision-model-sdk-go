@@ -157,6 +157,12 @@
 //     keeps, holds the permit until it returns: until then no connection is
 //     made, and every request fails at its own wait bound.
 //
+// A hook either bound leaves running goes on with its dial: once it
+// returns, the rest of that dial's hooks run, beside the hooks of the dials
+// that come after it, and its request has returned by then, so the root
+// package's shield logs a panic the hook raises rather than raising it on a
+// call.
+//
 // The bounds fire only after a stall, the hold bound once a FirstHold has
 // kept the token its longest and the dial and wait bounds once a dial has
 // run past what a healthy one takes, so the measured AC-P4 clauses do not

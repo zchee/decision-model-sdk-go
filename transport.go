@@ -223,6 +223,13 @@ func WithRoundTripper(rt http.RoundTripper) ClientOption {
 //     [WithHTTPTransport]'s transport, keeps the client's one connection to
 //     the host from being made until it returns.
 //
+// A hook the bound leaves running goes on with its dial, beside the calls
+// that come after it: the rest of that dial's hooks run once it returns,
+// possibly at the same time as the hooks of a later call's new connection,
+// as net/http/httptrace allows, and a panic the hook raises then is
+// recovered and logged at WARN, as the panic of any hook that runs after
+// its call has returned.
+//
 // The shield above covers a panic, and the bounds a hook that blocks,
 // except GetConn on a client that has a connection.
 func WithClientTrace(trace *httptrace.ClientTrace) ClientOption {
