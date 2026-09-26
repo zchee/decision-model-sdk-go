@@ -36,8 +36,10 @@ import (
 // utf8.Valid, which are weaker than the decoder's rules); an accepted body
 // gives answers with unique labels and levels, structured levels that are
 // valid JSON, and the same result on a second decode and when decoded
-// against the question set it answers; and the result never aliases the
-// body.
+// against the question set it answers; the result never aliases the body;
+// and, decoded as a System One and as a models response, the body gives the
+// outcome of the whole-body traversal and decoder.Skip's trailing-data scan
+// that the one-scan traversal replaced (K36, W5.3).
 func FuzzDecodeResponse(f *testing.F) {
 	for _, name := range testsupport.FixtureNames(f, "*.json") {
 		if strings.HasPrefix(name, "structured-legend-flood-10k") {
@@ -52,11 +54,24 @@ func FuzzDecodeResponse(f *testing.F) {
 		`{"model":"m","usage":{},"answers":{"c":{"type":"choice","choice":"a","confidence":1,"probabilities":{"a":1,"a":"x","b":0}}}}`,
 		`{"model":"m","usage":{},"answers":{"u":{"type":"aurora"},"c":7}}`,
 		unescapeU(`{"model":"m","usage":{},"@U@0061nswers":{"s":{"type":"score","score":0,"confidence":1,"legend":{"@U@0030":{"k":"@U@d800"}},"probabilities":{}}}}`),
+		// Root keys sonic fails to unquote (K36's one-scan traversal, W5.3).
+		`{"\u"}`, `{"0000000000000000000000000000000\0}`,
+		// A string value cut open where the root's brace was (the same;
+		// sonic takes a string cut open by the end of its input as whole
+		// when its content is a multiple of 32 bytes long).
+		`{"":"` + strings.Repeat("0", 64) + `}`, `{"a":"` + strings.Repeat("0", 31) + `}}`,
+		// Escapes next to the cut, and in root keys.
+		`{"model":"m\"","usage":{},"\ud83d\ude00":{"a":"\\"}}`, `{"usage":{},"model":"m\\"}`, `{"usage":{},"model":"m\"}`,
 	} {
 		f.Add([]byte(seed))
 	}
 	f.Fuzz(func(t *testing.T, body []byte) {
 		orig := bytes.Clone(body)
+		for _, models := range []bool{false, true} {
+			if one, whole, _ := decodeBothScans(t, orig, models); !gocmp.Equal(whole, one) {
+				t.Fatalf("decode of %q (models %t) on one scan differs from the whole-body decode (-whole +one):\n%s", orig, models, gocmp.Diff(whole, one))
+			}
+		}
 		var res wire.SystemOneResult
 		skipped, err := DecodeSystemOne(body, nil, "", &res)
 		if skipped.Count < len(skipped.Named()) || len(skipped.Named()) > MaxSkipped {

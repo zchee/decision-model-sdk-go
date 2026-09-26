@@ -77,7 +77,8 @@ const maxDepth = 4
 
 // maxNesting is the deepest nesting of containers a body may have, the root
 // included: sonic's decoder.Skip, which the trailing-data check runs, takes
-// 4096 and refuses more. The visitor refuses a container past it as it
+// 4096 and refuses more (skipDepth says where the two differ). The visitor
+// refuses a container past it as it
 // opens, so sonic's traversal, which recurses once per level on the
 // goroutine's stack, stops within that many frames: without the cap a body
 // of a few MiB nested millions deep exhausts the stack and kills the process
@@ -231,6 +232,7 @@ type visitor struct {
 	ignSlot slot // the slot whose value that container is
 	stack   [maxDepth]ctr
 	sp      int
+	peak    int // the deepest nesting met, the root included
 
 	scanned bool // the body's raw-control scan has run
 	rawCtl  bool // its result
@@ -273,7 +275,7 @@ var _ ast.Visitor = (*visitor)(nil)
 // reset prepares the visitor for a new body, keeping its scratch capacity.
 func (v *visitor) reset(body string, m mode) {
 	v.body, v.mode = body, m
-	v.slot, v.ign, v.ignSlot, v.sp = slotRoot, 0, slotNone, 0
+	v.slot, v.ign, v.ignSlot, v.sp, v.peak = slotRoot, 0, slotNone, 0, 0
 	v.scanned, v.rawCtl, v.scans = false, false, 0
 	v.model, v.hasModel, v.modelErr = "", false, pend{}
 	v.usage, v.hasUsage, v.usageErr, v.inBad, v.outBad = wire.Usage{}, false, pend{}, false, false
@@ -347,6 +349,7 @@ func (v *visitor) begin(isObj bool) error {
 	if v.sp+v.ign >= maxNesting {
 		return errDepth
 	}
+	v.peak = max(v.peak, v.sp+v.ign+1)
 	if v.ign > 0 {
 		v.ign++
 		return nil
@@ -415,10 +418,20 @@ func (v *visitor) end() error {
 	case ctrCard:
 		v.commitCard()
 	case ctrModels:
-		return nil // the array's end: no slot follows
+		v.slot = slotNone // the array's end: no slot follows
+		return nil
 	}
 	v.nextCard()
 	return nil
+}
+
+// betweenRootMembers reports whether the traversal stands in the root object
+// right after its opening brace or after a member's value, where the root's
+// closing brace may come next: not inside a nested container and not after
+// a key whose value is still to come (a key always sets the slot, and every
+// value at the root, container or scalar, leaves slotNone).
+func (v *visitor) betweenRootMembers() bool {
+	return v.sp == 1 && v.ign == 0 && v.stack[0] == ctrRoot && v.slot == slotNone
 }
 
 // nextCard makes the next value of a models array a card.

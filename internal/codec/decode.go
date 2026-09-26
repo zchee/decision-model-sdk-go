@@ -17,7 +17,9 @@
 package codec
 
 import (
+	"bytes"
 	"errors"
+	"slices"
 	"strconv"
 	"sync"
 
@@ -177,6 +179,7 @@ func (s *Skipped) add(name, typ string) {
 // stats describes the work of the last decode, for the tests.
 type stats struct {
 	scans      int    // whole-body raw-control scans (0 or 1)
+	wholes     int    // traversals of the whole body, when the cut one declines (0 or 1)
 	lazyPasses int    // lazy passes (0 or 1)
 	members    uint64 // members the lazy pass iterated (AC-P8's "members visited")
 	arena      int    // bytes copied into the arena
@@ -288,6 +291,12 @@ func (d *decoder) models(body []byte, dst *wire.ModelList) error {
 	if err := d.traverse(s, body, modeModels); err != nil {
 		return err
 	}
+	return d.finishModels(dst)
+}
+
+// finishModels reports the first failure of a models body in schema order,
+// or copies the cards into dst.
+func (d *decoder) finishModels(dst *wire.ModelList) error {
 	v := &d.v
 	switch {
 	case !v.hasCards:
@@ -311,8 +320,56 @@ func (d *decoder) models(body []byte, dst *wire.ModelList) error {
 	return nil
 }
 
-// traverse runs the visitor over s in mode m, then the trailing-data check.
+// skipDepth is the deepest nesting, the root included, at which sonic's
+// decoder.Skip accepts every body the traversal accepts. Skip keeps one slot
+// per open container and one more for a member or element it has yet to
+// read, 4096 slots in all (fsm_push in sonic's native/scanning.h), so a
+// container nested maxNesting deep, which the visitor takes, fails Skip once
+// it holds a member or a second element (TestDecodeDepthBound). A body
+// nested deeper than skipDepth is left to the full path, which keeps Skip's
+// verdict.
+const skipDepth = maxNesting - 1
+
+// errCut is the error sonic's traversal returns for a root object cut off
+// where its closing brace would be: right after the opening brace, or after
+// a member's value.
+var errCut = func() error {
+	var v visitor
+	v.reset("{", modeSystemOne)
+	return ast.Preorder("{", &v, &ast.VisitorOptions{OnlyNumber: true})
+}()
+
+// traverse runs the visitor over s in mode m, and checks that only JSON
+// whitespace (space, tab, line feed, carriage return) follows the root
+// value, which ast.Preorder does not: it stops after the root value.
+//
+// The last byte of a valid body other than JSON whitespace is its root's
+// closing brace. The traversal runs over the body cut just before that
+// brace (cutPoint says when it may): when the root closes at it, sonic
+// stops at the cut with errCut in the root object between two members, and
+// the visitor is handed the root's end, so the body is scanned once. Any
+// other outcome (a body cutPoint refuses, a root that closes before the
+// cut, any failure, a body nested deeper than skipDepth) runs the traversal
+// over the whole body and then the trailing-data check, which decide as
+// they did before the cut existed.
 func (d *decoder) traverse(s string, body []byte, m mode) error {
+	if n := cutPoint(body); n > 0 {
+		d.v.reset(s, m)
+		if err := ast.Preorder(s[:n], &d.v, &d.opts); errors.Is(err, errCut) && d.v.betweenRootMembers() && d.v.peak <= skipDepth {
+			d.stats.scans = d.v.scans
+			if err := d.v.OnObjectEnd(); err != nil {
+				return jsonErr(err)
+			}
+			return nil
+		}
+	}
+	return d.traverseWhole(s, body, m)
+}
+
+// traverseWhole runs the visitor over the whole of s in mode m, then the
+// trailing-data check.
+func (d *decoder) traverseWhole(s string, body []byte, m mode) error {
+	d.stats.wholes = 1
 	d.v.reset(s, m)
 	err := ast.Preorder(s, &d.v, &d.opts)
 	d.stats.scans = d.v.scans
@@ -322,10 +379,116 @@ func (d *decoder) traverse(s string, body []byte, m mode) error {
 	return trailing(body)
 }
 
-// trailing is the trailing-data check: ast.Preorder stops after the root
-// value, so sonic's decoder.Skip finds its end, and only JSON whitespace (space,
-// tab, line feed, carriage return) may follow it. Skip returns a negative
-// start for a body that holds no value at all.
+// cutPoint returns the index of body's last byte other than JSON
+// whitespace when that byte is '}' and the traversal may run over the body
+// cut just before it, and -1 otherwise. sonic ends the cut traversal with
+// errCut, between two root members, in two other ways than at the root's
+// closing brace, each ruled out here (FuzzDecodeResponse found every one):
+//
+//   - A scanner reaching the cut inside a token returns it as complete: a
+//     string cut open, which the brace would have continued. An even
+//     number of quotes that no backslash escapes puts the cut outside every
+//     string (a quote inside a string is escaped, one outside opens a
+//     string); and the last byte before the cut must end a container or a
+//     string, or be the root's opening brace, so that no number or literal
+//     runs into the cut.
+//   - It fails to unquote a root member's key, which then never reaches
+//     the visitor. Of unquote's failures only two are errCut (sonic's
+//     native/unquote.c): a \u escape with fewer than four bytes left in its
+//     string, which the cut body may not hold, and a string ending in an
+//     unpaired backslash, which cannot be once every string before the cut
+//     ends at a quote no backslash escapes.
+func cutPoint(body []byte) int {
+	n := lastNonSpace(body)
+	if n <= 0 || body[n] != '}' {
+		return -1
+	}
+	cut := body[:n]
+	last := lastNonSpace(cut)
+	if last < 0 {
+		return -1
+	}
+	switch cut[last] {
+	case '{', '}', ']', '"':
+	default:
+		return -1
+	}
+	quotes := bytes.Count(cut, quote)
+	if first := bytes.IndexByte(cut, '\\'); first >= 0 {
+		quotes -= escapedQuotes(cut, first)
+		if !uEscapesComplete(cut[first:]) {
+			return -1
+		}
+	}
+	if quotes%2 != 0 {
+		return -1
+	}
+	return n
+}
+
+var quote = []byte{'"'}
+
+// escapedQuotes counts the quotes of b that an odd run of backslashes
+// escapes, the first backslash being at b[first].
+func escapedQuotes(b []byte, first int) int {
+	n := 0
+	for i := first; ; {
+		j := i + 1
+		for j < len(b) && b[j] == '\\' {
+			j++
+		}
+		if (j-i)%2 == 1 && j < len(b) && b[j] == '"' {
+			n++
+		}
+		k := bytes.IndexByte(b[j:], '\\')
+		if k < 0 {
+			return n
+		}
+		i = j + k
+	}
+}
+
+// uEscapesComplete reports whether every \u in b is followed by four
+// hexadecimal digits. A \u after an escaped backslash counts too, which
+// only sends such a body to the whole-body traversal.
+func uEscapesComplete(b []byte) bool {
+	for {
+		i := bytes.Index(b, uEscape)
+		if i < 0 {
+			return true
+		}
+		b = b[i+len(uEscape):]
+		if len(b) < 4 || !isHex(b[0]) || !isHex(b[1]) || !isHex(b[2]) || !isHex(b[3]) {
+			return false
+		}
+		b = b[4:]
+	}
+}
+
+var uEscape = []byte(`\u`)
+
+// isHex reports whether c is a hexadecimal digit.
+func isHex(c byte) bool {
+	return '0' <= c && c <= '9' || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F'
+}
+
+// lastNonSpace returns the index of the last byte of b other than JSON
+// whitespace, or -1.
+func lastNonSpace(b []byte) int {
+	for i, c := range slices.Backward(b) {
+		switch c {
+		case ' ', '\t', '\n', '\r':
+		default:
+			return i
+		}
+	}
+	return -1
+}
+
+// trailing is the trailing-data check over the whole body: sonic's
+// decoder.Skip finds the end of the root value, and only JSON whitespace may
+// follow it. Skip returns a negative start for a body that holds no value at
+// all.
 func trailing(body []byte) error {
 	start, end := sonicdecoder.Skip(body)
 	if start < 0 || end > len(body) {
