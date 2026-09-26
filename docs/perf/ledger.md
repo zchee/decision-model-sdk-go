@@ -4767,8 +4767,10 @@ N2 findings:
    `SystemOne` 20/2 648 + 0.
 3. **Lifetime and aliasing** (condition 2): the entries share one block
    with the response and the first URL copy, so an `Answers` taken from a
-   response keeps the whole block (704 B for three questions) reachable,
-   as it kept the response and the decode's array before, the same bytes;
+   response keeps the whole block (704 B for three questions) reachable:
+   the response and the decode's array it kept before, and the 144 B URL
+   copy, which a held response keeps alive since N1 and which was freed
+   with its request before it (review V63, NIT 8; corrected in a09ea43);
    an answer value copied out holds no pointer into it. `newSystemOneAlloc`
    says so; `TestAnswersOutliveTheirResponse` keeps an `Answers` past its
    response through collections and reuse of freed memory, for 3 and 5
@@ -5045,6 +5047,40 @@ as records: W5.3-57a, -66 (re-taken as -67), -81 (R54, reverted), -86 and
 -87 (K23; W5.3-06 stands), and W5.3-90's AC-P8 time (re-taken as -91). No
 other (M) timing row falls in a window or ran above load 16.
 
+### Slice 2's review (V63) and its fix (a09ea43)
+
+The review of slice 2 (`REVIEW W5.3 SLICE2 REVISE 6b996ed`) found one
+MAJOR and two NITs:
+
+1. **MAJOR 1: R97-corr (c) made `RetryPolicy` comparable.** With the
+   statuses slice and the predicate behind `rules *retryRules`, no field
+   forbade `==`: `a == b` on two policies compiled at 6b996ed and not at
+   67dcbb0, a policy could key a map, and `==` would compare the rules by
+   identity; `go doc -all .` and an API golden of fields and methods cannot
+   show it. a09ea43 adds a zero-size `_ [0]func()` as the first field, which
+   keeps the type incomparable and the policy 56 bytes, and
+   `TestRetryPolicyRules` checks `Comparable()` is false beside the size
+   pin. Two mutants fail it (W5.3-94): the field removed fails the test
+   binary's link, because Go 1.27.1's linker panics on that program ("R_USEIFACE
+   in …TestRetryPolicyRules references type:.eqfunc.M24GM21 which is not a
+   type or itab", a toolchain bug and a W7 note), and the field moved last
+   fails the size pin. `go doc -all .` is unchanged (W5.3-97).
+2. **NIT 7**: the frozen AC-P6 row now cites the rows that re-pinned N
+   (W5.3-28, -41, -34, -35) and says its 100-run stability figure is W3.4's,
+   taken at N = 14.
+3. **NIT 8**: a held response also keeps the first attempt's 144 B URL
+   copy alive since N1; `newSystemOneAlloc`'s and `systemOneAlloc`'s
+   comments and N2's finding 3 say so.
+4. **The open question on AC-P1's recorded growth rows**, ruled by the
+   lead: the `*struct` and flat-map values of the frozen AC-P1 row are
+   ranges, their cause sonic's pool drops, identical at 67dcbb0 and 6b996ed
+   (the reviewer's measurement), so they predate W5.3; the pins are
+   unchanged.
+5. **A W7 note from the review**: a raw score criteria of `1e-400` is
+   falsy in Python (the float underflows to 0.0) and truthy for
+   `falsyJSON`, which reads its mantissa; P2 kept the old verdict, so the
+   edge predates W5.3. No change now.
+
 | # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | W5.3-01 | 2026-09-26 08:36:53 UTC | W5.3 K36 `BenchmarkCall`, first run | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 2.49 → 9.10 | `BASE=67dcbb0 CAND=05264fe MAXLOAD=4 sh $A '(L)' $O /tmp/ts-spike/bench.lock k36-call-L internal/benchmark 5 <base tree> <cand tree> -test.run '^$' -test.bench '^BenchmarkCall$/^(sdk\|naive)(-q20)?$' -test.benchmem -test.count 2` | `call/sdk` 7.088 → 6.250 µs (−11.8 %), q20 29.89 → 26.49 µs (−11.4 %); naive unchanged; allocations 22 and 42 both sides | during W6.1's fuzz campaign on (L) (8 workers, load 2.5 → 9.1): absolute times about 15 % above W5.3-03; kept, not of record; `results/k36-call-L-{base,cand}.txt` |
@@ -5142,3 +5178,7 @@ other (M) timing row falls in a window or ran above load 16.
 | W5.3-91 | 2026-09-26 20:59:44 JST | W5.3 AC-P8 time and allocations, re-taken | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.80 → 9.96 | under `$F $SP/bench.lock` after waiting for load < 10, at d15781a: `go test -count=3 -run '^(TestLinearityFloodTime\|TestLinearityFlood)$' -v .` | time ratio 9.43, 9.40, 9.47 (bound 15); allocations 7.61 in each run (bound 12) | `results/acp8-M.txt` |
 | W5.3-92 | 2026-09-26 12:11:43 UTC | W5.3 R111, each commit alone | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.07 → – | each commit of 67dcbb0..46416b6 (20) as its own `git archive` tree, `go build ./... && go vet ./... && go test -count=1 ./...` under `set -o pipefail`, two at a time at `nice -n 19` | every commit exits 0; 140 `ok` lines (7 packages × 20), 0 FAIL lines, 0 nonzero exits | the final head adds only documentation to 46416b6; each commit's (M) gates are rows W5.3-08 to -77; `results/r111-L.txt` |
 | W5.3-93 | 2026-09-26 21:14:39 JST | W5.3 public API after R97-corr (c) | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | `GOEXPERIMENT=nosimd,noruntimesecret go doc -all .` at 46416b6 against 67dcbb0's (W5.3-42) | byte-identical, the same SHA-256 | `results/godoc-M.txt` |
+| W5.3-94 | 2026-09-26 21:58:31 JST | W5.3 mutants of a09ea43 | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | as W5.3-72, with the retry tests | both fail: the zero-size field removed (the test binary fails to link: Go 1.27.1's linker panics with "R_USEIFACE … references type:.eqfunc.M24GM21 which is not a type or itab"); the field moved last (`TestRetryPolicyRules`, the size pin) | `results/v63-mutants-M.txt` |
+| W5.3-95 | 2026-09-26 22:00:10 JST | W5.3 gates of a09ea43 | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 3.71 → – | as W5.3-08, at a09ea43 | every gate ok | `results/gates-M-a09ea43.txt` |
+| W5.3-96 | 2026-09-26 13:01:03 UTC | W5.3 R111 for a09ea43 | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.01 → – | a09ea43's `git archive` tree: `go build ./... && go vet ./... && go test -count=1 ./...` under `set -o pipefail` | 7 packages `ok`, exit 0 | its parent 6b996ed is W5.3-92's 46416b6 plus documentation, and the docs commit after it changes no code; `results/r111-a09ea43-L.txt` |
+| W5.3-97 | 2026-09-26 22:00:01 JST | W5.3 public API after a09ea43 | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | `GOEXPERIMENT=nosimd,noruntimesecret go doc -all .` at a09ea43 against 67dcbb0's | byte-identical (a blank field is not shown) | `results/godoc-M.txt` |
