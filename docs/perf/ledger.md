@@ -2787,6 +2787,21 @@ and `BASE=e8bddc3`.
 | W2.5-14 | 2026-09-26 09:11:59 JST | K33 mutant: `CloseConns` closes an HTTP/2 connection at once, as before the fix | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 3.48 → 3.16 | the W2.5-07 command in a detached worktree with the mutant, `m-k33-mutant 0 -count=5 -run '^(TestLoopbackCloseConnsDrains\|TestTransportErrorsBecomeConnectionOrTimeout)$' -v . ./internal/testsupport/` | FAIL, as it must: the close records fail in 10 of 10 runs of the two root rows and 10 of 10 of `TestLoopbackCloseConnsDrains` (no CloseWriteSeq, no PeerClosedSeq, nothing drained), while every client-side assertion passes: macOS, like Linux, lets the client read close_notify before the reset | `results/m-k33-mutant.txt` |
 | W2.5-15 | 2026-09-26 09:10:55 JST | gates at 3d1205c: `-race ./...`, then ci.yaml's root allocation step with its `-list` guard | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.89 → 5.65 | `proof.sh`'s last two runs (`m-race-all 0 -timeout 60m -race -count=1 ./...`; the step's two lines as ci.yaml has them) | ok in all five packages; guard 7 names; the step ok | `results/m-race-all.txt`, `results/m-root-alloc-step.txt` |
 | W2.5-16 | 2026-09-26 00:10:57 UTC | the same gates | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 15.30 → 11.23 (W2.5-12's loops decaying) | as W2.5-15 | ok in all five packages; guard 7 names; the step ok | `results/l-race-all.txt`, `results/l-root-alloc-step.txt` |
+| W2.5-17 | 2026-09-26 09:47:36 JST | K34 P8 with the strict order everywhere (first push of the fix, 0076086): the ten tests, `-race` ×50, 1, 2 and 4 Ps, no loops | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 5.90 → 7.16 | `TREE=0076086 GOEXPERIMENT=nosimd,noruntimesecret FLOCK=$FL sh _spikes/w2.5/proof-k34.sh '(M)' $SP/bench.lock 16 ''`, its first run | PASS 1350/1350 tests, 5100/5100 subtests; 1200 close records in the strict order | superseded by W2.5-25; `results/m-k34-strict-race-unloaded.txt` (filtered, R89 (4)) |
+| W2.5-18 | 2026-09-26 09:55:18 JST | the same, 16 loops | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 7.16 → 658.41 (noisy by design) | the same, its second run | FAIL 1 of 150: `TestGoAway`'s first row, records `GoAwaySeq:1 CloseWriteSeq:0 PeerClosedSeq:0 ClosedSeq:2` (the client closed after its last stream, the reader read its EOF before `maybeFinish` ran and closed on it, unrecorded); every client-side assertion passed | [W2.5 K34](#w25-k34-the-goaway-finish-close-on-e9ad7aa); `results/m-k34-strict-race-contended.txt` (filtered) |
+| W2.5-19 | 2026-09-26 00:47:42 UTC | the same, no loops | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.01 → 0.20 | `TREE=0076086 sh _spikes/w2.5/proof-k34.sh '(L)' /tmp/ts-spike/bench.lock 44 'taskset -c 0,1'`, its first run | FAIL 5 of 150: `TestGoAway` row 1 ×2, row 3 ×1, the K21 GOAWAY scenario ×2; 3 with `CloseWriteSeq:0 PeerClosedSeq:0`, 2 with `CloseWriteSeq` set and `PeerClosedSeq:0` (the reader read the client's EOF just before `draining` was set); client-side failures 0 | `results/l-k34-strict-race-unloaded.txt` (filtered) |
+| W2.5-20 | 2026-09-26 00:55:34 UTC | the same, 44 loops | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.37 → 44.18 (noisy by design) | the same, its second run | FAIL 17 of 150: row 1 ×11, row 3 ×4, K21 ×2 (13 and 4 of the two shapes); client-side failures 0; one K21 GOAWAY run with refused streams, the K21c residual that R89 (1) routes to W6.1 (not asserted) | `results/l-k34-strict-race-contended.txt` (filtered) |
+| W2.5-21 | 2026-09-26 10:37:00 JST | K34 mutant M1 at 68fc345: `maybeFinish` closes at once after the GOAWAY (`c.Close()` for `c.closeWrite()`) | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 30.19 → 31.09 | `TREE=68fc345+mutant-m1 GOEXPERIMENT=nosimd,noruntimesecret FLOCK=$FL sh $C '(M)' $O $SP/bench.lock m-k34-mutant-m1 0 -count=5 -run "$K34M" -v ./internal/testsupport/ ./internal/h2gate/` in a copy of 68fc345 with the mutant | FAIL, as it must: the six GOAWAY rows' records fail in 30 of 30 runs, all `GoAwaySeq:1 CloseWriteSeq:0 PeerClosedSeq:0 ClosedSeq:2`; `TestLoopbackActionsDrain`'s ActionGoAway row 5 of 5 (records; nothing drained); every client-side assertion passes; the two CloseConns rows pass | `results/m-k34-mutant-m1.txt` |
+| W2.5-22 | 2026-09-26 10:37:26 JST | K34 mutant "old": e9ad7aa's `h2conn.go` under 68fc345's tests | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 30.44 → 23.98 | the W2.5-21 command with the mutant `old` | FAIL, as it must: the same 30 of 30 GOAWAY-row records; `TestLoopbackActionsDrain`'s two rows 10 of 10 (K34's close_notify-only end, and ActionClose's immediate close); client-side 0 | `results/m-k34-mutant-old.txt` |
+| W2.5-23 | 2026-09-26 01:35:42 UTC | K34 mutant M1 | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 2.61 → 1.87 | `TREE=68fc345+mutant-m1 sh $C '(L)' $O /tmp/ts-spike/bench.lock l-k34-mutant-m1 0 -count=5 -run "$K34M" -v ./internal/testsupport/ ./internal/h2gate/` in the same copy | FAIL, as it must: 30 of 30 GOAWAY-row records as on (M); the ActionGoAway row fails earlier in 5 of 5, on the late PING's write: `write: broken pipe` (Linux reports the server's reset to the writer); h2gate client-side 0 | `results/l-k34-mutant-m1.txt` |
+| W2.5-24 | 2026-09-26 01:36:01 UTC | K34 mutant "old" | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 1.87 → 1.42 | the W2.5-23 command with the mutant `old` | FAIL, as it must: 30 of 30 GOAWAY-row records; `TestLoopbackActionsDrain` 10 of 10 (5 on the broken pipe, 5 on records and drained frames); h2gate client-side 0 | `results/l-k34-mutant-old.txt` |
+| W2.5-25 | 2026-09-26 10:37:46 JST | K34 after the fix (68fc345): the ten tests, `-race` ×50, 1, 2 and 4 Ps, no loops | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 23.98 → 4.52 (other lanes' load; no loops of this run) | `TREE=68fc345 GOEXPERIMENT=nosimd,noruntimesecret FLOCK=$FL sh _spikes/w2.5/proof-k34.sh '(M)' $SP/bench.lock 16 ''`, its first run | PASS 1350/1350 tests, 5100/5100 subtests; 1200 close records valid, the server first in all 1200; K34's late DATA drained in 150 of 150 POST runs and 150 of 150 no-GetBody runs; K21 GOAWAY 72 ok, 0 refused in 150/150 | `results/m-k34-race-unloaded.txt` (filtered) |
+| W2.5-26 | 2026-09-26 10:47:09 JST | the same, 16 loops | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 4.21 → 60.11 (noisy by design) | the same, its second run | PASS 1350/1350, 5100/5100; 1200 records valid, the client first in 1 (`TestGoAway` row 1: `GoAwaySeq:1 CloseWriteSeq:0 PeerClosedSeq:2 ClosedSeq:3`); DATA drained 150/150 and 150/150; K21 150/150 | `results/m-k34-race-contended.txt` (filtered) |
+| W2.5-27 | 2026-09-26 01:36:21 UTC | the same, no loops | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 1.42 → 0.40 | `TREE=68fc345 sh _spikes/w2.5/proof-k34.sh '(L)' /tmp/ts-spike/bench.lock 44 'taskset -c 0,1'`, its first run | PASS 1350/1350, 5100/5100; 1200 records valid, the client first in 3 (row 1 ×1, K21 ×2); DATA drained in 150/150 POST runs and 148/150 no-GetBody runs (in 2 the client read the GOAWAY before it wrote the body); K21 150/150 | `results/l-k34-race-unloaded.txt` (filtered) |
+| W2.5-28 | 2026-09-26 01:45:36 UTC | the same, 44 loops | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 1.25 → 44.39 (noisy by design) | the same, its second run | PASS 1350/1350, 5100/5100; 1200 records valid, the client first in 11 (row 1 ×6, row 3 ×2, K21 ×3); DATA drained in 131/150 and 128/150 (the rest never sent: the client read the GOAWAY first); K21 150/150 | `results/l-k34-race-contended.txt` (filtered) |
+| W2.5-29 | 2026-09-26 10:55:15 JST | gates at 68fc345: `-race ./...`, then ci.yaml's root allocation step with its `-list` guard | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 55.54 → 41.76 | `proof-k34.sh`'s last two runs | ok in all five packages; guard 7 names; the step ok | `results/m-k34-race-all.txt`, `results/m-k34-root-alloc-step.txt` |
+| W2.5-30 | 2026-09-26 01:53:31 UTC | the same gates | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 44.39 → 32.00 (W2.5-28's loops decaying) | as W2.5-29 | ok in all five packages; guard 7 names; the step ok | `results/l-k34-race-all.txt`, `results/l-k34-root-alloc-step.txt` |
+| W2.5-31 | 2026-09-26 10:55:56 JST | the section 11 lint chain at 68fc345; windows/amd64 vet and `test -c` (10:35:06 JST) | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 33.01; 19.91 | the chain as in `results/m-lint.txt`, with `GOPACKAGESDEBUG` unset; `GOOS=windows GOARCH=amd64 go vet ./...` and `go test -c -o /dev/null` per package | `0 issues.`, `No vulnerabilities found.`; vet ok; `test -c` ok in all five packages | no lock (not measurements); `results/m-k34-lint.txt`, `results/m-k34-windows-vet.txt` |
 
 ### W2.5 K32 and K33: the CI failures on b5b1a2b
 
@@ -2887,3 +2902,162 @@ W2.5-04 to -06, never committed as Go. The section 11 lint chain passed
 at 3d1205c (`results/m-lint.txt`), with govulncheck run through
 `go run golang.org/x/vuln/cmd/govulncheck@latest`: the installed binary
 is built with go1.26 and cannot load Go 1.27 sources.
+
+### W2.5 K34: the GOAWAY-finish close on e9ad7aa
+
+The post-landing main run 36204700120 at e9ad7aa failed on
+windows-2025 (ruling K34): `internal/h2gate`
+`TestReplay/success: GOAWAY before a POST with GetBody was processed`
+(`recovery_test.go:267` then) read `wsarecv: An established connection
+was aborted by the software in your host machine.` instead of 200; the
+pre-landing dispatch 36204531173 at the same SHA was green. Lane
+`p2-cifix-3` fixed it in `internal/testsupport` and the h2gate tests; no
+production file changed.
+
+**Cause** (critic-p2's re-check). K33's drain covered `CloseConns`
+only. `ActionGoAway` calls `GoAway(0)`, and `maybeFinish` then sent TLS
+close_notify alone: no FIN, and no drain, because `draining` was set only
+by `closeGracefully`. The POST's DATA frame arrives next; `onData`
+answered it with a connection WINDOW_UPDATE through `c.write`, the write
+failed after close_notify (`tls: protocol is shutdown`), and `c.write`
+closed the socket with the client's frames unread. The kernel ends such a
+socket with a reset (RFC 1122 section 4.2.2.13), and on Windows the reset
+destroyed the GOAWAY before net/http read it, so it could not replay the
+request. The GET row sends no DATA and passed. Linux and macOS let the
+client read the GOAWAY and close_notify before the reset: under the old
+code every client-side assertion passes on both hosts (W2.5-22, -24).
+
+**The close as built** (92eac6d). `closeWrite` is the one graceful end:
+under the write lock (so a frame in flight, a GOAWAY among them, leaves
+first) it takes `CloseWriteSeq`, sets `draining`, sends close_notify and
+a TCP FIN and sets the 5 s read deadline; the reader then reads and
+discards frames (`Drained`) until the client's EOF (`PeerClosedSeq`) or
+the deadline, and `serve` closes the socket (`ClosedSeq`).
+`CloseConns` (`closeGracefully`), `ActionClose` (now `closeGracefully`,
+no longer `H2Conn.Close`: no test needs an abortive close, and the one
+that expects io.EOF, `TestLoopbackConnEnd`, now gets it whatever the
+client writes late) and `maybeFinish` all end there. Nothing is written
+after close_notify: every writer checks `draining` under the write lock.
+The reader's own frames (its SETTINGS and their acknowledgement, PING
+acknowledgements, WINDOW_UPDATE refunds, RST_STREAM for a stream error
+or a refusal) are dropped and reported as written, so the reader goes on
+to drain; a handler's HEADERS, DATA or RST_STREAM return
+`errConnClosed`; `GoAway` returns an error; `SetMaxConcurrentStreams`
+already returns `ErrConnClosing` (it checks `closed`, set before
+`draining`, under the same lock). `H2Conn.Reset` stays the abortive end
+(SO_LINGER 0), `H2Conn.Close` stays the immediate close, and
+`LoopbackServer.Close` (teardown) keeps `closeRaw`. The `c.Close()`
+call sites:
+
+| Site (68fc345) | Before | After |
+| --- | --- | --- |
+| `GoAway`'s write error (`h2conn.go:228`) | `c.Close()` | `writeFailed`; a GoAway after close_notify writes nothing (`:205`) |
+| `SetMaxConcurrentStreams`'s write error (`:271`) | `c.Close()` | `writeFailed` |
+| `c.write`'s error (`:403`) | `c.Close()` | dropped while draining (`:396`); a failed write goes to `writeFailed` |
+| `ActionClose` (`:620`) | `c.Close()` | `c.closeGracefully()` |
+| `writeStream`'s error (`:894`) | `c.Close()` | `errConnClosed` while draining (`:886`); `writeFailed` |
+| `writeHeaders`'s error (`:943`) | `c.Close()` | `errConnClosed` while draining (`:908`); `writeFailed` |
+| `writeFailed` (`:415`) | (new) | `c.Close()` unless draining: with `draining` checked first no write follows close_notify, so a failed write means a broken socket, and a connection whose drain began since is left to its reader |
+| `serve`'s deferred `Close` (`:424`) | unchanged | runs once the reader stops: after the client's EOF, when nothing is left unread; after the 5 s drain bound; after a read error; or after a failed reader write (a broken socket). `serve` now keeps a drain deadline that a close during its preface set (`:433`) |
+
+**P8, and the order it found** (68fc345). `closedGracefully` in
+`recovery_test.go` waits for the server's close of a connection and
+checks its records by sequence number (K29) in `TestReplay`'s three
+ActionGoAway rows (GET, POST with GetBody, POST without), `TestGoAway`'s
+two GOAWAY rows, the K21 GOAWAY scenario, and, beyond the charter, the two
+CloseConns rows (`TestConnClose`'s clean close, `TestReplay`'s
+tcp-close). The first version (0076086) demanded the strict order
+`GoAwaySeq < CloseWriteSeq < PeerClosedSeq < ClosedSeq` everywhere, and
+failed 0, 1, 5 and 17 times in four sets of 150 runs (W2.5-17 to -20),
+all in the three rows where a goroutine other than the connection's
+reader sends the GOAWAY, and never in a client-side assertion.
+net/http closes a connection that GOAWAY ended as soon as its last
+stream is done (`closeOnIdle` in
+`forgetStreamID`, `net/http/internal/http2/transport.go:1891-1897`), which
+can precede `maybeFinish` on the goroutine that finished that stream or
+called `GoAway`; the reader then read the client's EOF before `draining`
+was set, recorded nothing and closed. That end is clean: the server read
+everything up to the client's EOF. So the reader now records
+`PeerClosedSeq` whichever side closes first, `GoAwaySeq` is taken before
+the frame leaves (as `CloseWriteSeq` is), and the check is: the socket
+closed after the reader read the client's end (`0 < PeerClosedSeq <
+ClosedSeq`, what rules the reset out), the server's close first
+(`CloseWriteSeq < PeerClosedSeq`) except where `clientFirst` allows the
+client to close first (the three rows named), and GOAWAY before both
+exactly when sent. The ActionGoAway rows stay strict: their reader sends
+the GOAWAY and runs `closeWrite` before it reads another frame. The two
+mutants still fail every GOAWAY row on both hosts while every client-side
+assertion passes (W2.5-21 to -24); after the fix the ten tests pass
+150/150 each on both hosts, unloaded and under contention, with the client
+first in 0, 1, 3 and 11 runs (W2.5-25 to -28).
+`TestLoopbackActionsDrain` sends K34's frames itself: the rest of a
+request body and a PING after close_notify, drained and never answered,
+for ActionGoAway and ActionClose.
+
+**Audit: every test that ends a loopback connection server-side.**
+
+| Test (row) | End after the fix | Can a reset precede the client's read of the last frames? | Check |
+| --- | --- | --- | --- |
+| h2gate `TestGoAway` "GOAWAY below two of four…" | `GoAway` from the test goroutine; drain after the two streams at or below LastStreamID finish, or the client closes first | no: the socket closes after the client's EOF | `closedGracefully` (client first allowed) |
+| h2gate `TestGoAway` "POST without GetBody…" | `GoAway(1)` from the test goroutine; drain at once, or the client closes first | no | `closedGracefully` (client first allowed) |
+| h2gate `TestGoAway` "a refused stream…" | no server end (teardown) | n/a | none needed |
+| h2gate `TestConnClose` clean close | `CloseConns` | no | `closedGracefully` (strict) |
+| h2gate `TestConnClose` TCP reset | `H2Conn.Reset` | a reset by design | the row asserts ECONNRESET |
+| h2gate `TestReplay` GET / POST with GetBody | ActionGoAway: the reader drains | no (the K34 row) | `closedGracefully` (strict) |
+| h2gate `TestReplay` POST without GetBody | ActionGoAway | no | `closedGracefully` (strict) |
+| h2gate `TestReplay` tcp-close | `CloseConns` in the handler | no | `closedGracefully` (strict) |
+| h2gate `TestReplay` tcp-reset | `H2Conn.Reset` | a reset by design | the row asserts ECONNRESET |
+| h2gate `TestReplay` RST_STREAM INTERNAL_ERROR | a stream reset; the connection lives until teardown | n/a | none needed |
+| h2gate `TestTokenResidualK21` GOAWAY | `GoAway(3)` from the test goroutine; drain after stream 3, or the client closes first | no | `closedGracefully` (client first allowed) |
+| h2gate `TestTokenResidualK21` REFUSED, SETTINGS | no connection end (teardown) | n/a | none needed |
+| h2gate `log_test` "a dial that fails after warm…" | `LoopbackServer.Close` (teardown's `closeRaw`) mid-test | the client never reads that connection again: it closes its idle connections and the assertion is on the refused re-dial | justified |
+| other h2gate tests | teardown after the assertions | n/a | none needed |
+| testsupport `TestLoopbackActionsDrain` (new) | ActionGoAway, ActionClose | no; late DATA and PING drained | records strict, `Drained` |
+| testsupport `TestLoopbackCloseConnsDrains` | `CloseConns` | no | records strict (K33) |
+| testsupport `TestLoopbackGoAway`, the four raw-client rows | `GoAway` / ActionGoAway: drain (before: close_notify only) | no | `expectEOF` accepts any end but a timeout; the path's records are checked by `TestLoopbackActionsDrain` and the h2gate rows |
+| testsupport `TestLoopbackGoAway` "net/http replays a request GOAWAY left unprocessed" | ActionGoAway: drain | no (`TestReplay` GET's twin) | the replay (status 200, two connections) |
+| testsupport `TestLoopbackGoAway` "GOAWAY overtakes in OnStream" | then `srv.Close()` mid-test, after the client read its EOF | nothing is read after it | justified |
+| testsupport `TestLoopbackRefuseCloseHold` ActionClose | drain (was the immediate close) | no | `expectEOF` |
+| testsupport `TestLoopbackRefuseCloseHold` CloseConns | drain (K33) | no | `expectEOF` |
+| testsupport `TestLoopbackConnEnd` ActionClose, CloseConns | drain | no | io.EOF, not a reset |
+| testsupport `TestLoopbackConnEnd` `Close` | `H2Conn.Close`, immediate | no, by construction: the client acknowledged SETTINGS before its request and writes nothing after it, and the server read the HEADERS it answered | io.EOF, not a reset |
+| testsupport `TestLoopbackConnEnd` ActionReset, `Reset` | reset by design | by design | a reset |
+| testsupport `TestLoopbackSetMaxConcurrentStreams` "GOAWAY with no stream left" | drain | no | `ErrConnClosing`, GOAWAY frame, EOF |
+| testsupport `TestLoopbackSetMaxConcurrentStreams` "Close ran" | `H2Conn.Close`, immediate | yes, the client's SETTINGS acknowledgement can be unread | the row checks `ErrConnClosing` and `expectEOF` accepts any end but a timeout, so a reset cannot fail it |
+| root "a connection reset mid-body" | `H2Conn.Reset` | by design | any non-dial `*ConnectionError` |
+| root "a clean close mid-body", "GOAWAY after the request was written" | `CloseConns` (the GOAWAY row's stream is at LastStreamID and in flight, so `maybeFinish` cannot end it first) | no | records strict (K33) |
+| root "the attempt's deadline before the response" | the client resets the held stream | n/a | `Dropped` |
+| other root tests | teardown after the assertions | n/a | none needed |
+| W3.2's coming RT9 "GOAWAY after write → retried" (not on main) | the drain, once rebased onto this fix | no | W3.2 should call a records check like `closedGracefully`, allowing the client first when its GOAWAY comes from outside the reader |
+
+Residual: a client that does not close within the 5 s drain bound gets
+the server's close anyway, and the reset that may follow; every net/http
+client closes on close_notify, and the records checks would show it
+(`PeerClosedSeq` 0).
+
+**CI.** Windows is the only place this class shows, so the proof there
+is repeated runs (critic P9). Dispatches of `ci.yaml` on
+`wave/p2-cifix-3`: at 0076086 (the first push of the fix, with the strict
+check) 36205889242 and 36206121129, green on all four jobs; at 3b9095e
+36207842005, tests green on all three images and lint red on staticcheck
+QF1001 in the new helper (a De Morgan rewrite in 68fc345); at the code
+head 68fc345 36208919047, 36210115152 and 36210276873, green on all four jobs each. A
+ledger commit cannot name the runs at its own SHA: the three P9
+dispatches at the landing SHA are in the lane report and the rulings.
+
+Row variables: `C=_spikes/w2.2/contend.sh`, `O=_spikes/w2.5/results`,
+`K34M='^(TestReplay|TestGoAway|TestTokenResidualK21|TestLoopbackActionsDrain)$'`,
+`SP=/private/tmp/claude-501/-Users-zchee-go-src-github-com-zchee-typesafe-sdk-go/40cb0f1f-c8a9-422c-a3e8-b3afc329b5cb/scratchpad`
+(the (M) lock), `FL=/opt/homebrew/opt/util-linux/bin/flock`.
+`_spikes/w2.5/proof-k34.sh` runs, in order, the ten tests (`TestReplay`,
+`TestGoAway`, `TestConnClose`, `TestTokenResidualK21` and six
+`TestLoopback*` tests that end a connection) without loops and under
+contention, then `-race ./...` and ci.yaml's root allocation step. (L)
+ran the section 11 tar pipe of each tree in `/tmp/ts-spike/src-p2-cifix-3`
+(mutant copies beside it) with the section 11 environment and no
+`GOEXPERIMENT`, the test binaries pinned with `taskset -c 0,1` as in
+W2.5-12. 0076086 and 3b9095e were the fix's earlier pushes, rewritten on
+the lane branch; the code measured last is 68fc345 (92eac6d, 68fc345).
+The six `-v` files over 512 KB are filtered per R89 (4), keeping the
+close records as well; each header gives the size before the filter and
+the pass and failure counts.
