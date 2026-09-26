@@ -234,41 +234,31 @@ type credentials []string
 // Python SDK looks for every value.
 func requestCredentials(h http.Header) credentials {
 	var c credentials
+	add := func(v string) {
+		if !keyNeedle(v) {
+			return
+		}
+		for _, form := range [...]string{v, quotedForm(strconv.Quote(v)), quotedForm(strconv.QuoteToASCII(v)), jsonForm(v)} {
+			if !slices.Contains(c, form) {
+				c = append(c, form)
+			}
+		}
+	}
 	for name, values := range h {
 		if !isSecretHeader(name) {
 			continue
 		}
 		scheme := strings.EqualFold(name, "Authorization") || strings.EqualFold(name, "Proxy-Authorization")
 		for _, v := range values {
-			c = c.add(v)
+			add(v)
 			if cred, ok := afterScheme(v); scheme && ok {
-				c = c.add(cred)
+				add(cred)
 			}
 		}
 	}
-	return c.longestFirst()
-}
-
-// longestFirst sorts c longest first, so a whole value is replaced before a
-// credential inside it; equal lengths in a fixed order, so the result does
-// not depend on map order.
-func (c credentials) longestFirst() credentials {
+	// A whole value is replaced before a credential inside it; equal lengths
+	// in a fixed order, so the result does not depend on map order.
 	slices.SortFunc(c, func(a, b string) int { return cmp.Or(cmp.Compare(len(b), len(a)), strings.Compare(a, b)) })
-	return c
-}
-
-// add returns c with the forms of v an error text may quote it in, each
-// once: as it is, as %q and %+q quote it, and as encoding/json escapes it;
-// a v shorter than [minKeyNeedleBytes] is not added ([keyNeedle]).
-func (c credentials) add(v string) credentials {
-	if !keyNeedle(v) {
-		return c
-	}
-	for _, form := range [...]string{v, quotedForm(strconv.Quote(v)), quotedForm(strconv.QuoteToASCII(v)), jsonForm(v)} {
-		if !slices.Contains(c, form) {
-			c = append(c, form)
-		}
-	}
 	return c
 }
 
@@ -329,7 +319,12 @@ func jsonForm(v string) string {
 // userinfo of every URL in it ([scrubUserinfo]), which may hold a proxy's
 // password, and reports whether it replaced anything.
 func (c credentials) redact(s string) (string, bool) {
-	s, found := c.replace(s)
+	found := false
+	for _, v := range c {
+		if strings.Contains(s, v) {
+			s, found = strings.ReplaceAll(s, v, redacted), true
+		}
+	}
 	if u, ok := scrubUserinfo(s); ok {
 		s, found = u, true
 	}
@@ -381,18 +376,6 @@ func (c credentials) cause(err error) error {
 		s.sentinels = append(s.sentinels, errno)
 	}
 	return s
-}
-
-// replace returns s with every credential replaced by [redacted], and
-// reports whether it replaced anything.
-func (c credentials) replace(s string) (string, bool) {
-	found := false
-	for _, v := range c {
-		if strings.Contains(s, v) {
-			s, found = strings.ReplaceAll(s, v, redacted), true
-		}
-	}
-	return s, found
 }
 
 // maxDetailChars caps a [scrubbedError]'s rendering of the chain it stands
