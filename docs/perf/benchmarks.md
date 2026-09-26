@@ -2,8 +2,9 @@
 
 The SDK's benchmark set follows the Rust port's B1–B6. Every benchmark uses
 `for b.Loop()` and reports allocations when run with `-benchmem`, as every
-command below is. CodSpeed runs all of them on each
-push to `main` and on each pull request (`.github/workflows/bench.yaml`). The
+command below is. CodSpeed runs all of them on every
+push to `main` and on each `workflow_dispatch` run
+(`.github/workflows/bench.yaml`). The
 numbers of record, per host, are in [`ledger.md`](ledger.md), section W5.1.
 The top of each benchmark file states what the benchmark measures and how it
 can mislead.
@@ -42,14 +43,18 @@ of its arms. Together they give 125 rows.
 | --- | --- | --- |
 | AC-P2, "≤ 0.5 × naive" allocations on the plain 3-answer fixture | `BenchmarkDecode/result` allocs/op divided by `BenchmarkDecodeNaiveSonic/result` allocs/op | reported by W5.1; asserted on every host by W5.2's `TestAllocDecodeFixtures`, which measures the same naive decode (`naive.Sonic`) of the same body in the same run: 4 / 26 = 0.154 (M), 4 / 40 = 0.100 (L) (ledger W5.2-03, -04) |
 | AC-P6 time clause | `BenchmarkCall/sdk` ns/op < `BenchmarkCall/naive` ns/op, the q3 rows only; the `-q20` rows are recorded and are a W5.3 target (ruling R101) | amd64 gates (G3); arm64 is recorded (K18). Frozen at W3.4 ([`frozen-budgets.md`](frozen-budgets.md)): (L) q3 0.890 holds; (M) q3 1.274, recorded (ledger W3.4-08, -09) |
-| AC-P7 | CodSpeed reports `BenchmarkCall/sdk` faster than `BenchmarkCall/naive` on the pull-request run | CodSpeed (amd64); report-only until K7 is met |
+| AC-P7 | CodSpeed reports `BenchmarkCall/sdk` faster than `BenchmarkCall/naive` on the wave-branch dispatch and on `main`'s first run after landing (R2: no pull requests in this repo; R108: on the mean) | CodSpeed (amd64); report-only until K7 is met |
 
 The names above are stable. The plan's `call/sdk` is `BenchmarkCall/sdk` and
 `call/naive` is `BenchmarkCall/naive`, both in `internal/benchmark`. CodSpeed
-keeps each benchmark's history under its full name, the package path
-included, so renaming or moving a benchmark starts that history over,
+keeps each benchmark's history under the path of its test file plus its
+function and sub-benchmark names, for example
+`internal/benchmark/call_test.go::BenchmarkCall::sdk`. So renaming a
+benchmark, moving it or renaming its file starts that history over,
 including the 20 runs that K7 counts. The G5 move did that for every
-benchmark it moved: K7's count for `BenchmarkCall/sdk` restarts at the
+benchmark it moved, and the 19 rows that CodSpeed's reports list as
+skipped are the names those file moves left behind. K7's count for
+`BenchmarkCall/sdk` restarts at the
 landing that carries the move. CodSpeed is report-only, so no gate moves
 with it.
 
