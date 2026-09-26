@@ -231,6 +231,7 @@ owner's act.
 | K6 | 2026-09-24 (plan) | K6 (budget re-checked on live recordings before v0.1.0) | Re-checked by W7 on the owner-run recordings under `testdata/live/` (the plan's `testdata/live-*.json`, D-W6.4-status-1). | the release checklist; ledger `## W7` | — |
 | K17 | 2026-09-24 (plan) | K17 (the Go 1.28 support window) | `docs/support.md` states the window (the Go releases the newest sonic tag supports, today Go 1.27.x on amd64 and arm64), the compile-time refusal and its identifier, and the Go 1.28 bump procedure. (deviation "supported platforms") | `TestSeamD1IdentifierSites`; CI step "D1 refusal off the support matrix" | — |
 | K18 | 2026-09-24 (plan) | K18 (arm64 has no hosted gate) | Every allocation test and B1–B6 run on the arm64 host under the bench lock, recorded in the ledger's `## W7`. | ledger `## W7` | — |
+| D-W7-q1 | 2026-09-26 23:33Z | Appendix B (a new row) | The check that decides whether a raw score question's criteria are empty reads a JSON number's digits: `RawJSON("1e-400")` is not empty and is sent, where Python underflows it to `0.0` and refuses the question (V63). Documented for v0.1.0, not changed. (deviation "score criteria that underflow to zero") | `TestRawScoreCriteriaThatAreNotEmpty` | information line in the Phase 6 owner batch, part 2; a fix is a v0.1.x option |
 
 ## The typed store: from reflection to field offsets (S-D2, R112, R116)
 
@@ -335,10 +336,11 @@ report and review.
 
 ## Notes
 
-**Known parity edges.** `falsyJSON`, which decides whether a raw score
-question's criteria are empty, reads `1e-400` as a non-zero number; Python
-underflows it to `0.0`, which is falsy (V63). Nothing else in the tree
-reads that edge, and the owner has not been asked about it.
+**Known parity edges.** The check that decides whether a raw score
+question's criteria are empty reads `1e-400` as a non-zero number, where
+Python underflows it to `0.0`, which is falsy (V63). It ships as a
+documented deviation (D-W7-q1, Phase 7 table); the owner may have it fixed
+in v0.1.x.
 
 **AC-P8 is a ratio of the decoder against itself.** Its time clause
 compares the 10⁴ flood with the 10³ flood, so a slowdown that hits both

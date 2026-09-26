@@ -599,6 +599,10 @@ func TestRawScoreCriteriaThatAreNotEmpty(t *testing.T) {
 		"success: a nonzero exponent": {criteria: RawJSON(`1e-3`), want: `1e-3`},
 		"success: a nonzero fraction": {criteria: RawJSON(`0.01`), want: `0.01`},
 		"success: nonzero kinds":      {criteria: []any{int16(1), uint(2), float32(0.5)}, want: `[1,2,0.5]`},
+		// Python reads 1e-400 as 0.0 and refuses it as empty criteria; the
+		// check reads the digits and sends it (deviations.md, "score criteria
+		// that underflow to zero").
+		"success: a number that underflows to zero": {criteria: RawJSON(`1e-400`), want: `1e-400`},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {

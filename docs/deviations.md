@@ -41,6 +41,7 @@ citation is a key here, and every key lists exactly the rows that cite it.
 | not representable | typed questions validate on construction and refuse unknown fields | a Go struct literal cannot hold an unknown field or a value of the wrong type; `Prepare` checks the rest | the type system | Q6, Q7, Q9 |
 | raw question field order | a raw question's fields in insertion order | after `type`, in sorted key order | a Go map has no order (ruling R38) | — |
 | `Prepare` fails with `*ConfigError` | the four normalisation rules raise `TypeSafeError` | every failure of `Prepare` is a `*ConfigError`; a fault in one call's state is an `*InvalidRequestError` | one error type per phase (ruling R36) | — |
+| score criteria that underflow to zero | a raw score question whose criteria are a number equal to zero has no criteria and is refused, and so is `1e-400`, which the JSON reader underflows to `0.0` | a JSON number given as `RawJSON` or `JSON` criteria counts as zero only when every digit before its exponent is zero, so `1e-400` is sent as criteria | the check reads the JSON text and parses no float (ruling D-W7-q1) | — |
 
 ## Responses and decoding
 
