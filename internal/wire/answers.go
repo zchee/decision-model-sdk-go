@@ -216,12 +216,13 @@ func (s *Answers) Grow(n int) {
 }
 
 // GrowInto is Grow for an empty set: when spare's capacity has room for n
-// entries, the entries go into spare's array from its first element (its
-// length is ignored), whose elements past len(s.Entries()) the set may
-// overwrite, and nothing is allocated; otherwise it is Grow(n). A caller
+// entries, n > 0, the entries go into spare's array from its first element
+// (its length is ignored), whose elements past len(s.Entries()) the set may
+// overwrite, and nothing is allocated; otherwise it is Grow(n), so a set of
+// no entries stays nil, as the decode without a spare leaves it. A caller
 // that gives spare keeps no other use of its array.
 func (s *Answers) GrowInto(spare []AnswerEntry, n int) {
-	if len(s.entries) == 0 && cap(spare) >= n {
+	if n > 0 && len(s.entries) == 0 && cap(spare) >= n {
 		s.entries = spare[:0]
 		return
 	}

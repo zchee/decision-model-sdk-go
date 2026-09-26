@@ -240,6 +240,47 @@ func measureCallItems(t *testing.T, c *Client, state any, qs *Prepared, prefix s
 	}
 }
 
+// TestAllocAnswersInlineBound checks the bound of the answer entries a call
+// allocates with its response (W5.3's N2, newSystemOneAlloc) at the
+// boundary: a call of maxInlineAnswers questions costs the allocations of
+// one of maxInlineAnswers-1, and a call of maxInlineAnswers+1 questions one
+// more, its entries allocated by the decode as before W5.3. Every call is
+// answered by result.json's three answers, which fit each inline array
+// here; the bytes differ with the array's size and are logged.
+func TestAllocAnswersInlineBound(t *testing.T) {
+	testsupport.QuietRuntime(t)
+	ctx := t.Context()
+	body := testsupport.Fixture(t, "result.json")
+	c := newTestClient(t, &testsupport.Recorder{Discard: true, Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, body)}}, WithRetry(DefaultRetry()))
+	state := newAllocState()
+	var err error
+	calls := map[int]testsupport.Allocs{}
+	for _, n := range []int{maxInlineAnswers - 1, maxInlineAnswers, maxInlineAnswers + 1} {
+		qs := NewQuestions()
+		for i := range n {
+			qs = qs.Noul("q"+strconv.Itoa(i), Noul{Instructions: Text("Is it?")})
+		}
+		p := mustPrepared(t, qs)
+		for range 2 { // warm the pools, the encoder and the decoder
+			if _, err := c.SystemOne(ctx, state, p); err != nil {
+				t.Fatal(err)
+			}
+		}
+		calls[n] = series(t, "call with "+strconv.Itoa(n)+" questions", nil, func() { sinkResponse, err = c.SystemOne(ctx, state, p) })
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("INLINE %d questions: call %s, %d answers", n, calls[n], sinkResponse.Answers().Len())
+	}
+	below, at, above := calls[maxInlineAnswers-1], calls[maxInlineAnswers], calls[maxInlineAnswers+1]
+	if at.Mallocs != below.Mallocs {
+		t.Errorf("a call of %d questions makes %d allocations, want %d as at %d: its entries belong in the call's allocation", maxInlineAnswers, at.Mallocs, below.Mallocs, maxInlineAnswers-1)
+	}
+	if above.Mallocs != at.Mallocs+1 {
+		t.Errorf("a call of %d questions makes %d allocations, want %d: one more than at %d, for its entries", maxInlineAnswers+1, above.Mallocs, at.Mallocs+1, maxInlineAnswers)
+	}
+}
+
 // TestMemStatsCap checks AC-P5 per attempt (frozen-budgets.md; rulings R26,
 // R26b, R27): the TotalAlloc delta of one whole SystemOne call with
 // Retry(NoRetry()) and the default 16 MiB cap, for each case of memCases:

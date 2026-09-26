@@ -233,7 +233,8 @@ func TestDecodedValues(t *testing.T) {
 
 // TestDecodeDoesNotAliasBody overwrites the body after each decode and
 // checks that the result did not change: no string or level of it borrows
-// the body, with or without the question set to intern against.
+// the body, with or without the question set to intern against, and with
+// the answers in the decode's own allocation or in a caller's spare array.
 func TestDecodeDoesNotAliasBody(t *testing.T) {
 	for _, name := range testsupport.FixtureNames(t, "*.json") {
 		if _, reject := wantReject[name]; reject {
@@ -262,16 +263,20 @@ func TestDecodeDoesNotAliasBody(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, q := range []*wire.Prepared{nil, questionsFor(t, want)} {
-				body := testsupport.Fixture(t, name)
-				var got wire.SystemOneResult
-				if _, err := DecodeSystemOne(body, q, "", &got); err != nil {
-					t.Fatal(err)
-				}
-				for i := range body {
-					body[i] = 'x'
-				}
-				if diff := gocmp.Diff(want.Answers.Entries(), got.Answers.Entries()); diff != "" || got.Model != want.Model {
-					t.Errorf("questions %t: the result changed with the body: model %q, answers (-want +got):\n%s", q != nil, got.Model, diff)
+				// nil: the decode allocates the answers; a spare: they go
+				// into the caller's array, as a call's do (W5.3's N2).
+				for _, spare := range [][]wire.AnswerEntry{nil, make([]wire.AnswerEntry, 0, 64)} {
+					body := testsupport.Fixture(t, name)
+					var got wire.SystemOneResult
+					if _, err := DecodeSystemOneInto(body, q, "", &got, spare); err != nil {
+						t.Fatal(err)
+					}
+					for i := range body {
+						body[i] = 'x'
+					}
+					if diff := gocmp.Diff(want.Answers.Entries(), got.Answers.Entries()); diff != "" || got.Model != want.Model {
+						t.Errorf("questions %t, spare %t: the result changed with the body: model %q, answers (-want +got):\n%s", q != nil, spare != nil, got.Model, diff)
+					}
 				}
 			}
 		})

@@ -435,7 +435,8 @@ func TestScoreAnswerLookups(t *testing.T) {
 // TestAnswersGrowInto checks that an empty set takes a spare array with room
 // for n entries, and grows its own otherwise: either way the set has room
 // for n more entries, and the entries Put stores land in spare's array
-// exactly when it was taken (W5.3, the call's inline answers).
+// exactly when it was taken (W5.3, the call's inline answers); a set of no
+// entries stays nil, as the decode without a spare leaves it.
 func TestAnswersGrowInto(t *testing.T) {
 	tests := map[string]struct {
 		spareLen int
@@ -450,6 +451,7 @@ func TestAnswersGrowInto(t *testing.T) {
 		"success: too little room, own array":                 {spareCap: 2, n: 3},
 		"success: no spare":                                   {n: 3},
 		"success: a set with entries, own array":              {spareCap: 8, putFirst: true, n: 2},
+		"success: no entries, the set stays nil":              {spareCap: 4, n: 0},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -465,7 +467,10 @@ func TestAnswersGrowInto(t *testing.T) {
 			for i := range tt.n {
 				s.Put("q"+strconv.Itoa(i), Answer{Kind: KindNoul, Noul: NoulAnswer{Noul: float64(i)}})
 			}
-			used := tt.spareCap > 0 && &s.Entries()[0] == &spare[:1][0]
+			if tt.n == 0 && !tt.putFirst && s.Entries() != nil {
+				t.Errorf("Entries = %#v after GrowInto(spare, 0), want nil as Grow(0) leaves it", s.Entries())
+			}
+			used := tt.spareCap > 0 && s.Len() > 0 && &s.Entries()[0] == &spare[:1][0]
 			if used != tt.wantUsed {
 				t.Errorf("the entries are in spare's array: %t, want %t", used, tt.wantUsed)
 			}

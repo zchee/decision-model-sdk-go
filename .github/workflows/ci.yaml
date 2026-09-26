@@ -169,6 +169,7 @@ jobs:
             TestLinearityFlood       # AC-P8 allocation ratio and members visited (W2.0)
             TestLinearityFloodTime   # AC-P8 time, every build (W5.2)
             TestAllocWholeCall       # AC-P6, N = 12 (W5.3; 14 at W3.4)
+            TestAllocAnswersInlineBound # AC-P6, the inline entries' bound (W5.3)
             TestMemStatsCap          # AC-P5 (W2.3)
             TestAllocResponseJSON    # response payloads (W2.4)
             TestAllocTypedDecode     # AC-P3 (W4.2)

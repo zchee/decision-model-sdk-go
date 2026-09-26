@@ -21,6 +21,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -755,6 +756,50 @@ func TestSystemOneAnswersInline(t *testing.T) {
 			}
 			if &first.res.Answers.Entries()[0] == &second.res.Answers.Entries()[0] {
 				t.Error("two calls' responses share one array of answer entries")
+			}
+		})
+	}
+}
+
+// TestAnswersOutliveTheirResponse checks the lifetime of answers whose
+// entries live in the call's allocation (W5.3's N2): an Answers taken from a
+// response keeps that allocation reachable after the caller drops the
+// response, through collections and reuse of freed memory, as it kept the
+// response and the decode's own array before. It holds for a set within
+// maxInlineAnswers and for one past it.
+func TestAnswersOutliveTheirResponse(t *testing.T) {
+	body := testsupport.Fixture(t, "result.json")
+	five := NewQuestions()
+	for _, name := range []string{"spam", "a", "b", "c", "d"} {
+		five = five.Noul(name, Noul{Instructions: Text("?")})
+	}
+	tests := map[string]struct {
+		qs *Prepared
+	}{
+		"success: three questions, the entries in the call's allocation": {qs: q3Questions(t)},
+		"success: five questions, the entries the decode's":              {qs: mustPrepared(t, five)},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			c := newTestClient(t, &testsupport.Recorder{Discard: true, Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, body)}})
+			answers := func() Answers {
+				resp, err := c.SystemOne(t.Context(), "x", tt.qs)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return resp.Answers()
+			}()
+			want := slices.Clone(answers.entries())
+			for range 3 {
+				runtime.GC()
+				junk := make([][]byte, 256)
+				for i := range junk {
+					junk[i] = bytes.Repeat([]byte{0xff}, 704)
+				}
+				runtime.KeepAlive(junk)
+			}
+			if diff := gocmp.Diff(want, answers.entries()); diff != "" || len(want) != 3 {
+				t.Errorf("%d answers; they changed after the response was dropped (-before +after):\n%s", len(want), diff)
 			}
 		})
 	}

@@ -282,6 +282,14 @@ const maxInlineAnswers = 4
 // entries. Each size is its own type, so the array is exactly n entries.
 // A larger set gets its entries from the decode, in an allocation of their
 // own, as does a response with more answers than questions.
+//
+// Lifetime: the entries share one block with the response and the first
+// attempt's URL copy, so an Answers taken from the response keeps the whole
+// block reachable (704 B for three questions), as it kept the response and
+// the decode's own array before, the same bytes; an answer value copied out
+// of it holds no pointer into the block. No entry points into the body: the
+// decode copies or interns every string it stores, whichever array holds
+// the entries (TestDecodeDoesNotAliasBody, TestAnswersOutliveTheirResponse).
 func newSystemOneAlloc(n int) (*systemOneAlloc, []wire.AnswerEntry) {
 	switch n {
 	case 1:
