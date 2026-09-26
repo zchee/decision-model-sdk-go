@@ -4219,3 +4219,232 @@ Warm-up call (the process's first PreparedFor): 9/944
    hosts.** `DecodeAs` 1/144 against 4/688 for the `Answers()` decode;
    `Ask` 23/2792 = `SystemOne` 22/2648 + 1. No pin moved, so no test was
    changed (deliverable D), and ci.yaml is untouched.
+
+## W5.2: the allocation budgets, their functional halves and the CI step
+
+W5.2 gives every allocation clause of the plan its bound test, builds each
+budget with `//go:build !race` (under the race detector `sync.Pool.Put`
+drops one value in four, `GOROOT/src/sync/pool.go:104-107`) and keeps its
+functional half, the `…Functional` tests of `alloc_functional_test.go`, in
+both builds; it writes `TestResponseCapOverTheWire` (critic-p3 M-2, R106 as
+V50 worded it) and folds the root package's allocation tests into one list
+in `ci.yaml`, from which the step builds both its `-run` pattern and its
+`-list` count guard (R92; `TestAllocLoggedCall` joins, R102). No
+production file changes. Every row measures 93c18a0 (main 3ffe77b plus
+this wave's six commits), a clean tree. Raw outputs are in
+`_spikes/w5.2/results/`, and `_spikes/w5.2/render.py` prints the tables
+below from them. Commands use `R=_spikes/s-c1/run.sh`,
+`O=_spikes/w5.2/results`,
+`SP=/private/tmp/claude-501/-Users-zchee-go-src-github-com-zchee-typesafe-sdk-go/40cb0f1f-c8a9-422c-a3e8-b3afc329b5cb/scratchpad`
+and `BASE=93c18a0`.
+
+| AC clause | Test (`//go:build !race`) | Functional half (both builds) |
+| --- | --- | --- |
+| AC-P1 single size (NF1), every state kind × 1 KiB / 64 KiB / 1 MiB / 6 MiB | `TestAllocEncode` (folds W1.2's `TestAllocBodyKinds`: its 1 KiB pins are the 1 KiB rows) | `TestAllocEncodeFunctional` |
+| AC-P1 mixed-size sequence | `TestAllocScratchSequence` | `TestAllocScratchSequenceFunctional` |
+| AC-P2 | `TestAllocDecodeFixtures` | `TestAllocDecodeFixturesFunctional` |
+| AC-P6 (N = 14) | `TestAllocWholeCall` | `TestAllocWholeCallFunctional` |
+| AC-P5 (i)–(vii) | `TestMemStatsCap` | `TestMemStatsCapFunctional`; over a real connection, `TestResponseCapOverTheWire` |
+| AC-P8 allocations | `TestLinearityFlood`; the lazy pass's c₀ + c₁ × members: `internal/codec` `TestLazyPassAllocations` | – |
+| AC-P8 time | `TestLinearityFloodTime` (every build) | – |
+| Prepare (R50), payloads (W2.4), logging (W3.3) | `TestAllocPrepare`, `TestAllocResponseJSON`, `TestAllocLoggedCall`, kept as they were | their packages' functional tests |
+
+### How the numbers were taken
+
+- (M): `go1.27.1 darwin/arm64`, `GOEXPERIMENT=nosimd,noruntimesecret`, in a
+  detached worktree at 93c18a0, under
+  `/opt/homebrew/opt/util-linux/bin/flock` on `$SP/bench.lock`. Other lanes
+  were working: load 6.2 to 9.0 of 16, which counts do not depend on (R17).
+- (L): the same tree without `.git`, copied with the section 11 `tar | ssh`
+  pipe to `/tmp/ts-spike/src-w5.2/meas`; `/tmp/ts-spike/go/bin/go`, the
+  section 11 `GOPATH`, `GOMODCACHE` and `GOCACHE` under `/tmp/ts-spike`, no
+  `GOEXPERIMENT`, under `flock /tmp/ts-spike/bench.lock`; load 0.05 to 0.76.
+- Every file is one `-count=5` invocation of its tests: 25 runs of each
+  series (five per invocation). A series' "runs of" line lists each run;
+  `render.py` takes the minimum, the maximum and the spread of each counter
+  over all 25, as `testsupport.Spread` does over one invocation's five, and
+  counts the runs of an exact pin (`testsupport.StableMin`, three of five)
+  that exceed their series' minimum.
+- The three files per host split the tests so that each stays under
+  R89 (4)'s 512 KB: `ac-p1` (`TestAllocEncode`, `TestAllocScratchSequence`),
+  `alloc` (the rest of ci.yaml's list, `TestResponseCapOverTheWire`) and
+  `codec` (`internal/codec`'s three allocation tests).
+
+### W5.2 findings
+
+1. **AC-P1 single size: every asserted case costs exactly E(kind) + B on
+   both hosts at every size, with E_sonic measured in the same run equal
+   to the frozen E(kind)** (1; 0 for RawJSON; 1 + m for a state with m
+   maps: 9, 471, 7 503 and 45 010 for the nested map), and at most 24 B
+   above E_sonic's bytes (the frozen 112 B; 24 is a bare RawJSON's slice
+   header, 16 a bare string's). Each case starts from emptied pools, as a
+   process sending only that size does: in a first version the cases
+   shared one pooled scratch, grown to 6.5 MiB by the string case, and the
+   arm64 overshoot disappeared from every later case.
+2. **The arm64 exception is the 6 MiB `*struct` state alone at the body
+   level.** Its growslice steps end at 8.86 MiB, past the ceiling, so each
+   call pays a fresh scratch and its growth: 23 allocations, 30 469 392 B
+   (frozen: 22 and 27.6 MB for S-E1's struct, whose items nest one more
+   struct). The flat map that S-E1 encoded alone ended at 9.18 MiB; inside
+   a request body, after `{"state":`, the same map ends at 7.51 MiB and is
+   warm (2). Where the steps end depends on the body's exact length at
+   each step. The test keys the exception by GOARCH (R62) and fails if the
+   exception stops overshooting. On (L) every kind is warm at 6 MiB
+   (6.44 MiB for the growslice kinds). A nested map is encoded in the map's
+   random order and reaches its steady state after up to three unmeasured
+   calls on (M) (scratch 6.47–7.73 MiB over the five invocations); the test
+   warms each case until two calls in a row leave the same scratch.
+3. **AC-P1 sequence: the frozen rows hold exactly on both hosts.** Boxed
+   string, encode level (call less the 21 allocations a call spends
+   outside its encode): `1×9 | 2 | 1×10 | 2 | 2 | 1×9`; RawJSON:
+   `0×9 | 1 | 0×10 | 1 | 1 | 0×9`. The single-size call is 22/2 648 B
+   (boxed string; the AC-P6 call) and 21/2 632 B (RawJSON); growth within
+   g₆ = g₉ = 2 and 1; call 23 = single + 1; the probed run finds one drop,
+   after call 22, and no retained scratch over 8 MiB. Recorded (G3 (b)): on
+   (M) the `*struct` state also drops at call 11 (calls
+   `50 | 22×9 | 43 | 23 | 22×9 | 44 | 23 | 22×9`), the flat map does not;
+   on (L) neither does. Call 1, after two collections, costs 50 (46 for
+   RawJSON), as R22b recorded.
+4. **AC-P2 over every fixture that decodes, with the naive ratio
+   asserted: `result.json` 4 against `naive.Sonic`'s 26 on (M) (0.154) and
+   40 on (L) (0.100).** Fourteen of the 41 fixtures decode; the other 27,
+   `models.json` and the malformed and deviation bodies, are logged with
+   their errors, and a fixture that decodes without a pin fails. Reported:
+   `escaped-member-names` is above half the naive decode (0.707 (M), 0.569
+   (L)), `deviation-lone-surrogate` on (M) (0.542); the 20-answer fixture
+   0.255 and 0.112. The naive decode refuses `parity-big-exp-unknown`
+   (sonic: "float infinity") on both hosts.
+5. **AC-P6: q3 unchanged, 14/2 008 above the floor 8/640 (call 22/2 648);
+   q20 recorded at 34/9 248 (call 42/9 888; decode 24/6 008, `readBody`
+   1/2 304), W3.4's probe numbers, now in the test.** The functional half
+   checks that the floor's prebuilt request is byte for byte the call's.
+6. **AC-P5: (i)–(v) as at W3.4; (vi) and (vii) bounded by W5.2** at their
+   first read buffer + 64 KiB (65 901 B and 69 632 B; measured 2 392 and
+   6 104 B), the rule of the frozen cases. Every run is checked against its
+   bound. K32's residual stays in (i): spread +4/+288 on (M), +5/+18 720 on
+   (L) (maximum 43/282 752), within 327 680 B.
+7. **AC-P8: allocation ratio 7.61 (90 → 685); members visited, counted
+   from the fixtures with encoding/json, 1 011 and 10 011, frozen-budgets'
+   inputs; the whole decode grows 0.0661 allocations per member visited,
+   under the lazy pass's c₁ = 1/15 = 0.0667 (recorded).** The lazy pass
+   alone, in `internal/codec`: 86 and 681 against the bounds 89 and 689,
+   ratio 7.92. Time ratio, `TestLinearityFloodTime`: 9.33–9.62 on (M),
+   9.20–9.25 on (L); under `-race` on (M) 9.53 (W5.2-07).
+8. **`TestResponseCapOverTheWire`: one attempt under `DefaultRetry()`,
+   `*ResponseTooLargeError` with status 200 and the 16 MiB limit; the SDK
+   read none of the declared body and exactly cap + 1 = 16 777 217 bytes
+   of the undeclared one**, counted under it on the SDK's own HTTP/2
+   transport. Recorded, not bounded (V50 (3)): the call's MemStats deltas
+   over the in-process loopback server, 0.25 MiB declared and 33.2 MiB
+   undeclared on (M), 0.46 and 35.9 MiB on (L).
+9. **The three-of-five rule's failure probability.** Over these files,
+   3 of 5 500 exact-pin runs on (M) and 0 of 5 525 on (L) exceeded their
+   series' minimum (p = 0.00055 and 0). At R104-corr's measured (L) rate of
+   1 run in 100 (W3.4-04), one invocation of an exact pin fails with
+   probability sum over k = 3..5 of C(5,k) p^k (1 − p)^(5−k) = 9.85 × 10⁻⁶,
+   about 10⁻⁵ as ruled; at this session's rates, 1.6 × 10⁻⁹ and 0.
+10. **Gates.** Each commit's tree passed, alone, the section 11 lint chain,
+    `go test -race -count=1 ./...` and both non-race steps of ci.yaml on
+    (M) (the last, `gates-M-93c18a0.txt`). The race run on (L) passed in
+    all seven packages (W5.2-08, R62). Under `-race`, the budgets are left
+    out by their build tag and the functional halves run: 7 tests, 61
+    subtests (W5.2-07).
+
+| # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| W5.2-01 | 2026-09-26 15:03:49 JST | W5.2 AC-P1: `TestAllocEncode`, `TestAllocScratchSequence` | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 8.98 → 8.50 | `BASE=93c18a0 GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock ac-p1-M -count=5 -run '^(TestAllocEncode\|TestAllocScratchSequence)$' -v .` | PASS; every asserted case E(kind) + B; `pointer-to-struct/6MiB` recorded 23/30469392 (scratch 8.86 MiB); sequence rows as frozen; 2 of 1650 exact-pin runs above their minimum | [W5.2 tables](#w52-tables); `results/ac-p1-M.txt` |
+| W5.2-02 | 2026-09-26 06:02:41 UTC | W5.2 AC-P1 | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.05 → 0.52 | `BASE=93c18a0 sh $R '(L)' /tmp/ts-spike/src-w5.2/results /tmp/ts-spike/bench.lock ac-p1-L -count=5 -run '^(TestAllocEncode\|TestAllocScratchSequence)$' -v .` | PASS; every case asserted, 6 MiB growslice kinds 6.44 MiB; sequence rows as frozen; 0 of 1650 above | `results/ac-p1-L.txt` |
+| W5.2-03 | 2026-09-26 15:04:19 JST | W5.2 AC-P2, AC-P5, AC-P6, AC-P8, the kept tests, the cap over the wire | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 8.50 → 7.35 | the W5.2-01 command with `alloc-M -count=5 -run '^(TestAllocPrepare\|TestAllocDecodeFixtures\|TestLinearityFlood\|TestLinearityFloodTime\|TestAllocWholeCall\|TestMemStatsCap\|TestAllocResponseJSON\|TestAllocLoggedCall\|TestResponseCapOverTheWire)$' -v .` | PASS; `result.json` 4 / naive 26 = 0.154; q3 own 14/2008, q20 34/9248; MEM (vi) 2392 B, (vii) 6104 B; LINEARITY 7.61, time 9.33–9.62; WIRE read 0 / 16777217 | `results/alloc-M.txt` |
+| W5.2-04 | 2026-09-26 06:03:23 UTC | W5.2 as W5.2-03 | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.52 → 0.62 | the W5.2-02 command with W5.2-03's `alloc-L` tests | PASS; `result.json` 4 / naive 40 = 0.100; every pin as on (M); time 9.20–9.25; (i) max 43/282752 | `results/alloc-L.txt` |
+| W5.2-05 | 2026-09-26 15:04:36 JST | W5.2 `internal/codec` allocation tests | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 7.35 → 7.40 | the W5.2-01 command with `codec-M -count=5 -run '^(TestEncodeStateAllocations\|TestLazyPassAllocations\|TestNewBodyAllocations)$' -v ./internal/codec/` | PASS; LAZY flood 86 (members 1011, bound 89) and 681 (10011, 689), ratio 7.92 | `results/codec-M.txt` |
+| W5.2-06 | 2026-09-26 06:03:39 UTC | W5.2 as W5.2-05 | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.62 → 0.62 | the W5.2-02 command with W5.2-05's `codec-L` tests | PASS; identical to W5.2-05 | `results/codec-L.txt` |
+| W5.2-07 | 2026-09-26 15:06:15 JST | W5.2 the functional halves under `-race` | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 7.25 → 6.17 | the W5.2-01 command with `race-functional-M -race -count=1 -run 'Alloc\|MemStats\|Linearity\|OverTheWire' -v .` | PASS; 7 tests (`TestLinearityFloodTime`, the five `…Functional`, `TestResponseCapOverTheWire`), 61 subtests; no budget test is built | `results/race-functional-M.txt` |
+| W5.2-08 | 2026-09-26 06:03:39 UTC | W5.2 `-race` (R62) | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.62 → 0.76 | the W5.2-02 command with `race-L -race -count=1 ./...` | PASS, seven packages | `results/race-L.txt` |
+| W5.2-09 | 2026-09-26 15:02:40 JST | W5.2 gates of the last commit | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | build, vet, the section 11 lint chain (govulncheck via `go run`), `go test -race -count=1 ./...`, ci.yaml's two non-race steps, in a detached worktree at 93c18a0, under the lock | every gate ok | `results/gates-M-93c18a0.txt` (modernize's progress lines removed) |
+
+### W5.2 tables
+
+Printed by `_spikes/w5.2/render.py` from the raw files (`--series` adds a
+row per series).
+
+AC-P1 single size, the ENCODE lines of W5.2-01 and -02 (the body encode;
+E_sonic and B; the scratch the steady state left, over the five
+invocations; the verdict):
+
+| Kind / size | (M) body encode; E_sonic, B; scratch; verdict | (L) |
+| --- | --- | --- |
+| string/1KiB | 2/32; 1/16, 1; 0.00–0.00 MiB; asserted | 2/32; 1/16, 1; 0.00–0.00 MiB; asserted |
+| string/64KiB | 2/32; 1/16, 1; 0.06–0.06 MiB; asserted | 2/32; 1/16, 1; 0.07–0.07 MiB; asserted |
+| string/1MiB | 2/32; 1/16, 1; 1.00–1.00 MiB; asserted | 2/32; 1/16, 1; 1.01–1.01 MiB; asserted |
+| string/6MiB | 2/32; 1/16, 1; 6.00–6.00 MiB; asserted | 2/32; 1/16, 1; 6.01–6.01 MiB; asserted |
+| boxed-string/1KiB | 1/16; 1/16, 0; 0.00–0.00 MiB; asserted | 1/16; 1/16, 0; 0.00–0.00 MiB; asserted |
+| boxed-string/64KiB | 1/16; 1/16, 0; 0.06–0.06 MiB; asserted | 1/16; 1/16, 0; 0.07–0.07 MiB; asserted |
+| boxed-string/1MiB | 1/16; 1/16, 0; 1.00–1.00 MiB; asserted | 1/16; 1/16, 0; 1.01–1.01 MiB; asserted |
+| boxed-string/6MiB | 1/16; 1/16, 0; 6.00–6.00 MiB; asserted | 1/16; 1/16, 0; 6.01–6.01 MiB; asserted |
+| RawJSON/1KiB | 1/24; 0/0, 1; 0.00–0.00 MiB; asserted | 1/24; 0/0, 1; 0.00–0.00 MiB; asserted |
+| RawJSON/64KiB | 1/24; 0/0, 1; 0.07–0.07 MiB; asserted | 1/24; 0/0, 1; 0.07–0.07 MiB; asserted |
+| RawJSON/1MiB | 1/24; 0/0, 1; 1.03–1.03 MiB; asserted | 1/24; 0/0, 1; 1.03–1.03 MiB; asserted |
+| RawJSON/6MiB | 1/24; 0/0, 1; 6.22–6.22 MiB; asserted | 1/24; 0/0, 1; 6.22–6.22 MiB; asserted |
+| boxed-RawJSON/1KiB | 0/0; 0/0, 0; 0.00–0.00 MiB; asserted | 0/0; 0/0, 0; 0.00–0.00 MiB; asserted |
+| boxed-RawJSON/64KiB | 0/0; 0/0, 0; 0.07–0.07 MiB; asserted | 0/0; 0/0, 0; 0.07–0.07 MiB; asserted |
+| boxed-RawJSON/1MiB | 0/0; 0/0, 0; 1.03–1.03 MiB; asserted | 0/0; 0/0, 0; 1.03–1.03 MiB; asserted |
+| boxed-RawJSON/6MiB | 0/0; 0/0, 0; 6.22–6.22 MiB; asserted | 0/0; 0/0, 0; 6.22–6.22 MiB; asserted |
+| json.RawMessage/1KiB | 1/16; 1/16, 0; 0.00–0.00 MiB; asserted | 1/16; 1/16, 0; 0.00–0.00 MiB; asserted |
+| json.RawMessage/64KiB | 1/16; 1/16, 0; 0.07–0.07 MiB; asserted | 1/16; 1/16, 0; 0.07–0.07 MiB; asserted |
+| json.RawMessage/1MiB | 1/16; 1/16, 0; 1.03–1.03 MiB; asserted | 1/16; 1/16, 0; 1.03–1.03 MiB; asserted |
+| json.RawMessage/6MiB | 1/16; 1/16, 0; 6.22–6.22 MiB; asserted | 1/16; 1/16, 0; 6.22–6.22 MiB; asserted |
+| pointer-to-struct/1KiB | 1/16; 1/16, 0; 0.00–0.00 MiB; asserted | 1/16; 1/16, 0; 0.00–0.00 MiB; asserted |
+| pointer-to-struct/64KiB | 1/16; 1/16, 0; 0.09–0.09 MiB; asserted | 1/16; 1/16, 0; 0.07–0.07 MiB; asserted |
+| pointer-to-struct/1MiB | 1/16; 1/16, 0; 1.11–1.11 MiB; asserted | 1/16; 1/16, 0; 1.06–1.06 MiB; asserted |
+| pointer-to-struct/6MiB | 23/30469392; 1/16, 0; 8.86–8.86 MiB; recorded | 1/16; 1/16, 0; 6.44–6.44 MiB; asserted |
+| flat-map/1KiB | 2/112; 2/112, 0; 0.00–0.00 MiB; asserted | 2/112; 2/112, 0; 0.00–0.00 MiB; asserted |
+| flat-map/64KiB | 2/112; 2/112, 0; 0.07–0.07 MiB; asserted | 2/112; 2/112, 0; 0.07–0.07 MiB; asserted |
+| flat-map/1MiB | 2/112; 2/112, 0; 1.48–1.48 MiB; asserted | 2/112; 2/112, 0; 1.06–1.06 MiB; asserted |
+| flat-map/6MiB | 2/112; 2/112, 0; 7.51–7.51 MiB; asserted | 2/112; 2/112, 0; 6.44–6.44 MiB; asserted |
+| nested-map/1KiB | 9/784; 9/784, 0; 0.00–0.00 MiB; asserted | 9/784; 9/784, 0; 0.00–0.00 MiB; asserted |
+| nested-map/64KiB | 471/45136; 471/45136, 0; 0.07–0.09 MiB; asserted | 471/45136; 471/45136, 0; 0.07–0.07 MiB; asserted |
+| nested-map/1MiB | 7503/720208; 7503/720208, 0; 1.07–1.53 MiB; asserted | 7503/720208; 7503/720208, 0; 1.06–1.06 MiB; asserted |
+| nested-map/6MiB | 45010/4320880; 45010/4320880, 0; 6.47–7.73 MiB; asserted | 45010/4320880; 45010/4320880, 0; 6.44–6.44 MiB; asserted |
+
+AC-P2, the DECODE lines of W5.2-03 and -04 (fixtures that decode; the naive decode is `naive.Sonic`, the minimum of 25 runs):
+
+| Fixture | Bytes | Allocations (M) / (L) | Budget | Naive (M) / (L) | Ratio (M) / (L) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| deviation-lone-surrogate | 219 | 13 / 13 | 14 | 24/3048 / 27/2752 | 0.542 / 0.481 |
+| duplicates | 825 | 16 / 16 | 17 | 55/9464 / 89/9160 | 0.291 / 0.180 |
+| escaped-member-names | 425 | 29 / 29 | 30 | 41/4512 / 51/4664 | 0.707 / 0.569 |
+| escaped-names | 481 | 10 / 10 | 10 | 38/5224 / 57/5064 | 0.263 / 0.175 |
+| no-answers | 67 | 0 / 0 | 0 | 12/1080 / 9/824 | 0.000 / 0.000 |
+| parity-big-exp-unknown | 135 | 1 / 1 | 1 | refused / refused | - / - |
+| result | 364 | 4 / 4 | 4 | 26/3960 / 40/3672 | 0.154 / 0.100 |
+| result-20 | 2253 | 24 / 24 | 24 | 94/19184 / 214/19632 | 0.255 / 0.112 |
+| score-flood-mini | 1495 | 21 / 21 | 21 | 96/16064 / 137/16448 | 0.219 / 0.153 |
+| structured-legend | 217 | 11 / 11 | 12 | 24/3088 / 27/2992 | 0.458 / 0.407 |
+| structured-legend-flood-10k | 616421 | 685 / 685 | 686 | 20093/8254712 / 65192/9721784 | 0.034 / 0.011 |
+| structured-legend-flood-1k | 57418 | 90 / 90 | 91 | 2036/650264 / 6574/1036728 | 0.044 / 0.014 |
+| type-last | 364 | 4 / 4 | 4 | 26/3960 / 40/3672 | 0.154 / 0.100 |
+| unknown-answer-type | 145 | 1 / 1 | 1 | 18/2232 / 20/1960 | 0.056 / 0.050 |
+
+Every allocation series, by test:
+
+| Test | Series (M) / (L) | Runs per series | Exact pins: runs above the minimum (M) / (L) | Largest spread (M) / (L) |
+| --- | ---: | ---: | ---: | --- |
+| `TestAllocEncode` | 64 / 64 | 25 | 0 of 1575 / 0 of 1600 | +0/+0 (string/1KiB E_sonic) / +0/+0 (string/1KiB E_sonic) |
+| `TestAllocScratchSequence` | 136 / 136 | 25 | 2 of 1650 / 0 of 1650 | +1/+80 (flat-map call 3) / +1/+80 (pointer-to-struct call 15) |
+| `TestAllocWholeCall` | 23 / 23 | 25 | 1 of 575 / 0 of 575 | +1/+48 (floor round trip) / +0/+0 (E_sonic) |
+| `TestMemStatsCap` | 7 / 7 | 25 | 0 of 0 / 0 of 0 | +4/+288 (i-declared-16MiB-sent-10B) / +5/+18720 (i-declared-16MiB-sent-10B) |
+| `TestAllocDecodeFixtures` | 41 / 41 | 25 | 0 of 700 / 0 of 700 | +0/+0 (deviation-lone-surrogate.json interned) / +0/+0 (deviation-lone-surrogate.json interned) |
+| `TestLinearityFlood` | 2 / 2 | 25 | 0 of 50 / 0 of 50 | +0/+0 (structured-legend-flood-1k.json) / +0/+0 (structured-legend-flood-1k.json) |
+| `TestAllocResponseJSON` | 8 / 8 | 25 | 0 of 200 / 0 of 200 | +0/+0 (models.json marshal) / +0/+0 (models.json marshal) |
+| `TestAllocPrepare` | 11 / 11 | 25 | 0 of 275 / 0 of 275 | +0/+0 (c1-sketch) / +0/+0 (c1-sketch) |
+| `TestAllocLoggedCall` | 4 / 4 | 25 | 0 of 100 / 0 of 100 | +0/+0 (call/default) / +0/+0 (call/default) |
+| `TestLazyPassAllocations` | 6 / 6 | 25 | 0 of 150 / 0 of 150 | +0/+0 (structured-legend.json lazy) / +0/+0 (escaped-member-names.json lazy) |
+| `TestEncodeStateAllocations` | 7 / 7 | 25 | 0 of 175 / 0 of 175 | +0/+0 (success: boxed json.RawMessage) / +0/+0 (success: pointer to struct) |
+| `TestNewBodyAllocations` | 2 / 2 | 25 | 0 of 50 / 0 of 50 | +0/+0 (success: a warm pool hit allocates nothing) / +0/+0 (success: a warm pool hit allocates nothing) |
+
+The three-of-five rule (finding 9):
+
+| Host | Exact-pin runs | Above the minimum | p | P(3 of 5 fail) at p | P(3 of 5 fail) at 1/100 (R104-corr) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| (M) | 5500 | 3 | 0.00055 | 1.62e-09 | 9.85e-06 |
+| (L) | 5525 | 0 | 0.00000 | 0.00e+00 | 9.85e-06 |
