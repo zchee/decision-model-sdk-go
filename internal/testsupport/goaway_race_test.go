@@ -31,8 +31,10 @@ import (
 // close_notify leave first, every time: the frame write failed with "tls:
 // protocol is shutdown" and the client read EOF without a GOAWAY.
 //
-// It runs in CI's -race test step (go test -race with coverage) on
-// ubuntu-26.04, xcode-27 and windows-2025.
+// It runs in CI's -race test step (go test -race with coverage) and its
+// non-race allocation-tests step (go test -count=1 ./internal/codec/
+// ./internal/wire/ ./internal/testsupport/), on ubuntu-26.04, xcode-27 and
+// windows-2025.
 func TestGoAwayRaceWithFinish(t *testing.T) {
 	srv := NewLoopbackServer(t, ServerConfig{Handler: http.NotFoundHandler()})
 	c := dialRaw(t, srv.Addr())

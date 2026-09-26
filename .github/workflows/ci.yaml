@@ -289,9 +289,10 @@ jobs:
       # The lists are the one place that names the targets: `fuzzed` runs
       # each for FUZZTIME, `seeded` names the targets that run only their
       # seed corpus (in the test job). A target declared in the tree and in
-      # neither list, a listed target go test -list does not find, or an
-      # empty list fails the step before anything runs, so a new or renamed
-      # target cannot drop out of the job unnoticed.
+      # neither list, a target in either list that go test -list does not
+      # find, an empty fuzzed list or a scan that finds no target in the
+      # tree fails the step before anything runs, so a new or renamed target
+      # cannot drop out of the job unnoticed.
       - name: Fuzz every target
         env:
           FUZZTIME: 60s
@@ -318,12 +319,18 @@ jobs:
           # step's pipefail that must not end the step.
           declared="$({ git ls-files -z -- '*_test.go' ':(exclude)_spikes/**' | xargs -0 grep -H -o '^func Fuzz[A-Za-z0-9_]*' || true; } |
             sed -E 's|^(.*)/[^/]*_test\.go:func (.*)$|./\1 \2|; s|^[^/]*_test\.go:func (.*)$|. \1|' | sort -u)"
+          # The scan above cannot come back empty in this tree: an empty
+          # result is a broken scan, which would let every list pass.
+          if [ -z "$declared" ]; then
+            echo "::error::the scan found no fuzz target in the tree"
+            exit 1
+          fi
           unlisted="$(comm -23 <(printf '%s\n' "$declared") <(printf '%s\n' "${fuzzed[@]}" "${seeded[@]}" | sort -u))"
           if [ -n "$unlisted" ]; then
             echo "::error::fuzz targets in neither list: $(tr '\n' ',' <<<"$unlisted")"
             exit 1
           fi
-          for entry in "${fuzzed[@]}"; do
+          for entry in "${fuzzed[@]}" "${seeded[@]}"; do
             read -r pkg target <<<"$entry"
             if [ "$(go test -list "^$target\$" "$pkg" | grep -cx "$target")" != 1 ]; then
               echo "::error::go test -list does not find $target in $pkg"

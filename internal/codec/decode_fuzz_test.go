@@ -36,8 +36,10 @@ import (
 // SDK's fuzz/corpus/decode_response byte for byte
 // (testdata/fuzz/FuzzDecodeResponse), and the inputs campaigns found.
 // Its seed corpus runs as a test in CI's -race test step (go test -race
-// with coverage) on ubuntu-26.04, xcode-27 and windows-2025, and the
-// fuzz job fuzzes it for 60 s on ubuntu-26.04.
+// with coverage) and its non-race allocation-tests step (go test -count=1
+// ./internal/codec/ ./internal/wire/ ./internal/testsupport/), on
+// ubuntu-26.04, xcode-27 and windows-2025, and the fuzz job fuzzes it for
+// 60 s on ubuntu-26.04.
 //
 // The models decoder never panics; it refuses with a *DecodeError or
 // accepts only valid JSON of valid UTF-8, decodes the same twice, and its

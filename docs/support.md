@@ -203,8 +203,12 @@ one worker per core).
   watchdog (`testsupport.BoundFuzzInput`) that panics when an input runs
   longer. The engine then reports "fuzzing process hung or terminated
   unexpectedly" and writes the input, as for a crash.
-- A failing input is written to `testdata/fuzz/<Target>/` in the target's
-  package, and CI uploads it as the `fuzz-failures` artifact. Commit it there
+- A failing input is written to `testdata/fuzz/<Target>/<hash>` in the
+  target's package. CI's `fuzz-failures` artifact holds each one at that path
+  relative to the repository root (for example
+  `internal/codec/testdata/fuzz/FuzzDecodePaths/<hash>`); copy it there in a
+  checkout and replay it on its own with
+  `go test -run '^FuzzDecodePaths/<hash>$' ./internal/codec/`. Commit it
   with the fix: it then runs in every `go test` run as a regression case.
 - The inputs a campaign finds interesting stay in the Go build cache
   (`$(go env GOCACHE)/fuzz`), not in the tree, and a later campaign starts

@@ -30,12 +30,16 @@ const boundChildEnv = "TYPESAFE_TESTSUPPORT_BOUND_CHILD"
 
 // TestBoundFuzzInput checks the per-input bound every fuzz target arms: an
 // input that runs past it ends the process with a non-zero status and a
-// panic naming the input and the bound, and a disarmed bound never fires.
-// The hanging input runs in a child process, since the panic ends the
-// process it fires in.
+// panic naming the input and the bound, and a bound disarmed before it
+// fires never fires. The hanging input runs in a child process, since the
+// panic ends the process it fires in; the disarm is checked through
+// boundFuzzInput, the wrapper every target calls, with boundFire swapped for
+// a recorder.
 //
-// It runs in CI's -race test step (go test -race with coverage) on
-// ubuntu-26.04, xcode-27 and windows-2025.
+// It runs in CI's -race test step (go test -race with coverage) and its
+// non-race allocation-tests step (go test -count=1 ./internal/codec/
+// ./internal/wire/ ./internal/testsupport/), on ubuntu-26.04, xcode-27 and
+// windows-2025.
 func TestBoundFuzzInput(t *testing.T) {
 	const bound = 50 * time.Millisecond
 	if os.Getenv(boundChildEnv) == "1" {
@@ -66,10 +70,46 @@ func TestBoundFuzzInput(t *testing.T) {
 		}
 	})
 
-	t.Run("a disarmed bound never fires", func(t *testing.T) {
-		boundFuzzInput(t, time.Millisecond)()
-		// Were the watchdog still armed, its panic would end this process
-		// within the window; nothing here can fail spuriously.
-		<-time.After(50 * time.Millisecond)
+	t.Run("a bound disarmed before it fires never fires", func(t *testing.T) {
+		const arm, window = 50 * time.Millisecond, 150 * time.Millisecond
+		saved := boundFire
+		t.Cleanup(func() { boundFire = saved })
+		// A timer never fires before its duration, so a disarm that returns
+		// less than arm after a start taken before arming stopped the
+		// watchdog in time. One that returns later (this goroutine
+		// descheduled for 50 ms) proves nothing; arm again, each attempt
+		// with a recorder of its own.
+		var fired chan string
+		for attempt := 0; ; attempt++ {
+			if attempt == 20 {
+				t.Fatalf("no disarm within %v of arming in %d attempts", arm, attempt)
+			}
+			ch := make(chan string, 1)
+			fired, boundFire = ch, func(msg string) { ch <- msg }
+			start := time.Now()
+			boundFuzzInput(t, arm)()
+			if time.Since(start) < arm {
+				break
+			}
+		}
+		select {
+		case msg := <-fired:
+			t.Fatalf("a disarmed bound fired: %s", msg)
+		case <-time.After(window):
+		}
+	})
+
+	t.Run("an armed bound fires with its message", func(t *testing.T) {
+		fired := make(chan string, 1)
+		disarm := armBound("armed", time.Millisecond, func(msg string) { fired <- msg })
+		defer disarm()
+		select {
+		case msg := <-fired:
+			if want := "testsupport: fuzz input armed ran past the 1ms per-input bound"; msg != want {
+				t.Errorf("fired %q, want %q", msg, want)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("an armed bound did not fire within 5 s")
+		}
 	})
 }

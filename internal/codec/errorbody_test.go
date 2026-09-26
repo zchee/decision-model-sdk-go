@@ -118,8 +118,10 @@ func TestReadErrorBody(t *testing.T) {
 // byte (testdata/fuzz/FuzzErrorBody), which that SDK's target also reads
 // as an error body.
 // Its seed corpus runs as a test in CI's -race test step (go test -race
-// with coverage) on ubuntu-26.04, xcode-27 and windows-2025, and the
-// fuzz job fuzzes it for 60 s on ubuntu-26.04.
+// with coverage) and its non-race allocation-tests step (go test -count=1
+// ./internal/codec/ ./internal/wire/ ./internal/testsupport/), on
+// ubuntu-26.04, xcode-27 and windows-2025, and the fuzz job fuzzes it for
+// 60 s on ubuntu-26.04.
 func FuzzErrorBody(f *testing.F) {
 	for _, seed := range []string{
 		"", "null", " null ", "[]", "42", "true", `""`, `"plain"`, "plain text", "not JSON: \xff",

@@ -32,9 +32,10 @@ import (
 // succeeds. The closed-listener mutant (refusedConn returning the closed
 // listener's address) fails the first check on every OS.
 //
-// It runs in CI's -race test step (go test -race with coverage) on
-// ubuntu-26.04, xcode-27 and windows-2025; ubuntu-26.04 is the image that
-// asserts the Linux-only half.
+// It runs in CI's -race test step (go test -race with coverage) and its
+// non-race allocation-tests step (go test -count=1 ./internal/codec/
+// ./internal/wire/ ./internal/testsupport/), on ubuntu-26.04, xcode-27 and
+// windows-2025; ubuntu-26.04 is the image that asserts the Linux-only half.
 func TestRefusedAddr(t *testing.T) {
 	t.Run("error: a closed listener's address can be taken again", func(t *testing.T) {
 		ln, err := net.Listen("tcp", "127.0.0.1:0")

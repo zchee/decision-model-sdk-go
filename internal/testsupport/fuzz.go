@@ -42,11 +42,22 @@ func BoundFuzzInput(tb testing.TB) (disarm func()) {
 	return boundFuzzInput(tb, FuzzInputBound)
 }
 
+// boundFire is what a bound that fires does: it panics, which ends the
+// process. TestBoundFuzzInput swaps in a recorder to check the disarm.
+var boundFire = func(msg string) { panic(msg) }
+
 // boundFuzzInput is [BoundFuzzInput] with the bound d.
 func boundFuzzInput(tb testing.TB, d time.Duration) (disarm func()) {
-	name := tb.Name()
+	disarmed := armBound(tb.Name(), d, boundFire)
+	return func() { disarmed() }
+}
+
+// armBound calls fire with the bound's message once d has passed, unless
+// disarm is called first; disarm reports whether it stopped the watchdog
+// before it fired.
+func armBound(name string, d time.Duration, fire func(msg string)) (disarm func() bool) {
 	timer := time.AfterFunc(d, func() {
-		panic(fmt.Sprintf("testsupport: fuzz input %s ran past the %v per-input bound", name, d))
+		fire(fmt.Sprintf("testsupport: fuzz input %s ran past the %v per-input bound", name, d))
 	})
-	return func() { timer.Stop() }
+	return timer.Stop
 }
