@@ -17,6 +17,7 @@ package typesafe
 import (
 	"errors"
 	"reflect"
+	"slices"
 	"sync"
 	"testing"
 
@@ -905,7 +906,8 @@ func collectNames(p *Prepared) []string {
 
 // TestPreparedForManyFields checks the duplicate-name check past the scan
 // limit, where it switches to a map: a struct type of repeatScanLimit+8
-// answer fields, and the same with its last field renamed onto an early one.
+// answer fields, and the same with its last field renamed onto an earlier
+// one, before, at and after the point where the map is built.
 func TestPreparedForManyFields(t *testing.T) {
 	n := repeatScanLimit + 8
 	fields := make([]reflect.StructField, n)
@@ -925,11 +927,29 @@ func TestPreparedForManyFields(t *testing.T) {
 		}
 	}
 
-	fields[n-1].Tag = reflect.StructTag(`typesafe:"kind=noul;name=` + fields[3].Name + `"`)
-	plan = buildPlan(reflect.StructOf(fields))
-	want := `PreparedFor[struct {...}]: field ` + fields[n-1].Name + `: Question "` + fields[3].Name + `" is added more than once; question names must be unique. Field ` + fields[3].Name + ` asks it first.`
-	if plan.err == nil || plan.err.Error() != want {
-		t.Errorf("buildPlan error = %v, want %q", plan.err, want)
+	// The last field repeats an earlier name. The index is built from the
+	// first repeatScanLimit names and then extended with each later one, so
+	// a repeat must be found, and named, whichever way its name got in.
+	tests := map[string]struct {
+		first int
+	}{
+		"error: repeats a name indexed when the index was built": {first: 3},
+		"error: repeats the first name added to the index":       {first: repeatScanLimit},
+		"error: repeats a name added to the index later":         {first: n - 2},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			repeated := slices.Clone(fields)
+			repeated[n-1].Tag = reflect.StructTag(`typesafe:"kind=noul;name=` + fields[tt.first].Name + `"`)
+			plan := buildPlan(reflect.StructOf(repeated))
+			want := `PreparedFor[struct {...}]: field ` + fields[n-1].Name + `: Question "` + fields[tt.first].Name + `" is added more than once; question names must be unique. Field ` + fields[tt.first].Name + ` asks it first.`
+			if plan.err == nil {
+				t.Fatalf("buildPlan accepted a repeated name, want %q", want)
+			}
+			if diff := gocmp.Diff(want, plan.err.Error()); diff != "" {
+				t.Errorf("buildPlan error (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 
