@@ -5234,7 +5234,7 @@ and `_spikes/w5.4/render.py` prints the tables below from
 | W5.4-07 | 2026-09-26 05:57:38 UTC | W5.4 AC-P7 survey | `ubuntu-26.04` (AMD EPYC 7763) | `go1.27.1 linux/amd64` | not printed by the job | – | `bench.yaml` at aaa9698: `CodSpeedHQ/action@v5` (runner 5.2.1, go runner 1.3.0), `mode: walltime`, `go test -bench=. ./...`, raw samples under `$RUNNER_TEMP` | `BenchmarkCall/sdk` min / median / mean 5.450 / 5.791 / 6.684 µs; `/naive` 4.758 / 5.680 / 7.625 µs; **sdk/naive 1.145 / 1.020 / 0.877** (min / median / mean) | GitHub run 36221839206 (push, `main`), CodSpeed run 6ab75ed2e412c1cc664ef2d7; stdev sdk 6.843 / naive 11.180 µs; IQR outliers sdk 8.6 % / naive 17.3 % of 479046 / 467010 rounds; **K7 run 1**: the count starts here (D-K35-land) |
 | W5.4-08 | 2026-09-26 06:09:46 UTC | W5.4 AC-P7, pre-W5.3 dispatch | `ubuntu-26.04` (AMD EPYC 9V45, 4 CPUs) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | – | `bench.yaml` at c15ba0c (`gh workflow run bench.yaml --ref wave/w5.4`): aaa9698's job plus the report step | `BenchmarkCall/sdk` min / median / mean 2.844 / 3.044 / 3.303 µs; `/naive` 2.464 / 2.965 / 3.632 µs; **sdk/naive 1.154 / 1.027 / 0.909** (min / median / mean) | GitHub run 36222408328 (workflow_dispatch, `wave/w5.4`), CodSpeed run 6ab761aa075e817cd5b19ada; stdev sdk 2.346 / naive 4.515 µs; IQR outliers sdk 5.8 % / naive 13.9 % of 929948 / 956420 rounds; W5.4's first dispatch, **pre-W5.3** (history, not AC-P7 of record); guard `125 rows; CodSpeed results: 125 rows in 3 files`; the report step's table (`results/report-36222408328.md`) equals CodSpeed's stored statistics to the ns; not a K7 run |
 | W5.4-09 | 2026-09-26 15:04:12 JST | W5.4 discovery | (M), and `ubuntu-26.04` for the CodSpeed side | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 8.50 before and after the 1x run | `GOEXPERIMENT=nosimd,noruntimesecret go test -list 'Benchmark.*' ./...` by package; the guard's own `go test -run '^$' -bench . -benchtime=1x -cpu=1 ./...` expansion; against the `.benchmarks[].uri` rows that W5.4-08's report step lists | functions: 15 in 3 packages (6 root, 5 `internal/benchmark`, 4 `internal/codec`; `BenchmarkLoopback` in two), and the CodSpeed run's 125 URIs reduce to the same 15: **equal**. Rows: 125 local = 125 in CodSpeed: **equal**. Names across runs: `compare_runs` of aaa9698's main run (W5.4-07) with W5.4-08 compares all 125 rows, with no new and no missing ones | `results/list-functions-M.txt`, `results/list-rows-M.txt`, `results/codspeed-uris-36222408328.txt`; CodSpeed's 19 "skipped" rows are URIs from before G5 (14 in `bench_prepare_test.go`, 3 in `bench_config_test.go`, `bench_noop_test.go::BenchmarkNoop`, `bench_call_test.go::BenchmarkCall::sdk`); not a timing row |
-| W5.4-10 | 2026-09-26 15:12:57 JST | W5.4 K7 count | – | – | – | – | `gh run list --workflow bench.yaml --branch main --event push --limit 100`, counting successful runs from 36221839206 on | **1 counted run** (36221839206, aaa9698, EPYC 7763) of 20; the 45 earlier main runs are not counted (D-K35-land: from ca226bb to 3ffe77b 11 rows were lost, and before ca226bb the names differ, G5) | `results/k7-count.txt`; not a timing row |
+| W5.4-10 | 2026-09-26 15:12:57 JST | W5.4 K7 count | – | – | – | – | `gh run list --workflow bench.yaml --branch main --event push --limit 100`, counting successful runs from 36221839206 on, per CPU model (ruling R109) | **EPYC 7763: 1 of 20 runs** (36221839206, aaa9698, CodSpeed run 6ab75ed2e412c1cc664ef2d7); no other model has a counted run. Beside it, the spread of the sdk/naive mean ratio over the counted runs of any model: n/a with one run (no threshold set, R109). The 45 earlier main runs are not counted (D-K35-land: from ca226bb to 3ffe77b 11 rows were lost, and before ca226bb the names differ, G5) | `results/k7-count.txt`; not a timing row |
 
 ### Tables
 
@@ -5249,11 +5249,14 @@ and `_spikes/w5.4/render.py` prints the tables below from
 | aaa9698 | push main | 36221839206 | 6ab75ed2e412c1cc664ef2d7 | 7763 | 1.145 | 1.020 | 0.877 | 5.450 | 5.791 | 6.684 |
 | c15ba0c | workflow_dispatch wave/w5.4 | 36222408328 | 6ab761aa075e817cd5b19ada | 9V45 | 1.154 | 1.027 | 0.909 | 2.844 | 3.044 | 3.303 |
 
-K7: 1 counted main runs from 36221839206 on (20 needed)
-- counted runs, BenchmarkCall/sdk mean: n/a (1 run) (AMD EPYC 7763: n/a (1 run))
-- counted runs, sdk/naive mean ratio: n/a (1 run) (AMD EPYC 7763: n/a (1 run))
-- every run above, BenchmarkCall/sdk mean: 112.33 % over 8 runs (AMD EPYC 7763: 4.93 % over 6 runs; AMD EPYC 9V45: n/a (1 run); AMD EPYC 9V74: n/a (1 run))
-- every run above, sdk/naive mean ratio: 12.16 % over 8 runs (AMD EPYC 7763: 12.16 % over 6 runs; AMD EPYC 9V45: n/a (1 run); AMD EPYC 9V74: n/a (1 run))
+K7 (ruling R109), successful push runs on main from 36221839206 on, counted per CPU model;
+blocking needs 20 runs on one model with BenchmarkCall/sdk's mean within 5 %:
+- AMD EPYC 7763: 1 of 20 runs; BenchmarkCall/sdk mean spread n/a (1 run)
+- beside it, the sdk/naive mean ratio over those runs, any model (no threshold set): n/a (1 run)
+
+Every run above, K7 or not, for comparison:
+- BenchmarkCall/sdk mean: 112.33 % over 8 runs (AMD EPYC 7763: 4.93 % over 6 runs; AMD EPYC 9V45: n/a (1 run); AMD EPYC 9V74: n/a (1 run))
+- sdk/naive mean ratio: 12.16 % over 8 runs (AMD EPYC 7763: 12.16 % over 6 runs; AMD EPYC 9V45: n/a (1 run); AMD EPYC 9V74: n/a (1 run))
 
 ### W5.4 findings
 
@@ -5273,7 +5276,10 @@ K7: 1 counted main runs from 36221839206 on (20 needed)
    flamegraph, `internal/codec.trailing` passes the whole body through
    sonic's `decoder.Skip` again after `ast.Preorder`, to find where the
    root value ends. That is 10.5 % of `BenchmarkCall/sdk`'s time, about
-   0.71 µs per call, about the whole gap.
+   0.71 µs per call, about the whole gap. **AC-P7, pre-W5.3 dispatch
+   (W5.4-08): holds on the mean (0.909 on the 9V45; the 7763 runs give
+   0.877 to 0.983), report-only under R108.** The runs of record come
+   after the rebase onto W5.3's landing.
 2. **The CPU model moves every row.** Three models have appeared: the
    EPYC 7763 (six runs), the 9V74 (W5.4-04) and the 9V45 (W5.4-08). On
    the 9V45, which has AVX-512, every row ran 1.4 to 2.7 times faster
@@ -5281,15 +5287,20 @@ K7: 1 counted main runs from 36221839206 on (20 needed)
    3.30 µs. Over these eight runs the mean's spread is 112 %, and 4.9 %
    on the 7763 alone. The sdk/naive ratio holds across models (mean
    0.909 on the 9V45, 0.937 on the 9V74), but it spreads 12 % across the
-   7763 runs. As written, K7 (20 main runs within 5 %) measures which
-   machine each run got. How K7 is counted across models went to the lead
-   in the W5.4 STATUS of 2026-09-26.
+   7763 runs. Taken across models, K7 (20 main runs within 5 %) would
+   measure which machine each run got. So ruling R109 counts K7 per CPU
+   model and never mixes models (W5.4-10: EPYC 7763, 1 of 20), and records
+   beside it the sdk/naive mean ratio's spread over the counted runs of
+   any model, with no threshold set.
 3. **Noise on one CPU model exceeds CodSpeed's 10 % threshold.** On the
    7763, the `EncodeBody/rawjson/{64KiB,1MiB}/naive-json` rows moved 13 to
    14 % between runs with no change to their code. CodSpeed's own check
    run failed at 1f694b0, 3ffe77b and aaa9698, each time on a single row:
    B6 `cold-fanout-64` (−11.9 %, −12.2 %) and `rawjson/1MiB/sdk`
-   (−14.3 %). The workflow never requires that check.
+   (−14.3 %). The workflow never requires that check. Risk K37 records
+   this for the owner. The remedies are CodSpeed project settings: a
+   per-benchmark threshold for B6 `cold-fanout-64`, or ignoring that row,
+   and archiving the 19 pre-G5 rows. The workflow keeps B6 in the run.
 4. **The runner's default build is (L)'s baseline.** W5.4-08's ToolTags
    equal those of the 84 (L) rows in this ledger, `goexperiment.dwarf5`
    included (a linux default that darwin lacks). So the job sets no

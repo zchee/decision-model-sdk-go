@@ -92,8 +92,10 @@ The GitHub job log does not print the run id.
   these runners, rows whose code did not change move by more than 10 %:
   - At 3ffe77b the `EncodeBody/rawjson/{64KiB,1MiB}/naive-json` rows,
     which that commit did not touch, were 13 to 14 % faster.
-  - `Loopback/cold-fanout-64` (B6) failed the check at 1f694b0 (−11.92 %)
-    and at aaa9698 (−12.24 %) without any transport change.
+  - `Loopback/cold-fanout-64` (B6) has measured from 4.8 to 5.5 ms on
+    the EPYC 7763 alone. It failed the check at 1f694b0 (−11.92 %) and at
+    aaa9698 (−12.24 %), and aaa9698 changed only the workflow and
+    documents.
   - A run on an EPYC 9V74 moved 21 rows by 18 to 30 % against one on an
     EPYC 7763.
   - A run on an EPYC 9V45, which has AVX-512, ran every row 1.4 to 2.7
@@ -103,6 +105,11 @@ The GitHub job log does not print the run id.
 
   A failed CodSpeed check on one row is therefore not a regression until
   another run repeats it. B6 is report-only and never a gate (R101).
+  Risk K37 records the red checks. The remedies are settings in the CodSpeed
+  project, for the owner: a per-benchmark threshold for
+  `bench_internal_test.go::BenchmarkLoopback::cold-fanout-64`, or ignoring
+  that row, and archiving the 19 skipped rows. The workflow keeps B6 in the
+  run.
 
 ## K7: report-only until the noise is known
 
@@ -112,20 +119,27 @@ nothing until 20 runs on `main` show a spread below 5 % for
 
 - No step fails on a timing, and nothing requires CodSpeed's check run.
 - The spread is (largest − smallest) / smallest of `BenchmarkCall/sdk`'s
-  mean over the counted runs: the mean is the statistic AC-P7 reads
-  (ruling R108).
+  mean: the mean is the statistic AC-P7 reads (ruling R108).
 - The count starts at `main`'s run of aaa9698 (GitHub run 36221839206,
   CodSpeed run 6ab75ed2e412c1cc664ef2d7), where the K35 fix landed. The
   runs from ca226bb to 3ffe77b lost 11 rows and do not count. Runs before
   ca226bb have other names (G5).
 - Only successful push runs on `main` count; dispatched runs on branches
   do not. `BenchmarkLoopback` never counts (R101).
-- The CPU model changes from run to run and moves the level of every row,
-  by up to 2.7 times between the models seen so far (see "Noise" above). A
-  spread taken across CPU models therefore measures which machine the run
-  got, not noise. Each counted run's CPU model is recorded beside its
-  number, and the ledger's section W5.4 keeps the count and the spread so
-  far, both overall and per CPU model.
+
+**K7 is counted per CPU model (ruling R109).** Hosted runners rotate CPU
+models, and the model sets the level of every row. On identical code,
+every row ran 1.4 to 2.7 times faster on an EPYC 9V45 than on an EPYC 7763
+(see "Noise" above). A spread taken across models would measure which
+machine each run got, not noise. So the 20 runs and the spread below 5 %
+of `BenchmarkCall/sdk`'s mean apply to `main` runs on one CPU model. Runs
+on another model start their own count, and models are never mixed.
+Gating stays off until one model reaches 20 runs within 5 %. Beside that
+count, the ledger records the spread of the sdk/naive mean ratio over all
+counted runs, whatever their model, because the ratio is what AC-P7
+compares. No threshold is set on that ratio spread yet. Every row of the
+ledger's section W5.4 carries the run's CPU model and its GitHub and
+CodSpeed run ids, and the report step prints the model on every run.
 
 To list the candidate runs, then keep the successful ones from 36221839206
 on:
