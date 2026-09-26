@@ -47,6 +47,9 @@
 //     loopback benchmarks.
 //   - [SumGetBody]: the SHA-256 digest of the bytes a request's GetBody
 //     reads, so a test can assert that every attempt sends the same body.
+//   - [ReadPeerSettings]: the settings of the first SETTINGS frame an
+//     HTTP/2 server sends (its MAX_CONCURRENT_STREAMS among them), read
+//     without a request; the live tests record the API's (risk K22).
 //   - [LogRecorder]: a [log/slog.Handler] that keeps every record.
 //   - [QuietRuntime], [Measure] and [MeasureMin]: allocation counting with the
 //     collector off, GOMAXPROCS at 1, and a stable minimum of five runs;
