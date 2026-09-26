@@ -575,3 +575,118 @@ func TestErrorHeadersRedacted(t *testing.T) {
 		})
 	}
 }
+
+// TestServerEchoedKeyShownAsReceived pins owner decision G7 (8), ruling
+// R103-rev (upstream parity): a message or a field path the server composes
+// is shown as the server sent it, as typesafe-sdk-python shows it, even when
+// it echoes the client's API key. A 401 whose message echoes the key puts it
+// into the *APIError's Message, Error(), %v and %+v, escaped and cut at 200
+// characters as any message is; an answer name or a probability key that
+// echoes it puts it into the *ResponseValidationError's FieldPath and
+// Error(). Body, and the LevelTrace "response body" record whose level is
+// the opt-in for personal data, hold the body as it arrived. What the SDK
+// writes itself never carries the key: the stored Header shows "***" for a
+// header whose value echoes it (R87), and no record above LevelTrace holds
+// any 8 bytes of it.
+func TestServerEchoedKeyShownAsReceived(t *testing.T) {
+	const key = "ts_live_0123456789abcdef"
+	const models = "GET https://api.typesafe.ai/v1/models: "
+	const systemOne = "POST https://api.typesafe.ai/v1/systemone: 200 Invalid response data at '"
+	const requestID = " (request_id=req_123)"
+	sent := []string{"X-Echo", "echo " + key, "X-Typesafe-Request-Id", "req_123"}
+	wantHeader := http.Header{"Content-Type": {"application/json"}, "X-Echo": {redacted}, "X-Typesafe-Request-Id": {"req_123"}}
+	pad := strings.Repeat("m", 190)
+	noul := func(name string) string { return `{"model":"m","usage":{},"answers":{"` + name + `":{"type":"noul"}}}` }
+	tests := map[string]struct {
+		status    int
+		body      string
+		systemOne bool   // call SystemOne rather than list the models
+		message   string // the *APIError's Message
+		path      string // the *ResponseValidationError's FieldPath
+		want      string // Error(), %v and %+v
+	}{
+		"success: a 401 message that echoes the key": {
+			status: http.StatusUnauthorized, body: `{"message":"invalid key ` + key + `"}`,
+			message: "invalid key " + key,
+			want:    models + "401 invalid key " + key + requestID,
+		},
+		"success: a message with the key across the 200-character cut keeps the key's first bytes": {
+			status: http.StatusBadRequest, body: `{"message":"` + pad + " " + key + ` and more"}`,
+			message: pad + " " + key[:9] + "…", // the message's 200 characters, then the cut
+			want:    models + "400 " + pad + " " + key[:9] + "…" + requestID,
+		},
+		"success: an answer named with the key": {
+			status: http.StatusOK, body: noul(key), systemOne: true,
+			path: "answers." + key + ".noul",
+			want: systemOne + "answers." + key + ".noul'." + requestID,
+		},
+		"success: a probability key that echoes the key": {
+			status: http.StatusOK, systemOne: true,
+			body: `{"model":"m","usage":{},"answers":{"q":{"type":"choice","choice":"a","confidence":0.5,"probabilities":{"` + key + `":"x"}}}}`,
+			path: "answers.q.probabilities." + key,
+			want: systemOne + "answers.q.probabilities." + key + "'." + requestID,
+		},
+	}
+	// shown is what the error and the LevelTrace "response body" record show.
+	type shown struct {
+		Error, V, PlusV    string
+		Message, FieldPath string
+		Body               string
+		Header             http.Header
+		TraceBody          string
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			logs := testsupport.NewLogRecorder(LevelTrace)
+			clearEnv(t)
+			c := newEnvClient(t, replying(tt.status, []byte(tt.body), sent...), WithAPIKey(key), WithLogger(logs.Logger()))
+			var err error
+			if tt.systemOne {
+				_, err = c.SystemOne(t.Context(), "hi", noulQuestion(t), Retry(NoRetry()))
+			} else {
+				_, err = c.Models().List(t.Context(), Retry(NoRetry()))
+			}
+			if err == nil {
+				t.Fatal("error = nil, want an error for the response")
+			}
+			got := shown{Error: err.Error(), V: fmt.Sprintf("%v", err), PlusV: fmt.Sprintf("%+v", err)}
+			if tt.systemOne {
+				e, ok := errors.AsType[*ResponseValidationError](err)
+				if !ok {
+					t.Fatalf("error = %T %v, want a *ResponseValidationError", err, err)
+				}
+				got.FieldPath, got.Body, got.Header = e.FieldPath, string(e.Body), e.Header
+			} else {
+				e, ok := errors.AsType[*APIError](err)
+				if !ok {
+					t.Fatalf("error = %T %v, want an *APIError", err, err)
+				}
+				got.Message, got.Body, got.Header = e.Message, string(e.Body), e.Header
+			}
+			var above []string // the messages of the records above LevelTrace
+			for _, r := range logs.Records() {
+				switch {
+				case r.Level > LevelTrace:
+					above = append(above, r.Message)
+					if strings.Contains(r.String(), key[:minKeyNeedleBytes]) {
+						t.Errorf("a record above LevelTrace holds the key: %s", r)
+					}
+				case r.Message == "response body":
+					b, _ := r.Attr("body")
+					got.TraceBody = b.String()
+				}
+			}
+			want := shown{
+				Error: tt.want, V: tt.want, PlusV: tt.want,
+				Message: tt.message, FieldPath: tt.path,
+				Body: tt.body, Header: wantHeader, TraceBody: tt.body,
+			}
+			if diff := gocmp.Diff(want, got); diff != "" {
+				t.Errorf("what the error and the LevelTrace record show (-want +got):\n%s", diff)
+			}
+			if diff := gocmp.Diff([]string{"request", "response", "response headers"}, above); diff != "" {
+				t.Errorf("the records above LevelTrace (-want +got):\n%s\n%s", diff, recordsText(logs))
+			}
+		})
+	}
+}

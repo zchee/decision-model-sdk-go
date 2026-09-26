@@ -235,7 +235,10 @@ type APIError struct {
 	// empty when it is not known.
 	Endpoint string
 	// Message is the message Error prints after the status; empty prints
-	// the status alone.
+	// the status alone. A message the server composes is shown as the
+	// server sent it, as the Python SDK does, even when it echoes the
+	// client's API key; the SDK's own headers and records never carry the
+	// key.
 	Message string
 	// ErrorType is the server's machine-readable name for the failure, from
 	// the body's detail.error_type, or empty. It is the server's text as it
@@ -280,7 +283,10 @@ func (*APIError) typesafeError() {}
 // its message read from the body by the lenient reader
 // (codec.ReadErrorBody), escaped and cut at 200 characters, or "status code
 // (no body)" for an empty or null body, and the response header with its
-// credentials redacted by r ([headerRedactor], ruling R87).
+// credentials redacted by r ([headerRedactor], ruling R87). A message the
+// server composes is shown as the server sent it, as the Python SDK does,
+// even when it echoes the client's API key (ruling R103-rev); the SDK's own
+// headers and records never carry the key.
 func newAPIError(meta *wire.ResponseMeta, endpoint string, r headerRedactor) *APIError {
 	eb := codec.ReadErrorBody(meta.Body)
 	msg := "status code (no body)"
@@ -348,7 +354,11 @@ func (*ResponseValidationError) typesafeError() {}
 
 // newResponseValidationError returns the *ResponseValidationError for a
 // successful response whose body the decoder refused with err, with the
-// response header's credentials redacted by r ([headerRedactor]).
+// response header's credentials redacted by r ([headerRedactor]). A path
+// the server composes, from an answer's name or a probability or legend
+// key, is shown as the server sent it, as the Python SDK does, even when it
+// echoes the client's API key (ruling R103-rev); the SDK's own headers and
+// records never carry the key.
 func newResponseValidationError(meta *wire.ResponseMeta, endpoint string, r headerRedactor, err error) *ResponseValidationError {
 	var path codec.FieldPath
 	if de, ok := errors.AsType[*codec.DecodeError](err); ok {
