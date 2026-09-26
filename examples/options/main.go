@@ -3,8 +3,7 @@
 
 // Command options shows a client's settings and a call's: the forms a
 // state may take, a question given as raw fields, and the options that
-// override the client's model, deadline, retries, headers and request
-// body for one call.
+// override the client's deadline, retries and headers for one call.
 package main
 
 import (
@@ -50,11 +49,12 @@ func run(ctx context.Context) error {
 		Score("urgency", typesafe.Score{
 			Levels: []typesafe.Content{typesafe.Text("low"), typesafe.Text("high")},
 		}).
-		// A question given as its raw fields is sent as it is, members the
-		// SDK does not model included.
+		// A question given as its raw fields is sent as it is.
 		Raw("refund", typesafe.RawQuestion{Type: "noul", Fields: map[string]any{
 			"instructions": "Does the customer ask for a refund?",
-			"weight":       2,
+			"criteria": map[string]any{
+				"true": map[string]any{"meaning": "a refund or a chargeback", "examples": []any{"please refund me"}},
+			},
 		}}).
 		Prepare()
 	if err != nil {
@@ -74,7 +74,6 @@ func run(ctx context.Context) error {
 			typesafe.Timeout(20*time.Second),
 			typesafe.Retry(typesafe.NoRetry()),
 			typesafe.Header("X-Call", "options-example"),
-			typesafe.ExtraBody("beam_width", 4),
 		)
 		if err != nil {
 			return err

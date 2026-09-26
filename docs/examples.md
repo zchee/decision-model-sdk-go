@@ -20,7 +20,7 @@ go run ./examples/quickstart
 | --- | --- | --- |
 | [`quickstart`](#quickstart) | one question, one answer | the README's quick start |
 | [`typed`](#typed-answers) | a struct as the question set: `Ask[T]`, `PreparedFor[T]`, `DecodeAs[T]`, `optional` | `response_model=` (`tests/typing/pydantic_response_models.py`) |
-| [`options`](#client-and-call-options) | state forms, a raw question, client options and per-call options | `tests/typing/valid.py` |
+| [`options`](#client-and-call-options) | state forms, a raw question, client options and per-call options | `tests/typing/valid.py` (its `extra_body` aside) |
 | [`transport`](#transports) | `WithHTTPTransport` and `WithRoundTripper` | `transport=` / `http_client=` (`tests/typing/transport.py`) |
 | [`retries`](#retries-and-errors) | retry policies and telling the errors apart | `RetryPolicy`, the exception classes |
 | [`logging`](#logging) | a `log/slog` logger and what its records show | `logging` with `TYPESAFE_LOG_LEVEL` |
@@ -182,11 +182,13 @@ func run(ctx context.Context) error {
 ## Client and call options
 
 The client's options set defaults for every call; a call's options
-override them for that call alone: `Model`, `Timeout`, `Retry`, `Header` and
-`ExtraBody`. A state is text, a JSON object or an array: a string, a map, a
+override them for that call alone: `Model`, `Timeout`, `Retry` and
+`Header`. A state is text, a JSON object or an array: a string, a map, a
 slice, a struct or `RawJSON`. A number, a boolean or `nil` is refused
-before anything is sent. A `RawQuestion` is sent as it is, members the SDK
-does not model included.
+before anything is sent. A `RawQuestion` is sent as it is. `ExtraBody`,
+not used here, adds a member to the top level of the request body or
+replaces `state`, `model` or `questions`; the API refuses a member it does
+not know with a 400 `api_usage_error` (ledger W6.4-07).
 
 <!-- example: options/main.go -->
 ```go
@@ -195,8 +197,7 @@ does not model included.
 
 // Command options shows a client's settings and a call's: the forms a
 // state may take, a question given as raw fields, and the options that
-// override the client's model, deadline, retries, headers and request
-// body for one call.
+// override the client's deadline, retries and headers for one call.
 package main
 
 import (
@@ -242,11 +243,12 @@ func run(ctx context.Context) error {
 		Score("urgency", typesafe.Score{
 			Levels: []typesafe.Content{typesafe.Text("low"), typesafe.Text("high")},
 		}).
-		// A question given as its raw fields is sent as it is, members the
-		// SDK does not model included.
+		// A question given as its raw fields is sent as it is.
 		Raw("refund", typesafe.RawQuestion{Type: "noul", Fields: map[string]any{
 			"instructions": "Does the customer ask for a refund?",
-			"weight":       2,
+			"criteria": map[string]any{
+				"true": map[string]any{"meaning": "a refund or a chargeback", "examples": []any{"please refund me"}},
+			},
 		}}).
 		Prepare()
 	if err != nil {
@@ -266,7 +268,6 @@ func run(ctx context.Context) error {
 			typesafe.Timeout(20*time.Second),
 			typesafe.Retry(typesafe.NoRetry()),
 			typesafe.Header("X-Call", "options-example"),
-			typesafe.ExtraBody("beam_width", 4),
 		)
 		if err != nil {
 			return err
