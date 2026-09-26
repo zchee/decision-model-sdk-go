@@ -642,21 +642,29 @@ func TestDecodeAsStoredResponse(t *testing.T) {
 	}
 }
 
-// TestTypedErrorRedactsHeader checks the header a typed validation error
-// keeps (ruling R99 (d), review W4.2 MINOR 4): a header that is a
-// credential by its name, Set-Cookie, is "***" whether DecodeAs or Ask
-// built the error; a header whose value holds the client's API key is
-// "***" from Ask, which has the client's key, and as it arrived from
-// DecodeAs, which has none. The response's own header is not changed.
+// TestTypedErrorRedactsHeader checks what a typed validation error shows
+// of a credential (rulings R99 (d) and R103-rev, review W4.2 MINOR 4 and
+// V48 NIT A). The response echoes the client's API key in a header, in the
+// request id and in a probability label that T does not list, so the
+// decode fails at that label. Ask, which has the client's key, shows "***"
+// for it in the header and the request id; DecodeAs, which has none,
+// leaves both as the server sent them. Both show the label in the field
+// path and in Error as it arrived, as the SDK's other errors show a path
+// (R103-rev), and both show Set-Cookie, a credential by its name, as "***".
+// Neither changes the response's own header.
 func TestTypedErrorRedactsHeader(t *testing.T) {
-	// The body lacks spam, which typedSystemOneResponse requires.
-	body := resultWith(toneJSON, qualityJSON)
+	// tone gives a probability to a label that is the key, which
+	// typedSystemOneResponse's options do not list.
+	body := resultWith(spamJSON, `"tone":{"type":"choice","choice":"friendly","confidence":0.9,"probabilities":{"friendly":0.9,"`+testKey+`":0.1}}`)
 	echo := "echoed " + testKey + " back"
+	requestID := "req-" + testKey
+	type view struct {
+		FieldPath, Cookie, Echo, RequestID, Endpoint, Error string
+	}
+	path := "answers.tone.probabilities." + testKey
 	tests := map[string]struct {
-		typed      func(*testing.T, *Client) error
-		wantCookie string
-		wantEcho   string
-		wantEnd    string
+		typed func(*testing.T, *Client) error
+		want  view
 	}{
 		"error: DecodeAs redacts by the header's name only": {
 			typed: func(t *testing.T, c *Client) error {
@@ -670,38 +678,37 @@ func TestTypedErrorRedactsHeader(t *testing.T) {
 				}
 				return err
 			},
-			wantCookie: "***",
-			wantEcho:   echo,
+			want: view{
+				FieldPath: path, Cookie: "***", Echo: echo, RequestID: requestID,
+				Error: "200 Invalid response data at '" + path + "'. (request_id=" + requestID + ")",
+			},
 		},
-		"error: Ask redacts by name and by the client's key": {
+		"error: Ask redacts the header by name and by the client's key": {
 			typed: func(t *testing.T, c *Client) error {
 				_, err := Ask[typedSystemOneResponse](t.Context(), c, "x")
 				return err
 			},
-			wantCookie: "***",
-			wantEcho:   "***",
-			wantEnd:    systemOneEndpoint,
+			want: view{
+				FieldPath: path, Cookie: "***", Echo: "***", RequestID: "***", Endpoint: systemOneEndpoint,
+				Error: systemOneEndpoint + ": 200 Invalid response data at '" + path + "'. (request_id=***)",
+			},
 		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			c := newTestClient(t, replying(http.StatusOK, body, "Set-Cookie", "session=abc", "X-Echo", echo, "x-typesafe-request-id", "req-redact"))
+			c := newTestClient(t, replying(http.StatusOK, body, "Set-Cookie", "session=abc", "X-Echo", echo, "x-typesafe-request-id", requestID))
 			err := tt.typed(t, c)
 			var rve *ResponseValidationError
 			if !errors.As(err, &rve) {
 				t.Fatalf("err = %T %v, want *ResponseValidationError", err, err)
 			}
 			id, _ := rve.RequestID()
-			type view struct {
-				FieldPath, Cookie, Echo, RequestID, Endpoint string
+			got := view{
+				FieldPath: rve.FieldPath, Cookie: rve.Header.Get("Set-Cookie"), Echo: rve.Header.Get("X-Echo"), RequestID: id, Endpoint: rve.Endpoint,
+				Error: rve.Error(),
 			}
-			want := view{FieldPath: "answers.spam", Cookie: tt.wantCookie, Echo: tt.wantEcho, RequestID: "req-redact", Endpoint: tt.wantEnd}
-			got := view{FieldPath: rve.FieldPath, Cookie: rve.Header.Get("Set-Cookie"), Echo: rve.Header.Get("X-Echo"), RequestID: id, Endpoint: rve.Endpoint}
-			if diff := gocmp.Diff(want, got); diff != "" {
+			if diff := gocmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("typed error (-want +got):\n%s", diff)
-			}
-			if strings.Contains(rve.Error(), testKey) {
-				t.Errorf("Error() = %q shows the API key", rve.Error())
 			}
 		})
 	}

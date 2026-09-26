@@ -104,20 +104,25 @@ func Ask[T any](ctx context.Context, c *Client, state any, opts ...CallOption) (
 // level counts from zero, so a score with three levels has the levels 0, 1
 // and 2, and a level is written in decimal in the path. An option or a
 // level the answer does not mention, and the score's value, are not
-// checked. Python checks an option only when the response
-// model's own type says so, with a Literal; it reports the choice above at
-// "tone.choice" for a SystemOneResponse subclass, which lifts each answer
-// out of "answers", and at "answers.tone.choice" for a model that keeps
-// them there, as T does.
+// checked. Python checks an option only when the response model's own type
+// says so, with a Literal; it reports the choice above at "tone.choice" for
+// a SystemOneResponse subclass, which lifts each answer out of "answers",
+// and at "answers.tone.choice" for a model that keeps them there, as T
+// does.
 //
 // The error carries resp's HTTP metadata: its status, header, request id
 // and body when resp came from a request, and none of them when it was read
 // back with [SystemOneResponse.UnmarshalJSON], whose Meta is empty. Its
-// Header is a copy in which a header that is a credential by its name,
-// such as Authorization, Cookie or Set-Cookie ([APIError.Header] lists
-// them), has each value "***"; DecodeAs has no client, so unlike [Ask] it
-// cannot find the client's API key inside other headers. Its Endpoint is
-// empty; Ask fills it in.
+// Header is a new map in which each value of a header that is a credential
+// by its name, such as Authorization, Cookie or Set-Cookie
+// ([APIError.Header] lists them), is "***"; the other headers' values are
+// the response's own and must not be modified. DecodeAs has no client, so
+// unlike [Ask] it cannot look for the client's API key: a key the server
+// echoes in another header or in the request id stays visible in Header
+// and Error, where Ask shows "***". Neither redacts FieldPath: the answer's
+// name and the option or level it names are shown as they arrived, as the
+// SDK's other errors show a path (ruling R103-rev). Its Endpoint is empty;
+// Ask fills it in.
 func DecodeAs[T any](resp *SystemOneResponse) (T, error) {
 	return decodeTyped[T](typedPlanFor[T](), resp, "", headerRedactor{})
 }
