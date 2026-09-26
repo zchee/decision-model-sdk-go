@@ -469,22 +469,52 @@ func TestCancelInFlightRequest(t *testing.T) {
 }
 
 // TestCancelledContextMakesOneAttempt ports test_cancellation_propagates
-// (C21): a call under a cancelled context makes one attempt, which the
-// transport ends at once, and returns context.Canceled itself, not an SDK
-// error (assertCancelled). No policy retries yet, so no retry sleep waits on
-// the context (W3 adds one).
+// (C21) under the production policy, which retries a failed attempt: a
+// cancellation makes one attempt. Upstream's transport raises
+// CancelledError while the task runs; here the transport reports
+// context.Canceled while the call's context lives, which the attempt
+// classifies as a *ConnectionError, a class the policy retries, so only the
+// rule that a cancellation is never retried keeps the call to one attempt
+// (ruling R82 NIT 6). A call whose own context is cancelled returns
+// context.Canceled itself, not an SDK error (assertCancelled).
 func TestCancelledContextMakesOneAttempt(t *testing.T) {
-	rec := replying(http.StatusOK, []byte(`{"models":[]}`))
-	// The production policy, which retries, and not newTestClient's single
-	// attempt: the one attempt must come from the cancellation (ruling R82
-	// NIT 6, R88b).
-	c := newTestClient(t, rec, WithRetry(DefaultRetry()))
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	_, err := c.Models().List(ctx)
-	assertCancelled(t, err)
-	if rec.Count() != 1 || c.Stats().Attempts != 1 {
-		t.Errorf("the transport saw %d requests and Stats counts %d attempts, want 1 and 1", rec.Count(), c.Stats().Attempts)
+	tests := map[string]struct {
+		reply  testsupport.Reply
+		cancel bool
+		check  func(t *testing.T, err error)
+	}{
+		"error: the transport reports a cancellation (upstream's shape)": {
+			reply: testsupport.Reply{Err: context.Canceled},
+			check: func(t *testing.T, err error) {
+				if _, ok := errors.AsType[*ConnectionError](err); !ok || !errors.Is(err, context.Canceled) {
+					t.Errorf("error = %T %v, want a *ConnectionError wrapping context.Canceled", err, err)
+				}
+			},
+		},
+		"error: the call's context is cancelled": {
+			reply:  testsupport.JSON(http.StatusOK, []byte(`{"models":[]}`)),
+			cancel: true,
+			check:  assertCancelled,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			rec := &testsupport.Recorder{Replies: []testsupport.Reply{tt.reply}}
+			// The production policy, not newTestClient's single attempt: the
+			// one attempt must come from the cancellation (rulings R82 NIT 6
+			// and R88b).
+			c := newTestClient(t, rec, WithRetry(DefaultRetry()))
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			if tt.cancel {
+				cancel()
+			}
+			_, err := c.Models().List(ctx)
+			tt.check(t, err)
+			if rec.Count() != 1 || c.Stats().Attempts != 1 {
+				t.Errorf("the transport saw %d requests and Stats counts %d attempts, want 1 and 1", rec.Count(), c.Stats().Attempts)
+			}
+		})
 	}
 }
 

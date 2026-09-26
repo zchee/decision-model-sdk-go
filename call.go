@@ -28,21 +28,24 @@ import (
 // option only records its setting; the call checks them all before it
 // encodes or sends anything and reports the first it cannot use as a
 // [*ConfigError], in a fixed order whatever the order of the options: a
-// System One call checks the model, then the timeout, then the headers; a
-// list-models call first refuses Model and ExtraBody, then checks the
-// timeout and the headers. Among options of one kind the last one wins,
-// except that every [Header] and every [ExtraBody] counts. A nil CallOption
-// is ignored.
+// System One call checks the model, then the timeout, the retry policy and
+// the headers; a list-models call first refuses Model and ExtraBody, then
+// checks the timeout, the retry policy and the headers. Among options of one
+// kind the last one wins, except that every [Header] and every [ExtraBody]
+// counts. A nil CallOption is ignored.
 type CallOption func(*callOptions)
 
-// callOptions is what a list of [CallOption] values recorded. A nil pointer
-// is a setting no option gave.
+// callOptions is what a list of [CallOption] values recorded. A nil pointer,
+// and hasRetry false, is a setting no option gave.
 type callOptions struct {
 	model   *string
 	timeout *time.Duration
 	headers []headerOption
 	extra   []bodyMember
-	retry   *RetryPolicy
+	// retry is held by value, so that Retry's closure carries a copy and the
+	// policy is not moved to the heap of its own.
+	retry    RetryPolicy
+	hasRetry bool
 }
 
 // Model sets the model this System One call names, in place of the client's
@@ -105,9 +108,12 @@ func ExtraBody(key string, v any) CallOption {
 }
 
 // Retry sets the retry policy of this call, in place of the client's
-// ([WithRetry]). [NoRetry] makes the call a single attempt.
+// ([WithRetry]), as a whole: no setting of the client's policy carries over.
+// [NoRetry] makes the call a single attempt. A policy with a setting out of
+// range fails the call with a [*ConfigError], before anything is sent
+// ([RetryPolicy]).
 func Retry(policy RetryPolicy) CallOption {
-	return func(o *callOptions) { o.retry = &policy }
+	return func(o *callOptions) { o.retry, o.hasRetry = policy, true }
 }
 
 // collectCallOptions applies opts in order, skipping nil ones, and returns
@@ -141,7 +147,7 @@ type callSettings struct {
 // settings checks o against the client's configuration and returns what
 // every attempt of the call uses: base is the endpoint's header template.
 // A failure is a *ConfigError, before anything is encoded or sent; the
-// order is timeout, then headers.
+// order is timeout, retry policy, then headers.
 func (o *callOptions) settings(ctx context.Context, cfg *config, base http.Header) (callSettings, error) {
 	s := callSettings{header: base, timeout: cfg.timeout, retry: cfg.retry}
 	if o.timeout != nil {
@@ -150,8 +156,11 @@ func (o *callOptions) settings(ctx context.Context, cfg *config, base http.Heade
 		}
 		s.timeout = *o.timeout
 	}
-	if o.retry != nil {
-		s.retry = *o.retry
+	if o.hasRetry {
+		if err := o.retry.check(); err != nil {
+			return callSettings{}, err
+		}
+		s.retry = o.retry
 	}
 	if len(o.headers) > 0 {
 		h, err := callHeader(ctx, cfg, base, o.headers)

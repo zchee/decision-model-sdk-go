@@ -62,6 +62,10 @@ type Client struct {
 
 	closed   atomic.Bool
 	attempts atomic.Uint64
+
+	// random is the jitter source of the retry backoff; nil means
+	// math/rand/v2's Float64. Tests set it before the first call.
+	random func() float64
 }
 
 // configRef holds a client's *config; see Client.cfg. The configuration's
@@ -200,8 +204,11 @@ func (c *Client) WarmUp(ctx context.Context) error {
 // [*ResponseValidationError], and one over the size limit a
 // [*ResponseTooLargeError]; an attempt that produced no response is a
 // [*ConnectionError], or a [*TimeoutError] when its deadline or ctx's
-// passed. A call whose ctx is cancelled stops its request and returns
-// ctx.Err(), [context.Canceled], itself, which is not an SDK [Error], as
+// passed. A failed attempt is tried again as the call's retry policy
+// decides ([WithRetry], [Retry], [RetryPolicy]), and the call returns the
+// error of its last attempt. A call whose ctx is cancelled, while a request
+// is in flight or while it waits to retry, stops and returns ctx.Err(),
+// [context.Canceled], itself, which is not an SDK [Error], as
 // typesafe-sdk-python lets a cancellation through unwrapped;
 // [context.Cause] gives a cause the canceller set.
 func (c *Client) SystemOne(ctx context.Context, state any, qs *Prepared, opts ...CallOption) (*SystemOneResponse, error) {
@@ -291,20 +298,26 @@ func (m Models) List(ctx context.Context, opts ...CallOption) (*ModelsResponse, 
 	return resp, nil
 }
 
-// send makes the attempts of one call as its retry policy asks (section
-// 6.4; W3 completes the policy) and returns the error of the last attempt:
-// the attempt's own, or decode's for a response that arrived. Each attempt
-// stores its response's status, header and body in *meta, which decode
-// reads. decode does not escape, so a call's closure stays on its stack.
+// send makes the attempts of one call as policy asks (section 6.4) and
+// returns nil for a response that decoded, or the error that ended the
+// call: the last attempt's own, decode's for a response that arrived, or
+// the context's when it ended a wait (retryState.wait). Each attempt stores
+// its response's status, header and body in *meta, which decode reads. One
+// loop serves every endpoint (ruling R79 NIT 9). Neither decode nor the
+// policy, a copy on send's stack, escapes, so a first attempt that succeeds
+// allocates nothing here.
 func (c *Client) send(ctx context.Context, rq *request, policy RetryPolicy, meta *wire.ResponseMeta, decode func() error) error {
-	r := retryState{policy: policy}
+	r := retryState{policy: &policy, start: time.Now(), random: c.random}
 	for attempt := 0; ; attempt++ {
 		var err error
 		*meta, err = c.attempt(ctx, rq, attempt)
 		if err == nil {
 			err = decode()
 		}
-		if !r.again(ctx, attempt, err) {
+		if err == nil {
+			return nil
+		}
+		if err = r.wait(ctx, attempt, err); err != nil {
 			return err
 		}
 	}

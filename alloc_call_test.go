@@ -101,7 +101,10 @@ func TestAllocWholeCall(t *testing.T) {
 	qs := q3Questions(t)
 	body := testsupport.Fixture(t, "result.json")
 	rec := &testsupport.Recorder{Discard: true, Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, body)}}
-	c := newTestClient(t, rec)
+	// The production policy, not newTestClient's single attempt: AC-P6 is
+	// measured with DefaultRetry in force (ruling R88b), whose first attempt
+	// that succeeds must allocate nothing more.
+	c := newTestClient(t, rec, WithRetry(DefaultRetry()))
 	state := newAllocState()
 	for range 2 { // warm the pools, the encoder and the decoder
 		if _, err := c.SystemOne(ctx, state, qs); err != nil {

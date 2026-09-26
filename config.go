@@ -207,7 +207,9 @@ func WithLogEndpointHost(log bool) ClientOption {
 }
 
 // WithRetry sets the retry policy of every call the client makes, unless a
-// call passes its own with [Retry]; [DefaultRetry] unless set.
+// call passes its own with [Retry]; [DefaultRetry] unless set. A policy with
+// a setting out of range fails NewClient with a [*ConfigError] that carries
+// the Python SDK's message ([RetryPolicy]).
 func WithRetry(policy RetryPolicy) ClientOption {
 	return func(o *options) { o.retry = &policy }
 }
@@ -275,9 +277,9 @@ type config struct {
 // environment that getenv reads (NewClient passes [os.Getenv]) and then from
 // the defaults, and returns the resulting configuration. The first setting
 // that cannot be used is reported as a *ConfigError, in the order key, base
-// URL, model, timeouts, response limit, User-Agent product, headers,
-// transport. The transport is built last, once every other setting is known
-// to be usable.
+// URL, model, timeouts, retry policy, response limit, User-Agent product,
+// headers, transport. The transport is built last, once every other setting
+// is known to be usable.
 func (o *options) resolve(getenv func(string) string) (*config, error) {
 	key, err := resolveAPIKey(o.apiKey, getenv)
 	if err != nil {
@@ -301,6 +303,13 @@ func (o *options) resolve(getenv func(string) string) (*config, error) {
 			return nil, newConfigError("The connect timeout passed to WithConnectTimeout must be positive.")
 		}
 		connectTimeout = *o.connectTimeout
+	}
+	retry := DefaultRetry()
+	if o.retry != nil {
+		if err := o.retry.check(); err != nil {
+			return nil, err
+		}
+		retry = *o.retry
 	}
 	maxResponseBytes := int64(DefaultMaxResponseBytes)
 	if o.maxResponseBytes != nil {
@@ -348,9 +357,7 @@ func (o *options) resolve(getenv func(string) string) (*config, error) {
 		systemOneHeader:  systemOneHeader,
 		modelsHeader:     modelsHeader,
 		transport:        tr,
-	}
-	if o.retry != nil {
-		c.retry = *o.retry
+		retry:            retry,
 	}
 	if o.hideEndpointHost {
 		c.systemOneLog, c.modelsLog = systemOnePath, modelsPath

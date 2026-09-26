@@ -356,7 +356,7 @@ func TestTransportErrorsBecomeConnectionOrTimeout(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			tg := tt.target(t)
 			clearEnv(t)
-			c, err := NewClient(append(append([]ClientOption{WithAPIKey(testKey), WithBaseURL(tg.base)}, tg.opts...), tt.client...)...)
+			c, err := NewClient(append(append([]ClientOption{WithAPIKey(testKey), WithBaseURL(tg.base), WithRetry(NoRetry())}, tg.opts...), tt.client...)...)
 			if err != nil {
 				t.Fatalf("NewClient: %v", err)
 			}
@@ -543,7 +543,7 @@ func TestTransportErrorsHoldNoCredentialOverTheNetwork(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			logs := testsupport.NewLogRecorder(slog.LevelInfo)
 			clearEnv(t)
-			c, err := NewClient(append([]ClientOption{WithAPIKey(key), WithLogger(logs.Logger())}, tt.opts...)...)
+			c, err := NewClient(append([]ClientOption{WithAPIKey(key), WithLogger(logs.Logger()), WithRetry(NoRetry())}, tt.opts...)...)
 			if err != nil {
 				t.Fatalf("NewClient: %v", err)
 			}
@@ -597,7 +597,7 @@ func TestCallerTransportOwnsItsTimeouts(t *testing.T) {
 			})})
 			t.Cleanup(func() { close(release) })
 			clearEnv(t)
-			c, err := NewClient(WithAPIKey(testKey), WithBaseURL(srv.URL()), tt.option(t))
+			c, err := NewClient(WithAPIKey(testKey), WithBaseURL(srv.URL()), WithRetry(NoRetry()), tt.option(t))
 			if err != nil {
 				t.Fatalf("NewClient: %v", err)
 			}
