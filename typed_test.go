@@ -397,6 +397,10 @@ type (
 	rejDupLevel struct {
 		Urgency ScoreAnswer `typesafe:"kind=score;levels=low|high|low"`
 	}
+	// (4) choice without options, in case 4's family (R96).
+	rejNoOptions struct {
+		Tone ChoiceAnswer `typesafe:"kind=choice;instructions=Tone?"`
+	}
 	// (4) score without levels.
 	rejNoLevels struct {
 		Urgency ScoreAnswer `typesafe:"kind=score;instructions=How urgent?"`
@@ -513,7 +517,7 @@ type (
 //	questions.py    NoulModel with "type": "choice"                       compile error: Noul has no Type field; tag analogue case 7
 //	questions.py    ScoreModel with "type": "choice"                      compile error: Score has no Type field; tag analogue case 7
 //	questions.py    NoulModel without "type"                              compile error: the type is the Go type; tag analogue case 5 (no kind)
-//	questions.py    ChoiceModel without "criteria"                        allowed: Choice{} sends "criteria":{} (Python's runtime accepts an empty dict; the server judges it), as a kind=choice tag without options does; RawQuestion{Type: "choice"} without criteria → Prepare *ConfigError
+//	questions.py    ChoiceModel without "criteria"                        case 4's family: a kind=choice tag without options is refused (R96, as Rust refuses it); the builder's Choice{} still sends "criteria":{}, as Python's runtime accepts an empty dict; RawQuestion{Type: "choice"} without criteria → Prepare *ConfigError
 //	questions.py    ScoreModel without "criteria"                         case 4 (score without levels); Score{} → Prepare *ConfigError
 //	questions.py    NoulModel with an "extra" key                         compile error: Noul has no such field; tag analogue case 13 (unknown key)
 //	questions.py    ChoiceModel with list criteria                        compile error: Options is []Option
@@ -550,6 +554,10 @@ func TestPreparedForRejections(t *testing.T) {
 		"error: (4) score without levels": {
 			prepare: PreparedFor[rejNoLevels],
 			wantMsg: `PreparedFor[typesafe.rejNoLevels]: field Urgency: Score question "Urgency" has no criteria; at least one score is required. List the levels, lowest first, as levels=low|high.`,
+		},
+		"error: (4) choice without options": {
+			prepare: PreparedFor[rejNoOptions],
+			wantMsg: `PreparedFor[typesafe.rejNoOptions]: field Tone: Choice question "Tone" has no options; list them, each optionally described, as options=calm=polite|angry.`,
 		},
 		"error: (5) missing kind": {
 			prepare: PreparedFor[rejNoKind],

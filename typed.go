@@ -65,8 +65,8 @@ import (
 //   - instructions: the question's instructions, for every kind.
 //   - yes, no: what counts as a yes and as a no answer (kind=noul only), the
 //     [Noul] members of the same names.
-//   - options: the options of a choice (kind=choice only), separated by "|",
-//     in order. An option is a label, or a label, "=" and its description:
+//   - options: the options of a choice (kind=choice only, and required
+//     there), separated by "|", in order. An option is a label, or a label, "=" and its description:
 //     options=calm=neutral or polite|angry. Labels must be unique.
 //   - levels: the levels of a score (kind=score only, and required there),
 //     separated by "|", lowest first. Levels must be unique.
@@ -100,7 +100,9 @@ import (
 // rule when:
 //
 //   - two fields ask under the same name;
-//   - a choice lists an option label twice;
+//   - a choice has no options, or lists an option label twice (a choice built
+//     with [Questions] may have none: its empty criteria are sent for the
+//     server to judge);
 //   - a score lists a level twice;
 //   - a score has no levels;
 //   - an answer field's tag has no kind, or the field has no tag at all;
@@ -389,6 +391,9 @@ func planField(outer string, f *reflect.StructField) (q typedQuestion, asks bool
 		q.entry.form = formNoul
 		q.entry.noul = Noul{Instructions: optionalText(spec.instructions), Yes: optionalText(spec.yes), No: optionalText(spec.no)}
 	case wire.KindChoice:
+		if len(spec.options) == 0 {
+			return q, false, newConfigError(at + `Choice question ` + quote(name) + ` has no options; list them, each optionally described, as options=calm=polite|angry.`)
+		}
 		labels := make([]string, len(spec.options))
 		opts := make(Options, len(spec.options))
 		for i, o := range spec.options {
