@@ -3561,7 +3561,9 @@ and R103b (ruling R103-rev), on 3ffe77b. The commits that write this section
 change documents and raw outputs only, except the one that adds the previous
 sentence: it also has the INFO "response" record read the request id through
 the redactor (ruling R107), on the logging path after the level check.
-Commands use `R=_spikes/s-c1/run.sh`,
+W3.3-07 measures 72cd225, which reads that id without lower-casing the
+header's name (review R103REVERT MINOR 3), against the same tree with the
+redactor of 7ab3af5, on aaa9698. Commands use `R=_spikes/s-c1/run.sh`,
 `O=_spikes/w3.3/results`,
 `SP=/private/tmp/claude-501/-Users-zchee-go-src-github-com-zchee-typesafe-sdk-go/40cb0f1f-c8a9-422c-a3e8-b3afc329b5cb/scratchpad`
 and the row's `BASE`.
@@ -3615,6 +3617,13 @@ and the row's `BASE`.
    W3.3-01 and -02 in every count on both hosts. The plain revert puts the
    needle forms back into `requestCredentials`' closure, the shape W3.3-01
    measured; no helper of R103's was kept.
+6. **Reading the request id without lower-casing the header's name takes
+   one allocation off each record (W3.3-07):** the `LOG q3+id` line, whose
+   reply carries `X-Typesafe-Request-Id`, is INFO 24/2728 and DEBUG 26/2776
+   at 72cd225, against 25/2752 and 27/2800 with 7ab3af5's redactor, whose
+   name check lower-cased the header's name on every record. The `LOG q3`
+   line, whose reply has no id, could not show it; it is unchanged, and so
+   are AC-P6 (SDK-own 14/2008) and AC-P5 (i) (38/264032).
 
 | # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -3624,6 +3633,7 @@ and the row's `BASE`.
 | W3.3-04 | 2026-09-26 03:56:36 UTC | W3.3 review fix pass on ca226bb: AC-P6 under `DefaultRetry()`, AC-P5 memstats, logging cost | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 2.45 → 2.45 | `BASE=fc5164f sh $R '(L)' $O /tmp/ts-spike/bench.lock alloc-L-fix -count=1 -run '^(TestAllocWholeCall\|TestMemStatsCap\|TestAllocLoggedCall)$' -v .` | identical to W3.3-02 in every count | `results/alloc-L-fix.txt` |
 | W3.3-05 | 2026-09-26 14:25:39 JST | W3.3 R103/R103b reverted per G7 (8) (ruling R103-rev) on 3ffe77b: AC-P6 under `DefaultRetry()`, AC-P5 memstats, logging cost | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.10 → 6.10 | `BASE=92a9fc6 GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock alloc-M-r103revert -count=1 -run '^(TestAllocWholeCall\|TestMemStatsCap\|TestAllocLoggedCall)$' -v .` | identical to W3.3-01 and -03 in every count: q3 SDK-own 14/2008; AC-P5 (i) 38 allocs / 264032 B … (vii) 6104 B; LOG default 22/2648, INFO +1/48, DEBUG +3/96 | mallocs/bytes, collector off, `GOMAXPROCS(1)`, 3 of 5 runs agree; `results/alloc-M-r103revert.txt` |
 | W3.3-06 | 2026-09-26 05:26:01 UTC | W3.3 R103/R103b reverted per G7 (8) (ruling R103-rev) on 3ffe77b: AC-P6 under `DefaultRetry()`, AC-P5 memstats, logging cost | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.03 → 0.03 | `BASE=92a9fc6 sh $R '(L)' $O /tmp/ts-spike/bench.lock alloc-L-r103revert -count=1 -run '^(TestAllocWholeCall\|TestMemStatsCap\|TestAllocLoggedCall)$' -v .` | identical to W3.3-02 and -04 in every count: q3 SDK-own 14/2008; AC-P5 (i) 38 allocs / 264032 B (largest run 43/282752) … (vii) 6104 B | the tree piped by `tar --exclude=.git` from the lane's worktree at `BASE` (clean) to `/tmp/ts-spike/src-p3-r103revert`; `results/alloc-L-r103revert.txt` |
+| W3.3-07 | 2026-09-26 15:04:17 JST | W3.3 R107 request id read without lower-casing its name (review R103REVERT MINOR 3) on aaa9698: logging cost with an id-bearing reply, AC-P6, AC-P5 memstats | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 8.50 → 8.50 (after); 7.35 → 7.35 (before) | `BASE=72cd225 GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock alloc-M-logid -count=1 -run '^(TestAllocWholeCall\|TestMemStatsCap\|TestAllocLoggedCall\|TestAllocRequestID)$' -v .`; before, 15:04:35 JST, in `git archive 72cd225` with `git show 7ab3af5:redact.go` over its `redact.go`: `BASE="72cd225 with 7ab3af5's redact.go" … alloc-M-logid-before -count=1 -run '^(TestAllocWholeCall\|TestMemStatsCap\|TestAllocLoggedCall)$' -v .` | LOG q3+id: default 22/2664; INFO 25/2752 → 24/2728 (+3/88 → +2/64 over the default); DEBUG 27/2800 → 26/2776 (+5/136 → +4/112); INFO text handler 25/2752 → 24/2728. LOG q3, q3 SDK-own 14/2008 and AC-P5 (i) 38 allocs / 264032 B unchanged in both; `TestAllocRequestID` PASS after (0 allocations for one id, with or without the key; 1 for several) | recorded, not gated; mallocs/bytes, collector off, `GOMAXPROCS(1)`, 3 of 5 runs agree; the reply's id is `req_7f3c9a2e5b1d`; `results/alloc-M-logid.txt`, `results/alloc-M-logid-before.txt` |
 
 ## W3.4: the AC-P6 re-freeze at the end of Phase 3
 
