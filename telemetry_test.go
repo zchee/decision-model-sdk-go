@@ -271,3 +271,227 @@ func TestLogLevelEnvNotRead(t *testing.T) {
 		}
 	})
 }
+
+// TestLogLevelsPerAttempt ports test_logger_level_controls_output (L7,
+// tests/test_logging.py:187-210) and pins the section 9 observability rows
+// for one attempt: the logger's level decides which records a call makes,
+// exactly {DEBUG, INFO} at DEBUG, {INFO} at INFO and none at WARN; each
+// attempt makes one INFO record, "response" naming the method and the
+// endpoint (or "request failed" for an attempt without a response); the
+// DEBUG records carry the headers, redacted; no record above DEBUG carries
+// a header, and none above LevelTrace a body. Each call makes one attempt.
+func TestLogLevelsPerAttempt(t *testing.T) {
+	const endpoint = "https://api.typesafe.ai/v1/models"
+	body := `{"models":[]}`
+	tests := map[string]struct {
+		level slog.Level
+		reply testsupport.Reply
+		want  []string // "LEVEL message" of every record, in order
+	}{
+		"success: DEBUG": {
+			level: slog.LevelDebug, reply: testsupport.JSON(http.StatusOK, []byte(body)),
+			want: []string{"DEBUG request", "INFO response", "DEBUG response headers"},
+		},
+		"success: INFO": {
+			level: slog.LevelInfo, reply: testsupport.JSON(http.StatusOK, []byte(body)),
+			want: []string{"INFO response"},
+		},
+		"success: WARN": {
+			level: slog.LevelWarn, reply: testsupport.JSON(http.StatusOK, []byte(body)),
+		},
+		"success: LevelTrace": {
+			level: LevelTrace, reply: testsupport.JSON(http.StatusOK, []byte(body)),
+			want: []string{"DEBUG request", "INFO response", "DEBUG response headers", "DEBUG-4 response body"},
+		},
+		"error: a failure status at INFO": {
+			level: slog.LevelInfo, reply: testsupport.JSON(http.StatusBadRequest, []byte(`{"message":"bad"}`)),
+			want: []string{"INFO response"},
+		},
+		"error: an attempt without a response at INFO": {
+			level: slog.LevelInfo, reply: testsupport.Reply{Err: errString("connection refused")},
+			want: []string{"INFO request failed"},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			logs := testsupport.NewLogRecorder(tt.level)
+			reply := tt.reply
+			if reply.Header != nil {
+				reply.Header.Set("X-Visible", "response-visible")
+			}
+			rec := &testsupport.Recorder{Replies: []testsupport.Reply{reply}}
+			c := newTestClient(t, rec, WithHeader("X-Visible", "request-visible"), WithLogger(logs.Logger()))
+			_, _ = c.Models().List(t.Context(), Retry(NoRetry()))
+			if rec.Count() != 1 {
+				t.Fatalf("the transport saw %d requests, want 1", rec.Count())
+			}
+			var got []string
+			for _, r := range logs.Records() {
+				got = append(got, r.Level.String()+" "+r.Message)
+				if r.Level == slog.LevelInfo {
+					method, _ := r.Attr("method")
+					ep, _ := r.Attr("endpoint")
+					if method.String() != http.MethodGet || ep.String() != endpoint {
+						t.Errorf("INFO record %s, want it to name GET %s", r, endpoint)
+					}
+				}
+				for _, a := range r.Attrs {
+					v := a.Value.String()
+					if r.Level > slog.LevelDebug && (strings.HasPrefix(a.Key, "headers") || strings.Contains(v, "visible") || strings.Contains(v, "application/json") || strings.Contains(v, "typesafe-sdk-go/")) {
+						t.Errorf("%s record %q carries a header: %s=%s", r.Level, r.Message, a.Key, v)
+					}
+					if r.Level > LevelTrace && (a.Key == "body" || strings.Contains(v, `"models"`) || strings.Contains(v, `"message"`)) {
+						t.Errorf("%s record %q carries a body: %s=%s", r.Level, r.Message, a.Key, v)
+					}
+				}
+				switch r.Message {
+				case "request":
+					auth, _ := r.Attr("headers.Authorization")
+					vis, _ := r.Attr("headers.X-Visible")
+					if auth.String() != redacted || vis.String() != "request-visible" {
+						t.Errorf("request record %s, want the headers with Authorization redacted", r)
+					}
+				case "response headers":
+					if vis, _ := r.Attr("headers.X-Visible"); vis.String() != "response-visible" {
+						t.Errorf("response headers record %s, want the response's headers", r)
+					}
+				}
+			}
+			if diff := gocmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("records (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// newLoopbackClient builds a client of the SDK's own transport against srv,
+// trusting its certificate and using no proxy, with logger and opts.
+func newLoopbackClient(t *testing.T, srv *testsupport.LoopbackServer, logger *slog.Logger, opts ...ClientOption) *Client {
+	t.Helper()
+	clearEnv(t)
+	c, err := NewClient(append([]ClientOption{WithAPIKey(testKey), WithBaseURL(srv.URL()), WithRootCAs(testsupport.RootCAs(t)), WithProxy(nil), WithLogger(logger)}, opts...)...)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	return c
+}
+
+// TestLogTransportRecords pins the section 9 rows that need the SDK's own
+// transport: a cold call logs "h2: dial" at DEBUG, with h2=true, and the
+// gate's release, and Stats().Dials counts the one connection; a warm call
+// dials nothing; and WithLogEndpointHost(false) keeps the host out of every
+// record down to LevelTrace, the transport's included, where the default
+// names the full URL.
+func TestLogTransportRecords(t *testing.T) {
+	t.Run("success: a cold call dials once and logs it", func(t *testing.T) {
+		srv := newModelsServer(t)
+		logs := testsupport.NewLogRecorder(slog.LevelDebug)
+		c := newLoopbackClient(t, srv, logs.Logger())
+		for i := range 2 {
+			if _, err := c.Models().List(t.Context()); err != nil {
+				t.Fatalf("List %d: %v", i, err)
+			}
+		}
+		var got []string
+		for _, r := range logs.Records() {
+			if strings.HasPrefix(r.Message, "h2: ") {
+				got = append(got, r.String())
+			}
+		}
+		if diff := gocmp.Diff([]string{"DEBUG h2: dial h2=true", "DEBUG h2: gate release waiters=0"}, got); diff != "" {
+			t.Errorf("the transport's records over two calls (-want +got):\n%s", diff)
+		}
+		if s := c.Stats(); s.Dials != 1 || s.Attempts != 2 {
+			t.Errorf("Stats() = %+v, want 1 dial and 2 attempts", s)
+		}
+	})
+	tests := map[string]struct {
+		opts []ClientOption
+		// endpoint is what the records name; host, whether the host appears.
+		endpoint func(srv *testsupport.LoopbackServer) string
+		host     bool
+	}{
+		"success: the default names the full URL": {
+			endpoint: func(srv *testsupport.LoopbackServer) string { return srv.URL() + "/v1/models" }, host: true,
+		},
+		"success: WithLogEndpointHost(false) names the path alone": {
+			opts:     []ClientOption{WithLogEndpointHost(false)},
+			endpoint: func(*testsupport.LoopbackServer) string { return "/v1/models" },
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			srv := newModelsServer(t)
+			logs := testsupport.NewLogRecorder(LevelTrace)
+			c := newLoopbackClient(t, srv, logs.Logger(), tt.opts...)
+			if _, err := c.Models().List(t.Context()); err != nil {
+				t.Fatalf("List: %v", err)
+			}
+			for _, r := range logs.Records() {
+				if ep, ok := r.Attr("endpoint"); ok && ep.String() != tt.endpoint(srv) {
+					t.Errorf("record %q endpoint = %q, want %q", r.Message, ep, tt.endpoint(srv))
+				}
+			}
+			if text := recordsText(logs); strings.Contains(text, srv.Addr()) != tt.host {
+				t.Errorf("the host %s appears in the records: %t, want %t:\n%s", srv.Addr(), !tt.host, tt.host, text)
+			}
+		})
+	}
+}
+
+// TestLogWarnCapThroughClient re-asserts AC-F7's WARN cap through the client
+// (Appendix B "Unknown-answer WARN per answer → ≤ 8 per response +
+// summary"; the rule's own table is TestUnknownAnswerTypeWarnCap): a
+// successful call whose response holds 12 answers of unknown types logs
+// eight WARN records naming the first eight, then one counting the other
+// four, and succeeds; a name and a type the server chose are escaped and
+// cut at 128 characters; at ERROR nothing is logged.
+func TestLogWarnCapThroughClient(t *testing.T) {
+	long := strings.Repeat("t", 300)
+	var twelve, wantTwelve []string
+	for i := range 12 {
+		n := strconv.Itoa(i)
+		twelve = append(twelve, `"u`+n+`":{"type":"t`+n+`"}`)
+		if i < 8 {
+			wantTwelve = append(wantTwelve, "WARN "+msgSkippedAnswer+" answer=u"+n+" type=t"+n)
+		}
+	}
+	tests := map[string]struct {
+		level   slog.Level
+		answers []string
+		want    []string
+	}{
+		"success: 12 unknown answers, 8 records and a summary": {
+			level: slog.LevelWarn, answers: twelve, want: append(wantTwelve, "WARN "+msgSkippedAnswers+" count=4"),
+		},
+		"success: a name and a type escaped and cut": {
+			level: slog.LevelWarn, answers: []string{`"a\u001b[2Jb\\":{"type":"` + long + `"}`},
+			want: []string{"WARN " + msgSkippedAnswer + ` answer=a\x1b[2Jb\\ type=` + long[:128] + "\u2026"},
+		},
+		"success: nothing at ERROR": {
+			level: slog.LevelError, answers: twelve,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			logs := testsupport.NewLogRecorder(tt.level)
+			body := `{"model":"jev-latest","usage":{},"answers":{` + strings.Join(tt.answers, ",") + `}}`
+			c := newTestClient(t, replying(http.StatusOK, []byte(body)), WithLogger(logs.Logger()))
+			resp, err := c.SystemOne(t.Context(), "hi", noulQuestion(t))
+			if err != nil {
+				t.Fatalf("SystemOne: %v", err)
+			}
+			if n := resp.Answers().Len(); n != 0 {
+				t.Errorf("Answers().Len() = %d, want the unknown answers dropped", n)
+			}
+			var got []string
+			for _, r := range logs.Records() {
+				got = append(got, r.String())
+			}
+			if diff := gocmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("records (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

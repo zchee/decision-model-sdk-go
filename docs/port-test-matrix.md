@@ -112,7 +112,7 @@ IDs that the plan's waves cite.
 | L4 | `test_exception_redaction_shared_causes_cycles_and_notes` | deviation "cause via `errors.Unwrap` unless it printed a credential" (Go errors have no notes or cycles: the chain is walked, never copied, and a cause that printed a credential is replaced whole by `*scrubbedError`, R81 (3)) + `TestCredentialsCause` | deviation |
 | L5 | `test_exception_redaction_structured_constructor` | deviation "cause via `errors.Unwrap` unless it printed a credential" (Go errors are not rebuilt from messages: the stand-in keeps the redacted text and the standard sentinels it matched; a caller error type holding the request in a pointer field stays reachable by `errors.As`, R82 (a)) + `TestCredentialsCause` | deviation |
 | L6 | `test_exception_redaction_preserves_network_diagnostics` | `TestRedactionKeepsCleanChains` (the scrub, a RoundTripper, a caller dialer) | ported |
-| L7 | `test_logger_level_controls_output` | `TestLogLevelsPerAttempt` | planned |
+| L7 | `test_logger_level_controls_output` | `TestLogLevelsPerAttempt` (DEBUG, INFO, WARN, LevelTrace; one INFO record per attempt; no header above DEBUG, no body above LevelTrace) + `TestLogTransportRecords` + `TestLogWarnCapThroughClient` | ported |
 | L8 | `test_setup_logging_from_env` | deviation "`TYPESAFE_LOG_LEVEL` not read" + `TestLogLevelEnvNotRead` (5 upstream values × INFO, DEBUG, no `WithLogger`) | deviation |
 
 ### `tests/test_pydantic_response_models.py` (5)
