@@ -585,8 +585,13 @@ type errorView struct {
 }
 
 // sameErrorValues compares the errors of an errorView by identity, so that an
-// Unwrap chain of a copy must hold the very values the original's does.
-var sameErrorValues = gocmp.Comparer(func(a, b error) bool { return a == b }) //nolint:errorlint // identity is the point: errors.Is would accept a wrapped error.
+// Unwrap chain of a copy must hold the very values the original's does. An
+// error of a type that cannot be compared is different from every other, so
+// that a row fails where == would panic.
+var sameErrorValues = gocmp.Comparer(func(a, b error) bool {
+	ta, tb := reflect.TypeOf(a), reflect.TypeOf(b)
+	return ta == tb && (ta == nil || ta.Comparable()) && a == b //nolint:errorlint // identity is the point: errors.Is would accept a wrapped error.
+})
 
 // errorTypeName returns the name errorView.Type holds for T.
 func errorTypeName[T Error]() string { return reflect.TypeFor[T]().String() }
@@ -637,6 +642,19 @@ func copyErrorValue(e Error) Error {
 	return dst.Interface().(Error)
 }
 
+// storageOf returns the Header and Body that e holds, which a copy shares.
+func storageOf(e Error) (http.Header, []byte) {
+	switch e := e.(type) {
+	case *APIError:
+		return e.Header, e.Body
+	case *ResponseValidationError:
+		return e.Header, e.Body
+	case *ResponseTooLargeError:
+		return e.Header, nil
+	}
+	return nil, nil
+}
+
 // listModelsError lists the models against rec, which answers one request, and
 // returns the SDK error of type T that the call fails with after one attempt.
 func listModelsError[T Error](t *testing.T, rec *testsupport.Recorder) T {
@@ -670,8 +688,8 @@ func responseValidationError(status int, header http.Header, err error) *Respons
 // The rows, by upstream row: 1 TypeSafeError is "*ConfigError"; 2
 // TypeSafeAPIConnectionError is "*ConnectionError"; 3 to 11 are the status
 // rows "row 3" to "row 11", built by newAPIError as the SDK builds them, except
-// row 4 (a message set by the caller, so a literal) and the 429 that also runs
-// through the client; 12 is "row 12" (and "*ResponseValidationError", with a
+// row 4 (a message set by the caller, so a literal); the 429 runs a second
+// time through the client; 12 is "row 12" (and "*ResponseValidationError", with a
 // request id, which upstream's row lacks); 13 is "*TimeoutError"; 14, whose
 // httpx Timeout object has no Go counterpart (one deadline per attempt,
 // Appendix B), is "row 14", the deadline that came from the caller's context
@@ -805,12 +823,28 @@ func TestErrorsAsRoundTrip(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if diff := gocmp.Diff(tt.want, errorViewOf(tt.err), sameErrorValues); diff != "" {
-				t.Fatalf("the error is not the one the row means (-want +got):\n%s", diff)
-			}
+			// The copy is made, and read from four goroutines, before anything
+			// else reads the error: an accessor that fills a cache on its first
+			// read would already have filled it once this goroutine had read the
+			// copy, and -race would have nothing left to see.
 			c := copyErrorValue(tt.err)
 			if c == tt.err || reflect.TypeOf(c) != reflect.TypeOf(tt.err) {
 				t.Fatalf("copy is %p of %T, want another pointer to a %T", c, c, tt.err)
+			}
+			var wg sync.WaitGroup
+			var diffs [4]string
+			for i := range diffs {
+				wg.Go(func() { diffs[i] = gocmp.Diff(tt.want, errorViewOf(c), sameErrorValues) })
+			}
+			wg.Wait()
+			for _, diff := range diffs {
+				if diff != "" {
+					t.Errorf("the copy reads differently from another goroutine (-want +got):\n%s", diff)
+					break
+				}
+			}
+			if diff := gocmp.Diff(tt.want, errorViewOf(tt.err), sameErrorValues); diff != "" {
+				t.Fatalf("the error is not the one the row means (-want +got):\n%s", diff)
 			}
 			chains := map[string]struct{ orig, copy error }{
 				"one wrap":  {fmt.Errorf("call: %w", tt.err), fmt.Errorf("call: %w", c)},
@@ -853,15 +887,16 @@ func TestErrorsAsRoundTrip(t *testing.T) {
 			if diff := gocmp.Diff(tt.want, errorViewOf(c), sameErrorValues); diff != "" {
 				t.Errorf("the copy reads differently (-want +got):\n%s", diff)
 			}
-			var wg sync.WaitGroup
-			for range 4 {
-				wg.Go(func() {
-					if diff := gocmp.Diff(tt.want, errorViewOf(c), sameErrorValues); diff != "" {
-						t.Errorf("the copy reads differently from another goroutine (-want +got):\n%s", diff)
-					}
-				})
+			// The copy shares the Header map and the Body array, as the godoc says;
+			// only their identity is checked, not their values (R87).
+			header, body := storageOf(tt.err)
+			copyHeader, copyBody := storageOf(c)
+			if reflect.ValueOf(header).UnsafePointer() != reflect.ValueOf(copyHeader).UnsafePointer() {
+				t.Error("the copy's Header is not the original's map")
 			}
-			wg.Wait()
+			if len(body) > 0 && (len(copyBody) == 0 || &body[0] != &copyBody[0]) {
+				t.Error("the copy's Body is not the original's array")
+			}
 		})
 	}
 }

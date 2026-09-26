@@ -87,7 +87,7 @@ IDs that the plan's waves cite.
 
 | ID | Upstream | Go test / deviation | status |
 | --- | --- | --- | --- |
-| E1 | `test_exception_reconstruction` | deviation "errors are values" + `TestErrorsAsRoundTrip` (the 14 upstream rows, each matched with `errors.As` through wraps, copied by value, read alike and unwrapped alike) | deviation |
+| E1 | `test_exception_reconstruction` | deviation "errors are values" + `TestErrorsAsRoundTrip` (the 14 upstream rows, each matched with `errors.As` through wraps, copied by value, read alike and unwrapped alike; rows 3 and 4, Python's base class `TypeSafeAPIError`, are the `Kind` of their status when the SDK builds them and `APIErrorOther` in a caller's literal, and row 14, an httpx `Timeout` object, is `Timeout: 0`, one deadline per attempt) | deviation |
 | E2 | `test_api_error_from_process_pool` | deviation "no process pools": a value handed to another goroutine is the same value and nothing is serialised (`TestErrorsAsRoundTrip` reads a copy from four goroutines) | deviation |
 | E3 | `test_api_error_request_context` | `TestAPIErrorRendersEndpointStatusMessageRequestID` + `TestAPIErrorRequestContextThroughClient` | ported |
 | E4 | `test_api_error_endpoint_omits_url_credentials` | `TestEndpointOmitsCredentialsQueryFragment` (constructor-level: a base URL with credentials is refused when the client is built, R63) | ported |
