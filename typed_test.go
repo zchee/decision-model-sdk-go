@@ -917,6 +917,15 @@ func TestLookupTag(t *testing.T) {
 		"success: the word typesafe inside a malformed pair": {
 			tag: `json:about-typesafe:x`,
 		},
+		"success: a malformed tag mentioning typesafe: in a quoted value": {
+			tag: `json:spam doc:"use typesafe:x"`,
+		},
+		"success: an escaped quote does not end the quoted mention": {
+			tag: `json:spam doc:"a \" typesafe:x"`,
+		},
+		"error: a key after a quoted mention": {
+			tag: `json:spam doc:"typesafe:x" typesafe:"kind=noul"`, wantProblem: tagHidden,
+		},
 		"error: invalid Go escape":           {tag: `typesafe:"a\;b"`, wantProblem: tagNotLiteral},
 		"error: unterminated literal":        {tag: `typesafe:"kind=noul`, wantProblem: tagNotLiteral},
 		"error: space after the colon":       {tag: `typesafe: "kind=noul"`, wantProblem: tagNotForm},

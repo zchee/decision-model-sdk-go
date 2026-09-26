@@ -66,8 +66,9 @@ import (
 //   - yes, no: what counts as a yes and as a no answer (kind=noul only), the
 //     [Noul] members of the same names.
 //   - options: the options of a choice (kind=choice only, and required
-//     there), separated by "|", in order. An option is a label, or a label, "=" and its description:
-//     options=calm=neutral or polite|angry. Labels must be unique.
+//     there), separated by "|", in order. An option is a label, or a label,
+//     "=" and its description: options=calm=neutral or polite|angry. Labels
+//     must be unique.
 //   - levels: the levels of a score (kind=score only, and required there),
 //     separated by "|", lowest first. Levels must be unique.
 //   - optional: the answer may be absent from a response. It changes
@@ -85,12 +86,14 @@ import (
 // an option ends its label, and a later "=" belongs to the description. In
 // instructions, name, yes and no, "|" and "=" stand for themselves, and in a
 // level "=" does; escaping them there is allowed but not needed. No other
-// escape exists, keys are never escaped, and no space is trimmed. These are errors: an unknown key, a key given twice, a
-// key the kind does not take (yes and no belong to noul, options to choice,
-// levels to score), an empty value, an empty entry (";;", or a ";" at either
-// end), an empty option, level, label or description, a backslash before
-// any other character, a backslash at the end of the tag, and a tag that is
-// not valid UTF-8.
+// escape exists, keys are never escaped, and no space is trimmed.
+//
+// These are errors: an unknown key, a key given twice, a key the kind does
+// not take (yes and no belong to noul, options to choice, levels to score),
+// an empty value, an empty entry (";;", or a ";" at either end), an empty
+// option, level, label or description, a backslash before any other
+// character, a backslash at the end of the tag, and a tag that is not valid
+// UTF-8.
 //
 // A struct tag is itself a Go string literal, so in source each of these
 // backslashes is written twice: `typesafe:"kind=noul;instructions=a\\;b"`
@@ -584,30 +587,41 @@ func lookupTag(tag reflect.StructTag) (value string, ok bool, problem string) {
 
 // hiddenKey is lookupTag's result when the conventional scan stops at rest,
 // having found value (when ok) before it: a problem when rest names a
-// typesafe key, and value itself otherwise.
+// typesafe key, and value itself otherwise. A key is "typesafe" at the start
+// of rest or after a space, followed by a colon, outside double quotes: text
+// inside a quoted value, such as doc:"see typesafe:x", only mentions the key,
+// and the tag's own malformation is go vet's to report.
 func hiddenKey(rest, value string, ok bool) (string, bool, string) {
-	for i := 0; ; {
-		j := strings.Index(rest[i:], "typesafe")
-		if j < 0 {
-			return value, ok, ""
-		}
-		at := i + j
-		i = at + len("typesafe")
-		if at > 0 && rest[at-1] != ' ' {
+	const key = "typesafe"
+	quoted := false
+	for i := 0; i < len(rest); i++ {
+		c := rest[i]
+		if quoted {
+			switch c {
+			case '\\':
+				i++ // the escaped byte cannot end the quoted value
+			case '"':
+				quoted = false
+			}
 			continue
 		}
-		if !strings.HasPrefix(strings.TrimLeft(rest[i:], " "), ":") {
+		if c == '"' {
+			quoted = true
+			continue
+		}
+		if !strings.HasPrefix(rest[i:], key) || i > 0 && rest[i-1] != ' ' || !strings.HasPrefix(strings.TrimLeft(rest[i+len(key):], " "), ":") {
 			continue
 		}
 		switch {
 		case ok:
 			return "", false, tagTwice
-		case at == 0:
+		case i == 0:
 			return "", false, tagNotForm
 		default:
 			return "", false, tagHidden
 		}
 	}
+	return value, ok, ""
 }
 
 // tagKey is one key of the tag grammar, as a bit of a key set.
