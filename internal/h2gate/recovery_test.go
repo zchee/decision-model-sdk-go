@@ -66,6 +66,46 @@ func heldStreams(t *testing.T, srv *testsupport.LoopbackServer, n int) *testsupp
 	return srv.LiveH2Conns()[0]
 }
 
+// closedGracefully waits until the server has closed connection idx and
+// checks its close records (rulings K33, K34), by sequence number (K29):
+// the socket closed only after the reader read the end of the client's
+// side (0 < PeerClosedSeq < ClosedSeq), so nothing the client sent was
+// left unread for the kernel to answer with a reset; the server's
+// close_notify and FIN came before the client's close (CloseWriteSeq <
+// PeerClosedSeq) unless clientFirst allows the client to close first; and
+// a GOAWAY frame, exactly when goAway is set, came before both.
+// clientFirst is for a GOAWAY that a goroutine other than the connection's
+// reader sends, or that leaves streams to finish: net/http closes a
+// connection that GOAWAY ended as soon as its last stream is done, which
+// can precede the server's close (a clean end: the server read to the
+// client's EOF). The server closes first when its reader sends the GOAWAY
+// (ActionGoAway: the reader records nothing of the client until its close
+// has begun) or when CloseConns ends a call in flight. A server that closes
+// the socket at once, or that writes after close_notify and closes on the
+// failure, leaves no PeerClosedSeq: on Windows the reset destroys the
+// frames the client has not read (the GOAWAY, so net/http cannot replay),
+// while Linux and macOS let the client read them first and pass every
+// client-side assertion, so these records are what a proof there sees.
+func closedGracefully(t *testing.T, srv *testsupport.LoopbackServer, idx int, goAway, clientFirst bool) {
+	t.Helper()
+	var ci testsupport.ConnInfo
+	waitUntil(t, fmt.Sprintf("the server to close connection %d", idx), func() bool {
+		conns := srv.Conns()
+		if len(conns) <= idx {
+			return false
+		}
+		ci = conns[idx]
+		return ci.ClosedSeq != 0
+	})
+	nothingUnread := 0 < ci.PeerClosedSeq && ci.PeerClosedSeq < ci.ClosedSeq
+	serverFirst := 0 < ci.CloseWriteSeq && ci.CloseWriteSeq < ci.PeerClosedSeq
+	sentGoAway := 0 < ci.GoAwaySeq && ci.GoAwaySeq < ci.PeerClosedSeq && (ci.CloseWriteSeq == 0 || ci.GoAwaySeq < ci.CloseWriteSeq)
+	if ok := nothingUnread && (serverFirst || clientFirst) && sentGoAway == goAway; !ok {
+		t.Errorf("connection %d close records %+v, want 0 < PeerClosedSeq < ClosedSeq, CloseWriteSeq < PeerClosedSeq (client first allowed: %t), GOAWAY first: %t", idx, ci, clientFirst, goAway)
+	}
+	t.Logf("connection %d close records %+v", idx, ci)
+}
+
 // TestGoAway covers GOAWAY on a warm connection (S-T3): streams above
 // LastStreamID are replayed by the stock transport inside their RoundTrip on
 // a second connection, a refused stream is retried on the same one, and a
@@ -111,6 +151,7 @@ func TestGoAway(t *testing.T) {
 		if replayed != 2 || srv.Accepts() != 2 || st.Dials != 2 || st.Leaders != 1 || tr.gateState() != stateWarm {
 			t.Errorf("seen %v; accepts %d; stats %+v; want 2 replayed on connection 1, 2 accepts, 2 dials, 1 leader, warm", seen, srv.Accepts(), st)
 		}
+		closedGracefully(t, srv, 0, true, true)
 	})
 
 	t.Run("success: a refused stream is retried on the same connection", func(t *testing.T) {
@@ -173,6 +214,7 @@ func TestGoAway(t *testing.T) {
 		if out[1].Err == nil || errors.As(out[1].Err, &de) || errClass(out[1].Err) != "connection" || !strings.Contains(out[1].Err.Error(), "GetBody") {
 			t.Errorf("POST without GetBody: %v, want the stock transport's cannot-retry error, class connection", out[1].Err)
 		}
+		closedGracefully(t, srv, 0, true, true)
 	})
 }
 
@@ -182,12 +224,14 @@ func TestGoAway(t *testing.T) {
 // dials a new connection without the gate.
 func TestConnClose(t *testing.T) {
 	tests := map[string]struct {
-		end   func(*testsupport.LoopbackServer)
-		check func(error) bool
-		want  string
+		end      func(*testsupport.LoopbackServer)
+		check    func(error) bool
+		want     string
+		graceful bool // the end is CloseConns's graceful close
 	}{
 		"error: a clean close gives unexpected EOF": {
-			end: func(s *testsupport.LoopbackServer) { s.CloseConns() },
+			end:      func(s *testsupport.LoopbackServer) { s.CloseConns() },
+			graceful: true,
 			check: func(err error) bool {
 				var ne net.Error
 				return errors.Is(err, io.ErrUnexpectedEOF) && !errors.As(err, &ne)
@@ -226,6 +270,9 @@ func TestConnClose(t *testing.T) {
 			}
 			if got := seenOn(srv)["/hold/x"]; len(got) != 1 {
 				t.Errorf("the in-flight request was seen %v, want once (no replay)", got)
+			}
+			if tt.graceful {
+				closedGracefully(t, srv, 0, false, false)
 			}
 		})
 	}
@@ -269,6 +316,9 @@ func TestReplay(t *testing.T) {
 			if diff := gocmp.Diff([]string{"c0/goaway", "c1/serve"}, seenOn(srv)["/r"]); diff != "" {
 				t.Errorf("seen (-want +got):\n%s", diff)
 			}
+			// A POST's body follows its HEADERS onto connection 0 after the
+			// GOAWAY (ruling K34).
+			closedGracefully(t, srv, 0, true, false)
 			want := []string{""}
 			if post {
 				want = []string{`{"state":"s"}`}
@@ -299,6 +349,7 @@ func TestReplay(t *testing.T) {
 		if err == nil || errClass(err) != "connection" || srv.Accepts() != 1 {
 			t.Errorf("%v, accepts %d; want a connection-class error on 1 connection", err, srv.Accepts())
 		}
+		closedGracefully(t, srv, 0, true, false)
 	})
 
 	for name, kind := range map[string]string{"a clean close": "tcp-close", "a TCP reset": "tcp-reset", "RST_STREAM INTERNAL_ERROR": "rst-internal"} {
@@ -342,6 +393,9 @@ func TestReplay(t *testing.T) {
 			}
 			if got := seenOn(srv)["/fail"]; len(got) != 1 {
 				t.Errorf("/fail seen %v, want once (no replay)", got)
+			}
+			if kind == "tcp-close" {
+				closedGracefully(t, srv, 0, false, false)
 			}
 		})
 	}

@@ -83,10 +83,13 @@ func TestTokenResidualK21(t *testing.T) {
 		refuseAbove int
 		// act runs once 8 streams are in flight on the first connection.
 		act func(t *testing.T, srv *testsupport.LoopbackServer, conn *testsupport.H2Conn)
+		// goAway is set when act ends the first connection with GOAWAY.
+		goAway bool
 	}
 	tests := map[string]scenario{
 		"success: GOAWAY(LastStreamID=3) with 8 in flight and 64 queued": {
 			prefix: "/hold/",
+			goAway: true,
 			act: func(t *testing.T, srv *testsupport.LoopbackServer, conn *testsupport.H2Conn) {
 				if err := conn.GoAway(3, testsupport.CodeNoError); err != nil { // stream 1 was the warm-up
 					t.Error(err)
@@ -197,6 +200,9 @@ func TestTokenResidualK21(t *testing.T) {
 			}
 			if srv.Accepts() > 2 {
 				t.Errorf("accepts %d, want at most 2", srv.Accepts())
+			}
+			if sc.goAway {
+				closedGracefully(t, srv, 0, true, true)
 			}
 			record(t, "case", "k21/"+strings.Fields(name)[1], "classes", fmt.Sprint(classes(calls)), "late", late, "bad", bad,
 				"accepts_scenario", scenarioAccepts, "accepts_total", srv.Accepts(), "refused_streams", refused,
