@@ -4233,13 +4233,15 @@ in `ci.yaml`, from which the step builds both its `-run` pattern and its
 R103 revert's `TestAllocRequestID`), with a second list for
 `internal/codec`'s allocation tests (R110 (3)); the step also fails on a
 test of a root `!race` file that its list lacks. No
-production file changes. Every row measures 93c18a0 (main 3ffe77b plus
-this wave's six commits), a clean tree. Raw outputs are in
+production file changes. Every row measures 6bec0e8, main 9c61db9 (W4.2
+and the R103 revert landed) plus this wave's ten commits, a clean tree;
+the first measurement, at 93c18a0 on main 3ffe77b, gave the same counts.
+Raw outputs are in
 `_spikes/w5.2/results/`, and `_spikes/w5.2/render.py` prints the tables
 below from them. Commands use `R=_spikes/s-c1/run.sh`,
 `O=_spikes/w5.2/results`,
 `SP=/private/tmp/claude-501/-Users-zchee-go-src-github-com-zchee-typesafe-sdk-go/40cb0f1f-c8a9-422c-a3e8-b3afc329b5cb/scratchpad`
-and `BASE=93c18a0`.
+and `BASE=6bec0e8`.
 
 | AC clause | Test (`//go:build !race`) | Functional half (both builds) |
 | --- | --- | --- |
@@ -4250,18 +4252,19 @@ and `BASE=93c18a0`.
 | AC-P5 (i)–(vii) | `TestMemStatsCap` | `TestMemStatsCapFunctional`; over a real connection, `TestResponseCapOverTheWire` |
 | AC-P8 allocations | `TestLinearityFlood` (`alloc_decode_test.go`: the ratio, the members visited); the lazy pass's c₀ + c₁ × members: `TestLazyPassAllocations` (`internal/codec/decode_bench_test.go`, R110 (3)), run by ci.yaml's allocation-budget step on all three images | – |
 | AC-P8 time | `TestLinearityFloodTime` (`alloc_decode_cases_test.go`, every build) | – |
-| Prepare (R50), payloads (W2.4), logging (W3.3) | `TestAllocPrepare`, `TestAllocResponseJSON`, `TestAllocLoggedCall`, kept as they were | their packages' functional tests |
+| AC-P3 | `TestAllocTypedDecode` (W4.2, kept; `alloc_typed_test.go`) | W4.2's `TestDecodeAs*` (`decodeas_test.go`), under `-race` in W5.2-07 |
+| Prepare (R50), payloads (W2.4), logging (W3.3, the R103 revert) | `TestAllocPrepare`, `TestAllocResponseJSON`, `TestAllocLoggedCall`, `TestAllocRequestID`, kept as they were | their packages' functional tests |
 
 ### How the numbers were taken
 
 - (M): `go1.27.1 darwin/arm64`, `GOEXPERIMENT=nosimd,noruntimesecret`, in a
-  detached worktree at 93c18a0, under
+  detached worktree at 6bec0e8, under
   `/opt/homebrew/opt/util-linux/bin/flock` on `$SP/bench.lock`. Other lanes
-  were working: load 6.2 to 9.0 of 16, which counts do not depend on (R17).
+  were working: load 4.9 to 6.4 of 16, which counts do not depend on (R17).
 - (L): the same tree without `.git`, copied with the section 11 `tar | ssh`
   pipe to `/tmp/ts-spike/src-w5.2/meas`; `/tmp/ts-spike/go/bin/go`, the
   section 11 `GOPATH`, `GOMODCACHE` and `GOCACHE` under `/tmp/ts-spike`, no
-  `GOEXPERIMENT`, under `flock /tmp/ts-spike/bench.lock`; load 0.05 to 0.76.
+  `GOEXPERIMENT`, under `flock /tmp/ts-spike/bench.lock`; load 0.15 to 1.32.
 - Every file is one `-count=5` invocation of its tests: 25 runs of each
   series (five per invocation). A series' "runs of" line lists each run;
   `render.py` takes the minimum, the maximum and the spread of each counter
@@ -4297,7 +4300,7 @@ and `BASE=93c18a0`.
    `*struct/6MiB`. On (L) every kind is warm at 6 MiB
    (6.44 MiB for the growslice kinds). A nested map is encoded in the map's
    random order and reaches its steady state after up to three unmeasured
-   calls on (M) (scratch 6.47–7.73 MiB over the five invocations); the test
+   calls on (M) (scratch 6.28–7.71 MiB over the five invocations); the test
    warms each case until two calls in a row leave the same scratch.
 3. **AC-P1 sequence: the frozen rows hold exactly on both hosts.** Boxed
    string, encode level (call less the 21 allocations a call spends
@@ -4330,47 +4333,58 @@ and `BASE=93c18a0`.
    2 008 and 6 104 B = 4 096 + 2 008 on both hosts and the three CI images
    (maximum 6 152 B on xcode-27): margins 27.6 × and 11.3 ×, since the
    bound catches a buffer sized from a declared length, not steady-state
-   noise. Every run is checked against its bound. K32's residual stays in (i): spread +4/+288 on (M), +5/+18 720 on
-   (L) (maximum 43/282 752), within 327 680 B.
+   noise. Every run is checked against its bound. K32's residual stays in (i): spread +4/+288 on both hosts
+   (maximum 42/264 320), within 327 680 B.
 7. **AC-P8: allocation ratio 7.61 (90 → 685); members visited, counted
    from the fixtures with encoding/json, 1 011 and 10 011, frozen-budgets'
    inputs; the whole decode grows 0.0661 allocations per member visited,
    under the lazy pass's c₁ = 1/15 = 0.0667 (recorded).** The lazy pass
    alone, in `internal/codec`: 86 and 681 against the bounds 89 and 689,
    ratio 7.92; the budget step's codec list runs it without -race on every
-   image (R110 (3)). Time ratio, `TestLinearityFloodTime`: 9.33–9.62 on (M),
-   9.20–9.25 on (L); under `-race` on (M) 9.53 (W5.2-07).
+   image (R110 (3)). Time ratio, `TestLinearityFloodTime`: 9.36–9.57 on (M),
+   9.23–9.26 on (L); under `-race` on (M) 9.67 (W5.2-07).
 8. **`TestResponseCapOverTheWire`: one attempt under `DefaultRetry()`,
    `*ResponseTooLargeError` with status 200 and the 16 MiB limit; the SDK
    read none of the declared body and exactly cap + 1 = 16 777 217 bytes
    of the undeclared one**, counted under it on the SDK's own HTTP/2
    transport. Recorded, not bounded (V50 (3)): the call's MemStats deltas
-   over the in-process loopback server, 0.25 MiB declared and 33.2 MiB
-   undeclared on (M), 0.46 and 35.9 MiB on (L).
+   over the in-process loopback server, 0.29 MiB declared and 32.9 MiB
+   undeclared on (M), 0.32 and 36.1 MiB on (L).
 9. **The three-of-five rule's failure probability.** Over these files,
-   3 of 5 500 exact-pin runs on (M) and 0 of 5 525 on (L) exceeded their
-   series' minimum (p = 0.00055 and 0). At R104-corr's measured (L) rate of
+   3 of 5 700 exact-pin runs on (M) and 5 of 5 725 on (L) exceeded their
+   series' minimum (p = 0.00053 and 0.00087). At R104-corr's measured (L) rate of
    1 run in 100 (W3.4-04), one invocation of an exact pin fails with
    probability sum over k = 3..5 of C(5,k) p^k (1 − p)^(5−k) = 9.85 × 10⁻⁶,
-   about 10⁻⁵ as ruled; at this session's rates, 1.6 × 10⁻⁹ and 0.
-10. **Gates.** Each commit's tree passed, alone, the section 11 lint chain,
-    `go test -race -count=1 ./...` and both non-race steps of ci.yaml on
-    (M) (the last, `gates-M-93c18a0.txt`). The race run on (L) passed in
-    all seven packages (W5.2-08, R62). Under `-race`, the budgets are left
-    out by their build tag and the functional halves run: 7 tests, 61
-    subtests (W5.2-07).
+   about 10⁻⁵ as ruled; at this session's rates, 1.5 × 10⁻⁹ and 6.7 × 10⁻⁹.
+10. **AC-P3 and the K38 guard.** W4.2's `TestAllocTypedDecode` joins the
+    step's root list (its 7 → 8 guard is folded in): `DecodeAs` 1/144
+    against the `Answers()` decode's 4/688, `Ask` 23 = `SystemOne` 22 + 1,
+    on both hosts. The step fails when a test of a root `!race` file is
+    missing from its list (K38, after `TestAllocLoggedCall` and the R103
+    revert's `TestAllocRequestID` had run in no CI step); checked both
+    ways: with every name listed it passes, and with
+    `TestAllocTypedDecode` dropped it fails naming it.
+11. **Gates.** Each of the ten commits passed, alone on 9c61db9 (R111),
+    the section 11 lint chain, `go test -race -count=1 ./...` and both
+    non-race steps of ci.yaml on (M), with `set -o pipefail` in the script
+    (the last commit's: `gates-M-6bec0e8.txt`). On (L), `go test -race
+    -count=1 ./...` passed in all seven packages (W5.2-08, R62) and ci.yaml's
+    two non-race steps passed (`steps-L-6bec0e8.txt`). Under `-race`, the
+    budgets are left out by their build tag and the functional halves run:
+    13 tests, W4.2's six `TestDecodeAs*` included, 83 subtests (W5.2-07).
 
 | # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| W5.2-01 | 2026-09-26 15:03:49 JST | W5.2 AC-P1: `TestAllocEncode`, `TestAllocScratchSequence` | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 8.98 → 8.50 | `BASE=93c18a0 GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock ac-p1-M -count=5 -run '^(TestAllocEncode\|TestAllocScratchSequence)$' -v .` | PASS; every asserted case E(kind) + B; `pointer-to-struct/6MiB` recorded 23/30469392 (scratch 8.86 MiB); sequence rows as frozen; 2 of 1650 exact-pin runs above their minimum | [W5.2 tables](#w52-tables); `results/ac-p1-M.txt` |
-| W5.2-02 | 2026-09-26 06:02:41 UTC | W5.2 AC-P1 | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.05 → 0.52 | `BASE=93c18a0 sh $R '(L)' /tmp/ts-spike/src-w5.2/results /tmp/ts-spike/bench.lock ac-p1-L -count=5 -run '^(TestAllocEncode\|TestAllocScratchSequence)$' -v .` | PASS; every case asserted, 6 MiB growslice kinds 6.44 MiB; sequence rows as frozen; 0 of 1650 above | `results/ac-p1-L.txt` |
-| W5.2-03 | 2026-09-26 15:04:19 JST | W5.2 AC-P2, AC-P5, AC-P6, AC-P8, the kept tests, the cap over the wire | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 8.50 → 7.35 | the W5.2-01 command with `alloc-M -count=5 -run '^(TestAllocPrepare\|TestAllocDecodeFixtures\|TestLinearityFlood\|TestLinearityFloodTime\|TestAllocWholeCall\|TestMemStatsCap\|TestAllocResponseJSON\|TestAllocLoggedCall\|TestResponseCapOverTheWire)$' -v .` | PASS; `result.json` 4 / naive 26 = 0.154; q3 own 14/2008, q20 34/9248; MEM (vi) 2392 B, (vii) 6104 B; LINEARITY 7.61, time 9.33–9.62; WIRE read 0 / 16777217 | `results/alloc-M.txt` |
-| W5.2-04 | 2026-09-26 06:03:23 UTC | W5.2 as W5.2-03 | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.52 → 0.62 | the W5.2-02 command with W5.2-03's `alloc-L` tests | PASS; `result.json` 4 / naive 40 = 0.100; every pin as on (M); time 9.20–9.25; (i) max 43/282752 | `results/alloc-L.txt` |
-| W5.2-05 | 2026-09-26 15:04:36 JST | W5.2 `internal/codec` allocation tests | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 7.35 → 7.40 | the W5.2-01 command with `codec-M -count=5 -run '^(TestEncodeStateAllocations\|TestLazyPassAllocations\|TestNewBodyAllocations)$' -v ./internal/codec/` | PASS; LAZY flood 86 (members 1011, bound 89) and 681 (10011, 689), ratio 7.92 | `results/codec-M.txt` |
-| W5.2-06 | 2026-09-26 06:03:39 UTC | W5.2 as W5.2-05 | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.62 → 0.62 | the W5.2-02 command with W5.2-05's `codec-L` tests | PASS; identical to W5.2-05 | `results/codec-L.txt` |
-| W5.2-07 | 2026-09-26 15:06:15 JST | W5.2 the functional halves under `-race` | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 7.25 → 6.17 | the W5.2-01 command with `race-functional-M -race -count=1 -run 'Alloc\|MemStats\|Linearity\|OverTheWire' -v .` | PASS; 7 tests (`TestLinearityFloodTime`, the five `…Functional`, `TestResponseCapOverTheWire`), 61 subtests; no budget test is built | `results/race-functional-M.txt` |
-| W5.2-08 | 2026-09-26 06:03:39 UTC | W5.2 `-race` (R62) | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.62 → 0.76 | the W5.2-02 command with `race-L -race -count=1 ./...` | PASS, seven packages | `results/race-L.txt` |
-| W5.2-09 | 2026-09-26 15:02:40 JST | W5.2 gates of the last commit | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | build, vet, the section 11 lint chain (govulncheck via `go run`), `go test -race -count=1 ./...`, ci.yaml's two non-race steps, in a detached worktree at 93c18a0, under the lock | every gate ok | `results/gates-M-93c18a0.txt` (modernize's progress lines removed) |
+| W5.2-01 | 2026-09-26 15:50:05 JST | W5.2 AC-P1: `TestAllocEncode`, `TestAllocScratchSequence` | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.42 → 5.11 | `BASE=6bec0e8 GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock ac-p1-M -count=5 -run '^(TestAllocEncode\|TestAllocScratchSequence)$' -v .` | PASS; every asserted case E(kind) + B; `pointer-to-struct/6MiB` recorded 23/30469392 (scratch 8.86 MiB); sequence rows as frozen; 1 of 1650 exact-pin runs above its minimum | [W5.2 tables](#w52-tables); `results/ac-p1-M.txt` |
+| W5.2-02 | 2026-09-26 06:50:06 UTC | W5.2 AC-P1 | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.15 → 0.60 | `BASE=6bec0e8 sh $R '(L)' /tmp/ts-spike/src-w5.2/results /tmp/ts-spike/bench.lock ac-p1-L -count=5 -run '^(TestAllocEncode\|TestAllocScratchSequence)$' -v .` | PASS; every case asserted, 6 MiB growslice kinds 6.44 MiB; sequence rows as frozen; 2 of 1650 above | `results/ac-p1-L.txt` |
+| W5.2-03 | 2026-09-26 15:50:38 JST | W5.2 AC-P2, AC-P3, AC-P5, AC-P6, AC-P8, the kept tests, the cap over the wire | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 5.11 → 4.92 | the W5.2-01 command with `alloc-M -count=5 -run '^(TestAllocPrepare\|TestAllocDecodeFixtures\|TestLinearityFlood\|TestLinearityFloodTime\|TestAllocWholeCall\|TestMemStatsCap\|TestAllocResponseJSON\|TestAllocLoggedCall\|TestAllocRequestID\|TestAllocTypedDecode\|TestResponseCapOverTheWire)$' -v .` | PASS; `result.json` 4 / naive 26 = 0.154; TYPED 1/144 < 4/688; q3 own 14/2008, q20 34/9248; MEM (vi) 2392 B, (vii) 6104 B; LINEARITY 7.61, time 9.36–9.57; WIRE read 0 / 16777217 | `results/alloc-M.txt` |
+| W5.2-04 | 2026-09-26 06:50:48 UTC | W5.2 as W5.2-03 | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.60 → 0.69 | the W5.2-02 command with W5.2-03's `alloc-L` tests | PASS; `result.json` 4 / naive 40 = 0.100; every pin as on (M); time 9.23–9.26; (i) max 42/264320 | `results/alloc-L.txt` |
+| W5.2-05 | 2026-09-26 15:50:54 JST | W5.2 `internal/codec` allocation tests | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 4.92 → 4.92 | the W5.2-01 command with `codec-M -count=5 -run '^(TestEncodeStateAllocations\|TestLazyPassAllocations\|TestNewBodyAllocations)$' -v ./internal/codec/` | PASS; LAZY flood 86 (members 1011, bound 89) and 681 (10011, 689), ratio 7.92 | `results/codec-M.txt` |
+| W5.2-06 | 2026-09-26 06:51:04 UTC | W5.2 as W5.2-05 | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.69 → 0.69 | the W5.2-02 command with W5.2-05's `codec-L` tests | PASS; identical to W5.2-05 | `results/codec-L.txt` |
+| W5.2-07 | 2026-09-26 15:50:54 JST | W5.2 the functional halves under `-race` | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 4.92 → 5.74 | the W5.2-01 command with `race-functional-M -race -count=1 -run 'Alloc\|MemStats\|Linearity\|OverTheWire\|DecodeAs' -v .` | PASS; 13 tests (`TestLinearityFloodTime`, the five `…Functional`, `TestResponseCapOverTheWire`, W4.2's six `TestDecodeAs*`), 83 subtests; no budget test is built | `results/race-functional-M.txt` |
+| W5.2-08 | 2026-09-26 06:51:04 UTC | W5.2 `-race` (R62) | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.69 → 1.32 | the W5.2-02 command with `race-L -race -count=1 ./...` | PASS, seven packages | `results/race-L.txt` |
+| W5.2-09 | 2026-09-26 15:53:15 JST | W5.2 gates of the last code commit | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | build, vet, the section 11 lint chain (govulncheck via `go run`), `go test -race -count=1 ./...`, ci.yaml's two non-race steps, in a detached worktree at 6bec0e8, under the lock | every gate ok | `results/gates-M-6bec0e8.txt` (modernize's progress lines removed) |
+| W5.2-10 | 2026-09-26 06:53:15 UTC | W5.2 ci.yaml's non-race steps | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | – | `go test -count=1 ./internal/codec/ ./internal/wire/ ./internal/testsupport/` and the allocation-budget step's script, in `/tmp/ts-spike/src-w5.2/meas`, under the lock | PASS: the K38 guard, both lists' `-list` guards, every listed test | `results/steps-L-6bec0e8.txt` |
 
 ### W5.2 tables
 
@@ -4413,8 +4427,8 @@ invocations; the verdict):
 | flat-map/6MiB | 2/112; 2/112, 0; 7.51–7.51 MiB; asserted | 2/112; 2/112, 0; 6.44–6.44 MiB; asserted |
 | nested-map/1KiB | 9/784; 9/784, 0; 0.00–0.00 MiB; asserted | 9/784; 9/784, 0; 0.00–0.00 MiB; asserted |
 | nested-map/64KiB | 471/45136; 471/45136, 0; 0.07–0.09 MiB; asserted | 471/45136; 471/45136, 0; 0.07–0.07 MiB; asserted |
-| nested-map/1MiB | 7503/720208; 7503/720208, 0; 1.07–1.53 MiB; asserted | 7503/720208; 7503/720208, 0; 1.06–1.06 MiB; asserted |
-| nested-map/6MiB | 45010/4320880; 45010/4320880, 0; 6.47–7.73 MiB; asserted | 45010/4320880; 45010/4320880, 0; 6.44–6.44 MiB; asserted |
+| nested-map/1MiB | 7503/720208; 7503/720208, 0; 1.19–1.53 MiB; asserted | 7503/720208; 7503/720208, 0; 1.06–1.06 MiB; asserted |
+| nested-map/6MiB | 45010/4320880; 45010/4320880, 0; 6.28–7.71 MiB; asserted | 45010/4320880; 45010/4320880, 0; 6.44–6.44 MiB; asserted |
 
 AC-P2, the DECODE lines of W5.2-03 and -04 (fixtures that decode; the naive decode is `naive.Sonic`, the minimum of 25 runs):
 
@@ -4440,21 +4454,22 @@ Every allocation series, by test:
 | Test | Series (M) / (L) | Runs per series | Exact pins: runs above the minimum (M) / (L) | Largest spread (M) / (L) |
 | --- | ---: | ---: | ---: | --- |
 | `TestAllocEncode` | 64 / 64 | 25 | 0 of 1575 / 0 of 1600 | +0/+0 (string/1KiB E_sonic) / +0/+0 (string/1KiB E_sonic) |
-| `TestAllocScratchSequence` | 136 / 136 | 25 | 2 of 1650 / 0 of 1650 | +1/+80 (flat-map call 3) / +1/+80 (pointer-to-struct call 15) |
-| `TestAllocWholeCall` | 23 / 23 | 25 | 1 of 575 / 0 of 575 | +1/+48 (floor round trip) / +0/+0 (E_sonic) |
-| `TestMemStatsCap` | 7 / 7 | 25 | 0 of 0 / 0 of 0 | +4/+288 (i-declared-16MiB-sent-10B) / +5/+18720 (i-declared-16MiB-sent-10B) |
-| `TestAllocDecodeFixtures` | 41 / 41 | 25 | 0 of 700 / 0 of 700 | +0/+0 (deviation-lone-surrogate.json interned) / +0/+0 (deviation-lone-surrogate.json interned) |
+| `TestAllocScratchSequence` | 136 / 136 | 25 | 1 of 1650 / 2 of 1650 | +1/+48 (boxed-string call 29) / +1/+80 (flat-map call 29) |
+| `TestAllocWholeCall` | 23 / 23 | 25 | 0 of 575 / 2 of 575 | +0/+0 (E_sonic) / +1/+80 (floor round trip) |
+| `TestMemStatsCap` | 7 / 7 | 25 | 0 of 0 / 0 of 0 | +4/+288 (i-declared-16MiB-sent-10B) / +4/+288 (i-declared-16MiB-sent-10B) |
+| `TestAllocDecodeFixtures` | 41 / 41 | 25 | 0 of 700 / 0 of 700 | +1/+48 (escaped-member-names.json naive) / +0/+0 (deviation-lone-surrogate.json interned) |
 | `TestLinearityFlood` | 2 / 2 | 25 | 0 of 50 / 0 of 50 | +0/+0 (structured-legend-flood-1k.json) / +0/+0 (structured-legend-flood-1k.json) |
 | `TestAllocResponseJSON` | 8 / 8 | 25 | 0 of 200 / 0 of 200 | +0/+0 (models.json marshal) / +0/+0 (models.json marshal) |
 | `TestAllocPrepare` | 11 / 11 | 25 | 0 of 275 / 0 of 275 | +0/+0 (c1-sketch) / +0/+0 (c1-sketch) |
-| `TestAllocLoggedCall` | 4 / 4 | 25 | 0 of 100 / 0 of 100 | +0/+0 (call/default) / +0/+0 (call/default) |
-| `TestLazyPassAllocations` | 6 / 6 | 25 | 0 of 150 / 0 of 150 | +0/+0 (structured-legend.json lazy) / +0/+0 (escaped-member-names.json lazy) |
-| `TestEncodeStateAllocations` | 7 / 7 | 25 | 0 of 175 / 0 of 175 | +0/+0 (success: boxed json.RawMessage) / +0/+0 (success: pointer to struct) |
+| `TestAllocLoggedCall` | 8 / 8 | 25 | 2 of 200 / 1 of 200 | +1/+48 (call/q3+id/debug-discard) / +1/+48 (call/q3/info-discard) |
+| `TestAllocTypedDecode` | 4 / 4 | 25 | 0 of 100 / 0 of 100 | +0/+0 (Answers() decode) / +0/+0 (Answers() decode) |
+| `TestLazyPassAllocations` | 6 / 6 | 25 | 0 of 150 / 0 of 150 | +0/+0 (deviation-lone-surrogate.json lazy) / +0/+0 (structured-legend.json lazy) |
+| `TestEncodeStateAllocations` | 7 / 7 | 25 | 0 of 175 / 0 of 175 | +0/+0 (success: flat map[string]any) / +0/+0 (success: empty section (control)) |
 | `TestNewBodyAllocations` | 2 / 2 | 25 | 0 of 50 / 0 of 50 | +0/+0 (success: a warm pool hit allocates nothing) / +0/+0 (success: a warm pool hit allocates nothing) |
 
 The three-of-five rule (finding 9):
 
 | Host | Exact-pin runs | Above the minimum | p | P(3 of 5 fail) at p | P(3 of 5 fail) at 1/100 (R104-corr) |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| (M) | 5500 | 3 | 0.00055 | 1.62e-09 | 9.85e-06 |
-| (L) | 5525 | 0 | 0.00000 | 0.00e+00 | 9.85e-06 |
+| (M) | 5700 | 3 | 0.00053 | 1.46e-09 | 9.85e-06 |
+| (L) | 5725 | 5 | 0.00087 | 6.65e-09 | 9.85e-06 |
