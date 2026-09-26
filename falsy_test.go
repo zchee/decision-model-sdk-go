@@ -18,6 +18,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
@@ -50,9 +51,12 @@ func falsyJSONWhole(raw []byte) bool {
 
 // FuzzFalsyJSON checks that falsyJSON, which reads a value's first bytes
 // before it checks the whole value (maybeFalsyJSON), gives the verdict of
-// the whole-value check on any input: the falsy literals and zeros with
-// whitespace around and inside them, their truthy neighbours, and invalid
-// JSON that starts like either.
+// the whole-value check on any input, within the per-input bound: the falsy
+// literals and zeros with whitespace around and inside them, their truthy
+// neighbours, and invalid JSON that starts like either. Its seed corpus
+// runs as a test in CI's -race test step (go test -race with coverage) on
+// ubuntu-26.04, xcode-27 and windows-2025, and the fuzz job fuzzes it for
+// 60 s on ubuntu-26.04.
 func FuzzFalsyJSON(f *testing.F) {
 	for _, seed := range []string{
 		``, ` `, "\t\n\r ", `null`, ` null `, `nul`, `nulll`, `false`, "\nfalse\t", `fals`, `true`, `tru`,
@@ -66,6 +70,7 @@ func FuzzFalsyJSON(f *testing.F) {
 		f.Add([]byte(seed))
 	}
 	f.Fuzz(func(t *testing.T, raw []byte) {
+		defer testsupport.BoundFuzzInput(t)()
 		if got, want := falsyJSON(raw), falsyJSONWhole(raw); got != want {
 			t.Errorf("falsyJSON(%q) = %t, the whole-value check says %t", raw, got, want)
 		}

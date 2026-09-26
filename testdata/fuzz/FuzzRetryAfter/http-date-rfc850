@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("RThursday, 01-Jan-26 00:00:10 GMT")

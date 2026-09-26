@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"model\":\"custom\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"answers\":{\"risk\":{\"type\":\"score\",\"score\":0,\"confidence\":1,\"legend\":{\"0\":{\"summary\":\"duplicated\",\"examples\":[\"charged twice\"]}},\"probabilities\":{\"0\":1}}}}\n")

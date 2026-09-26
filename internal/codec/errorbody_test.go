@@ -17,11 +17,14 @@
 package codec
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
 	gocmp "github.com/google/go-cmp/cmp"
+
+	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
 // TestReadErrorBody checks the lenient error-body reader against the Python
@@ -108,8 +111,15 @@ func TestReadErrorBody(t *testing.T) {
 }
 
 // FuzzErrorBody checks that the lenient error-body reader never fails or
-// panics, always returns valid UTF-8, reports "no body" only for an empty
-// or null body, and returns the same result for the same bytes.
+// panics and answers within the per-input bound, always returns valid
+// UTF-8, reports "no body" only for an empty or null body, returns the same
+// result for the same bytes, and never aliases the body. Its seed corpus is
+// the rows below and the Rust SDK's fuzz/corpus/decode_response byte for
+// byte (testdata/fuzz/FuzzErrorBody), which that SDK's target also reads
+// as an error body.
+// Its seed corpus runs as a test in CI's -race test step (go test -race
+// with coverage) on ubuntu-26.04, xcode-27 and windows-2025, and the
+// fuzz job fuzzes it for 60 s on ubuntu-26.04.
 func FuzzErrorBody(f *testing.F) {
 	for _, seed := range []string{
 		"", "null", " null ", "[]", "42", "true", `""`, `"plain"`, "plain text", "not JSON: \xff",
@@ -123,6 +133,7 @@ func FuzzErrorBody(f *testing.F) {
 		f.Add([]byte(seed))
 	}
 	f.Fuzz(func(t *testing.T, body []byte) {
+		defer testsupport.BoundFuzzInput(t)()
 		got := ReadErrorBody(body)
 		if !utf8.ValidString(got.Message) || !utf8.ValidString(got.ErrorType) {
 			t.Fatalf("ReadErrorBody(%q) = %+v: not valid UTF-8", body, got)
@@ -135,6 +146,16 @@ func FuzzErrorBody(f *testing.F) {
 		}
 		if again := ReadErrorBody(body); again != got {
 			t.Fatalf("ReadErrorBody(%q) = %+v, then %+v", body, got, again)
+		}
+		// The engine's input must stay unmodified (testing.F.Fuzz), so the
+		// body that is overwritten is a copy.
+		work := bytes.Clone(body)
+		held := ReadErrorBody(work)
+		for i := range work {
+			work[i] = '#'
+		}
+		if held != got {
+			t.Fatalf("the result of ReadErrorBody(%q) changed with the body: %+v, want %+v", body, held, got)
 		}
 	})
 }

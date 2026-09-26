@@ -49,6 +49,8 @@
 //     [Spread] for a section checked against a bound on every run.
 //   - [Fixture] and friends: the response bodies under the module's testdata
 //     directory, read once and cached.
+//   - [BoundFuzzInput]: the per-input bound every fuzz target arms,
+//     [FuzzInputBound].
 //
 // The package imports neither the SDK's root package nor internal/codec, so
 // the packages that test the transport can use it without sonic. It is the

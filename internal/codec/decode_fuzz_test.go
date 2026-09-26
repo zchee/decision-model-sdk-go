@@ -30,7 +30,20 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
-// FuzzDecodeResponse checks the System One decoder on any body: it never
+// FuzzDecodeResponse checks both response decoders on any body, within the
+// per-input bound, as the Rust SDK's decode_response target reads every
+// body with both. Its seed corpus is the fixtures and rows below, the Rust
+// SDK's fuzz/corpus/decode_response byte for byte
+// (testdata/fuzz/FuzzDecodeResponse), and the inputs campaigns found.
+// Its seed corpus runs as a test in CI's -race test step (go test -race
+// with coverage) on ubuntu-26.04, xcode-27 and windows-2025, and the
+// fuzz job fuzzes it for 60 s on ubuntu-26.04.
+//
+// The models decoder never panics; it refuses with a *DecodeError or
+// accepts only valid JSON of valid UTF-8, decodes the same twice, and its
+// cards never alias the body.
+//
+// The System One decoder never
 // panics; it refuses with a *DecodeError, or accepts only a body that is one
 // valid JSON value of valid UTF-8 (encoding/json's json.Valid and
 // utf8.Valid, which are weaker than the decoder's rules); an accepted body
@@ -48,6 +61,7 @@ func FuzzDecodeResponse(f *testing.F) {
 		f.Add(testsupport.Fixture(f, name))
 	}
 	for _, seed := range []string{
+		`{"models":[{"name":"a","description":"b","release_date":"c"},{"name":"a\u0000","description":"","release_date":"","x":[{}]}],"models":[]}`,
 		`{"model":"m","usage":{}}`,
 		`{"model":"m","usage":{"input_tokens":null},"answers":{"a":{"type":"noul","noul":1}}}`,
 		`{"model":"m","usage":{},"answers":{"s":{"type":"score","score":0,"confidence":1,"legend":{"0":{"v":1},"+1":"t","01":[2]},"probabilities":{"0":1,"1":0}}}}`,
@@ -66,6 +80,11 @@ func FuzzDecodeResponse(f *testing.F) {
 		f.Add([]byte(seed))
 	}
 	f.Fuzz(func(t *testing.T, body []byte) {
+		defer testsupport.BoundFuzzInput(t)()
+		// The engine's input must stay unmodified (testing.F.Fuzz); the
+		// alias checks overwrite a copy.
+		body = bytes.Clone(body)
+		checkModelsBody(t, body)
 		orig := bytes.Clone(body)
 		for _, models := range []bool{false, true} {
 			if one, whole, _ := decodeBothScans(t, orig, models); !gocmp.Equal(whole, one) {
@@ -151,5 +170,38 @@ func checkAnswers(t *testing.T, res *wire.SystemOneResult) {
 		default:
 			t.Fatalf("answer %q has kind %v", e.Name, e.Answer.Kind)
 		}
+	}
+}
+
+// checkModelsBody checks DecodeModels on body, which it leaves unmodified.
+func checkModelsBody(t *testing.T, body []byte) {
+	t.Helper()
+	work := bytes.Clone(body)
+	var list wire.ModelList
+	if err := DecodeModels(work, &list); err != nil {
+		if _, ok := errors.AsType[*DecodeError](err); !ok {
+			t.Fatalf("DecodeModels(%q) error = %T %v, want a *DecodeError", body, err, err)
+		}
+		return
+	}
+	if !json.Valid(body) || !utf8.Valid(body) {
+		t.Fatalf("DecodeModels(%q) accepted a body that is not valid JSON of valid UTF-8", body)
+	}
+	var again wire.ModelList
+	if err := DecodeModels(work, &again); err != nil {
+		t.Fatalf("second models decode of %q: %v", body, err)
+	}
+	if diff := gocmp.Diff(list, again); diff != "" {
+		t.Fatalf("second models decode of %q differs (-first +second):\n%s", body, diff)
+	}
+	// The reference comes from body, which is never written, so a list
+	// that aliases work cannot move along with it.
+	var ref wire.ModelList
+	if err := DecodeModels(body, &ref); err != nil {
+		t.Fatalf("models decode of a copy of %q: %v", body, err)
+	}
+	clear(work)
+	if diff := gocmp.Diff(ref, list); diff != "" {
+		t.Fatalf("the models of %q changed with the body (-reference +result):\n%s", body, diff)
 	}
 }

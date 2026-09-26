@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"models\":[{\"name\":\"jev-latest\",\"description\":\"Fast model\",\"release_date\":\"2026-08-01\",\"context_window\":128000,\"pricing\":null}]}\n")

@@ -5574,3 +5574,28 @@ parameter rename with a comment edit passes); `Stats` gaining a
 Go 1.27.1 linker panic W5.3-94 records, on (M) and on (L) alike, and with
 `TestRetryPolicyRules`' `Comparable()` check removed so that it links,
 `TestPublicAPISurface` fails on `type RetryPolicy struct, comparable`.
+
+## W6.1: fuzzing, the testsupport fixes and the token-wait bound
+
+W6.1 fuzzes every parser of bytes a server chose (AC-Q3): the System One and
+models decoders and the error-body reader (`FuzzDecodeResponse`,
+`FuzzErrorBody`, `internal/codec`), the `Retry-After-Ms`/`Retry-After`
+parser (`FuzzRetryAfter`) and the struct tag grammar (`FuzzTagGrammar`,
+W4.1), each input bounded to 10 s by a watchdog
+(`testsupport.BoundFuzzInput`: Go's engine has no per-input timeout), with
+the Rust SDK's `fuzz/corpus` (typesafe-sdk-rust 34c3b7c) as seed corpora,
+22 files per target converted byte for byte to Go's corpus encoding
+(`go test fuzz v1` / `[]byte(%q)`; a round trip through `strconv.Unquote`
+gave the same bytes for all 66); the differential between the visitor and
+the lazy pass (`FuzzDecodePaths`); CI's `fuzz` job (60 s per target, fails
+on any failing input and uploads it); and the testsupport fixes owed to
+W6.1 (K39, K25, critic-p2 n-2, R100, K21c, R17), K16's proxy hook and the
+R85 token-wait bound. Raw outputs are in `_spikes/w6.1/results/`;
+`_spikes/w6.1/mutants.sh` runs every mutant named below.
+
+| # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| W6.1-01 | 2026-09-26 08:36:33 UTC | W6.1 A: `FuzzRetryAfter`, 10 min | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.00 → 10.14 | `sh /tmp/ts-spike/w6.1-fuzz-l.sh 600s FuzzRetryAfter:.` (`go test -run '^$' -fuzz '^FuzzRetryAfter$' -fuzztime 600s -parallel 8 .`; fuzz cache cleared before the first target) | PASS, no failing input; 26 104 407 execs, 256 new inputs in the cache; seeds 38 rows + 22 Rust files | `results/l-fuzz-campaigns.txt`; the per-input bound armed on every input |
+| W6.1-02 | 2026-09-26 08:46:34 UTC | W6.1 A: `FuzzTagGrammar`, 10 min | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 10.14 → 18.03 | `sh /tmp/ts-spike/w6.1-fuzz-l.sh 600s FuzzTagGrammar:.` (`go test -run '^$' -fuzz '^FuzzTagGrammar$' -fuzztime 600s -parallel 8 .`; fuzz cache cleared before the first target) | PASS, no failing input; 21 277 926 execs, 467 new inputs; seeds `tagGrammarSeeds` (no Rust corpus: the Rust SDK has no tag grammar) | `results/l-fuzz-campaigns.txt` |
+| W6.1-03 | 2026-09-26 08:56:35 UTC | W6.1 A: `FuzzDecodeResponse` (System One and models decoders), 10 min | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 18.03 → 8.48 | `sh /tmp/ts-spike/w6.1-fuzz-l.sh 600s FuzzDecodeResponse:./internal/codec/` (`go test -run '^$' -fuzz '^FuzzDecodeResponse$' -fuzztime 600s -parallel 8 ./internal/codec/`; fuzz cache cleared before the first target) | PASS, no failing input; 22 340 113 execs, 245 new inputs; seeds every fixture but the 10k flood, 7 rows, 22 Rust files | `results/l-fuzz-campaigns.txt` |
+| W6.1-04 | 2026-09-26 09:06:38 UTC | W6.1 A: `FuzzErrorBody`, 10 min | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 8.48 → 8.28 | `sh /tmp/ts-spike/w6.1-fuzz-l.sh 600s FuzzErrorBody:./internal/codec/` (`go test -run '^$' -fuzz '^FuzzErrorBody$' -fuzztime 600s -parallel 8 ./internal/codec/`; fuzz cache cleared before the first target) | PASS, no failing input; 32 422 578 execs, 324 new inputs; seeds 25 rows + 22 Rust files | `results/l-fuzz-campaigns.txt`; `mutants.sh` A: a watchdog that never fires fails `TestBoundFuzzInput` |

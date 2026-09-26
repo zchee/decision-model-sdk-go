@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"model\":\"test\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"answers\":{\"spam\":{\"type\":\"noul\",\"noul\":0.9},\"mystery\":{\"type\":\"aurora\",\"value\":3}}}\n")

@@ -18,6 +18,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
 // isSecretHeaderLower is isSecretHeader as it was before W5.3: the name
@@ -29,11 +31,14 @@ func isSecretHeaderLower(name string) bool {
 }
 
 // FuzzIsSecretHeader checks that isSecretHeader, which folds an ASCII name's
-// letters in place, gives strings.ToLower's verdict on any name: the six
-// names and the two words in every case, next to other bytes, split, cut
-// short, and spelled with runes that lower-case to ASCII letters (the
-// Kelvin sign K, the dotted capital I) or fold to them without
-// lower-casing to them (the long s).
+// letters in place, gives strings.ToLower's verdict on any name, within
+// the per-input bound: the six names and the two words in every case,
+// next to other bytes, split, cut short, and spelled with runes that
+// lower-case to ASCII letters (the Kelvin sign K, the dotted capital I)
+// or fold to them without lower-casing to them (the long s). Its seed corpus
+// runs as a test in CI's -race test step (go test -race with coverage) on
+// ubuntu-26.04, xcode-27 and windows-2025, and the fuzz job fuzzes it for
+// 60 s on ubuntu-26.04.
 func FuzzIsSecretHeader(f *testing.F) {
 	for _, seed := range []string{
 		"", "a", "Authorization", "PROXY-AUTHORIZATION", "x-api-key", "Api-Key", "Cookie", "Set-Cookie",
@@ -45,6 +50,7 @@ func FuzzIsSecretHeader(f *testing.F) {
 		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, name string) {
+		defer testsupport.BoundFuzzInput(t)()
 		if got, want := isSecretHeader(name), isSecretHeaderLower(name); got != want {
 			t.Errorf("isSecretHeader(%q) = %t, strings.ToLower's rule says %t", name, got, want)
 		}

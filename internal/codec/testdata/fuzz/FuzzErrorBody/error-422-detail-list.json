@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"detail\":[{\"loc\":[\"body\",\"questions\",\"spam\",0],\"msg\":\"field required\",\"type\":\"missing\"},{\"loc\":\"x\",\"msg\":7},3]}")

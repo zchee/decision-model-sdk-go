@@ -23,6 +23,8 @@ import (
 	"unicode/utf8"
 
 	gocmp "github.com/google/go-cmp/cmp"
+
+	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
 // formatTag writes s back as a tag, in a canonical form: the keys in the
@@ -144,20 +146,25 @@ var tagGrammarSeeds = []string{
 	`json:"spam" typesafe:"kind=noul;optional" xml:x`,
 }
 
-// FuzzTagGrammar checks the tag grammar on any input: parseTag never
-// panics; a tag it accepts has no empty values, is valid UTF-8 and survives
-// a round trip through formatTag unchanged; a tag it refuses is refused with
-// a *tagError, the same one each time. The same tag on a field of each
-// answer type and of a string type either asks a question that
-// Questions.Prepare accepts or is refused with a *ConfigError that names the
-// field. Read as a whole struct tag instead, the input gives lookupTag the
-// result reflect.StructTag.Lookup gives, unless lookupTag reports a problem.
+// FuzzTagGrammar checks the tag grammar on any input, within the per-input
+// bound: parseTag never panics; a tag it accepts has no empty values, is
+// valid UTF-8 and survives a round trip through formatTag unchanged; a tag
+// it refuses is refused with a *tagError, the same one each time. The same
+// tag on a field of each answer type and of a string type either asks a
+// question that Questions.Prepare accepts or is refused with a *ConfigError
+// that names the field. Read as a whole struct tag instead, the input gives
+// lookupTag the result reflect.StructTag.Lookup gives, unless lookupTag
+// reports a problem.
+// Its seed corpus runs as a test in CI's -race test step (go test -race
+// with coverage) on ubuntu-26.04, xcode-27 and windows-2025, and the
+// fuzz job fuzzes it for 60 s on ubuntu-26.04.
 func FuzzTagGrammar(f *testing.F) {
 	for _, seed := range tagGrammarSeeds {
 		f.Add(seed)
 	}
 	fieldTypes := []reflect.Type{noulAnswerType, choiceAnswerType, scoreAnswerType, reflect.TypeFor[string]()}
 	f.Fuzz(func(t *testing.T, tag string) {
+		defer testsupport.BoundFuzzInput(t)()
 		spec, err := parseTag(tag)
 		spec2, err2 := parseTag(tag)
 		if err != nil {
