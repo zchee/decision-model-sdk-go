@@ -183,6 +183,14 @@ func TestParseTag(t *testing.T) {
 			tag:  "options=x=a=b",
 			want: tagSpec{options: []tagOption{{label: "x", description: "a=b"}}, keys: keyOptions},
 		},
+		"success: | in a description ends the option": {
+			tag:  "options=calm=neutral|polite|angry",
+			want: tagSpec{options: []tagOption{{label: "calm", description: "neutral"}, {label: "polite"}, {label: "angry"}}, keys: keyOptions},
+		},
+		`success: \| in a description stays in it`: {
+			tag:  `options=calm=neutral\|polite|angry`,
+			want: tagSpec{options: []tagOption{{label: "calm", description: "neutral|polite"}, {label: "angry"}}, keys: keyOptions},
+		},
 		"success: = stands for itself in a level": {
 			tag:  "levels=a=b|c",
 			want: tagSpec{levels: []string{"a=b", "c"}, keys: keyLevels},

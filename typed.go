@@ -78,11 +78,14 @@ import (
 // [Questions] instead. A value may contain any character, but four must be
 // escaped where they would otherwise end something: "\;" is a ";", "\|" a
 // "|", "\=" a "=" and "\\" a backslash. A ";" always ends the entry, so it is
-// escaped in every value. A "|" ends an option or a level, and the first "="
-// of an option ends its label; elsewhere, such as in instructions or after an
-// option's label, "|" and "=" stand for themselves and escaping them is
-// allowed but not needed. No other escape exists, keys are never escaped, and
-// no space is trimmed. These are errors: an unknown key, a key given twice, a
+// escaped in every value. A "|" ends an option or a level, so it is escaped
+// in every option and level, descriptions included:
+// options=calm=neutral|polite|angry asks three options, calm, polite and
+// angry, where options=calm=neutral\|polite|angry asks two. The first "=" of
+// an option ends its label, and a later "=" belongs to the description. In
+// instructions, name, yes and no, "|" and "=" stand for themselves, and in a
+// level "=" does; escaping them there is allowed but not needed. No other
+// escape exists, keys are never escaped, and no space is trimmed. These are errors: an unknown key, a key given twice, a
 // key the kind does not take (yes and no belong to noul, options to choice,
 // levels to score), an empty value, an empty entry (";;", or a ";" at either
 // end), an empty option, level, label or description, a backslash before
