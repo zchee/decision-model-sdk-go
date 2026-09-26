@@ -117,8 +117,9 @@ import (
 //     an answer field has a typesafe tag;
 //   - a field is a pointer to an answer type (write optional instead);
 //   - an unexported field has a typesafe tag;
-//   - an embedded struct, or pointer to one, has a field with a typesafe tag,
-//     directly or in a struct embedded in it: its fields are not promoted;
+//   - a struct-typed field, embedded or named, value or pointer, holds a
+//     field with a typesafe tag at any depth: the fields of a nested struct
+//     are not read, and an embedded struct's are not promoted;
 //   - T is not a struct type (a pointer to a struct included);
 //   - a question name is reserved;
 //   - optional is given on a field that is not an answer field;
@@ -128,9 +129,10 @@ import (
 //
 // Fields that are neither answer fields nor tagged, and unexported fields
 // without a typesafe tag, are ignored. Fields of an embedded struct are not
-// promoted: only T's own fields are read, so an embedded struct whose fields
-// carry typesafe tags is refused rather than silently skipped, and one
-// without such tags is ignored like any other untagged field. A type alias of
+// promoted, and those of a named struct-typed field are not read: only T's
+// own fields are, so a struct-typed field whose type holds typesafe tags is
+// refused rather than silently skipped, and one without such tags is
+// ignored like any other untagged field. A type alias of
 // an answer type is that answer type; a type defined from one is not an
 // answer type.
 //
@@ -333,10 +335,14 @@ var reservedNames = [...]string{"type", "model", "usage", "answers"}
 func planField(outer string, f *reflect.StructField) (q typedQuestion, asks bool, err error) {
 	at := "PreparedFor[" + outer + "]: field " + f.Name + ": "
 	tag, tagged, problem := lookupTag(f.Tag)
-	if !tagged && problem == "" && f.Anonymous {
-		if path := promotedTag(f.Name, f.Type, nil); path != "" {
-			name := path[strings.LastIndexByte(path, '.')+1:]
-			return q, false, newConfigError(at + "fields of an embedded struct are not promoted, and " + path + " has a typesafe tag; declare " + name + " in " + outer + " itself, since PreparedFor reads only the struct's own fields.")
+	if !tagged && problem == "" && answerKind(derefAll(f.Type)) == wire.KindUnknown {
+		if inner := taggedPath(f.Type, map[reflect.Type]struct{}{}); inner != "" {
+			name := inner[strings.LastIndexByte(inner, '.')+1:]
+			rule := "fields of a nested struct are not read"
+			if f.Anonymous {
+				rule = "fields of an embedded struct are not promoted"
+			}
+			return q, false, newConfigError(at + rule + ", and " + f.Name + "." + inner + " has a typesafe tag; declare " + name + " in " + outer + " itself, since PreparedFor reads only the struct's own fields.")
 		}
 	}
 	if !f.IsExported() {
@@ -428,26 +434,29 @@ func planField(outer string, f *reflect.StructField) (q typedQuestion, asks bool
 	return q, true, nil
 }
 
-// promotedTag returns the path, starting at path, of the first field with a
-// typesafe key that embedding a field of type t would promote: a field of the
-// struct t (or points to), or of a struct embedded in it at any depth. It
-// returns "" when there is none, or when t is not a struct or a pointer to
-// one. seen holds the struct types on the path so far, so that a struct
-// that embeds a pointer to itself ends the walk.
-func promotedTag(path string, t reflect.Type, seen []reflect.Type) string {
+// taggedPath returns the path, relative to the struct type t or the struct
+// t points to, of the first field inside it with a typesafe key: one of its
+// own fields, or a field of one of its struct-typed fields, embedded or
+// named, value or pointer, at any depth. It returns "" when there is none,
+// and when t is neither a struct nor a pointer to one; answer types are not
+// searched. seen holds the struct types searched so far: one that was
+// searched had no such field, so a type shared by two fields, or a struct
+// that points to itself, is searched once.
+func taggedPath(t reflect.Type, seen map[reflect.Type]struct{}) string {
 	t = derefAll(t)
-	if t.Kind() != reflect.Struct || slices.Contains(seen, t) {
+	if t.Kind() != reflect.Struct || answerKind(t) != wire.KindUnknown {
 		return ""
 	}
-	seen = append(seen, t)
+	if _, ok := seen[t]; ok {
+		return ""
+	}
+	seen[t] = struct{}{}
 	for f := range t.Fields() {
 		if _, tagged, problem := lookupTag(f.Tag); tagged || problem != "" {
-			return path + "." + f.Name
+			return f.Name
 		}
-		if f.Anonymous {
-			if found := promotedTag(path+"."+f.Name, f.Type, seen); found != "" {
-				return found
-			}
+		if inner := taggedPath(f.Type, seen); inner != "" {
+			return f.Name + "." + inner
 		}
 	}
 	return ""
