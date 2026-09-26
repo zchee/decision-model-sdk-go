@@ -71,14 +71,14 @@ jobs:
       # the major-only pin rule cannot apply; Dependabot bumps this full version.
       - uses: astral-sh/setup-uv@v10.2.0
 
-      - name: Test the matrix checker
-        run: uvx pytest -q -p no:cacheprovider .github/scripts
+      - name: Test the checker scripts
+        run: uvx --with pyyaml pytest -q -p no:cacheprovider .github/scripts
 
       - name: Check the port test matrix against the upstream tests
         run: uv run --script .github/scripts/port-test-matrix.py --upstream upstream
       # W6.3 adds: --no-planned on the step above, then
-      # .github/scripts/uncovered-lines.py --profile <coverage> --doc docs/uncovered-lines.md
-      # and .github/scripts/docs-snippets.py --readme README.md --docs docs --examples examples.
+      # .github/scripts/docs-snippets.py --readme README.md --docs docs --examples examples.
+      # uncovered-lines.py runs in the test job, which has the coverage profile.
 
       - name: Report available dependency updates
         run: go list -m -u all
@@ -224,6 +224,21 @@ jobs:
           flags: ${{ matrix.os }}
           # W2.0 produces coverage (plan section 12, ruling R70).
           fail_ci_if_error: true
+
+      # setup-uv publishes no floating major tag (only vX.Y.Z tags since v8), so
+      # the major-only pin rule cannot apply; Dependabot bumps this full version.
+      - if: matrix.os == 'ubuntu-26.04'
+        uses: astral-sh/setup-uv@v10.2.0
+
+      # AC-Q2: every block that the -race step's profile leaves at zero,
+      # outside the paths .codecov.yaml ignores, has a row with a reason in
+      # docs/uncovered-lines.md, and no row outlives its block. It runs after
+      # the upload, so a failure here still leaves Codecov its report, and on
+      # one image: the document describes the ubuntu -race profile, and a
+      # block that timing covers only sometimes has a range row there.
+      - name: Every uncovered block has a reason (AC-Q2)
+        if: matrix.os == 'ubuntu-26.04'
+        run: uv run --script .github/scripts/uncovered-lines.py --profile coverage.out --doc docs/uncovered-lines.md
 
   # W6.1 adds a fuzz job on ubuntu-26.04: FuzzDecodeResponse and FuzzErrorBody
   # (./internal/codec/), FuzzRetryAfter and FuzzTagGrammar (.), 60 s each, one

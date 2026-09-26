@@ -9,6 +9,11 @@
 codecov:
   allow_coverage_offsets: true
   require_ci_to_pass: false
+  # The test job uploads one report per runner image (three). The statuses,
+  # which a wave's landing evidence quotes (ruling R119), wait for all of
+  # them rather than reporting on the first uploads to arrive.
+  notify:
+    after_n_builds: 3
 
 # https://docs.codecov.com/docs/codecovyml-reference#parsers
 parsers:
@@ -29,13 +34,20 @@ coverage:
     default_rules:
       flag_coverage_not_uploaded_behavior: include
     project:
+      # AC-Q2: blocking from W6.3 of the port plan (section 12): the status
+      # fails when the project's coverage is below 85 %.
       default:
         target: 85%
         threshold: 1.0
         if_not_found: success
-        # Informational until W6.3 of the port plan, then blocking.
+        informational: false
+      # AC-Q2's aim, reported without blocking.
+      goal:
+        target: 90%
+        if_not_found: success
         informational: true
     patch:
+      # The lines a change adds or modifies: 90 %, reported without blocking.
       default:
         target: 90%
         # No only_pulls: waves land on main without pull requests (ruling R2).
@@ -55,6 +67,7 @@ ignore:
 # https://docs.codecov.com/docs/pull-request-comments
 comment:
   layout: "header, diff, flags, files"
+  after_n_builds: 3
   behavior: default
   require_changes: false
   show_carryforward_flags: true

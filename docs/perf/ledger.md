@@ -5412,3 +5412,165 @@ lane's `Claude-Session` line; b4faf7c (e80c897) carries `Co-Authored-By`
 only, as ruling R118 allows from 08:30 UTC. The successor lane's commits
 carry the lines its harness gives at commit time: `Co-Authored-By` and a
 `Claude-Session` line with its own session.
+
+## W6.3: coverage per package (AC-Q2) and the uncovered-lines check
+
+W6.3 measures statement coverage at 67dcbb0 (main after W5.2), gives every
+block the tests never run a row with a reason in
+[`../uncovered-lines.md`](../uncovered-lines.md), checks that document in
+CI with `.github/scripts/uncovered-lines.py` against the ubuntu-26.04
+`-race` profile, and makes Codecov's project status blocking at 85 %
+(`.codecov.yaml`: `default` 85 %, threshold 1, blocking; `goal` 90 %,
+informational; patch 90 %, informational; statuses and the comment wait
+for all three uploads, `after_n_builds: 3`; accepted by
+`https://codecov.io/validate` 2026-09-26 18:40:50 JST). No production file changes. Raw files are
+in `_spikes/w6.3/results/`: `coverage-L-race-67dcbb0.txt` (the profile the
+document was written from, the one closest to CI's ubuntu -race upload),
+`coverage-M-nonrace-67dcbb0.txt` (the charter's command on (M)) and
+`coverage-runs.md` (every run, its times from `date`, and the table below).
+Coverage runs are not timing runs and held no bench lock; each ran from a
+`git archive` copy, never from the working tree.
+
+Commands: (M) darwin/arm64, 16 cores (`sysctl -n hw.ncpu`),
+`GOEXPERIMENT=nosimd,noruntimesecret go test [-race] -count=1 -coverprofile=… -covermode=atomic ./...`,
+four times each way, 2026-09-26 17:02:51 → 17:09:08 JST; (L)
+`go test [-race] -count=1 -coverprofile=… -covermode=atomic ./...` with
+`/tmp/ts-spike/go` (go1.27.1): twice with -race and once without on 44 CPUs,
+08:05:17 → 08:07:31 UTC, then five times with -race under
+`taskset -c 0-3` (a CI runner's four vCPUs), 08:09:57 → 08:15:07 UTC. One
+(M) -race run is excluded: its root package failed because the working tree
+changed during the run (W6.3's own edit of the API golden), not a product
+failure. 15 profiles remain.
+
+| Package | Statements covered (min–max over 15 runs) |
+| --- | ---: |
+| root | 98.6 % |
+| `internal/codec` | 96.4 % |
+| `internal/h2gate` | 96.0–96.4 % |
+| `internal/wire` | 99.7 % |
+| `internal/testsupport` (ignored by Codecov) | 90.8–91.3 % |
+| `internal/testsupport/naive` (ignored by Codecov) | 93.1 % |
+| all packages | 96.2–96.4 % |
+| Codecov's scope (without its ignored paths) | 97.9–98.0 % |
+
+AC-Q2's 85 % holds with 12.9 points to spare in Codecov's scope (Codecov
+counts lines, with partials as hits, so its figure differs from the
+statement figure in the last decimals). Zero-count blocks in that scope:
+85 in every run plus one that timing covers in 4 of the 15 runs
+(`internal/h2gate/transport.go`, `(*Transport).RoundTrip`, the waiter that
+finds the connection warm), 3003 blocks in all: 77 rows in the document,
+86 blocks at most (34 Defensive, 45 Gap, 5 Race, 2 Other package; every
+Race row a `0-1` range, since a run's scheduling may cover it). The review
+(review-w6-3 MINOR 1) moved two rows from Defensive to Gap because a
+caller of the public API can reach them: `markUnsettled`'s non-comparable
+connection (a `WithHTTPTransport` dialer) and the body reference-count
+overflow (a `WithRoundTripper` calling `GetBody` 2^31-1 times, impractical
+to test). The checker passes on all 15 profiles. A
+cross-package run (`-coverpkg=./...`, on 48fca9e, 17:32:36 → 17:32:55 JST)
+covers 3 of the 86: the timing block and two `internal/codec` blocks that
+root-package tests reach (the two "Other package" rows).
+
+Findings:
+
+- critic-p3 n-11 ("the Codecov step has no `fail_ci_if_error`") was
+  already in force: `fail_ci_if_error: true` is on the upload step since
+  b214a57 (ruling R70), line 180 of ci.yaml; the critic's citation,
+  lines 171-178, ended two lines above it. Nothing changed.
+- (M) toolchain, measured 2026-09-26 17:31:18 JST: `go` on PATH is
+  `/opt/local/go/bin/go` (go1.28-devel), which switches to go1.27.1 through
+  the Go env file's `GOTOOLCHAIN=go1.27.1+auto`. The linters in
+  `~/go/bin` were built by other toolchains: gofumpt, modernize and
+  golangci-lint v2.13.2 by go1.28-devel, staticcheck by go1.27-devel (all
+  four work on this module), govulncheck by go1.26-devel, which cannot load
+  a `go 1.27` module ("package requires newer Go version go1.27
+  (application built with go1.26)"). W6.3's gates run govulncheck as
+  `go run golang.org/x/vuln/cmd/govulncheck@latest`, built by go1.27.1, as
+  the other lanes do; nothing was installed. CI builds every tool with
+  setup-go's go1.27.1 and is not affected.
+
+### Rebased onto f73ab2b (main after W5.3 and W5.4)
+
+W6.3 was rebased onto f73ab2b, 40 commits past 67dcbb0 (W5.3's 23,
+W5.4's 17), and measured again on the rebased tree, whose production
+files are f73ab2b's. The commands are the ones above, each run from a
+`git archive` copy with no bench lock held; the lock was free at every
+start and end. (M) darwin/arm64, 16 cores,
+`GOEXPERIMENT=nosimd,noruntimesecret`: non-race 2026-09-26 23:42:39 →
+23:42:57 JST, -race → 23:44:01 JST, 1-minute load 6.5–6.8 throughout;
+the cross-package run 23:45:40 → 23:45:59 JST. (L) linux/amd64, go1.27.1:
+-race twice on 44 CPUs, 14:49:08 → 14:51:47 UTC (load 1.45–2.96), and
+twice under `taskset -c 0-3`, 14:51:47 → 14:54:11 UTC (load 2.67–3.17).
+Every run exited 0 with no FAIL line. Raw files:
+`coverage-L-race-f73ab2b.txt` (the -race profile with the most zero
+blocks, as CI's ubuntu job checks), `coverage-M-nonrace-f73ab2b.txt`, and
+the per-run table in `coverage-runs.md`.
+
+| Package | 67dcbb0 (15 runs) | f73ab2b (6 runs) |
+| --- | ---: | ---: |
+| root | 98.6 % | 98.6 % |
+| `internal/codec` | 96.4 % | 96.6 % |
+| `internal/h2gate` | 96.0–96.4 % | 96.0–96.4 % |
+| `internal/wire` | 99.7 % | 99.5 % |
+| `internal/testsupport` (ignored by Codecov) | 90.8–91.3 % | 90.9–91.3 % |
+| `internal/testsupport/naive` (ignored by Codecov) | 93.1 % | 93.1 % |
+| all packages | 96.2–96.4 % | 96.3–96.4 % |
+| Codecov's scope | 97.9–98.0 % | 97.95–97.99 % |
+| zero-count blocks in that scope | 85–86 of 3003 | 87–88 of 3117 |
+
+The timing row (`stateWarm`) was covered in 3 of the 6 runs. The checker
+passes on all six profiles: 78 rows, 88 blocks at most (37 Defensive, 44
+Gap, 5 Race, 2 Other package). The rebase changed six rows of
+`docs/uncovered-lines.md`:
+
+- Removed, covered now by W5.3's codec tests:
+  `internal/codec/commit.go` `(*visitor).commitAnswer` (an answer
+  without `type`, a Gap) and `internal/codec/visitor.go`
+  `(*visitor).scalar` `return errRootNotObject` (an Other package row;
+  the codec's own tests now send a scalar root).
+- Added, `internal/codec/decode.go` `(*decoder).traverse`
+  `return jsonErr(err)` (K36's one-scan path), Defensive: the error of
+  `(*visitor).OnObjectEnd`, which calls `end`, and `end` returns nil on
+  every path.
+- Added, `questions.go` `falsyJSON` `return false`, two blocks (Prepare
+  P2), Defensive: `maybeFalsyJSON` lets through only values that start
+  as a falsy one, and a valid such value compacts to one of the five
+  literals or to a number with no digit 1-9 before its exponent
+  (`wire.AppendJSON` keeps a number's spelling). A probe (2026-09-26
+  23:47:07 JST) called `falsyJSON` on every string of up to 5 bytes over
+  21 bytes that start or continue JSON values and on 21 chosen values,
+  5 399 063 calls (`e` was listed twice, so some strings twice): both
+  blocks stayed at 0 while the return after a refused value was reached
+  1 045 786 times; the public route, a raw score question with invalid
+  criteria (`nul`, `-`, `[] x`, `""x`, `0x`), ends there with a
+  `ConfigError`.
+- Added, `internal/wire/prepared.go` `(*Builder).GrowLevels` (Prepare
+  P4), Other package: its one caller is `(*Questions).Prepare`; the
+  cross-package run covers it 1395 times.
+
+The review's preview on W5.3's work in progress (7df5a6b) named the
+`traverse` block and the two removals; `falsyJSON` and `GrowLevels`
+came with P2 and P4 after it. Four existing rows sit in functions W5.3
+changed (`(*Client).attempt`, `(*decoder).finish`, `(*visitor).begin`,
+`(*Questions).Prepare`); their blocks' conditions did not change, and
+`Builder.Finish` still fails only on a duplicate name. The review's two
+wording notes on a5b5e53 are in: the `Body.Open` overflow row says
+minutes of CPU with bounded memory (a Gap still), and the three rows
+that relied on W6.1's differential say W6.1 adds `FuzzDecodePaths` (on
+`wave/w6.1`, not yet on main).
+
+The API golden now pins comparability (review V63): each of the 37
+exported types' declaration lines in `testdata/api/public-api.txt` ends
+in `, comparable` (13) or `, incomparable` (24), from
+`types.Comparable`; `RetryPolicy` reads incomparable. It was regenerated
+with `-update` for that change alone (2026-09-26 23:44:00 JST): with the
+column stripped the file equals the previous golden byte for byte (`cmp`
+exit 0), and `client-options.txt` is unchanged. Mutants, 23:51:43 →
+23:52:21 JST: the nine of the first run behave as before (added exported
+func or field, changed or added option, a With* returning int, an option
+not named With*, a missing golden and -update under CI fail; a
+parameter rename with a comment edit passes); `Stats` gaining a
+`_ [0]func()` field fails on `type Stats struct, incomparable`;
+`RetryPolicy` losing its own field fails the root test binary's link, the
+Go 1.27.1 linker panic W5.3-94 records, on (M) and on (L) alike, and with
+`TestRetryPolicyRules`' `Comparable()` check removed so that it links,
+`TestPublicAPISurface` fails on `type RetryPolicy struct, comparable`.

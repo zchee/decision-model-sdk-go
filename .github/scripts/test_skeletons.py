@@ -1,4 +1,4 @@
-"""Tests for the W6.3 skeletons uncovered-lines.py and docs-snippets.py.
+"""Tests for the W6.3 skeleton docs-snippets.py.
 
 Run from the repository root with ``uvx pytest -q .github/scripts``.
 """
@@ -17,12 +17,6 @@ HERE = Path(__file__).parent
 
 # Script file name -> the flags of its final interface.
 SKELETONS = {
-    "uncovered-lines.py": [
-        "--profile",
-        "coverage.out",
-        "--doc",
-        "docs/uncovered-lines.md",
-    ],
     "docs-snippets.py": [
         "--readme",
         "README.md",
