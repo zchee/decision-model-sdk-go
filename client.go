@@ -232,7 +232,7 @@ func (c *Client) SystemOne(ctx context.Context, state any, qs *Prepared, opts ..
 		return nil, err
 	}
 	defer body.Release()
-	call := new(systemOneAlloc)
+	call, spare := newSystemOneAlloc(qs.Len())
 	rq := request{
 		method:   http.MethodPost,
 		url:      c.cfg.systemOneURL,
@@ -246,7 +246,7 @@ func (c *Client) SystemOne(ctx context.Context, state any, qs *Prepared, opts ..
 	}
 	resp := &call.resp
 	err = c.send(ctx, &rq, s.retry, &resp.meta, func() error {
-		return decodeSystemOne(ctx, c.cfg.logger, &resp.meta, c.systemOneEndpoint, c.cfg.redactor(), qs, model, &resp.res)
+		return decodeSystemOneInto(ctx, c.cfg.logger, &resp.meta, c.systemOneEndpoint, c.cfg.redactor(), qs, model, &resp.res, spare)
 	})
 	if err != nil {
 		return nil, err
@@ -261,6 +261,44 @@ func (c *Client) SystemOne(ctx context.Context, state any, qs *Prepared, opts ..
 type systemOneAlloc struct {
 	resp SystemOneResponse
 	url  url.URL
+}
+
+// systemOneAllocWith is a systemOneAlloc with the array of the response's
+// answer entries, E, in the same allocation.
+type systemOneAllocWith[E any] struct {
+	systemOneAlloc
+	entries E
+}
+
+// maxInlineAnswers is the largest question set whose answer entries are
+// allocated with the call's response.
+const maxInlineAnswers = 4
+
+// newSystemOneAlloc allocates a call's systemOneAlloc and, for a question
+// set of n questions, 1 to maxInlineAnswers, an array of n answer entries
+// in the same allocation, which it returns as an empty slice for the
+// decode (codec.DecodeSystemOneInto): a response that answers the
+// questions asked, the usual case, then costs no allocation for its
+// entries. Each size is its own type, so the array is exactly n entries.
+// A larger set gets its entries from the decode, in an allocation of their
+// own, as does a response with more answers than questions.
+func newSystemOneAlloc(n int) (*systemOneAlloc, []wire.AnswerEntry) {
+	switch n {
+	case 1:
+		a := new(systemOneAllocWith[[1]wire.AnswerEntry])
+		return &a.systemOneAlloc, a.entries[:0]
+	case 2:
+		a := new(systemOneAllocWith[[2]wire.AnswerEntry])
+		return &a.systemOneAlloc, a.entries[:0]
+	case 3:
+		a := new(systemOneAllocWith[[3]wire.AnswerEntry])
+		return &a.systemOneAlloc, a.entries[:0]
+	case maxInlineAnswers:
+		a := new(systemOneAllocWith[[maxInlineAnswers]wire.AnswerEntry])
+		return &a.systemOneAlloc, a.entries[:0]
+	default:
+		return new(systemOneAlloc), nil
+	}
 }
 
 // modelsAlloc is systemOneAlloc for a list-models call.

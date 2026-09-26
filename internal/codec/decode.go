@@ -253,8 +253,17 @@ func (d *decoder) release() {
 // appear, the first member of the answer in schema order that is missing,
 // of the wrong kind, or holds a bad key or value.
 func DecodeSystemOne(body []byte, q *wire.Prepared, model string, dst *wire.SystemOneResult) (Skipped, error) {
+	return DecodeSystemOneInto(body, q, model, dst, nil)
+}
+
+// DecodeSystemOneInto is [DecodeSystemOne] with room for the answers: when
+// spare's capacity covers the answers the decode keeps, dst's answers are
+// stored in spare's array ([wire.Answers.GrowInto]) and cost no allocation;
+// a smaller spare, or nil, is not used. The caller gives up spare's array
+// to dst.
+func DecodeSystemOneInto(body []byte, q *wire.Prepared, model string, dst *wire.SystemOneResult, spare []wire.AnswerEntry) (Skipped, error) {
 	d := decoders.Get().(*decoder)
-	skipped, err := d.systemOne(body, q, model, dst)
+	skipped, err := d.systemOne(body, q, model, dst, spare)
 	d.release()
 	decoders.Put(d)
 	return skipped, err
@@ -274,14 +283,14 @@ func DecodeModels(body []byte, dst *wire.ModelList) error {
 	return err
 }
 
-// systemOne is DecodeSystemOne on d.
-func (d *decoder) systemOne(body []byte, q *wire.Prepared, model string, dst *wire.SystemOneResult) (Skipped, error) {
+// systemOne is DecodeSystemOneInto on d.
+func (d *decoder) systemOne(body []byte, q *wire.Prepared, model string, dst *wire.SystemOneResult, spare []wire.AnswerEntry) (Skipped, error) {
 	s := NoCopyString(body)
 	d.stats = stats{}
 	if err := d.traverse(s, body, modeSystemOne); err != nil {
 		return Skipped{}, err
 	}
-	return d.finish(s, q, model, dst)
+	return d.finish(s, q, model, dst, spare)
 }
 
 // models is DecodeModels on d.
@@ -506,8 +515,8 @@ func trailing(body []byte) error {
 
 // finish reports the first failure in the Python SDK's order, runs the lazy
 // pass when a legend level is structured, interns the strings and moves the
-// answers into dst.
-func (d *decoder) finish(src string, q *wire.Prepared, model string, dst *wire.SystemOneResult) (Skipped, error) {
+// answers into dst, in spare's array when it has room.
+func (d *decoder) finish(src string, q *wire.Prepared, model string, dst *wire.SystemOneResult, spare []wire.AnswerEntry) (Skipped, error) {
 	v := &d.v
 	var skipped Skipped
 	// The Python SDK's pre-pass over the answers: the first answer that is
@@ -556,7 +565,7 @@ func (d *decoder) finish(src string, q *wire.Prepared, model string, dst *wire.S
 	}
 	d.intern(q, model)
 	*dst = wire.SystemOneResult{Model: v.model, Usage: v.usage}
-	dst.Answers.Grow(known)
+	dst.Answers.GrowInto(spare, known)
 	for i := range v.set {
 		if e := &v.set[i]; e.ans.Kind != wire.KindUnknown {
 			dst.Answers.Put(e.name, e.ans)

@@ -539,7 +539,7 @@ func TestReleaseDropsBodyReferences(t *testing.T) {
 	for _, b := range [][]byte{[]byte(body), testsupport.Fixture(t, "structured-legend-flood-1k.json"), testsupport.Fixture(t, "result-20.json")} {
 		d := newDecoder()
 		var res wire.SystemOneResult
-		if _, err := d.systemOne(b, questionsFor(t, first), "m", &res); err != nil {
+		if _, err := d.systemOne(b, questionsFor(t, first), "m", &res, nil); err != nil {
 			t.Fatal(err)
 		}
 		d.release()

@@ -21,6 +21,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -708,6 +709,52 @@ func TestAPIErrorBodyEdgeCasesThroughClient(t *testing.T) {
 			}
 			if id, ok := ae.RequestID(); ok {
 				t.Errorf("RequestID() = %q, want none", id)
+			}
+		})
+	}
+}
+
+// TestSystemOneAnswersInline checks the answer entries a call allocates with
+// its response (W5.3, newSystemOneAlloc): each call's answers live in an
+// array of their own, so a later call changes no earlier response's
+// answers; and a response with more answers than the questions asked, or a
+// question set past maxInlineAnswers, whose entries the decode allocates,
+// decodes the same.
+func TestSystemOneAnswersInline(t *testing.T) {
+	body := testsupport.Fixture(t, "result.json")
+	one := mustPrepared(t, NewQuestions().Noul("spam", Noul{Instructions: Text("Spam?")}))
+	five := NewQuestions()
+	for _, name := range []string{"spam", "a", "b", "c", "d"} {
+		five = five.Noul(name, Noul{Instructions: Text("?")})
+	}
+	tests := map[string]struct {
+		qs *Prepared
+	}{
+		"success: three questions, the entries with the response":                {qs: q3Questions(t)},
+		"success: one question and three answers, the entries outgrow the array": {qs: one},
+		"success: five questions, past maxInlineAnswers":                         {qs: mustPrepared(t, five)},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			rec := &testsupport.Recorder{Discard: true, Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, body)}}
+			c := newTestClient(t, rec)
+			first, err := c.SystemOne(t.Context(), "x", tt.qs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			before := slices.Clone(first.res.Answers.Entries())
+			second, err := c.SystemOne(t.Context(), "x", tt.qs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if n := first.Answers().Len(); n != 3 {
+				t.Fatalf("%d answers, want result.json's 3", n)
+			}
+			if diff := gocmp.Diff(before, first.res.Answers.Entries()); diff != "" {
+				t.Errorf("the first response's answers changed with the second call (-before +after):\n%s", diff)
+			}
+			if &first.res.Answers.Entries()[0] == &second.res.Answers.Entries()[0] {
+				t.Error("two calls' responses share one array of answer entries")
 			}
 		})
 	}

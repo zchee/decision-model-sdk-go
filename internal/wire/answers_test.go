@@ -431,3 +431,51 @@ func TestScoreAnswerLookups(t *testing.T) {
 		})
 	}
 }
+
+// TestAnswersGrowInto checks that an empty set takes a spare array with room
+// for n entries, and grows its own otherwise: either way the set has room
+// for n more entries, and the entries Put stores land in spare's array
+// exactly when it was taken (W5.3, the call's inline answers).
+func TestAnswersGrowInto(t *testing.T) {
+	tests := map[string]struct {
+		spareLen int
+		spareCap int
+		putFirst bool
+		n        int
+		wantUsed bool
+	}{
+		"success: room for every entry":                       {spareCap: 3, n: 3, wantUsed: true},
+		"success: more room than needed":                      {spareCap: 4, n: 2, wantUsed: true},
+		"success: a spare with a length, its capacity counts": {spareLen: 2, spareCap: 3, n: 3, wantUsed: true},
+		"success: too little room, own array":                 {spareCap: 2, n: 3},
+		"success: no spare":                                   {n: 3},
+		"success: a set with entries, own array":              {spareCap: 8, putFirst: true, n: 2},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			spare := make([]AnswerEntry, tt.spareLen, tt.spareCap)
+			var s Answers
+			if tt.putFirst {
+				s.Put("first", Answer{Kind: KindNoul})
+			}
+			s.GrowInto(spare, tt.n)
+			if room := cap(s.Entries()) - s.Len(); room < tt.n {
+				t.Errorf("room for %d more entries after GrowInto(%d), want at least %d", room, tt.n, tt.n)
+			}
+			for i := range tt.n {
+				s.Put("q"+strconv.Itoa(i), Answer{Kind: KindNoul, Noul: NoulAnswer{Noul: float64(i)}})
+			}
+			used := tt.spareCap > 0 && &s.Entries()[0] == &spare[:1][0]
+			if used != tt.wantUsed {
+				t.Errorf("the entries are in spare's array: %t, want %t", used, tt.wantUsed)
+			}
+			want := tt.n
+			if tt.putFirst {
+				want++
+			}
+			if s.Len() != want {
+				t.Errorf("Len = %d, want %d", s.Len(), want)
+			}
+		})
+	}
+}

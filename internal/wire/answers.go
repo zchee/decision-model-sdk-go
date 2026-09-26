@@ -215,6 +215,19 @@ func (s *Answers) Grow(n int) {
 	}
 }
 
+// GrowInto is Grow for an empty set: when spare's capacity has room for n
+// entries, the entries go into spare's array from its first element (its
+// length is ignored), whose elements past len(s.Entries()) the set may
+// overwrite, and nothing is allocated; otherwise it is Grow(n). A caller
+// that gives spare keeps no other use of its array.
+func (s *Answers) GrowInto(spare []AnswerEntry, n int) {
+	if len(s.entries) == 0 && cap(spare) >= n {
+		s.entries = spare[:0]
+		return
+	}
+	s.Grow(n)
+}
+
 // Get returns the answer to the question called name, and whether there is
 // one.
 func (s *Answers) Get(name string) (Answer, bool) {

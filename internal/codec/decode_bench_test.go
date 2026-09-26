@@ -152,7 +152,7 @@ func TestLazyPassAllocations(t *testing.T) {
 			body := testsupport.Fixture(t, tt.fixture)
 			d := newDecoder()
 			var res wire.SystemOneResult
-			if _, err := d.systemOne(body, nil, "", &res); err != nil {
+			if _, err := d.systemOne(body, nil, "", &res, nil); err != nil {
 				t.Fatal(err)
 			}
 			src := NoCopyString(body)

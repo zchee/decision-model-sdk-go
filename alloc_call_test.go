@@ -64,7 +64,7 @@ func measureRuns(setup, section func()) []testsupport.Allocs {
 // attempt succeeding, no call options, the default logger) makes at most N
 // allocations of its own above the floor, where the floor is the
 // Recorder's round trip of a request built beforehand plus E_sonic, sonic's
-// own allocation for the state (frozen-budgets.md: N = 13, frozen at W5.3
+// own allocation for the state (frozen-budgets.md: N = 12, frozen at W5.3
 // after W3.4's 14; the floor is 8/640, as in W0.5). Counts are runtime.ReadMemStats deltas
 // with a warm pool, the collector off and GOMAXPROCS 1, the minimum that
 // three of five runs share (section 6.1.6). The CALL and ITEM lines are the
@@ -113,21 +113,21 @@ func TestAllocWholeCall(t *testing.T) {
 		t.Fatalf("the call %s costs less than its floor %s", total, floor)
 	}
 	own := total.Mallocs - floor.Mallocs
-	t.Logf("CALL q3 E_sonic=%s floorRT=%s floor=%s total=%s own=%d/%d (N = 13, frozen at W5.3)", esonic, floorRT, floor, total, own, total.Bytes-floor.Bytes)
+	t.Logf("CALL q3 E_sonic=%s floorRT=%s floor=%s total=%s own=%d/%d (N = 12, frozen at W5.3)", esonic, floorRT, floor, total, own, total.Bytes-floor.Bytes)
 
 	items := measureCallItems(t, c, state, qs, "")
 	t.Logf("ITEM q3 %s", items)
 
 	// Exact pins (R70 (3)'s precedent), so a change of the floor fails
-	// loudly. The frozen ceiling is N = 13 (W5.3, frozen-budgets.md; 14 at
+	// loudly. The frozen ceiling is N = 12 (W5.3, frozen-budgets.md; 14 at
 	// W3.4), and the pin is the ceiling itself (R104): an allocation added
 	// to the call fails here, and one removed moves the pin and the frozen
 	// row together.
 	if floor != (testsupport.Allocs{Mallocs: 8, Bytes: 640}) {
 		t.Errorf("the floor of one call = %s, want 8/640 (the Recorder's round trip 7/624 and E_sonic 1/16)", floor)
 	}
-	if own != 13 {
-		t.Errorf("SDK-own allocations of one call = %d, want exactly 13 (AC-P6: N = 13, frozen at W5.3)", own)
+	if own != 12 {
+		t.Errorf("SDK-own allocations of one call = %d, want exactly 12 (AC-P6: N = 12, frozen at W5.3)", own)
 	}
 
 	// q20, recorded (frozen-budgets.md AC-P6, "Recorded, not in N"; W3.4
@@ -190,8 +190,9 @@ func measureCallItems(t *testing.T, c *Client, state any, qs *Prepared, prefix s
 			req     *http.Request
 			resp    *SystemOneResponse
 			raw     []byte
+			spare   []wire.AnswerEntry
 		)
-		ca[i] = testsupport.Measure(func() { call = new(systemOneAlloc) })
+		ca[i] = testsupport.Measure(func() { call, spare = newSystemOneAlloc(qs.Len()) })
 		gb[i] = testsupport.Measure(func() { getBody = body.GetBody })
 		rqs.getBody = getBody
 		hdr[i] = testsupport.Measure(func() { h = rqs.attemptHeader(0) })
@@ -218,7 +219,7 @@ func measureCallItems(t *testing.T, c *Client, state any, qs *Prepared, prefix s
 		resp = &call.resp
 		resp.meta = wire.ResponseMeta{Status: hresp.StatusCode, Header: hresp.Header, Body: raw}
 		dec[i] = testsupport.Measure(func() {
-			err = decodeSystemOne(ctx, c.cfg.logger, &resp.meta, c.systemOneEndpoint, c.cfg.redactor(), qs, c.cfg.model, &resp.res)
+			err = decodeSystemOneInto(ctx, c.cfg.logger, &resp.meta, c.systemOneEndpoint, c.cfg.redactor(), qs, c.cfg.model, &resp.res, spare)
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -229,7 +230,7 @@ func measureCallItems(t *testing.T, c *Client, state any, qs *Prepared, prefix s
 	}
 	return callItems{
 		header:  testsupport.StableMin(t, prefix+"item header map", hdr[:]),
-		call:    testsupport.StableMin(t, prefix+"item systemOneAlloc (the response and the first URL copy)", ca[:]),
+		call:    testsupport.StableMin(t, prefix+"item systemOneAlloc (the response, the first URL copy and up to four answer entries)", ca[:]),
 		timeout: testsupport.StableMin(t, prefix+"item context.WithTimeout", to[:]),
 		request: testsupport.StableMin(t, prefix+"item Request (WithContext)", rq[:]),
 		open:    testsupport.StableMin(t, prefix+"item body.Open", open[:]),

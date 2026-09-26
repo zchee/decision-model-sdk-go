@@ -36,7 +36,7 @@ func (d *decoder) systemOneWhole(body []byte, q *wire.Prepared, model string, ds
 	if err := d.traverseWhole(s, body, modeSystemOne); err != nil {
 		return Skipped{}, err
 	}
-	return d.finish(s, q, model, dst)
+	return d.finish(s, q, model, dst, nil)
 }
 
 // modelsWhole is models as it was before W5.3, as systemOneWhole is.
@@ -98,7 +98,7 @@ func decodeBothScans(tb testing.TB, body []byte, models bool) (one, whole scanOu
 		return outcome(tb, err1, nil, Skipped{}, &m1, d1.stats), outcome(tb, err2, nil, Skipped{}, &m2, d2.stats), d1.stats.wholes == 0
 	}
 	var r1, r2 wire.SystemOneResult
-	s1, err1 := d1.systemOne(body, nil, "", &r1)
+	s1, err1 := d1.systemOne(body, nil, "", &r1, nil)
 	s2, err2 := d2.systemOneWhole(body, nil, "", &r2)
 	return outcome(tb, err1, &r1, s1, nil, d1.stats), outcome(tb, err2, &r2, s2, nil, d2.stats), d1.stats.wholes == 0
 }

@@ -38,11 +38,17 @@ import (
 // failing. A nil logger logs nothing. r redacts the error's header
 // ([headerRedactor]).
 func decodeSystemOne(ctx context.Context, logger *slog.Logger, meta *wire.ResponseMeta, endpoint string, r headerRedactor, qs *Prepared, model string, dst *wire.SystemOneResult) error {
+	return decodeSystemOneInto(ctx, logger, meta, endpoint, r, qs, model, dst, nil)
+}
+
+// decodeSystemOneInto is decodeSystemOne with spare as the room for the
+// answers ([codec.DecodeSystemOneInto]).
+func decodeSystemOneInto(ctx context.Context, logger *slog.Logger, meta *wire.ResponseMeta, endpoint string, r headerRedactor, qs *Prepared, model string, dst *wire.SystemOneResult, spare []wire.AnswerEntry) error {
 	var q *wire.Prepared
 	if qs != nil {
 		q = &qs.w
 	}
-	skipped, err := codec.DecodeSystemOne(meta.Body, q, model, dst)
+	skipped, err := codec.DecodeSystemOneInto(meta.Body, q, model, dst, spare)
 	if skipped.Count > 0 {
 		logSkipped(ctx, logger, &skipped)
 	}

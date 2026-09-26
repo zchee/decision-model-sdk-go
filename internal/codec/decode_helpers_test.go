@@ -63,7 +63,7 @@ func decodeBody(tb testing.TB, body []byte, q *wire.Prepared, model string) (*wi
 	tb.Helper()
 	d := newDecoder()
 	res := new(wire.SystemOneResult)
-	skipped, err := d.systemOne(body, q, model, res)
+	skipped, err := d.systemOne(body, q, model, res, nil)
 	st := d.stats
 	d.release()
 	return res, skipped, st, err
