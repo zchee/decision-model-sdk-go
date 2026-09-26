@@ -103,6 +103,11 @@ const (
 // exceptions has no counterpart. A duration cannot be NaN or infinite, where
 // the Python SDK refuses such a number of seconds.
 type RetryPolicy struct {
+	// _ keeps RetryPolicy incomparable, as its statuses slice and predicate
+	// made it before W5.3: the rules pointer would otherwise make == compile
+	// and compare two policies by the identity of their rules (review V63).
+	// A zero-size first field adds no byte.
+	_          [0]func()
 	maxRetries int
 	initial    time.Duration
 	maximum    time.Duration

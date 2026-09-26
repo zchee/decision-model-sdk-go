@@ -257,7 +257,8 @@ func (c *Client) SystemOne(ctx context.Context, state any, qs *Prepared, opts ..
 // systemOneAlloc is what a SystemOne call keeps on the heap, in one piece:
 // the response it returns and its first attempt's copy of the endpoint URL
 // (request.firstURL), which that attempt's request points to. The copy
-// lives as long as the response, and nothing reads it but the transport.
+// lives as long as the response, 144 B that a held response keeps alive,
+// and nothing reads it but the transport.
 type systemOneAlloc struct {
 	resp SystemOneResponse
 	url  url.URL
@@ -285,11 +286,13 @@ const maxInlineAnswers = 4
 //
 // Lifetime: the entries share one block with the response and the first
 // attempt's URL copy, so an Answers taken from the response keeps the whole
-// block reachable (704 B for three questions), as it kept the response and
-// the decode's own array before, the same bytes; an answer value copied out
-// of it holds no pointer into the block. No entry points into the body: the
-// decode copies or interns every string it stores, whichever array holds
-// the entries (TestDecodeDoesNotAliasBody, TestAnswersOutliveTheirResponse).
+// block reachable (704 B for three questions): the response and the
+// decode's array it kept before, and also the 144 B URL copy, which a held
+// response keeps alive since W5.3's N1 and which was freed with its request
+// before it; an answer value copied out of it holds no pointer into the
+// block. No entry points into the body: the decode copies or interns every
+// string it stores, whichever array holds the entries
+// (TestDecodeDoesNotAliasBody, TestAnswersOutliveTheirResponse).
 func newSystemOneAlloc(n int) (*systemOneAlloc, []wire.AnswerEntry) {
 	switch n {
 	case 1:

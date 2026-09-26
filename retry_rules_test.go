@@ -24,10 +24,14 @@ import (
 // predicate (ruling R97-corr (c), W5.3): behind one pointer, so that the
 // policy is 56 bytes and the options of a call, which hold it by value, fit
 // the 128-byte size class; copies share the pointer, and a setter replaces
-// it without touching the policy it was called on or any copy of it.
+// it without touching the policy it was called on or any copy of it. The
+// policy stays incomparable, as it was before the pointer (review V63).
 func TestRetryPolicyRules(t *testing.T) {
 	if got := reflect.TypeFor[RetryPolicy]().Size(); got != 56 {
 		t.Errorf("RetryPolicy is %d bytes, want 56", got)
+	}
+	if reflect.TypeFor[RetryPolicy]().Comparable() {
+		t.Error("RetryPolicy is comparable, want it not: == would compare two policies' rules by identity (review V63)")
 	}
 	if got := reflect.TypeFor[callOptions]().Size(); got > 128 {
 		t.Errorf("callOptions is %d bytes, want at most 128, one size class below 160", got)
