@@ -80,9 +80,16 @@ func Ask[T any](ctx context.Context, c *Client, state any, opts ...CallOption) (
 // fields are read in their order in T, and the first that does not fit
 // fails the whole decode: DecodeAs returns the zero T, never one holding
 // the fields read before the failure, and a [*ResponseValidationError]
-// whose FieldPath names the answer, as the Python SDK names the same failure in a response
-// model that holds the answers under "answers" (a pydantic response_model
-// such as {"model": str, "answers": {"spam": NoulAnswer}}):
+// whose FieldPath names the answer. The paths are the ones the Python SDK
+// reports for a response model that holds the answers under "answers" (a
+// pydantic response_model such as {"model": str, "answers": {"spam":
+// NoulAnswer}}), except that an answer of a type this version does not
+// model is skipped before T is filled, as a SystemOneResponse subclass
+// skips it: under a required field's name it fails as absent
+// (answers.spam, where that model says answers.spam.type), under an
+// optional field's name it leaves the field absent, and a response without
+// an "answers" member fails at T's first required field (answers.spam,
+// where that model says answers):
 //
 //	the answer is absent and the field is not optional  answers.<name>
 //	the answer is of another kind than the field        answers.<name>.type

@@ -462,8 +462,13 @@ func decodeAs[T any]() decodeAsFunc {
 //     answers.tone.choice in Go, the nested model's path: T holds the
 //     answers the way KnownResponse's answers member does.
 //   - The rest are the nested model's paths (answers.spam,
-//     answers.spam.type, answers.missing.type), except the option and level
-//     checks, which Python makes only when the model's own types say so.
+//     answers.spam.type, answers.missing.type), with two exceptions. Python
+//     makes the option and level checks only when the model's own types say
+//     so. And an answer of an unknown type is skipped before the struct is
+//     filled, as the flat subclass skips it: under a required field's name
+//     it fails as absent (answers.spam, where the nested model says
+//     answers.spam.type), and a body without answers fails at the first
+//     required field (answers.spam, where the nested model says answers).
 func TestAskValidationFieldPaths(t *testing.T) {
 	// reviewWithFour is reviewAnswers with a fourth level, for a body whose
 	// score names level 3.
