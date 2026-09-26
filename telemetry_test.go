@@ -89,12 +89,19 @@ func newRefusingProxy(t *testing.T, reason, body string) *refusingProxy {
 // URL returns the proxy's URL.
 func (p *refusingProxy) URL() *url.URL { return &url.URL{Scheme: "http", Host: p.ln.Addr().String()} }
 
-// newEchoingProxy starts an HTTP/1.1 proxy on 127.0.0.1 that refuses every
-// CONNECT with "407 denied <password> (Proxy-Authorization: <value>)",
-// repeating the credential the CONNECT carried: the Proxy-Authorization
-// value net/http sent for the proxy URL's userinfo and the password it
-// decodes to (review W6.2 MIN-4). It stops when the test ends.
-func newEchoingProxy(t *testing.T) *refusingProxy {
+// echoStatusLine is the answer of an echoing proxy that refuses the CONNECT
+// with a well-formed status line, "407 denied <password>
+// (Proxy-Authorization: <value>)".
+func echoStatusLine(password, auth string) string {
+	return "HTTP/1.1 407 denied " + password + " (Proxy-Authorization: " + auth + ")\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+}
+
+// newEchoingProxy starts an HTTP/1.1 proxy on 127.0.0.1 that answers every
+// CONNECT with answer(password, auth), which repeats the credential the
+// CONNECT carried: auth is the Proxy-Authorization value net/http sent for
+// the proxy URL's userinfo and password the password it decodes to (review
+// W6.2 MIN-4). It stops when the test ends.
+func newEchoingProxy(t *testing.T, answer func(password, auth string) string) *refusingProxy {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -120,7 +127,7 @@ func newEchoingProxy(t *testing.T) *refusingProxy {
 						_, password, _ = strings.Cut(string(raw), ":")
 					}
 				}
-				_, _ = io.WriteString(conn, "HTTP/1.1 407 denied "+password+" (Proxy-Authorization: "+auth+")\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+				_, _ = io.WriteString(conn, answer(password, auth))
 			})
 		}
 	})
@@ -206,7 +213,7 @@ func TestTransportDebugRecordsHoldNoCredential(t *testing.T) {
 		// SDK's transport replaces it where the refusal becomes an error.
 		"a proxy's 407 that repeats its own credential": {
 			client: func(t *testing.T, logger *slog.Logger) *Client {
-				proxy := newEchoingProxy(t).URL()
+				proxy := newEchoingProxy(t, echoStatusLine).URL()
 				proxy.User = url.UserPassword(proxyUser, proxyPassword)
 				return newCredentialClient(t, logger, WithBaseURL("https://example.com"), WithProxy(http.ProxyURL(proxy)))
 			},
@@ -569,5 +576,112 @@ func TestLogWarnCapThroughClient(t *testing.T) {
 				t.Errorf("records (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestProxyEchoHoldsNoCredential checks that no answer of a proxy repeating
+// its own credential gets it past the SDK (review W6.2 MIN-4 and MINOR 1 of
+// its review): a well-formed refusal, whose status line refusedConnect
+// scrubs, and every answer net/http cannot parse, from which it builds an
+// error quoting the answer before the SDK's transport sees a response. The
+// proxy URL holds a password of 22 bytes, and each answer repeats it, or
+// the Basic token of the Proxy-Authorization value the CONNECT carried, or
+// the password as the proxy URL escapes it (its "@" is %40). No
+// rendering of the SDK error, of anything it unwraps to, nor any record at
+// DEBUG or LevelTrace holds either, and "***" stands for them in Error(), in
+// the INFO "request failed" record and in the DEBUG "h2: gate error" record.
+// A refusal is a proxy failure (Proxy() true, K16); an answer net/http
+// cannot parse comes back from it as a failure of the dial, not of the
+// proxy, and Proxy() is false (the reviewer's K16 residual). The last shape
+// is the same proxy in front of a plain-HTTP API URL, which net/http sends
+// the request itself, Proxy-Authorization included, without a CONNECT: the
+// malformed answer then fails the round trip after the dial, which the
+// attempt's classification, not the transport's, maps, and no "h2: gate
+// error" record is written.
+func TestProxyEchoHoldsNoCredential(t *testing.T) {
+	const user, password = "proxy-user", "hunter2@proxy-password"
+	token := base64.StdEncoding.EncodeToString([]byte(user + ":" + password))
+	escaped := strings.TrimPrefix(url.UserPassword("", password).String(), ":") // hunter2%40proxy-password
+	shapes := map[string]struct {
+		answer func(password, auth string) string
+		proxy  bool
+		plain  bool // a plain-HTTP API URL: no CONNECT, no gate error
+	}{
+		"a refusal whose status line repeats the password and the token": {answer: echoStatusLine, proxy: true},
+		"a malformed HTTP response (net/http quotes the status line)": {answer: func(pw, _ string) string {
+			return "HTTP/1.1_" + pw + "\r\n\r\n"
+		}},
+		"a malformed HTTP response that repeats the token": {answer: func(_, auth string) string {
+			return "HTTP/1.1_" + auth + "\r\n\r\n"
+		}},
+		"a malformed HTTP response that repeats the password as the URL escapes it": {answer: func(string, string) string {
+			return "HTTP/1.1_" + escaped + "\r\n\r\n"
+		}},
+		"a malformed HTTP status code": {answer: func(pw, _ string) string {
+			return "HTTP/1.1 " + pw + "\r\n\r\n"
+		}},
+		"a malformed HTTP version": {answer: func(pw, _ string) string {
+			return pw + " 407 denied\r\n\r\n"
+		}},
+		"a malformed MIME header (a line without a colon)": {answer: func(pw, _ string) string {
+			return "HTTP/1.1 407 denied\r\n" + pw + "\r\n\r\n"
+		}},
+		"a malformed HTTP response to a plain-HTTP request": {answer: func(pw, _ string) string {
+			return "HTTP/1.1_" + pw + "\r\n\r\n"
+		}, plain: true},
+	}
+	levels := map[string]slog.Level{"DEBUG": slog.LevelDebug, "LevelTrace": LevelTrace}
+	for shape, sh := range shapes {
+		for levelName, level := range levels {
+			t.Run("error: "+shape+" at "+levelName, func(t *testing.T) {
+				proxyURL := newEchoingProxy(t, sh.answer).URL()
+				proxyURL.User = url.UserPassword(user, password)
+				logs := testsupport.NewLogRecorder(level)
+				base := "https://example.com"
+				if sh.plain {
+					base = "http://example.com"
+				}
+				c := newCredentialClient(t, logs.Logger(), WithBaseURL(base), WithProxy(http.ProxyURL(proxyURL)))
+				_, err := callWithin(t, func(ctx context.Context) error {
+					_, err := c.Models().List(ctx, Retry(NoRetry()))
+					return err
+				})
+				ce, ok := errors.AsType[*ConnectionError](err)
+				if !ok {
+					t.Fatalf("List error = %T %v, want a *ConnectionError", err, err)
+				}
+				if ce.Proxy() != sh.proxy {
+					t.Errorf("Proxy() = %t, want %t", ce.Proxy(), sh.proxy)
+				}
+				if !strings.Contains(ce.Error(), redacted) {
+					t.Errorf("Error() = %q, want the credential replaced by %q", ce.Error(), redacted)
+				}
+				for _, secret := range []string{password, token, escaped} {
+					assertNotPrinted(t, err, secret)
+				}
+				records := recordsText(logs)
+				wantRecords := []string{"INFO request failed", "DEBUG h2: gate error"}
+				if sh.plain {
+					wantRecords = wantRecords[:1]
+				}
+				for _, want := range wantRecords {
+					line := ""
+					for l := range strings.Lines(records) {
+						if strings.Contains(l, want) {
+							line = l
+							break
+						}
+					}
+					if !strings.Contains(line, redacted) {
+						t.Errorf("the %q record %q lacks %q:\n%s", want, line, redacted, records)
+					}
+				}
+				for _, secret := range []string{password, token, escaped} {
+					if strings.Contains(records, secret) {
+						t.Errorf("the records hold %q:\n%s", secret, records)
+					}
+				}
+			})
+		}
 	}
 }

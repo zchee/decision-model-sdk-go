@@ -411,7 +411,7 @@ func TestDialErrorsMapToSDKErrors(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := transportError(tt.err, attempt, tt.header)
+			got := transportError(tt.err, attempt, requestCredentials(tt.header))
 			assertMapped(t, got, tt.err, tt.want.kind, tt.want.text, tt.want.proxy, tt.want.unwrapsErr)
 			if tt.want.kind == "" && got != nil {
 				t.Errorf("transportError = %T %v, want nil", got, got)
@@ -421,7 +421,7 @@ func TestDialErrorsMapToSDKErrors(t *testing.T) {
 		})
 	}
 	t.Run("success: a dial error without an attempt timeout", func(t *testing.T) {
-		got := transportError(&h2gate.DialError{Timeout: true, Err: timeoutCause}, 0, nil)
+		got := transportError(&h2gate.DialError{Timeout: true, Err: timeoutCause}, 0, requestCredentials(nil))
 		if got == nil || got.Error() != "Request timed out." {
 			t.Errorf("transportError = %v, want %q", got, "Request timed out.")
 		}

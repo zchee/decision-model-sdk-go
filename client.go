@@ -475,7 +475,7 @@ func (c *Client) attempt(ctx context.Context, rq *request, attempt int) (wire.Re
 	c.attempts.Add(1)
 	resp, err := c.cfg.transport.roundTrip(req, rq.timeout)
 	if err != nil {
-		err = c.attemptError(ctx, actx, rq.timeout, h, err)
+		err = c.attemptError(ctx, actx, rq.timeout, req, err)
 		c.logFailure(ctx, rq, attempt, start, err)
 		return wire.ResponseMeta{}, err
 	}
@@ -493,7 +493,7 @@ func (c *Client) attempt(ctx context.Context, rq *request, attempt int) (wire.Re
 		}
 		return meta, newAPIError(&meta, rq.endpoint, c.cfg.redactor())
 	case err != nil:
-		err = c.attemptError(ctx, actx, rq.timeout, h, err)
+		err = c.attemptError(ctx, actx, rq.timeout, req, err)
 		c.logFailure(ctx, rq, attempt, start, err)
 		return wire.ResponseMeta{}, err
 	}
@@ -527,17 +527,18 @@ func (c *Client) attempt(ctx context.Context, rq *request, attempt int) (wire.Re
 //     *ConnectionError.
 //
 // A *ConnectionError's text is the transport error's, with every credential
-// of h and every URL userinfo replaced by "***" ([credentials.redact]);
-// both types wrap the transport's error, or a stand-in for it when its
-// chain printed a credential ([credentials.cause]).
-func (c *Client) attemptError(ctx, actx context.Context, timeout time.Duration, h http.Header, err error) error {
+// of the call req made ([transport.credentials]) and every URL userinfo
+// replaced by "***" ([credentials.redact]); both types wrap the transport's
+// error, or a stand-in for it when its chain printed a credential
+// ([credentials.cause]).
+func (c *Client) attemptError(ctx, actx context.Context, timeout time.Duration, req *http.Request, err error) error {
 	if cerr := ctx.Err(); errors.Is(cerr, context.Canceled) {
 		return cerr
 	}
 	if _, ok := err.(Error); ok { //nolint:errorlint // only an error the transport returned as the SDK's own is kept.
 		return err
 	}
-	creds := requestCredentials(h)
+	creds := c.cfg.transport.credentials(req)
 	var ne net.Error
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):

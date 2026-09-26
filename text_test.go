@@ -279,7 +279,7 @@ func TestLogErrorText(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if diff := gocmp.Diff(tt.want, logErrorText(req, tt.err)); diff != "" {
+			if diff := gocmp.Diff(tt.want, (&transport{}).logErrorText(req, tt.err)); diff != "" {
 				t.Errorf("logErrorText (-want +got):\n%s", diff)
 			}
 		})
@@ -329,7 +329,7 @@ func TestRedactionCoversGoEscapeForms(t *testing.T) {
 			if _, ok := cause.(*scrubbedError); !ok || cause.Error() != want { //nolint:errorlint // the stand-in itself, not a link of its chain
 				t.Errorf("cause = %T %q, want a *scrubbedError %q", cause, cause, want)
 			}
-			if got := logErrorText(&http.Request{Header: h}, original); got != want {
+			if got := (&transport{}).logErrorText(&http.Request{Header: h}, original); got != want {
 				t.Errorf("logErrorText = %q, want %q", got, want)
 			}
 			if !strings.HasPrefix(original.Error(), "raw="+tt.credential+";") {

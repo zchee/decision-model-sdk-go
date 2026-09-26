@@ -431,7 +431,9 @@ func newResponseTooLargeError(meta *wire.ResponseMeta, endpoint string, r header
 // Retrying may help.
 //
 // Error returns "Connection error: <cause>", the cause's text escaped, cut
-// at 200 characters and with any credential of the request replaced. Unwrap
+// at 200 characters and with any credential of the request replaced, and,
+// on the transport the SDK builds, the password of the proxy it chose and
+// the Basic token sent for it, which a proxy's answer may repeat. Unwrap
 // returns the transport's error, unless it, or an error it wraps, showed a
 // credential of the request in its text, its %+v or its %#v: then it
 // returns a stand-in whose text has the credentials replaced and which

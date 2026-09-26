@@ -719,7 +719,7 @@ func TestTransportErrorTextScrubbedBeforeCut(t *testing.T) {
 			return err
 		},
 		"transportError": func(_ *testing.T, text string) error {
-			return transportError(&h2gate.DialError{Err: errors.New(text)}, time.Second, header)
+			return transportError(&h2gate.DialError{Err: errors.New(text)}, time.Second, requestCredentials(header))
 		},
 	}
 	type test struct {

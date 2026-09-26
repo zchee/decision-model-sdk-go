@@ -17,11 +17,13 @@ package typesafe
 import (
 	"cmp"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strconv"
@@ -233,33 +235,56 @@ type credentials []string
 // for, as the API key is not (ruling R68): it would match ordinary text; the
 // Python SDK looks for every value.
 func requestCredentials(h http.Header) credentials {
+	return callCredentials(h, nil)
+}
+
+// callCredentials returns the credentials a transport error of a call may
+// repeat: those of the request with header h ([requestCredentials]) and,
+// when proxy has userinfo, the credential a CONNECT to that proxy carries,
+// which the proxy's own answer may repeat in an error net/http builds from
+// it before the SDK's transport sees a response (review W6.2 MIN-4 and its
+// review's MINOR 1): the token of the Basic Proxy-Authorization value
+// net/http sends for the userinfo, and the password as it is and as the URL
+// escapes it. Each is looked for in the forms and under the length rule of
+// a header's credential.
+func callCredentials(h http.Header, proxy *url.URL) credentials {
 	var c credentials
-	add := func(v string) {
-		if !keyNeedle(v) {
-			return
-		}
-		for _, form := range [...]string{v, quotedForm(strconv.Quote(v)), quotedForm(strconv.QuoteToASCII(v)), jsonForm(v)} {
-			if !slices.Contains(c, form) {
-				c = append(c, form)
-			}
-		}
-	}
 	for name, values := range h {
 		if !isSecretHeader(name) {
 			continue
 		}
 		scheme := strings.EqualFold(name, "Authorization") || strings.EqualFold(name, "Proxy-Authorization")
 		for _, v := range values {
-			add(v)
+			c.add(v)
 			if cred, ok := afterScheme(v); scheme && ok {
-				add(cred)
+				c.add(cred)
 			}
 		}
+	}
+	if proxy != nil && proxy.User != nil {
+		user := proxy.User.Username()
+		password, _ := proxy.User.Password()
+		c.add(base64.StdEncoding.EncodeToString([]byte(user + ":" + password)))
+		c.add(password)
+		c.add(strings.TrimPrefix(url.UserPassword("", password).String(), ":"))
 	}
 	// A whole value is replaced before a credential inside it; equal lengths
 	// in a fixed order, so the result does not depend on map order.
 	slices.SortFunc(c, func(a, b string) int { return cmp.Or(cmp.Compare(len(b), len(a)), strings.Compare(a, b)) })
 	return c
+}
+
+// add adds v to c in the forms a text may hold it (see
+// [requestCredentials]), unless it is shorter than [minKeyNeedleBytes].
+func (c *credentials) add(v string) {
+	if !keyNeedle(v) {
+		return
+	}
+	for _, form := range [...]string{v, quotedForm(strconv.Quote(v)), quotedForm(strconv.QuoteToASCII(v)), jsonForm(v)} {
+		if !slices.Contains(*c, form) {
+			*c = append(*c, form)
+		}
+	}
 }
 
 // afterScheme returns what follows the scheme of an authorization value,
@@ -333,13 +358,13 @@ func (c credentials) redact(s string) (string, bool) {
 
 // logErrorText renders err, an error of the SDK's transport for the request
 // req, for the transport's DEBUG records "h2: gate error" and "h2: redial
-// error" (h2gate.Config.ErrorText, ruling R84): every credential of req's
-// header and every URL userinfo replaced by "***" ([credentials.redact]),
-// then escaped and cut at 200 characters ([safeMessage]), as the text of a
-// *ConnectionError is. The transport calls it only for a record the logger
-// keeps.
-func logErrorText(req *http.Request, err error) string {
-	text, _ := requestCredentials(req.Header).redact(err.Error())
+// error" (h2gate.Config.ErrorText, ruling R84): every credential of the call
+// ([transport.credentials]) and every URL userinfo replaced by "***"
+// ([credentials.redact]), then escaped and cut at 200 characters
+// ([safeMessage]), as the text of a *ConnectionError is. The transport calls
+// it only for a record the logger keeps.
+func (t *transport) logErrorText(req *http.Request, err error) string {
+	text, _ := t.credentials(req).redact(err.Error())
 	return safeMessage(text)
 }
 

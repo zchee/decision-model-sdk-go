@@ -247,6 +247,11 @@ type transport struct {
 	// trace is WithClientTrace's hooks, shielded per request.
 	trace  *httptrace.ClientTrace
 	logger *slog.Logger
+	// proxy is the func that chooses the proxy of the SDK's own transport
+	// (WithProxy's, or http.ProxyFromEnvironment), nil for a caller's
+	// transport (WithHTTPTransport, WithRoundTripper), whose proxy the SDK
+	// does not choose. credentials asks it again for a failed request.
+	proxy func(*http.Request) (*url.URL, error)
 
 	closeOnce sync.Once
 	closeErr  error
@@ -331,7 +336,7 @@ func (t *transportOptions) build(api *url.URL, connectTimeout time.Duration, con
 	}
 	// The gate's DEBUG records print the transport's errors through the
 	// credential scrub (ruling R84).
-	cfg := h2gate.Config{APIURL: api, Mode: h2gate.HTTP2Only, ConnectTimeout: connectTimeout, Logger: logger, ErrorText: logErrorText}
+	cfg := h2gate.Config{APIURL: api, Mode: h2gate.HTTP2Only, ConnectTimeout: connectTimeout, Logger: logger, ErrorText: tr.logErrorText}
 	if mode == HTTPAuto {
 		cfg.Mode = h2gate.HTTPAuto
 	}
@@ -350,6 +355,7 @@ func (t *transportOptions) build(api *url.URL, connectTimeout time.Duration, con
 		if t.proxySet {
 			cfg.Proxy = t.proxy
 		}
+		tr.proxy = cfg.Proxy
 		gate, err = h2gate.NewTransport(cfg)
 	}
 	if err != nil {
@@ -396,7 +402,7 @@ func (t *transport) roundTrip(req *http.Request, timeout time.Duration) (*http.R
 		sh.done(resp)
 	}
 	if err != nil {
-		if mapped := transportError(err, timeout, req.Header); mapped != nil {
+		if mapped := transportError(err, timeout, t.credentials(req)); mapped != nil {
 			return nil, mapped
 		}
 		return nil, err
@@ -476,10 +482,25 @@ func (t *transport) stats() h2gate.Stats {
 	return t.gate.Stats()
 }
 
+// credentials returns the credentials an error of the transport for req may
+// repeat ([callCredentials]): those of req's header and, on the SDK's own
+// transport, the credential of the proxy it chose for req, asked of the
+// proxy func again (it runs on the error path only). A proxy's answer that
+// net/http cannot parse becomes an error net/http builds itself, quoting the
+// answer, before refusedConnect's scrub (internal/h2gate) could see it; a
+// caller's transport keeps its own proxy, which the SDK does not ask.
+func (t *transport) credentials(req *http.Request) credentials {
+	var proxy *url.URL
+	if t.proxy != nil {
+		proxy, _ = t.proxy(req) // an error here is the transport's to report
+	}
+	return callCredentials(req.Header, proxy)
+}
+
 // transportError maps an error of the SDK's transport to the SDK's error
 // types, or returns nil for an error it leaves to the attempt's
-// classification ([Client.attemptError]). h is the header of the request
-// that failed. The order is R67 Q3's: a proxy hop that timed out is a
+// classification ([Client.attemptError]). creds are the credentials of the
+// call that failed ([transport.credentials]). The order is R67 Q3's: a proxy hop that timed out is a
 // *TimeoutError naming the proxy hop; any other proxy failure is a
 // *ConnectionError with Proxy() true, even when the proxy refused h2 (R20);
 // a failure to speak HTTP/2 is a *ConfigError wrapping
@@ -489,12 +510,11 @@ func (t *transport) stats() h2gate.Stats {
 // request or a URL's userinfo ([credentials.redact]), and each wraps the
 // transport's error, or a stand-in for it when its chain printed one
 // ([credentials.cause]).
-func transportError(err error, timeout time.Duration, h http.Header) error {
+func transportError(err error, timeout time.Duration, creds credentials) error {
 	de, isDial := errors.AsType[*h2gate.DialError](err)
 	if !isDial && !errors.Is(err, h2gate.ErrNotNegotiated) {
 		return nil
 	}
-	creds := requestCredentials(h)
 	switch {
 	case isDial && de.Proxy && de.Timeout:
 		return newProxyTimeoutError(timeout, creds.cause(err))
