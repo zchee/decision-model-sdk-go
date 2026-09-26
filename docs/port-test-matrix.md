@@ -115,15 +115,15 @@ IDs that the plan's waves cite.
 | L7 | `test_logger_level_controls_output` | `TestLogLevelsPerAttempt` (DEBUG, INFO, WARN, LevelTrace; one INFO record per attempt; no header above DEBUG, no body above LevelTrace) + `TestLogTransportRecords` + `TestLogWarnCapThroughClient` | ported |
 | L8 | `test_setup_logging_from_env` | deviation "`TYPESAFE_LOG_LEVEL` not read" + `TestLogLevelEnvNotRead` (5 upstream values × INFO, DEBUG, no `WithLogger`) | deviation |
 
-### `tests/test_pydantic_response_models.py` (5)
+### `tests/test_pydantic_response_models.py` (5, AC-F12: `TestDecodeAsAgreesWithAnswers` decodes every fixture the decoder accepts with `DecodeAs` and with `Ask`, and both equal `Answers` field by field; AC-P3: `TestAllocTypedDecode`, ledger rows W4.2-01 and W4.2-02)
 
 | ID | Upstream | Go test / deviation | status |
 | --- | --- | --- | --- |
-| P1 | `test_standalone_pydantic_response_model` | `TestDecodeAsWithSeparateQuestions` (questions built separately; `DecodeAs[KnownResponse]`; extra answer members ignored; the field is tagged `name=spam`, since a question's default name is the Go field name as written, W4.1) | planned |
-| P2 | `test_explicit_default_response_model` | `TestSystemOneDefaultResponse` | planned |
-| P3 | `test_pydantic_system_one_response_subclass` | `TestDecodeAsOptionalFieldAndUnknownAnswer` (`optional` field absent → `Present() == false`; user struct with `options=friendly\|hostile`; unknown `future` type dropped; `Answers()` still complete; request id kept; fields tagged `name=spam`, `name=tone`, `name=missing` as in P1; W4.1 records `optional` in the plan, W4.2 decodes it) | planned |
-| P4 | `test_pydantic_response_validation` | `TestAskValidationFieldPaths` | planned |
-| P5 | `test_custom_response_preserves_api_errors` | `TestAskPreservesAPIErrors` | planned |
+| P1 | `test_standalone_pydantic_response_model` | `TestDecodeAsWithSeparateQuestions` (questions built separately, `{"spam": Noul()}`; `DecodeAs[knownResponse]`; an extra `explanation` member ignored; the field is tagged `name=spam`, since a question's default name is the Go field name as written, W4.1, R94) | ported |
+| P2 | `test_explicit_default_response_model` | `TestSystemOneDefaultResponse` (both parametrizations are the default response `SystemOne` returns; a typed struct is a separate step, `DecodeAs`) | ported |
+| P3 | `test_pydantic_system_one_response_subclass` | `TestDecodeAsOptionalFieldAndUnknownAnswer` (`optional` field absent → `Present() == false`; user struct with `options=friendly\|hostile`; unknown `future` type dropped with the WARN; `Answers()` still complete; request id and raw body through the two-step form, `SystemOne` then `DecodeAs`, since `Ask[T]` returns only `T`; `Ask` gives the same struct; fields tagged `name=spam`, `name=tone`, `name=missing` as in P1), `TestDecodeAsOptional` (AC-F8's three `optional` decode halves) | ported |
+| P4 | `test_pydantic_response_validation` | `TestAskValidationFieldPaths` (field path, request id and body as upstream checks them, plus status, endpoint and text; Go reports body paths, the ones Python reports for a response model that keeps the answers under `answers`: case 2 is `answers.tone.choice` where the upstream `SystemOneResponse` subclass, which lifts each answer out of `answers`, says `tone.choice`; case 1's body has no `usage`, which `Ask` validates first as a subclass does, so Go fails at `usage`, and at the upstream `answers.spam.noul` once `usage` is there; probe `_spikes/w4.2/python_typed_paths.py`; also every row of `DecodeAs`'s path table), `TestDecodeAsStoredResponse` | ported |
+| P5 | `test_custom_response_preserves_api_errors` | `TestAskPreservesAPIErrors` (the upstream 400 with its body and request id; also a 429 with its `RetryAfter`, a transport failure as `*ConnectionError`, and `PreparedFor`'s `*ConfigError` before any request) | ported |
 
 ### `tests/test_questions.py` (11)
 
