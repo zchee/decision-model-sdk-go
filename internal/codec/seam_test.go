@@ -27,8 +27,10 @@ package codec
 //     internal/codec file; internal/testsupport imported by a non-test file
 //     of the root package; unsafe or sonic imported by a package below
 //     internal/codec, which the exemptions of internal/codec do not cover
-//     (review V77 MINOR 1, S7d). (internal/testsupport importing
-//     encoding/json passes by design.)
+//     (review V77 MINOR 1, S7d); "C" imported by a root or an
+//     internal/engine file whose C code writes through a reflect Pointer()
+//     passed as an integer (review V81 NIT 1, Rg and Eg). (internal/testsupport
+//     importing encoding/json passes by design.)
 //   - TestSeamOneUnsafeFile: a second codec file importing unsafe, or a
 //     package below internal/codec importing it (S7d).
 //   - TestSeamRootRawPointers and TestSeamCodecUnsafeIsNoCopyString
@@ -297,6 +299,10 @@ func TestSeamImports(t *testing.T) {
 			// build of the SDK.
 			applies: func(f goFile) bool { return !f.test && !under(f.dir, "internal/testsupport") },
 			forbids: func(_ goFile, p string) bool { return under(p, testsupportPath) },
+		},
+		"no file imports \"C\": cgo's C code writes through raw pointers that no Go-level check reads (review V81 NIT 1)": {
+			applies: func(goFile) bool { return true },
+			forbids: func(_ goFile, p string) bool { return p == "C" },
 		},
 		"internal/wire imports the standard library only; its tests may add go-cmp": {
 			applies: func(f goFile) bool { return under(f.dir, "internal/wire") },
