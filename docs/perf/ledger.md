@@ -2635,280 +2635,6 @@ and `BASE=504b201`.
 | W2.3-03 | 2026-09-25 19:14:18 UTC | W2.3 AC-P6 whole call and AC-P5 memstats | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.02 → 0.10 | `BASE=$BASE sh $R '(L)' $O /tmp/ts-spike/bench.lock alloc-L -count=1 -run '^(TestAllocWholeCall\|TestMemStatsCap)$' -v .` | identical to W2.3-01 in every count | `results/alloc-L.txt` |
 | W2.3-04 | 2026-09-25 19:14:19 UTC | W2.3 `call/sdk` time | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.10 → 0.17 | `BASE=$BASE MAXLOAD=44 sh $R '(L)' $O /tmp/ts-spike/bench.lock bench-L -run '^$' -bench '^BenchmarkCall$' -benchmem -count=10 .` | `call/sdk` 6.100 µs ± 0 %, 22 allocs/op | `results/bench-L.txt`, `results/benchstat-L.txt` |
 
-## W5.1: benchmarks B1–B6 and the naive comparator (AC-P2, AC-P6, AC-P7)
-
-W5.1 adds `internal/testsupport/naive`, the comparator of owner decision
-G3 (a), and the benchmark set B1–B6 of the Rust reference, which
-[`benchmarks.md`](benchmarks.md) describes. B4 (`Retry-After` and the
-backoff) waits for W3.2's `retry.go`. The rows below were measured at
-6afc8a3, `wave/w5.1` on e9ad7aa, before any Phase 3 wave landed. So
-`call/sdk` is the W2.3 client under its one-attempt default policy. W3.4
-re-measures the time clause of AC-P6 on the client as Phase 3 leaves it
-and freezes it. W5.1 reports that clause and the "≤ 0.5 × naive" clause
-of AC-P2; it asserts neither.
-
-This section sits after W2.3, whose `call/sdk` rows it completes, and
-not at the end of the file. That keeps it clear of the sections that
-W3.2 and W4.2 append there. Raw outputs are in `_spikes/w5.1/results/`,
-and `_spikes/w5.1/render.py` prints the tables below from them. Commands
-use `R=_spikes/s-c1/run.sh` (W0.5's runner), `O=_spikes/w5.1/results`,
-`SP=/private/tmp/claude-501/-Users-zchee-go-src-github-com-zchee-typesafe-sdk-go/40cb0f1f-c8a9-422c-a3e8-b3afc329b5cb/scratchpad`
-(the (M) lock) and `BASE=6afc8a3`.
-
-### How the numbers were taken
-
-- **(M):** `go1.27.1 darwin/arm64` with
-  `GOEXPERIMENT=nosimd,noruntimesecret`, under
-  `/opt/homebrew/opt/util-linux/bin/flock` on `$SP/bench.lock`.
-- **(L):** the worktree at 6afc8a3, without `.git`, copied with the
-  section 11 `tar | ssh` pipe to `/tmp/ts-spike/src-w5.1/wt-w5.1`. The
-  toolchain was `/tmp/ts-spike/go/bin/go`, with the section 11 `GOPATH`,
-  `GOMODCACHE` and `GOCACHE` under `/tmp/ts-spike`, and no `GOEXPERIMENT`.
-  Runs held `flock /tmp/ts-spike/bench.lock`.
-- **B5**, the rows the acceptance criteria read, ran on its own with
-  `-count=10`: `call-{M,L}.txt`, and `benchstat-call-{M,L}.txt` with
-  ± 0–3 %.
-- **Everything else** ran in one `-bench . -count=5 ./...` run:
-  `bench-{M,L}.txt`. benchstat needs 6 samples for a confidence interval,
-  so `benchstat-{M,L}.txt` prints medians with "± ∞". The tables give the
-  minimum and the median of the 5 samples. allocs/op is the minimum,
-  which equals every sample except where a row notes otherwise.
-- **The comparator.** `naive.Sonic` does the following:
-  1. `sonic.Marshal` of `{State any; Model string; Questions json.RawMessage}`.
-  2. `http.NewRequestWithContext`.
-  3. The SDK client's own header template, set header by header.
-  4. The client's per-attempt deadline.
-  5. The same `Recorder`, called directly.
-  6. `io.ReadAll`.
-  7. `sonic.Unmarshal` into a `map[string]any`.
-
-  `naive.StdJSON` is the same client with encoding/json, reported only.
-  `TestNaiveRequestMatchesSDK` asserts that the two requests are equal for
-  q3 and q20 (method, URL, Host, the six headers, the body byte for byte,
-  its length and `GetBody`). `TestEncodeBodyMatchesNaive` asserts the same
-  of B1's bodies, except `map`.
-- **Load (R17).** (M): 4.52 → 3.97 for B5, and 9.47 → 5.17 for the full
-  run, which waited 3 × 60 s for the load to fall below 16. (L): 0.40 → 1.25
-  and 16.48 → 1.35, on 44 cores. No row is `noisy`.
-
-### W5.1 findings
-
-1. **AC-P6's time clause holds on amd64, the gate (G3). It fails on
-   arm64, where the result is recorded (K18, K23).** Medians of 10:
-
-   | Host | Shape | `call/sdk` | `call/naive` | sdk / naive |
-   | --- | --- | ---: | ---: | ---: |
-   | (L) | q3 | 6.104 µs | 6.885 µs | **0.887** |
-   | (L) | q20 | 25.38 µs | 25.82 µs | 0.983 |
-   | (M) | q3 | 4.821 µs | 3.616 µs | 1.333 |
-   | (M) | q20 | 23.73 µs | 12.62 µs | 1.880 |
-
-   The q20 margin on (L) is 1.7 %, against a spread of ± 0 %. The
-   clause is stated on q3, and W3.4 asserts q3 on (L); q20 is recorded
-   only (ruling R101). **This margin is a W5.3 input.** The per-call cost that Phase 3 adds (the retry state,
-   telemetry) could flip q20 on amd64 before W3.4 freezes the clause.
-   q20's gap is the decode of 20 answers: `Decode/result-20` takes
-   21.56 µs against sonic-map's 16.79 µs on (L). Against R28b's prototype (critic probe, (M)
-   1.19× and (L) 0.82×), the production client is 1.33× and 0.887×. The
-   arm64 gap is the decode (finding 4). Against the encoding/json client,
-   `call/sdk` is faster on both hosts: 0.585 and 0.363 (q3), 0.609 and
-   0.331 (q20), in line with W0.5's R28 rows.
-2. **NF3's allocation clause holds against the sonic comparator.**
-   `call/sdk` makes 22 allocations and the floor 8 on both hosts, as
-   `TestAllocWholeCall` pins. So SDK-own is 14 for q3 and 34 for q20.
-   naive-own (naive minus the floor) is 46 (M) and 60 (L) for q3, and
-   119 (M) and 239 (L) for q20. The ratios are 0.304 and 0.233 for q3,
-   and 0.286 and 0.142 for q20, all below 0.5. With encoding/json (114
-   and 517 allocations on both hosts), R28 had 0.135 and 0.068. sonic's
-   generic decoder allocates differently by architecture (finding 3),
-   which is why the naive counts differ between the hosts.
-3. **AC-P2's "≤ 0.5 × naive" holds on the plain 3-answer fixture:
-   `Decode/result` 4 allocations against `DecodeNaiveSonic/result` 26 (M)
-   and 40 (L), 0.154 and 0.100.** W5.2 asserts it. The other fixtures are
-   reported, as the plan says, and repeat W2.0's counts. Three are above
-   0.5: `escaped-member-names` 0.707 (M) and 0.569 (L), and
-   `deviation-lone-surrogate` 0.542 (M). All three pay for the lazy pass
-   and for sonic unquoting escaped keys (NF2). Against encoding/json
-   (85 allocations) the ratio is 0.047.
-4. **K23 stands.** The SDK's decode against sonic's generic decode of
-   `result.json` is 2.19× on (M) and 1.23× on (L). Across fixtures the
-   range is 1.26–4.00× (M) and 0.86–2.63× (L). On (L) the floods are
-   1.02× and 1.04×. W5.3's target on (M) is ≤ 1.5× for `result.json`.
-5. **B1: the SDK's body encode allocates 0–2 times against sonic.Marshal's
-   3–9.** A `RawJSON` state is appended verbatim: 47 ns against 2.1 µs at
-   1 KiB on (M), and 0 allocations. That row measures a design choice: the
-   SDK appends `RawJSON` unchecked (the caller's contract), and the naive
-   client validates it. For text, struct and map states at 1 KiB the SDK
-   is faster (text 760 ns against 1.706 µs (M) by medians, 742 ns against
-   1.221 µs by minima, the naive row spreading 40 %; 889 ns against
-   1.049 µs (L)).
-   At 64 KiB and 1 MiB, `sonic.Marshal` is faster by 1.19–1.49× by medians
-   and 1.15–1.49× by minima (the low end, text 64 KiB on (M), spreads 12 %
-   on the SDK's side): text 1 MiB 605 against 473 µs (M), and 733 against
-   581 µs (L). The difference is
-   R48's `utf8.Valid` pass over the encoded state, which `sonic.Marshal`
-   does not run. B1's text holds Japanese and an emoji, so that pass is
-   not the ASCII fast path. The codec's own row shows its weight:
-   `EncodeState/cjk/64KiB` takes 54.2 µs, of which the check alone
-   (`…/check`) is 51.2 µs, on (L). This is R54's W5.3 target (validator
-   ≤ 1 × sonic's encode time on CJK), and R54's candidate stands: a
-   stdlib word-at-a-time ASCII scan, then sonic's SIMD `utf8.Validate` on
-   the non-ASCII tail, run by the SDK on the encoded state so that R48's
-   refusal is kept. sonic's `ValidateString` encoder option is not a
-   candidate: it is also a second pass over the whole output, and it
-   rewrites invalid UTF-8 to U+FFFD instead of refusing it
-   (`sonic@v1.15.4/internal/encoder/encoder.go:225-247`; W0.3's text above
-   says the same; review W5.1 MINOR 2).
-6. **B3: the first attempt's assembly takes 9 allocations**, at 677 ns
-   (M) and 1.199 µs (L). These are the encode, the `GetBody` method
-   value, the URL copy, the 4 of `context.WithTimeout`, the body reader
-   and `WithContext`. Preparing the section 5 set on every call doubles
-   the count to 18 (1.451 and 2.579 µs).
-7. **B6 over loopback HTTP/2 and TLS:**
-   - One warm call takes 72.0 µs (M) and 79.9 µs (L), and no timed call
-     dialled (`new-conns` 0).
-   - A cold burst of 64 from a fresh client takes 2.93 ms (M) and
-     3.45 ms (L), and each burst opened 1 connection on both hosts
-     (`conns/op` 1.000). That count is a sanity check, not AC-P4's
-     evidence: with the gate bypassed, the stock HTTP/2 pool alone also
-     puts a cold burst on one loopback connection (review W5.1 MINOR 1,
-     mutant M13b). AC-P4's evidence stays `internal/h2gate`'s `TestFanOut`.
-     Since the review, B6 also reports the gate's own counters,
-     `leaders/op` and `firstholds/op`; the rows after the W3.2 rebase
-     record them.
-   - The B/op and allocs/op of these rows include the server's.
-8. **CodSpeed discovery.** `go test -list 'Benchmark.*' ./...` lists 12
-   benchmark functions: 8 in the root and 4 in `internal/codec`
-   (`results/list-M.txt`). The local
-   `codspeed run --skip-upload -m walltime -- go test -bench=. ./...` on
-   (M) passes no `-run` (R5, R5-corr). It ran all 12, gave 118 results,
-   exited 0 and printed no warning (`results/codspeed-M.txt`). The
-   runner reports 0 B/op and 0 allocs/op by design, so allocations are
-   read from the `go test` rows. K7 keeps CodSpeed report-only. AC-P7
-   is W5.4's pull-request run.
-9. **Gates.** `_spikes/w5.1/gates.sh` checked each of the five code and
-   docs commits alone on (M) (`results/gates-M.txt`): build, vet, the
-   section 11 lint chain without govulncheck, and `go test -race`. The
-   lint chain with govulncheck
-   (`go run golang.org/x/vuln/cmd/govulncheck@latest`) passed on the Go
-   tree of 6afc8a3, which 5d5afc8 leaves unchanged, at 10:38:23 and
-   11:23:52 JST, and in the review at 5d5afc8 at 11:31:22 JST. The one `go test -race -count=1 ./...` on
-   (L) that R62 asks for, since the comparator pins sonic's behaviour,
-   passed (`results/race-L.txt`).
-
-| # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| W5.1-01 | 2026-09-26 10:45:29 JST | W5.1 B5 `call/sdk` against its floor and `call/naive` | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 4.52 → 3.97 | `BASE=$BASE GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock MAXLOAD=16 sh $R '(M)' $O $SP/bench.lock call-M -run '^$' -bench '^BenchmarkCall$' -benchmem -count=10 .` | q3: sdk 4.821 µs, naive 3.616 µs (sdk/naive **1.333**), naive-json 8.244 µs, floor 467.1 ns; q20: sdk 23.73 µs, naive 12.62 µs (1.880); allocs sdk 22 / floor 8 / naive 54 / naive-json 114 (q20: 42 / 8 / 127 / 517) | arm64 recorded, not gated (G3, K18, K23); `results/call-M.txt`, `results/benchstat-call-M.txt` |
-| W5.1-02 | 2026-09-26 10:58:11 JST | W5.1 B1–B3, B5, B6 and the earlier benchmarks | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 9.47 → 5.17 | `BASE=$BASE GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock MAXLOAD=16 sh $R '(M)' $O $SP/bench.lock bench-M -run '^$' -bench . -benchmem -count=5 ./...` | 590 result lines (118 benchmarks × 5); AC-P2 `Decode/result` 4 allocs against `DecodeNaiveSonic/result` 26 (**0.154**); tables below | waited 3 × 60 s for load ≤ 16; `results/bench-M.txt`, `results/benchstat-M.txt` |
-| W5.1-03 | 2026-09-26 01:43:59 UTC | W5.1 B5 `call/sdk` against its floor and `call/naive` | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.40 → 1.25 | `BASE=$BASE MAXLOAD=44 sh $R '(L)' $O /tmp/ts-spike/bench.lock call-L -run '^$' -bench '^BenchmarkCall$' -benchmem -count=10 .` | q3: sdk 6.104 µs, naive 6.885 µs (sdk/naive **0.887**, AC-P6 time holds), naive-json 16.81 µs, floor 760.6 ns; q20: sdk 25.38 µs, naive 25.82 µs (0.983, margin 1.7 %: W5.3 input); allocs sdk 22 / floor 8 / naive 68 / naive-json 114 (q20: 42 / 8 / 247 / 517) | amd64 = the gate (G3); `results/call-L.txt`, `results/benchstat-call-L.txt` |
-| W5.1-04 | 2026-09-26 01:54:31 UTC | W5.1 B1–B3, B5, B6 and the earlier benchmarks | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 16.48 → 1.35 | `BASE=$BASE MAXLOAD=44 sh $R '(L)' $O /tmp/ts-spike/bench.lock bench-L -run '^$' -bench . -benchmem -count=5 ./...` | 590 result lines; AC-P2 `Decode/result` 4 allocs against `DecodeNaiveSonic/result` 40 (**0.100**); tables below | waited 1 × 60 s; `results/bench-L.txt`, `results/benchstat-L.txt` |
-| W5.1-05 | 2026-09-26 02:06:14 UTC | W5.1 R62 race run (the comparator pins sonic behaviour) | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 1.35 → 1.29 | `go test -race -count=1 ./...` | ok for all 6 packages, `internal/testsupport/naive` included | not a timing row; `results/race-L.txt` |
-| W5.1-06 | 2026-09-26 11:11:16 JST | W5.1 CodSpeed discovery | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | `GOEXPERIMENT=nosimd,noruntimesecret go test -list 'Benchmark.*' ./...` | 12 functions: root `Assembly`, `Call`, `HeaderTemplateClone`, `EncodeBody`, `Loopback`, `Noop`, `Prepare`, `FalsyJSON`; codec `Decode`, `DecodeNaiveSonic`, `DecodeNaiveJSON`, `EncodeState` | `results/list-M.txt` |
-| W5.1-07 | 2026-09-26 11:11:27 JST | W5.1 local CodSpeed run (R5-corr: no `-run`) | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.67 → 6.71 | `GOEXPERIMENT=nosimd,noruntimesecret codspeed run --skip-upload -m walltime -- go test -bench=. ./...` under `flock $SP/bench.lock` | codspeed-runner 5.3.1, exit 0, 118 benchmark results from the 12 functions, no warning; `Call/sdk` 5.458 µs, `Call/naive` 4.254 µs (one sample each, walltime) | report-only (K7); the runner prints 0 B/op; `results/codspeed-M.txt` |
-| W5.1-08 | 2026-09-26 11:21:25 JST | W5.1 gates per commit | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | `sh _spikes/w5.1/gates.sh <scratchpad> 9e45600 ae69b05 23b5a6c 89b6109 6afc8a3` | PASS × 5 (11:21:25 → 11:22:31 JST): build, vet, gofumpt -extra, modernize, golangci-lint, staticcheck, tidy -diff, `go test -race` | not a timing row; `results/gates-M.txt` |
-
-<a id="w51-tables"></a>
-
-### W5.1 tables
-
-Printed by `_spikes/w5.1/render.py` from the raw files (min / median of the samples; allocs/op the minimum).
-
-B5, call-{M,L}.txt (-count=10):
-
-| Benchmark | (M) ns/op min / median | (L) ns/op min / median | (M) B/op / allocs | (L) B/op / allocs |
-| --- | ---: | ---: | ---: | ---: |
-| `Call/sdk` | 4.677 µs / 4.821 µs | 6.081 µs / 6.104 µs | 2998 / 22 | 3020 / 22 |
-| `Call/floor` | 453.8 ns / 467.1 ns | 757.8 ns / 760.6 ns | 678 / 8 | 692 / 8 |
-| `Call/naive` | 3.473 µs / 3.616 µs | 6.868 µs / 6.885 µs | 11276 / 54 | 8948 / 68 |
-| `Call/naive-json` | 8.091 µs / 8.244 µs | 16.759 µs / 16.811 µs | 7901 / 114 | 7946 / 114 |
-| `Call/sdk-q20` | 23.227 µs / 23.733 µs | 25.312 µs / 25.383 µs | 11370 / 42 | 11443 / 42 |
-| `Call/floor-q20` | 487.3 ns / 497.8 ns | 768.6 ns / 770.8 ns | 688 / 8 | 690 / 8 |
-| `Call/naive-q20` | 12.060 µs / 12.625 µs | 25.729 µs / 25.817 µs | 40216 / 127 | 34626 / 247 |
-| `Call/naive-json-q20` | 38.678 µs / 38.944 µs | 76.526 µs / 76.720 µs | 31010 / 517 | 31233 / 517 |
-
-| Ratio (median ns/op) | (M) / (L) |
-| --- | ---: |
-| q3 sdk / naive (AC-P6) | 1.333 / 0.887 |
-| q3 sdk / naive-json | 0.585 / 0.363 |
-| q3 allocs sdk / naive | 0.407 / 0.324 |
-| q20 sdk / naive (AC-P6) | 1.880 / 0.983 |
-| q20 sdk / naive-json | 0.609 / 0.331 |
-| q20 allocs sdk / naive | 0.331 / 0.170 |
-
-B2, bench-{M,L}.txt (-count=5): decode vs naive, median ns/op and allocs/op:
-
-| Fixture | (M) sdk / sonic-map / json-map | (L) sdk / sonic-map / json-map | allocs (M) sdk / sonic / json | allocs (L) sdk / sonic / json | time sdk/sonic (M) / (L) | allocs sdk/sonic (M) / (L) |
-| --- | --- | --- | --- | --- | ---: | ---: |
-| `result` | 3.455 µs / 1.575 µs / 5.575 µs | 3.437 µs / 2.788 µs / 10.494 µs | 4 / 26 / 85 | 4 / 40 / 85 | 2.194 / 1.233 | 0.154 / 0.100 |
-| `type-last` | 3.555 µs / 1.872 µs / 5.532 µs | 3.445 µs / 2.823 µs / 10.518 µs | 4 / 26 / 85 | 4 / 40 / 85 | 1.899 / 1.220 | 0.154 / 0.100 |
-| `duplicates` | 11.319 µs / 4.177 µs / 13.232 µs | 11.169 µs / 6.793 µs / 25.370 µs | 16 / 55 / 212 | 16 / 89 / 212 | 2.710 / 1.644 | 0.291 / 0.180 |
-| `result-20` | 21.454 µs / 9.307 µs / 33.409 µs | 21.558 µs / 16.785 µs / 63.503 µs | 24 / 94 / 483 | 24 / 214 / 483 | 2.305 / 1.284 | 0.255 / 0.112 |
-| `score-flood-mini` | 14.567 µs / 6.466 µs / 24.030 µs | 14.147 µs / 11.817 µs / 45.489 µs | 21 / 96 / 386 | 21 / 137 / 386 | 2.253 / 1.197 | 0.219 / 0.153 |
-| `escaped-names` | 5.490 µs / 2.085 µs / 7.815 µs | 5.006 µs / 4.064 µs / 15.072 µs | 10 / 38 / 120 | 10 / 57 / 120 | 2.633 / 1.232 | 0.263 / 0.175 |
-| `escaped-member-names` | 7.087 µs / 1.796 µs / 6.345 µs | 7.328 µs / 3.406 µs / 12.350 µs | 29 / 41 / 101 | 29 / 51 / 101 | 3.946 / 2.151 | 0.707 / 0.569 |
-| `structured-legend` | 4.123 µs / 1.114 µs / 3.410 µs | 4.763 µs / 1.950 µs / 6.542 µs | 11 / 24 / 56 | 11 / 27 / 56 | 3.701 / 2.443 | 0.458 / 0.407 |
-| `deviation-lone-surrogate` | 4.543 µs / 1.135 µs / 3.704 µs | 5.146 µs / 1.956 µs / 7.301 µs | 13 / 24 / 61 | 13 / 27 / 61 | 4.003 / 2.631 | 0.542 / 0.481 |
-| `unknown-answer-type` | 1.416 µs / 842.1 ns / 2.437 µs | 1.326 µs / 1.360 µs / 4.643 µs | 1 / 18 / 39 | 1 / 20 / 39 | 1.682 / 0.975 | 0.056 / 0.050 |
-| `parity-big-exp-unknown` | 1.283 µs / – / – | 1.236 µs / – / – | 1 / – / – | 1 / – / – | no naive row | no naive row |
-| `no-answers` | 585.1 ns / 465.9 ns / 994.7 ns | 521.0 ns / 604.3 ns / 1.847 µs | 0 / 12 / 16 | 0 / 9 / 16 | 1.256 / 0.862 | 0.000 / 0.000 |
-| `structured-legend-flood-1k` | 700.063 µs / 195.360 µs / 1.018 ms | 616.492 µs / 603.684 µs / 1.801 ms | 90 / 2036 / 17151 | 90 / 6574 / 17151 | 3.583 / 1.021 | 0.044 / 0.014 |
-| `structured-legend-flood-10k` | 7.158 ms / 1.809 ms / 9.782 ms | 6.022 ms / 5.820 ms / 17.639 ms | 686 / 20095 / 170530 | 686 / 65193 / 170529 | 3.957 / 1.035 | 0.034 / 0.011 |
-
-B1, bench-{M,L}.txt (-count=5):
-
-| Benchmark | (M) ns/op min / median | (L) ns/op min / median | (M) B/op / allocs | (L) B/op / allocs |
-| --- | ---: | ---: | ---: | ---: |
-| `EncodeBody/map/1KiB/naive` | 1.484 µs / 1.498 µs | 1.398 µs / 1.399 µs | 1657 / 4 | 1692 / 4 |
-| `EncodeBody/map/1KiB/naive-json` | 1.850 µs / 1.875 µs | 3.436 µs / 3.437 µs | 1554 / 5 | 1561 / 5 |
-| `EncodeBody/map/1KiB/sdk` | 1.246 µs / 1.263 µs | 1.224 µs / 1.225 µs | 114 / 2 | 115 / 2 |
-| `EncodeBody/map/1MiB/naive` | 422.613 µs / 436.930 µs | 558.303 µs / 589.332 µs | 3651093 / 9 | 3642224 / 9 |
-| `EncodeBody/map/1MiB/naive-json` | 937.922 µs / 954.402 µs | 1.537 ms / 1.557 ms | 1130145 / 6 | 1107276 / 5 |
-| `EncodeBody/map/1MiB/sdk` | 603.263 µs / 608.045 µs | 731.249 µs / 734.255 µs | 2003 / 2 | 2415 / 2 |
-| `EncodeBody/map/64KiB/naive` | 28.757 µs / 30.147 µs | 31.084 µs / 31.231 µs | 77165 / 4 | 78445 / 4 |
-| `EncodeBody/map/64KiB/naive-json` | 63.805 µs / 64.790 µs | 102.213 µs / 102.741 µs | 74224 / 5 | 74531 / 5 |
-| `EncodeBody/map/64KiB/sdk` | 38.166 µs / 38.700 µs | 46.393 µs / 46.449 µs | 125 / 2 | 133 / 2 |
-| `EncodeBody/rawjson/1KiB/naive` | 2.002 µs / 2.112 µs | 2.947 µs / 2.950 µs | 2739 / 4 | 2785 / 4 |
-| `EncodeBody/rawjson/1KiB/naive-json` | 4.044 µs / 4.322 µs | 6.414 µs / 6.426 µs | 2738 / 6 | 2743 / 6 |
-| `EncodeBody/rawjson/1KiB/sdk` | 45.4 ns / 47.0 ns | 74.8 ns / 75.5 ns | 0 / 0 | 0 / 0 |
-| `EncodeBody/rawjson/1MiB/naive` | 1.275 ms / 1.318 ms | 2.073 ms / 2.079 ms | 2203569 / 8 | 2202403 / 8 |
-| `EncodeBody/rawjson/1MiB/naive-json` | 3.109 ms / 3.207 ms | 4.553 ms / 4.570 ms | 2188959 / 6 | 2181322 / 6 |
-| `EncodeBody/rawjson/1MiB/sdk` | 15.367 µs / 15.632 µs | 48.773 µs / 49.081 µs | 13 / 0 | 44 / 0 |
-| `EncodeBody/rawjson/64KiB/naive` | 81.460 µs / 82.336 µs | 132.671 µs / 133.381 µs | 151677 / 4 | 155488 / 4 |
-| `EncodeBody/rawjson/64KiB/naive-json` | 197.169 µs / 205.789 µs | 301.849 µs / 302.287 µs | 147861 / 6 | 148106 / 6 |
-| `EncodeBody/rawjson/64KiB/sdk` | 922.2 ns / 939.8 ns | 1.763 µs / 1.770 µs | 0 / 0 | 0 / 0 |
-| `EncodeBody/struct/1KiB/naive` | 1.171 µs / 1.179 µs | 1.127 µs / 1.132 µs | 1568 / 3 | 1596 / 3 |
-| `EncodeBody/struct/1KiB/naive-json` | 1.787 µs / 1.790 µs | 3.346 µs / 3.354 µs | 1553 / 5 | 1556 / 5 |
-| `EncodeBody/struct/1KiB/sdk` | 939.1 ns / 945.1 ns | 948.3 ns / 952.4 ns | 16 / 1 | 16 / 1 |
-| `EncodeBody/struct/1MiB/naive` | 424.823 µs / 437.542 µs | 552.520 µs / 568.064 µs | 3650285 / 8 | 3633312 / 7 |
-| `EncodeBody/struct/1MiB/naive-json` | 942.793 µs / 964.164 µs | 1.550 ms / 1.563 ms | 1135076 / 5 | 1103069 / 5 |
-| `EncodeBody/struct/1MiB/sdk` | 601.353 µs / 606.480 µs | 734.821 µs / 735.559 µs | 1932 / 1 | 2327 / 1 |
-| `EncodeBody/struct/64KiB/naive` | 28.785 µs / 29.653 µs | 32.363 µs / 32.766 µs | 76734 / 3 | 78520 / 3 |
-| `EncodeBody/struct/64KiB/naive-json` | 63.869 µs / 64.764 µs | 111.137 µs / 113.550 µs | 74164 / 5 | 74410 / 5 |
-| `EncodeBody/struct/64KiB/sdk` | 38.327 µs / 38.511 µs | 46.015 µs / 46.268 µs | 28 / 1 | 30 / 1 |
-| `EncodeBody/text/1KiB/naive` | 1.221 µs / 1.706 µs | 1.042 µs / 1.049 µs | 1570 / 3 | 1596 / 3 |
-| `EncodeBody/text/1KiB/naive-json` | 1.699 µs / 1.772 µs | 2.945 µs / 2.949 µs | 1553 / 4 | 1556 / 4 |
-| `EncodeBody/text/1KiB/sdk` | 742.2 ns / 760.2 ns | 887.3 ns / 888.8 ns | 16 / 1 | 16 / 1 |
-| `EncodeBody/text/1MiB/naive` | 433.010 µs / 473.231 µs | 565.823 µs / 581.012 µs | 3651718 / 8 | 3633341 / 7 |
-| `EncodeBody/text/1MiB/naive-json` | 944.464 µs / 966.553 µs | 1.556 ms / 1.566 ms | 1148568 / 4 | 1106731 / 4 |
-| `EncodeBody/text/1MiB/sdk` | 601.933 µs / 604.939 µs | 728.772 µs / 732.629 µs | 1921 / 1 | 2313 / 1 |
-| `EncodeBody/text/64KiB/naive` | 33.589 µs / 36.397 µs | 32.547 µs / 33.002 µs | 77267 / 3 | 78505 / 3 |
-| `EncodeBody/text/64KiB/naive-json` | 71.674 µs / 72.657 µs | 109.679 µs / 111.960 µs | 74187 / 4 | 74426 / 4 |
-| `EncodeBody/text/64KiB/sdk` | 38.776 µs / 43.315 µs | 45.698 µs / 45.894 µs | 24 / 1 | 30 / 1 |
-
-B3, bench-{M,L}.txt (-count=5):
-
-| Benchmark | (M) ns/op min / median | (L) ns/op min / median | (M) B/op / allocs | (L) B/op / allocs |
-| --- | ---: | ---: | ---: | ---: |
-| `Assembly/request` | 674.4 ns / 676.8 ns | 1.193 µs / 1.199 µs | 896 / 9 | 909 / 9 |
-| `Assembly/prepare-and-request` | 1.419 µs / 1.451 µs | 2.575 µs / 2.579 µs | 1994 / 18 | 2039 / 18 |
-
-B6, bench-{M,L}.txt (-count=5):
-
-| Benchmark | (M) ns/op min / median | (L) ns/op min / median | (M) B/op / allocs | (L) B/op / allocs | metric (M) / (L) |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| `Loopback/call` | 69.990 µs / 72.009 µs | 77.677 µs / 79.852 µs | 14130 / 111 | 13843 / 111 | 0.000 / 0.000 |
-| `Loopback/cold-fanout-64` | 2.717 ms / 2.932 ms | 3.422 ms / 3.452 ms | 1053189 / 8592 | 1078480 / 8586 | 1.000 / 1.000 |
-
 ## W2.4: response payloads (AC-F10)
 
 W2.4 gives `SystemOneResponse` and `ModelsResponse` a `MarshalJSON` and
@@ -3410,3 +3136,278 @@ and the row's `BASE`.
 | W3.2-04 | 2026-09-26 02:10:07 UTC | W3.2 review fix pass: AC-P6 under `DefaultRetry()` and AC-P5 memstats | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.04 → 0.04 | `BASE=bb54320 sh $R '(L)' $O /tmp/ts-spike/bench.lock alloc-L-fix -count=1 -run '^(TestAllocWholeCall\|TestMemStatsCap)$' -v .` | identical to W3.2-01 in every count | `results/alloc-L-fix.txt` |
 | W3.2-05 | 2026-09-26 11:41:47 JST | W3.2 rebased onto 1ecc6f5: AC-P6 under `DefaultRetry()` and AC-P5 memstats | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 10.75 → 10.75 | `BASE=170c958 GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock sh $R '(M)' $O $SP/bench.lock alloc-M-rebased -count=1 -run '^(TestAllocWholeCall\|TestMemStatsCap)$' -v .` | identical to W3.2-01 in every count: q3 SDK-own 14/2008; AC-P5 (i) 38 allocs / 264032 B … (vii) 6104 B | mallocs/bytes, collector off, `GOMAXPROCS(1)`, 3 of 5 runs agree; `results/alloc-M-rebased.txt` |
 | W3.2-06 | 2026-09-26 02:41:54 UTC | W3.2 rebased onto 1ecc6f5: AC-P6 under `DefaultRetry()` and AC-P5 memstats | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.03 → 0.03 | `BASE=170c958 sh $R '(L)' $O /tmp/ts-spike/bench.lock alloc-L-rebased -count=1 -run '^(TestAllocWholeCall\|TestMemStatsCap)$' -v .` | identical to W3.2-01 in every count | `results/alloc-L-rebased.txt` |
+
+## W5.1: benchmarks B1–B6 and the naive comparator (AC-P2, AC-P6, AC-P7)
+
+W5.1 adds `internal/testsupport/naive`, the comparator of owner decision
+G3 (a), and the benchmark set B1–B6 of the Rust reference, which
+[`benchmarks.md`](benchmarks.md) describes. B4 (`Retry-After` and the
+backoff) waits for W3.2's `retry.go`. The rows below were measured at
+6afc8a3, `wave/w5.1` on e9ad7aa, before any Phase 3 wave landed. So
+`call/sdk` is the W2.3 client under its one-attempt default policy. W3.4
+re-measures the time clause of AC-P6 on the client as Phase 3 leaves it
+and freezes it. W5.1 reports that clause and the "≤ 0.5 × naive" clause
+of AC-P2; it asserts neither.
+
+This section follows landing order (ruling R101 (c)): it was first
+written after W2.3, to keep clear of the sections W3.2 and W4.2 append,
+and moved here when W5.1 rebased onto W3.2's landing (87d1ac7). Raw
+outputs are in `_spikes/w5.1/results/`,
+and `_spikes/w5.1/render.py` prints the tables below from them. Commands
+use `R=_spikes/s-c1/run.sh` (W0.5's runner), `O=_spikes/w5.1/results`,
+`SP=/private/tmp/claude-501/-Users-zchee-go-src-github-com-zchee-typesafe-sdk-go/40cb0f1f-c8a9-422c-a3e8-b3afc329b5cb/scratchpad`
+(the (M) lock) and `BASE=6afc8a3`.
+
+### How the numbers were taken
+
+- **(M):** `go1.27.1 darwin/arm64` with
+  `GOEXPERIMENT=nosimd,noruntimesecret`, under
+  `/opt/homebrew/opt/util-linux/bin/flock` on `$SP/bench.lock`.
+- **(L):** the worktree at 6afc8a3, without `.git`, copied with the
+  section 11 `tar | ssh` pipe to `/tmp/ts-spike/src-w5.1/wt-w5.1`. The
+  toolchain was `/tmp/ts-spike/go/bin/go`, with the section 11 `GOPATH`,
+  `GOMODCACHE` and `GOCACHE` under `/tmp/ts-spike`, and no `GOEXPERIMENT`.
+  Runs held `flock /tmp/ts-spike/bench.lock`.
+- **B5**, the rows the acceptance criteria read, ran on its own with
+  `-count=10`: `call-{M,L}.txt`, and `benchstat-call-{M,L}.txt` with
+  ± 0–3 %.
+- **Everything else** ran in one `-bench . -count=5 ./...` run:
+  `bench-{M,L}.txt`. benchstat needs 6 samples for a confidence interval,
+  so `benchstat-{M,L}.txt` prints medians with "± ∞". The tables give the
+  minimum and the median of the 5 samples. allocs/op is the minimum,
+  which equals every sample except where a row notes otherwise.
+- **The comparator.** `naive.Sonic` does the following:
+  1. `sonic.Marshal` of `{State any; Model string; Questions json.RawMessage}`.
+  2. `http.NewRequestWithContext`.
+  3. The SDK client's own header template, set header by header.
+  4. The client's per-attempt deadline.
+  5. The same `Recorder`, called directly.
+  6. `io.ReadAll`.
+  7. `sonic.Unmarshal` into a `map[string]any`.
+
+  `naive.StdJSON` is the same client with encoding/json, reported only.
+  `TestNaiveRequestMatchesSDK` asserts that the two requests are equal for
+  q3 and q20 (method, URL, Host, the six headers, the body byte for byte,
+  its length and `GetBody`). `TestEncodeBodyMatchesNaive` asserts the same
+  of B1's bodies, except `map`.
+- **Load (R17).** (M): 4.52 → 3.97 for B5, and 9.47 → 5.17 for the full
+  run, which waited 3 × 60 s for the load to fall below 16. (L): 0.40 → 1.25
+  and 16.48 → 1.35, on 44 cores. No row is `noisy`.
+
+### W5.1 findings
+
+1. **AC-P6's time clause holds on amd64, the gate (G3). It fails on
+   arm64, where the result is recorded (K18, K23).** Medians of 10:
+
+   | Host | Shape | `call/sdk` | `call/naive` | sdk / naive |
+   | --- | --- | ---: | ---: | ---: |
+   | (L) | q3 | 6.104 µs | 6.885 µs | **0.887** |
+   | (L) | q20 | 25.38 µs | 25.82 µs | 0.983 |
+   | (M) | q3 | 4.821 µs | 3.616 µs | 1.333 |
+   | (M) | q20 | 23.73 µs | 12.62 µs | 1.880 |
+
+   The q20 margin on (L) is 1.7 %, against a spread of ± 0 %. The
+   clause is stated on q3, and W3.4 asserts q3 on (L); q20 is recorded
+   only (ruling R101). **This margin is a W5.3 input.** The per-call cost that Phase 3 adds (the retry state,
+   telemetry) could flip q20 on amd64 before W3.4 freezes the clause.
+   q20's gap is the decode of 20 answers: `Decode/result-20` takes
+   21.56 µs against sonic-map's 16.79 µs on (L). Against R28b's prototype (critic probe, (M)
+   1.19× and (L) 0.82×), the production client is 1.33× and 0.887×. The
+   arm64 gap is the decode (finding 4). Against the encoding/json client,
+   `call/sdk` is faster on both hosts: 0.585 and 0.363 (q3), 0.609 and
+   0.331 (q20), in line with W0.5's R28 rows.
+2. **NF3's allocation clause holds against the sonic comparator.**
+   `call/sdk` makes 22 allocations and the floor 8 on both hosts, as
+   `TestAllocWholeCall` pins. So SDK-own is 14 for q3 and 34 for q20.
+   naive-own (naive minus the floor) is 46 (M) and 60 (L) for q3, and
+   119 (M) and 239 (L) for q20. The ratios are 0.304 and 0.233 for q3,
+   and 0.286 and 0.142 for q20, all below 0.5. With encoding/json (114
+   and 517 allocations on both hosts), R28 had 0.135 and 0.068. sonic's
+   generic decoder allocates differently by architecture (finding 3),
+   which is why the naive counts differ between the hosts.
+3. **AC-P2's "≤ 0.5 × naive" holds on the plain 3-answer fixture:
+   `Decode/result` 4 allocations against `DecodeNaiveSonic/result` 26 (M)
+   and 40 (L), 0.154 and 0.100.** W5.2 asserts it. The other fixtures are
+   reported, as the plan says, and repeat W2.0's counts. Three are above
+   0.5: `escaped-member-names` 0.707 (M) and 0.569 (L), and
+   `deviation-lone-surrogate` 0.542 (M). All three pay for the lazy pass
+   and for sonic unquoting escaped keys (NF2). Against encoding/json
+   (85 allocations) the ratio is 0.047.
+4. **K23 stands.** The SDK's decode against sonic's generic decode of
+   `result.json` is 2.19× on (M) and 1.23× on (L). Across fixtures the
+   range is 1.26–4.00× (M) and 0.86–2.63× (L). On (L) the floods are
+   1.02× and 1.04×. W5.3's target on (M) is ≤ 1.5× for `result.json`.
+5. **B1: the SDK's body encode allocates 0–2 times against sonic.Marshal's
+   3–9.** A `RawJSON` state is appended verbatim: 47 ns against 2.1 µs at
+   1 KiB on (M), and 0 allocations. That row measures a design choice: the
+   SDK appends `RawJSON` unchecked (the caller's contract), and the naive
+   client validates it. For text, struct and map states at 1 KiB the SDK
+   is faster (text 760 ns against 1.706 µs (M) by medians, 742 ns against
+   1.221 µs by minima, the naive row spreading 40 %; 889 ns against
+   1.049 µs (L)).
+   At 64 KiB and 1 MiB, `sonic.Marshal` is faster by 1.19–1.49× by medians
+   and 1.15–1.49× by minima (the low end, text 64 KiB on (M), spreads 12 %
+   on the SDK's side): text 1 MiB 605 against 473 µs (M), and 733 against
+   581 µs (L). The difference is
+   R48's `utf8.Valid` pass over the encoded state, which `sonic.Marshal`
+   does not run. B1's text holds Japanese and an emoji, so that pass is
+   not the ASCII fast path. The codec's own row shows its weight:
+   `EncodeState/cjk/64KiB` takes 54.2 µs, of which the check alone
+   (`…/check`) is 51.2 µs, on (L). This is R54's W5.3 target (validator
+   ≤ 1 × sonic's encode time on CJK), and R54's candidate stands: a
+   stdlib word-at-a-time ASCII scan, then sonic's SIMD `utf8.Validate` on
+   the non-ASCII tail, run by the SDK on the encoded state so that R48's
+   refusal is kept. sonic's `ValidateString` encoder option is not a
+   candidate: it is also a second pass over the whole output, and it
+   rewrites invalid UTF-8 to U+FFFD instead of refusing it
+   (`sonic@v1.15.4/internal/encoder/encoder.go:225-247`; W0.3's text above
+   says the same; review W5.1 MINOR 2).
+6. **B3: the first attempt's assembly takes 9 allocations**, at 677 ns
+   (M) and 1.199 µs (L). These are the encode, the `GetBody` method
+   value, the URL copy, the 4 of `context.WithTimeout`, the body reader
+   and `WithContext`. Preparing the section 5 set on every call doubles
+   the count to 18 (1.451 and 2.579 µs).
+7. **B6 over loopback HTTP/2 and TLS:**
+   - One warm call takes 72.0 µs (M) and 79.9 µs (L), and no timed call
+     dialled (`new-conns` 0).
+   - A cold burst of 64 from a fresh client takes 2.93 ms (M) and
+     3.45 ms (L), and each burst opened 1 connection on both hosts
+     (`conns/op` 1.000). That count is a sanity check, not AC-P4's
+     evidence: with the gate bypassed, the stock HTTP/2 pool alone also
+     puts a cold burst on one loopback connection (review W5.1 MINOR 1,
+     mutant M13b). AC-P4's evidence stays `internal/h2gate`'s `TestFanOut`.
+     Since the review, B6 also reports the gate's own counters,
+     `leaders/op` and `firstholds/op`; the rows after the W3.2 rebase
+     record them.
+   - The B/op and allocs/op of these rows include the server's.
+8. **CodSpeed discovery.** `go test -list 'Benchmark.*' ./...` lists 12
+   benchmark functions: 8 in the root and 4 in `internal/codec`
+   (`results/list-M.txt`). The local
+   `codspeed run --skip-upload -m walltime -- go test -bench=. ./...` on
+   (M) passes no `-run` (R5, R5-corr). It ran all 12, gave 118 results,
+   exited 0 and printed no warning (`results/codspeed-M.txt`). The
+   runner reports 0 B/op and 0 allocs/op by design, so allocations are
+   read from the `go test` rows. K7 keeps CodSpeed report-only. AC-P7
+   is W5.4's pull-request run.
+9. **Gates.** `_spikes/w5.1/gates.sh` checked each of the five code and
+   docs commits alone on (M) (`results/gates-M.txt`): build, vet, the
+   section 11 lint chain without govulncheck, and `go test -race`. The
+   lint chain with govulncheck
+   (`go run golang.org/x/vuln/cmd/govulncheck@latest`) passed on the Go
+   tree of 6afc8a3, which 5d5afc8 leaves unchanged, at 10:38:23 and
+   11:23:52 JST, and in the review at 5d5afc8 at 11:31:22 JST. The one `go test -race -count=1 ./...` on
+   (L) that R62 asks for, since the comparator pins sonic's behaviour,
+   passed (`results/race-L.txt`).
+
+| # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| W5.1-01 | 2026-09-26 10:45:29 JST | W5.1 B5 `call/sdk` against its floor and `call/naive` | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 4.52 → 3.97 | `BASE=$BASE GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock MAXLOAD=16 sh $R '(M)' $O $SP/bench.lock call-M -run '^$' -bench '^BenchmarkCall$' -benchmem -count=10 .` | q3: sdk 4.821 µs, naive 3.616 µs (sdk/naive **1.333**), naive-json 8.244 µs, floor 467.1 ns; q20: sdk 23.73 µs, naive 12.62 µs (1.880); allocs sdk 22 / floor 8 / naive 54 / naive-json 114 (q20: 42 / 8 / 127 / 517) | arm64 recorded, not gated (G3, K18, K23); `results/call-M.txt`, `results/benchstat-call-M.txt` |
+| W5.1-02 | 2026-09-26 10:58:11 JST | W5.1 B1–B3, B5, B6 and the earlier benchmarks | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 9.47 → 5.17 | `BASE=$BASE GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock MAXLOAD=16 sh $R '(M)' $O $SP/bench.lock bench-M -run '^$' -bench . -benchmem -count=5 ./...` | 590 result lines (118 benchmarks × 5); AC-P2 `Decode/result` 4 allocs against `DecodeNaiveSonic/result` 26 (**0.154**); tables below | waited 3 × 60 s for load ≤ 16; `results/bench-M.txt`, `results/benchstat-M.txt` |
+| W5.1-03 | 2026-09-26 01:43:59 UTC | W5.1 B5 `call/sdk` against its floor and `call/naive` | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.40 → 1.25 | `BASE=$BASE MAXLOAD=44 sh $R '(L)' $O /tmp/ts-spike/bench.lock call-L -run '^$' -bench '^BenchmarkCall$' -benchmem -count=10 .` | q3: sdk 6.104 µs, naive 6.885 µs (sdk/naive **0.887**, AC-P6 time holds), naive-json 16.81 µs, floor 760.6 ns; q20: sdk 25.38 µs, naive 25.82 µs (0.983, margin 1.7 %: W5.3 input); allocs sdk 22 / floor 8 / naive 68 / naive-json 114 (q20: 42 / 8 / 247 / 517) | amd64 = the gate (G3); `results/call-L.txt`, `results/benchstat-call-L.txt` |
+| W5.1-04 | 2026-09-26 01:54:31 UTC | W5.1 B1–B3, B5, B6 and the earlier benchmarks | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 16.48 → 1.35 | `BASE=$BASE MAXLOAD=44 sh $R '(L)' $O /tmp/ts-spike/bench.lock bench-L -run '^$' -bench . -benchmem -count=5 ./...` | 590 result lines; AC-P2 `Decode/result` 4 allocs against `DecodeNaiveSonic/result` 40 (**0.100**); tables below | waited 1 × 60 s; `results/bench-L.txt`, `results/benchstat-L.txt` |
+| W5.1-05 | 2026-09-26 02:06:14 UTC | W5.1 R62 race run (the comparator pins sonic behaviour) | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 1.35 → 1.29 | `go test -race -count=1 ./...` | ok for all 6 packages, `internal/testsupport/naive` included | not a timing row; `results/race-L.txt` |
+| W5.1-06 | 2026-09-26 11:11:16 JST | W5.1 CodSpeed discovery | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | `GOEXPERIMENT=nosimd,noruntimesecret go test -list 'Benchmark.*' ./...` | 12 functions: root `Assembly`, `Call`, `HeaderTemplateClone`, `EncodeBody`, `Loopback`, `Noop`, `Prepare`, `FalsyJSON`; codec `Decode`, `DecodeNaiveSonic`, `DecodeNaiveJSON`, `EncodeState` | `results/list-M.txt` |
+| W5.1-07 | 2026-09-26 11:11:27 JST | W5.1 local CodSpeed run (R5-corr: no `-run`) | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.67 → 6.71 | `GOEXPERIMENT=nosimd,noruntimesecret codspeed run --skip-upload -m walltime -- go test -bench=. ./...` under `flock $SP/bench.lock` | codspeed-runner 5.3.1, exit 0, 118 benchmark results from the 12 functions, no warning; `Call/sdk` 5.458 µs, `Call/naive` 4.254 µs (one sample each, walltime) | report-only (K7); the runner prints 0 B/op; `results/codspeed-M.txt` |
+| W5.1-08 | 2026-09-26 11:21:25 JST | W5.1 gates per commit | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | `sh _spikes/w5.1/gates.sh <scratchpad> 9e45600 ae69b05 23b5a6c 89b6109 6afc8a3` | PASS × 5 (11:21:25 → 11:22:31 JST): build, vet, gofumpt -extra, modernize, golangci-lint, staticcheck, tidy -diff, `go test -race` | not a timing row; `results/gates-M.txt` |
+
+<a id="w51-tables"></a>
+
+### W5.1 tables
+
+Printed by `_spikes/w5.1/render.py` from the raw files (min / median of the samples; allocs/op the minimum).
+
+B5, call-{M,L}.txt (-count=10):
+
+| Benchmark | (M) ns/op min / median | (L) ns/op min / median | (M) B/op / allocs | (L) B/op / allocs |
+| --- | ---: | ---: | ---: | ---: |
+| `Call/sdk` | 4.677 µs / 4.821 µs | 6.081 µs / 6.104 µs | 2998 / 22 | 3020 / 22 |
+| `Call/floor` | 453.8 ns / 467.1 ns | 757.8 ns / 760.6 ns | 678 / 8 | 692 / 8 |
+| `Call/naive` | 3.473 µs / 3.616 µs | 6.868 µs / 6.885 µs | 11276 / 54 | 8948 / 68 |
+| `Call/naive-json` | 8.091 µs / 8.244 µs | 16.759 µs / 16.811 µs | 7901 / 114 | 7946 / 114 |
+| `Call/sdk-q20` | 23.227 µs / 23.733 µs | 25.312 µs / 25.383 µs | 11370 / 42 | 11443 / 42 |
+| `Call/floor-q20` | 487.3 ns / 497.8 ns | 768.6 ns / 770.8 ns | 688 / 8 | 690 / 8 |
+| `Call/naive-q20` | 12.060 µs / 12.625 µs | 25.729 µs / 25.817 µs | 40216 / 127 | 34626 / 247 |
+| `Call/naive-json-q20` | 38.678 µs / 38.944 µs | 76.526 µs / 76.720 µs | 31010 / 517 | 31233 / 517 |
+
+| Ratio (median ns/op) | (M) / (L) |
+| --- | ---: |
+| q3 sdk / naive (AC-P6) | 1.333 / 0.887 |
+| q3 sdk / naive-json | 0.585 / 0.363 |
+| q3 allocs sdk / naive | 0.407 / 0.324 |
+| q20 sdk / naive (AC-P6) | 1.880 / 0.983 |
+| q20 sdk / naive-json | 0.609 / 0.331 |
+| q20 allocs sdk / naive | 0.331 / 0.170 |
+
+B2, bench-{M,L}.txt (-count=5): decode vs naive, median ns/op and allocs/op:
+
+| Fixture | (M) sdk / sonic-map / json-map | (L) sdk / sonic-map / json-map | allocs (M) sdk / sonic / json | allocs (L) sdk / sonic / json | time sdk/sonic (M) / (L) | allocs sdk/sonic (M) / (L) |
+| --- | --- | --- | --- | --- | ---: | ---: |
+| `result` | 3.455 µs / 1.575 µs / 5.575 µs | 3.437 µs / 2.788 µs / 10.494 µs | 4 / 26 / 85 | 4 / 40 / 85 | 2.194 / 1.233 | 0.154 / 0.100 |
+| `type-last` | 3.555 µs / 1.872 µs / 5.532 µs | 3.445 µs / 2.823 µs / 10.518 µs | 4 / 26 / 85 | 4 / 40 / 85 | 1.899 / 1.220 | 0.154 / 0.100 |
+| `duplicates` | 11.319 µs / 4.177 µs / 13.232 µs | 11.169 µs / 6.793 µs / 25.370 µs | 16 / 55 / 212 | 16 / 89 / 212 | 2.710 / 1.644 | 0.291 / 0.180 |
+| `result-20` | 21.454 µs / 9.307 µs / 33.409 µs | 21.558 µs / 16.785 µs / 63.503 µs | 24 / 94 / 483 | 24 / 214 / 483 | 2.305 / 1.284 | 0.255 / 0.112 |
+| `score-flood-mini` | 14.567 µs / 6.466 µs / 24.030 µs | 14.147 µs / 11.817 µs / 45.489 µs | 21 / 96 / 386 | 21 / 137 / 386 | 2.253 / 1.197 | 0.219 / 0.153 |
+| `escaped-names` | 5.490 µs / 2.085 µs / 7.815 µs | 5.006 µs / 4.064 µs / 15.072 µs | 10 / 38 / 120 | 10 / 57 / 120 | 2.633 / 1.232 | 0.263 / 0.175 |
+| `escaped-member-names` | 7.087 µs / 1.796 µs / 6.345 µs | 7.328 µs / 3.406 µs / 12.350 µs | 29 / 41 / 101 | 29 / 51 / 101 | 3.946 / 2.151 | 0.707 / 0.569 |
+| `structured-legend` | 4.123 µs / 1.114 µs / 3.410 µs | 4.763 µs / 1.950 µs / 6.542 µs | 11 / 24 / 56 | 11 / 27 / 56 | 3.701 / 2.443 | 0.458 / 0.407 |
+| `deviation-lone-surrogate` | 4.543 µs / 1.135 µs / 3.704 µs | 5.146 µs / 1.956 µs / 7.301 µs | 13 / 24 / 61 | 13 / 27 / 61 | 4.003 / 2.631 | 0.542 / 0.481 |
+| `unknown-answer-type` | 1.416 µs / 842.1 ns / 2.437 µs | 1.326 µs / 1.360 µs / 4.643 µs | 1 / 18 / 39 | 1 / 20 / 39 | 1.682 / 0.975 | 0.056 / 0.050 |
+| `parity-big-exp-unknown` | 1.283 µs / – / – | 1.236 µs / – / – | 1 / – / – | 1 / – / – | no naive row | no naive row |
+| `no-answers` | 585.1 ns / 465.9 ns / 994.7 ns | 521.0 ns / 604.3 ns / 1.847 µs | 0 / 12 / 16 | 0 / 9 / 16 | 1.256 / 0.862 | 0.000 / 0.000 |
+| `structured-legend-flood-1k` | 700.063 µs / 195.360 µs / 1.018 ms | 616.492 µs / 603.684 µs / 1.801 ms | 90 / 2036 / 17151 | 90 / 6574 / 17151 | 3.583 / 1.021 | 0.044 / 0.014 |
+| `structured-legend-flood-10k` | 7.158 ms / 1.809 ms / 9.782 ms | 6.022 ms / 5.820 ms / 17.639 ms | 686 / 20095 / 170530 | 686 / 65193 / 170529 | 3.957 / 1.035 | 0.034 / 0.011 |
+
+B1, bench-{M,L}.txt (-count=5):
+
+| Benchmark | (M) ns/op min / median | (L) ns/op min / median | (M) B/op / allocs | (L) B/op / allocs |
+| --- | ---: | ---: | ---: | ---: |
+| `EncodeBody/map/1KiB/naive` | 1.484 µs / 1.498 µs | 1.398 µs / 1.399 µs | 1657 / 4 | 1692 / 4 |
+| `EncodeBody/map/1KiB/naive-json` | 1.850 µs / 1.875 µs | 3.436 µs / 3.437 µs | 1554 / 5 | 1561 / 5 |
+| `EncodeBody/map/1KiB/sdk` | 1.246 µs / 1.263 µs | 1.224 µs / 1.225 µs | 114 / 2 | 115 / 2 |
+| `EncodeBody/map/1MiB/naive` | 422.613 µs / 436.930 µs | 558.303 µs / 589.332 µs | 3651093 / 9 | 3642224 / 9 |
+| `EncodeBody/map/1MiB/naive-json` | 937.922 µs / 954.402 µs | 1.537 ms / 1.557 ms | 1130145 / 6 | 1107276 / 5 |
+| `EncodeBody/map/1MiB/sdk` | 603.263 µs / 608.045 µs | 731.249 µs / 734.255 µs | 2003 / 2 | 2415 / 2 |
+| `EncodeBody/map/64KiB/naive` | 28.757 µs / 30.147 µs | 31.084 µs / 31.231 µs | 77165 / 4 | 78445 / 4 |
+| `EncodeBody/map/64KiB/naive-json` | 63.805 µs / 64.790 µs | 102.213 µs / 102.741 µs | 74224 / 5 | 74531 / 5 |
+| `EncodeBody/map/64KiB/sdk` | 38.166 µs / 38.700 µs | 46.393 µs / 46.449 µs | 125 / 2 | 133 / 2 |
+| `EncodeBody/rawjson/1KiB/naive` | 2.002 µs / 2.112 µs | 2.947 µs / 2.950 µs | 2739 / 4 | 2785 / 4 |
+| `EncodeBody/rawjson/1KiB/naive-json` | 4.044 µs / 4.322 µs | 6.414 µs / 6.426 µs | 2738 / 6 | 2743 / 6 |
+| `EncodeBody/rawjson/1KiB/sdk` | 45.4 ns / 47.0 ns | 74.8 ns / 75.5 ns | 0 / 0 | 0 / 0 |
+| `EncodeBody/rawjson/1MiB/naive` | 1.275 ms / 1.318 ms | 2.073 ms / 2.079 ms | 2203569 / 8 | 2202403 / 8 |
+| `EncodeBody/rawjson/1MiB/naive-json` | 3.109 ms / 3.207 ms | 4.553 ms / 4.570 ms | 2188959 / 6 | 2181322 / 6 |
+| `EncodeBody/rawjson/1MiB/sdk` | 15.367 µs / 15.632 µs | 48.773 µs / 49.081 µs | 13 / 0 | 44 / 0 |
+| `EncodeBody/rawjson/64KiB/naive` | 81.460 µs / 82.336 µs | 132.671 µs / 133.381 µs | 151677 / 4 | 155488 / 4 |
+| `EncodeBody/rawjson/64KiB/naive-json` | 197.169 µs / 205.789 µs | 301.849 µs / 302.287 µs | 147861 / 6 | 148106 / 6 |
+| `EncodeBody/rawjson/64KiB/sdk` | 922.2 ns / 939.8 ns | 1.763 µs / 1.770 µs | 0 / 0 | 0 / 0 |
+| `EncodeBody/struct/1KiB/naive` | 1.171 µs / 1.179 µs | 1.127 µs / 1.132 µs | 1568 / 3 | 1596 / 3 |
+| `EncodeBody/struct/1KiB/naive-json` | 1.787 µs / 1.790 µs | 3.346 µs / 3.354 µs | 1553 / 5 | 1556 / 5 |
+| `EncodeBody/struct/1KiB/sdk` | 939.1 ns / 945.1 ns | 948.3 ns / 952.4 ns | 16 / 1 | 16 / 1 |
+| `EncodeBody/struct/1MiB/naive` | 424.823 µs / 437.542 µs | 552.520 µs / 568.064 µs | 3650285 / 8 | 3633312 / 7 |
+| `EncodeBody/struct/1MiB/naive-json` | 942.793 µs / 964.164 µs | 1.550 ms / 1.563 ms | 1135076 / 5 | 1103069 / 5 |
+| `EncodeBody/struct/1MiB/sdk` | 601.353 µs / 606.480 µs | 734.821 µs / 735.559 µs | 1932 / 1 | 2327 / 1 |
+| `EncodeBody/struct/64KiB/naive` | 28.785 µs / 29.653 µs | 32.363 µs / 32.766 µs | 76734 / 3 | 78520 / 3 |
+| `EncodeBody/struct/64KiB/naive-json` | 63.869 µs / 64.764 µs | 111.137 µs / 113.550 µs | 74164 / 5 | 74410 / 5 |
+| `EncodeBody/struct/64KiB/sdk` | 38.327 µs / 38.511 µs | 46.015 µs / 46.268 µs | 28 / 1 | 30 / 1 |
+| `EncodeBody/text/1KiB/naive` | 1.221 µs / 1.706 µs | 1.042 µs / 1.049 µs | 1570 / 3 | 1596 / 3 |
+| `EncodeBody/text/1KiB/naive-json` | 1.699 µs / 1.772 µs | 2.945 µs / 2.949 µs | 1553 / 4 | 1556 / 4 |
+| `EncodeBody/text/1KiB/sdk` | 742.2 ns / 760.2 ns | 887.3 ns / 888.8 ns | 16 / 1 | 16 / 1 |
+| `EncodeBody/text/1MiB/naive` | 433.010 µs / 473.231 µs | 565.823 µs / 581.012 µs | 3651718 / 8 | 3633341 / 7 |
+| `EncodeBody/text/1MiB/naive-json` | 944.464 µs / 966.553 µs | 1.556 ms / 1.566 ms | 1148568 / 4 | 1106731 / 4 |
+| `EncodeBody/text/1MiB/sdk` | 601.933 µs / 604.939 µs | 728.772 µs / 732.629 µs | 1921 / 1 | 2313 / 1 |
+| `EncodeBody/text/64KiB/naive` | 33.589 µs / 36.397 µs | 32.547 µs / 33.002 µs | 77267 / 3 | 78505 / 3 |
+| `EncodeBody/text/64KiB/naive-json` | 71.674 µs / 72.657 µs | 109.679 µs / 111.960 µs | 74187 / 4 | 74426 / 4 |
+| `EncodeBody/text/64KiB/sdk` | 38.776 µs / 43.315 µs | 45.698 µs / 45.894 µs | 24 / 1 | 30 / 1 |
+
+B3, bench-{M,L}.txt (-count=5):
+
+| Benchmark | (M) ns/op min / median | (L) ns/op min / median | (M) B/op / allocs | (L) B/op / allocs |
+| --- | ---: | ---: | ---: | ---: |
+| `Assembly/request` | 674.4 ns / 676.8 ns | 1.193 µs / 1.199 µs | 896 / 9 | 909 / 9 |
+| `Assembly/prepare-and-request` | 1.419 µs / 1.451 µs | 2.575 µs / 2.579 µs | 1994 / 18 | 2039 / 18 |
+
+B6, bench-{M,L}.txt (-count=5):
+
+| Benchmark | (M) ns/op min / median | (L) ns/op min / median | (M) B/op / allocs | (L) B/op / allocs | metric (M) / (L) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `Loopback/call` | 69.990 µs / 72.009 µs | 77.677 µs / 79.852 µs | 14130 / 111 | 13843 / 111 | 0.000 / 0.000 |
+| `Loopback/cold-fanout-64` | 2.717 ms / 2.932 ms | 3.422 ms / 3.452 ms | 1053189 / 8592 | 1078480 / 8586 | 1.000 / 1.000 |
