@@ -131,10 +131,11 @@ SDK's behaviour:
 The live pass of W6.4 (ledger rows W6.4-01 to W6.4-07) recorded three
 facts about the API that are not deviations of the SDK:
 
-- A request carrying no credential is answered with 403, and one with a
-  key the API did not issue with 401, both with the error type
-  `authentication_error`, which `APIError.IsAuthentication` reports for
-  both.
+- AC-F11: 403 = no credential ("Must supply an API key!"), 401 = a key
+  the API did not issue ("Cannot authenticate with the server."), both
+  with the error type `authentication_error`, which
+  `APIError.IsAuthentication` reports for both, and both pinned by
+  `livetests.TestLiveUnauthenticated` (ledger W6.4-02).
 - The API gzips its successful responses when the client asks for gzip,
   as Go's transport does by default, so a response reaches the SDK with no
   declared length.
