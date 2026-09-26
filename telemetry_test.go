@@ -47,15 +47,16 @@ func newModelsServer(t *testing.T) *testsupport.LoopbackServer {
 // refusingProxy is an HTTP/1.1 proxy on 127.0.0.1 that answers every
 // CONNECT with "502 <reason>", a status line whose text net/http returns as
 // the dial's error without its proxyconnect wrap; the SDK's transport adds
-// it (K16).
+// it (K16). The answer carries a body, which reaches neither the error nor a
+// log record (review SLICE3 NIT 1).
 type refusingProxy struct {
 	ln net.Listener
 	wg sync.WaitGroup
 }
 
-// newRefusingProxy starts a refusingProxy that answers with reason; it
-// stops when the test ends.
-func newRefusingProxy(t *testing.T, reason string) *refusingProxy {
+// newRefusingProxy starts a refusingProxy that answers with reason and body;
+// it stops when the test ends.
+func newRefusingProxy(t *testing.T, reason, body string) *refusingProxy {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -73,7 +74,7 @@ func newRefusingProxy(t *testing.T, reason string) *refusingProxy {
 				if _, err := http.ReadRequest(bufio.NewReader(conn)); err != nil {
 					return
 				}
-				_, _ = io.WriteString(conn, "HTTP/1.1 502 "+reason+"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+				_, _ = io.WriteString(conn, "HTTP/1.1 502 "+reason+"\r\nContent-Length: "+strconv.Itoa(len(body))+"\r\nConnection: close\r\n\r\n"+body)
 			})
 		}
 	})
@@ -102,6 +103,9 @@ func TestTransportDebugRecordsHoldNoCredential(t *testing.T) {
 	// records render it as the SDK error does.
 	failure := "Authorization: Bearer " + quirkyKey + " refused (" + strconv.Quote(quirkyKey) + "); X-Client-Secret: " + secret + "\x1b[31m"
 	const scrubbed = `Authorization: *** refused ("***"); X-Client-Secret: ***\x1b[31m`
+	// proxyBody marks the refusing proxy's response body, which must reach
+	// neither the error nor a record.
+	const proxyBody = "PROXYBODYMARKER"
 	errDial := errors.New(failure)
 	type scenario struct {
 		// client builds the client with its logger.
@@ -142,7 +146,7 @@ func TestTransportDebugRecordsHoldNoCredential(t *testing.T) {
 		},
 		"a proxy's 502 answer to the CONNECT (K16)": {
 			client: func(t *testing.T, logger *slog.Logger) *Client {
-				proxy := newRefusingProxy(t, failure)
+				proxy := newRefusingProxy(t, failure, proxyBody+" "+failure)
 				return newCredentialClient(t, logger, WithBaseURL("https://example.com"), WithProxy(http.ProxyURL(proxy.URL())))
 			},
 			record: "DEBUG h2: gate error reason=proxy waiters=0 error=proxyconnect tcp: 502 " + scrubbed,
@@ -191,7 +195,7 @@ func TestTransportDebugRecordsHoldNoCredential(t *testing.T) {
 				t.Errorf("the transport's records that print an error (-want +got):\n%s", diff)
 			}
 			records := recordsText(logs)
-			for _, s := range []string{quirkyKey, quotedForm(strconv.Quote(quirkyKey)), jsonForm(quirkyKey), secret} {
+			for _, s := range []string{quirkyKey, quotedForm(strconv.Quote(quirkyKey)), jsonForm(quirkyKey), secret, proxyBody} {
 				if strings.Contains(records, s) {
 					t.Errorf("the records hold %q:\n%s", s, records)
 				}

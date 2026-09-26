@@ -99,7 +99,7 @@ Each reason starts with its class:
 | `internal/h2gate/transport.go` | `nopLogger.WarnContext` | `{}` | 1 | Gap: the one warning, `h2: response not HTTP/2`, is reached only by tests that attach a logger. |
 | `internal/h2gate/transport.go` | `(*Transport).RoundTrip` | `t.mu.Unlock()` | 0-1 | Race: a waiter that loops back and finds the connection warm; covered in 4 of 15 runs at 67dcbb0 and in 3 of 6 on f73ab2b's production files ((M) on 16 cores, (L) on 44 and pinned to 4; -race and not). |
 | `internal/h2gate/transport.go` | `(*Transport).RoundTrip` | `t.leave(gen)` | 0-1 | Race: a waiter whose context ends while the leader dials; no test cancels a waiter on purpose. |
-| `internal/h2gate/transport.go` | `reason` | `return "proxy"` | 1 | Gap: no test logs a proxy dial failure with a logger attached. |
+| `internal/h2gate/transport.go` | `reason` | `return "proxy"` | 1 | Other package: root's `TestTransportDebugRecordsHoldNoCredential` logs a proxy's refused CONNECT (`reason=proxy`, K16); h2gate's own tests attach no logger to a proxy failure. |
 | `internal/h2gate/transport.go` | `reason` | `return "not-negotiated"` | 1 | Gap: no test logs a failed ALPN negotiation with a logger attached. |
 | `internal/h2gate/transport.go` | `(*call).gotConn` | `{}` | 1 | Gap: a new HTTP/2 connection for a call that holds the token on a transport with `firstHold` cleared. |
 | `internal/h2gate/transport.go` | `(*call).wroteHeaders` | `tm.Stop()` | 0-1 | Race: `WroteHeaders` arriving on the write goroutine after `send` has given the token back. |
