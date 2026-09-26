@@ -19,7 +19,7 @@ instead. The numbers behind each statement are in the
 | Experiments | No `GOEXPERIMENT`. The `nosimd,noruntimesecret` override of the [measurement rule](../support.md#measurement-rule) is for a host whose Go env file sets experiments. The runner has none, so its default already is the Go 1.27 baseline. The report step prints the ToolTags. |
 | Instrument | `CodSpeedHQ/action@v5` (runner 5.2.1, go runner 1.3.0), `mode: walltime`. Walltime is the only instrument CodSpeed has for Go (plan decision D4). |
 | Command | `go test -bench=. ./...`. The action's go runner keeps only `-bench` and `-benchtime` and adds `-run=^$` itself, so no unit test runs and the workflow never passes `-run` (rulings R5, R5-corr). |
-| Rows | Every benchmark in the module: 15 functions, 125 rows at aaa9698 |
+| Rows | Every benchmark in the module: 15 functions, 125 rows since aaa9698, unchanged at 653b5b9 |
 | Authentication | The job's OIDC id-token (`id-token: write`), which CodSpeed accepts because its GitHub App is installed on the repository (G1, R4). No token secret exists. |
 | Raw samples | Under `$RUNNER_TEMP`, on the runner's disk, not on `/tmp` (K35) |
 | Duration | About 10 minutes for the CodSpeed step and 30 s for the guard |
@@ -120,7 +120,7 @@ The GitHub job log does not print the run id.
 Risk K7: walltime on hosted runners is noisy, so CodSpeed results gate
 nothing until 20 runs on `main` show a spread below 5 % for
 `BenchmarkCall/sdk`. The plan then made them blocking; rulings R109,
-R115 and R109b amend that (below). Until then:
+R115, R109b, R109c and R109c-corr amend that (below). Until then:
 
 - No step fails on a timing, and nothing requires CodSpeed's check run.
 - The spread is (largest − smallest) / smallest of `BenchmarkCall/sdk`'s
@@ -153,16 +153,39 @@ R109b keys K7's groups on the CPU model name plus AVX-512 exposure
 finer splits stay visible.
 
 The 20 runs and the spread below 5 % of `BenchmarkCall/sdk`'s mean apply
-to `main` runs in one such group. Runs in another group start their own
-count, and groups are never mixed. Gating stays off. When one group
-reaches 20 runs within 5 %, the owner reconsiders blocking and looks at
-the cross-host comparison again (R115). Beside the count, the ledger
+to `main` runs in one such group, within one segment of it (below). Runs
+in another group start their own count, and groups are never mixed.
+Gating stays off. When one group reaches 20 runs within 5 %, the owner
+reconsiders blocking and looks at the cross-host comparison again (R115).
+Beside the count, the ledger
 records the spread of the sdk/naive mean ratio over all counted runs,
 whatever their host, because the ratio is what AC-P7 compares. No
 threshold is set on that ratio spread yet. Every row of the ledger's
 section W5.4 carries the run's CPU model, its AVX-512 exposure and its
 GitHub and CodSpeed run ids. The ledger also gives the count per model
 name alone, as R109 was first written.
+
+**Within a group, K7 is read per segment (rulings R109c and
+R109c-corr).** A change to the SDK's speed moves a group's mean as much
+as noise does, so a spread over runs on both sides of it measures the
+change. A landing opens a new segment of a host group only when it does
+both of two things: it changes a non-test `.go` file on the call path
+(the root package, `internal/codec`, `internal/wire` or
+`internal/h2gate`), and it moves `BenchmarkCall/sdk`'s mean by 5 % or
+more on that group between the last `main` run before it and the first
+`main` run after it. Landings of documents, CI or tests never open one.
+A lower trigger would open segments on noise: the same tree, aaa9698,
+read 7.014 and 6.684 µs on the 7763, 4.93 % apart by K7's spread
+formula. The count and the spread are recorded per group and per
+segment, and the 20 runs within 5 % must fall in one segment. The EPYC
+7763's second segment opened at 653b5b9, W5.3's landing, by ruling and
+not by the rule: W5.3 changed the call path, but its run's mean was
+4.94 % below the last run before it (a4cbb5d), under the 5 % bar
+measured from that run (5.19 % by K7's spread formula, which R109c-corr
+does not name). The lead ruled the segment open, and the owner ratifies
+R109c and R109c-corr with the Phase 5 batch. So the 7763 reads:
+segment 1, aaa9698 to a4cbb5d, 3 runs, spread 1.29 %; segment 2, from
+653b5b9, 1 run, no spread yet. Gating stays off.
 
 To list the candidate runs, then keep the successful ones from 36221839206
 on:
@@ -194,8 +217,10 @@ the median. AC-P7 holds when both runs show `BenchmarkCall/sdk`'s mean
 below `BenchmarkCall/naive`'s. Its margin is about as large as the mean's
 own run-to-run spread, so under R108 AC-P7 is report-only until K7 is met:
 the ledger records the three statistics and the three ratios of every run,
-and nothing asserts them. **Status: holds on the mean, report-only under
-K7.**
+and nothing asserts them. **Status: the first half holds on the mean
+(ledger W5.4-29, de27718: 0.835), report-only under K7. The second half,
+`main`'s first run after W5.4 lands, is recorded in the as-built
+appendix that Phase 7 (W7) writes.**
 
 The three statistics disagree on these two rows:
 
@@ -213,8 +238,12 @@ ahead only once garbage collection is counted. The naive client allocates
 W5.1). Collecting them slows a share of later iterations: the naive row's
 stdev is 1.43 to 1.92 times the SDK's. Those slow iterations sit in the
 tail of the distribution, which the minimum and the median leave out and
-the mean includes. The sdk/naive ratios stay put when the CPU model
-changes, even though the absolute values move.
+the mean includes. The sdk/naive ratios move less than the absolute
+values when the host changes, but they are not host-independent: by mean
+0.872 to 0.897 on the 7763's counted runs against 0.970 on the 9V74 with
+AVX-512, and after W5.3 0.846 and 0.880 against 0.798 and 0.835 (ledger
+W5.4, finding 2). So AC-P7's ratio, too, is compared within one host
+group.
 
 That the SDK's single call is slower than the naive client's (by about
 0.7 µs on amd64) is risk K36. Taking that time off the SDK's call path is
@@ -227,13 +256,16 @@ and the second pass, `internal/codec.trailing` running sonic's
 runs only on a body the cut cannot take (`traverse` in
 `internal/codec/decode.go`). Compared on the same host group before and
 after W5.3, `BenchmarkCall/sdk`'s minimum fell by 0.56 to 0.77 µs on the
-EPYC 7763 and by 0.38 µs on the 9V74 with AVX-512, while
-`BenchmarkCall/naive`'s did not move. The minimum's gap went from 0.60 to
-0.78 µs (ratio 1.124 to 1.162) to 0.04 and 0.07 µs (1.008, 1.015) on the
-7763, and from 0.48 to 0.12 µs (1.139 to 1.035) on the 9V74 with AVX-512.
-The median ratio went from 1.009 to 1.076 down to 0.932 to 0.941. So
-since W5.3 the SDK is faster by median and by mean, and still 1 to 4 %
-slower by the minimum that CodSpeed shows (ledger W5.4, finding 5).
+EPYC 7763, by 0.35 and 0.38 µs on the 9V74 with AVX-512 and by 0.30 µs
+on the 9V45, while `BenchmarkCall/naive`'s stayed within its earlier
+range on the 7763 and moved by 0.03 µs at most on the other two. The
+minimum's gap went from 0.60 to 0.78 µs (ratio 1.124 to 1.162) to 0.04
+and 0.07 µs (1.008, 1.015) on the 7763, from 0.48 to 0.12 and 0.13 µs
+(1.139 to 1.035, 1.037) on the 9V74 with AVX-512, and from 0.38 to
+0.05 µs (1.154 to 1.020) on the 9V45. The median ratio went from 1.009
+to 1.076 down to 0.928 to 0.942. So since W5.3 the SDK is faster by
+median and by mean, and still 0.8 to 3.7 % slower by the minimum that
+CodSpeed shows (ledger W5.4, finding 5).
 
 ## arm64 (K18)
 

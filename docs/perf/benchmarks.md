@@ -168,7 +168,9 @@ the folder, and the guard names any row that does not arrive. Ledger rows
 W5.1-22 to W5.1-26 hold the evidence and the runs.
 
 CodSpeed results are report-only until 20 runs on `main` show a spread
-below 5 % for `BenchmarkCall/sdk` (K7). B6 runs in CodSpeed with the rest,
+below 5 % for `BenchmarkCall/sdk` (K7), counted per host group and read
+per segment (rulings R109b, R109c; see [`codspeed.md`](codspeed.md)).
+B6 runs in CodSpeed with the rest,
 report-only, and is never a gate (ruling R101): its rows are wall clock over
 loopback, and their noise comes from the kernel, TLS and scheduling.
 `BenchmarkLoopback` is excluded from K7's count and from any gate built on
