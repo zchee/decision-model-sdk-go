@@ -155,6 +155,9 @@ func PreparedFor[T any]() (*Prepared, error) {
 // set it declares, or the error that refuses it, and how each answer field
 // maps to a question.
 type typedPlan struct {
+	// typ is the struct type the plan was built for: its offsets are valid
+	// only for a value of that type (decodeTyped checks).
+	typ reflect.Type
 	// prepared is the question set; nil when err is not.
 	prepared *Prepared
 	// err is the *ConfigError that refuses the type; nil when it is usable.
@@ -169,6 +172,13 @@ type typedField struct {
 	// index is the field's index in its struct, as [reflect.Type.Field] and
 	// [reflect.Value.Field] take it.
 	index int
+	// offset is the field's offset in its struct, [reflect.StructField]'s
+	// Offset: the typed decode stores the answer there (decodeas_store.go).
+	// An answer field is always one of the struct's own fields, embedded
+	// or not, so this is the offset from the struct's start; the fields of
+	// an embedded or nested struct are never answer fields (planField
+	// refuses a tag there).
+	offset uintptr
 	// name is the question name: the answer is looked up under it.
 	name string
 	// kind is the question's kind, which is also the field's answer type.
@@ -281,7 +291,7 @@ func buildPlan(t reflect.Type) *typedPlan {
 			seen[q.entry.name] = len(fields)
 		}
 		qs.entries = append(qs.entries, q.entry)
-		fields = append(fields, typedField{index: i, name: q.entry.name, kind: q.kind, optional: q.optional})
+		fields = append(fields, typedField{index: i, offset: f.Offset, name: q.entry.name, kind: q.kind, optional: q.optional})
 	}
 	p, err := qs.Prepare()
 	if err != nil {
@@ -298,7 +308,7 @@ func buildPlan(t reflect.Type) *typedPlan {
 		fields[i].options = entries[i].Options
 		fields[i].levels = entries[i].Levels
 	}
-	return &typedPlan{prepared: p, fields: fields}
+	return &typedPlan{typ: t, prepared: p, fields: fields}
 }
 
 // earlierField returns the index in fields of the field asking under name,

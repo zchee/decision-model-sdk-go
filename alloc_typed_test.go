@@ -34,10 +34,11 @@ var sinkReview reviewAnswers
 // (the pooled decoder warm, a fresh result, the question set and model of
 // the call, interned), here with the question set Ask sends for
 // reviewAnswers. DecodeAs's count is pinned exactly, as the decode counts
-// of AC-P2 are (ruling R70 (3)), so a change that moves it fails here: one
-// allocation, the T being decoded, which reflect.Value.Interface moves to
-// the heap (DecodeAs has no unsafe; W4.3's S-D2 measures what offsets would
-// save). The answers share the response's slices and cost nothing.
+// of AC-P2 are (ruling R70 (3)), so a change that moves it fails here: no
+// allocation. The T being decoded stays on DecodeAs's stack, since the
+// answers are stored at the fields' offsets (decodeas_store.go, ruling
+// R116; before W5.3, reflect.Value.Interface moved it to the heap, one
+// allocation of 144 B), and the answers share the response's slices.
 //
 // It also measures what Ask adds to a call (AC-P6, ruling R77/R28): Ask
 // over the Recorder allocates exactly what SystemOne with the same question
@@ -97,8 +98,8 @@ func TestAllocTypedDecode(t *testing.T) {
 	if typedDecode.Mallocs >= answersDecode.Mallocs {
 		t.Errorf("DecodeAs allocations = %d, want fewer than the Answers() decode's %d (AC-P3)", typedDecode.Mallocs, answersDecode.Mallocs)
 	}
-	if want := (testsupport.Allocs{Mallocs: 1, Bytes: 144}); typedDecode != want {
-		t.Errorf("DecodeAs allocations = %s, want exactly %s, the one reviewAnswers value: a change in DecodeAs moved the count", typedDecode, want)
+	if want := (testsupport.Allocs{}); typedDecode != want {
+		t.Errorf("DecodeAs allocations = %s, want exactly %s: the reviewAnswers value moved to the heap, or a change in DecodeAs allocates", typedDecode, want)
 	}
 	if ask.Mallocs != call.Mallocs+typedDecode.Mallocs {
 		t.Errorf("Ask allocations = %d, want exactly SystemOne's %d plus DecodeAs's %d: Ask adds nothing to a call (AC-P6)", ask.Mallocs, call.Mallocs, typedDecode.Mallocs)

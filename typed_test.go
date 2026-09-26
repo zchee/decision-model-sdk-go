@@ -83,10 +83,10 @@ func TestPreparedForTicketParity(t *testing.T) {
 		t.Fatalf("typedPlanFor[Ticket] = {%p, %v}, want {%p, nil}", plan.prepared, plan.err, got)
 	}
 	wantFields := []typedField{
-		{index: 0, name: "Billing", kind: wire.KindNoul},
-		{index: 1, name: "Tone", kind: wire.KindChoice, options: []string{"calm", "angry"}},
-		{index: 2, name: "Urgency", kind: wire.KindScore, levels: []wire.Content{{Text: "can wait"}, {Text: "this week"}, {Text: "today"}}},
-		{index: 3, name: "Spam", kind: wire.KindNoul, optional: true},
+		{index: 0, offset: fieldOffset[Ticket](0), name: "Billing", kind: wire.KindNoul},
+		{index: 1, offset: fieldOffset[Ticket](1), name: "Tone", kind: wire.KindChoice, options: []string{"calm", "angry"}},
+		{index: 2, offset: fieldOffset[Ticket](2), name: "Urgency", kind: wire.KindScore, levels: []wire.Content{{Text: "can wait"}, {Text: "this week"}, {Text: "today"}}},
+		{index: 3, offset: fieldOffset[Ticket](3), name: "Spam", kind: wire.KindNoul, optional: true},
 	}
 	if diff := gocmp.Diff(wantFields, plan.fields, planOptions); diff != "" {
 		t.Errorf("typedPlanFor[Ticket].fields (-want +got):\n%s", diff)
@@ -1070,8 +1070,8 @@ func TestPreparedForIgnoredFields(t *testing.T) {
 		t.Fatalf("typedPlanFor[ignoredOnly]: %v", plan.err)
 	}
 	want := []typedField{
-		{index: 4, name: "first", kind: wire.KindNoul},
-		{index: 6, name: "Last", kind: wire.KindScore, levels: []wire.Content{{Text: "1"}, {Text: "2"}}},
+		{index: 4, offset: fieldOffset[ignoredOnly](4), name: "first", kind: wire.KindNoul},
+		{index: 6, offset: fieldOffset[ignoredOnly](6), name: "Last", kind: wire.KindScore, levels: []wire.Content{{Text: "1"}, {Text: "2"}}},
 	}
 	if diff := gocmp.Diff(want, plan.fields, planOptions); diff != "" {
 		t.Errorf("fields (-want +got):\n%s", diff)
@@ -1086,6 +1086,10 @@ func TestPreparedForIgnoredFields(t *testing.T) {
 		t.Errorf("PreparedFor[ignoredFields] error = %v, want %q", err, want5)
 	}
 }
+
+// fieldOffset returns the offset of T's i-th field, as reflect gives it:
+// the offset a plan must record for that field.
+func fieldOffset[T any](i int) uintptr { return reflect.TypeFor[T]().Field(i).Offset }
 
 // collectNames returns the question names of p in order.
 func collectNames(p *Prepared) []string {

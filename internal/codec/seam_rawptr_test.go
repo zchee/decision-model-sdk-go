@@ -133,9 +133,8 @@ func TestSeamRawPointerDetector(t *testing.T) {
 
 // TestSeamRootRawPointers checks the root package's raw-pointer rule (K40,
 // as the owner amended it in R116), over the NON-TEST files of every build
-// configuration: of the root package's files, only rootStoreFile may import
-// unsafe (this test allows none or that one, and the commit that adds the
-// store makes it exactly one); and no file of the root package but that
+// configuration: of the root package's files, exactly one imports unsafe,
+// rootStoreFile; and no file of the root package but that
 // one, nor any file of a package of this module that the root package
 // imports directly or through others (internal/codec and
 // internal/testsupport/naive excepted, which hold the module's other unsafe
@@ -144,7 +143,8 @@ func TestSeamRawPointerDetector(t *testing.T) {
 // which writes nothing. Packages outside the module are not read.
 //
 // Mutation check: reflect.ValueOf(t).UnsafePointer() added to decodeas.go,
-// or an import of unsafe in any root file but rootStoreFile, fails it.
+// an import of unsafe in any root file but rootStoreFile, or the store
+// moved to another file, fails it.
 func TestSeamRootRawPointers(t *testing.T) {
 	mod := findModule(t)
 	files := moduleFiles(t, mod.root)
@@ -155,8 +155,8 @@ func TestSeamRootRawPointers(t *testing.T) {
 			importers = append(importers, f.rel)
 		}
 	}
-	if len(importers) > 1 || len(importers) == 1 && importers[0] != rootStoreFile {
-		t.Errorf("non-test files of the root package importing unsafe = %q, want none or only %q (R116)", importers, rootStoreFile)
+	if want := []string{rootStoreFile}; !slices.Equal(importers, want) {
+		t.Errorf("non-test files of the root package importing unsafe = %q, want exactly %q (R116)", importers, want)
 	}
 
 	// The module's packages the root package's non-test files import,

@@ -131,10 +131,16 @@ func DecodeAs[T any](resp *SystemOneResponse) (T, error) {
 
 // decodeTyped decodes resp into a T by p, the plan of T, and names endpoint
 // in a validation error, whose header r redacts. On failure it returns the
-// zero T, not a T with the fields read before the failure.
+// zero T, not a T with the fields read before the failure. The answers are
+// written into t through the offsets of p (decodeas_store.go), so t stays
+// on this frame: a plan of another type would write outside it, so that is
+// a panic, not an error (the callers always pass T's own plan).
 func decodeTyped[T any](p *typedPlan, resp *SystemOneResponse, endpoint string, r headerRedactor) (T, error) {
 	var t T
-	if err := p.decode(resp, endpoint, r, reflect.ValueOf(&t).Elem()); err != nil {
+	if p.err == nil && p.typ != reflect.TypeFor[T]() {
+		panic("typesafe: decodeTyped[" + reflect.TypeFor[T]().String() + "] given the plan of " + p.typ.String())
+	}
+	if err := p.decode(resp, endpoint, r, baseOf(&t)); err != nil {
 		var zero T
 		return zero, err
 	}
@@ -150,11 +156,11 @@ var (
 	errTypedLevel   = errors.New("the answer names a level beyond the levels its field's tag lists")
 )
 
-// decode reads the answers of resp into v, a struct of the type p was built
-// for, field by field in p's order, and names endpoint in a validation
-// error, whose header r redacts. It returns p's own error for a refused
-// type.
-func (p *typedPlan) decode(resp *SystemOneResponse, endpoint string, r headerRedactor, v reflect.Value) error {
+// decode reads the answers of resp into the struct b points to, a value of
+// the type p was built for, field by field in p's order, and names endpoint
+// in a validation error, whose header r redacts. It returns p's own error
+// for a refused type.
+func (p *typedPlan) decode(resp *SystemOneResponse, endpoint string, r headerRedactor, b fieldBase) error {
 	if p.err != nil {
 		return p.err
 	}
@@ -170,24 +176,22 @@ func (p *typedPlan) decode(resp *SystemOneResponse, endpoint string, r headerRed
 		case a.Kind != f.kind:
 			return typedError(resp, endpoint, r, f.name, codec.FieldPath{Member: "type"}, errTypedKind)
 		}
-		// The field's address, as an interface holding a pointer: no answer
-		// is boxed, and the answer is stored through the pointer. It moves
-		// the T being decoded to the heap, DecodeAs's one allocation;
-		// reflect.Value.Set would move each answer there as well.
-		dst := v.Field(f.index).Addr().Interface()
+		// The answer goes into the field at its offset, as the field's own
+		// type (decodeas_store.go): no answer is boxed and the T being
+		// decoded stays on the caller's stack.
 		switch f.kind {
 		case wire.KindNoul:
-			*dst.(*NoulAnswer) = NoulAnswer{w: a.Noul, present: true}
+			storeAnswer(b, f.offset, NoulAnswer{w: a.Noul, present: true})
 		case wire.KindChoice:
 			if at, bad := undeclaredOption(&a.Choice, f.options); bad {
 				return typedError(resp, endpoint, r, f.name, at, errTypedOption)
 			}
-			*dst.(*ChoiceAnswer) = ChoiceAnswer{w: a.Choice, present: true}
+			storeAnswer(b, f.offset, ChoiceAnswer{w: a.Choice, present: true})
 		default: // wire.KindScore: buildPlan gives every field one of the three kinds
 			if at, bad := undeclaredLevel(&a.Score, uint64(len(f.levels))); bad {
 				return typedError(resp, endpoint, r, f.name, at, errTypedLevel)
 			}
-			*dst.(*ScoreAnswer) = ScoreAnswer{w: a.Score, present: true}
+			storeAnswer(b, f.offset, ScoreAnswer{w: a.Score, present: true})
 		}
 	}
 	return nil

@@ -11,9 +11,9 @@ linux/amd64, at d7a5968, whose Go code the branch carries rebased as
 
 Section 6.6 of the port plan keeps `unsafe` field offsets out of
 `DecodeAs` unless spike S-D2 shows that the reflect-only store is more
-than twice as slow. `DecodeAs` stores each answer through
-`v.Field(i).Addr().Interface()`, which moves the decoded `T` to the heap
-(AC-P3's one allocation). The spike times replicas of the decode that
+than twice as slow. `DecodeAs`, as S-D2 measured it, stored each answer through
+`v.Field(i).Addr().Interface()`, which moved the decoded `T` to the heap
+(AC-P3's one allocation until W5.3). The spike times replicas of the decode that
 differ only in the store, with `DecodeAs` itself beside them:
 
 | Fixture | Host | `DecodeAs` | (1) as built | (2) offsets | (1)/(2) | `DecodeAs`/(2) |
@@ -31,17 +31,24 @@ allocate 1 and 0 times; `DecodeAs` allocates as (1) does. On the flood on
 level check have the same instructions but sit at different addresses,
 so the likely cause is loop placement, not the store (ledger finding 5).
 
-**Verdict: keep reflect (ruling R112). Per section 6.6, no `unsafe`
-enters the root package.** Compared like for like, the store as built
-against offsets, (1)/(2), is below 2× on (M) on every fixture, so the
-bar is not met on both hosts. The rest of the offsets' advantage comes
-from escape analysis, not from reflection: offsets let the `T` stay on
-the stack. `DecodeAs`'s own 11–12 ns above the replica would stay in an
-offsets build, so today's `DecodeAs` would take 1.78× (M) and 2.19× (L)
-the time of such a build, again one host under the bar. With `DecodeAs`
-itself as (1), the ratio on `result.json` is 2.10× (M) and 2.55× (L); the
-table gives both readings. A later wave (W5.3) may remove the `T`'s heap
-allocation without `unsafe`: it is an escape, not a cost of reflection.
+**Verdict: `unsafe` field offsets (owner ruling R116, superseding R112).**
+Compared like for like, the store as built against offsets, (1)/(2), is
+below 2× on (M) on every fixture, so section 6.6's bar is not met on both
+hosts, and R112 kept reflect on that reading. The owner then ruled for
+offsets, on both architectures with one implementation, since most of the
+gap is the escape of the `T`, which offsets remove, not the work of
+reflection. W5.3 built it in `decodeas_store.go`, the one file of the root
+package that imports `unsafe`, which the seam test
+`TestSeamRootRawPointers` names: `buildPlan` records each answer field's
+`reflect.StructField.Offset` once per type, and `DecodeAs` writes each
+answer by a typed assignment at that offset, so the `T` stays on the
+stack. `DecodeAs` now allocates nothing (AC-P3's pin in
+`TestAllocTypedDecode`: 0 against the `Answers()` decode's 4) and `Ask`
+costs exactly what `SystemOne` costs. The file states the invariants each
+write relies on; `TestStoreKeepsNeighbours`, `TestStoreFieldKinds`,
+`TestStoreWritesTyped` and `TestDecodeTypedPlanMismatch` hold them. The
+times before and after are the typed store's rows in the ledger's
+`## W5.3`. The table above stays as S-D2 measured it.
 
 Most of the difference is the allocation of the `T`, not reflection. A
 diagnostic variant, (2) with the `T` forced onto the heap, puts the
