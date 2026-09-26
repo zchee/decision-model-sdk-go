@@ -143,6 +143,32 @@ When a sonic tag without `!go1.28` exists:
    next-release stand-in tag, now `-tags go1.29`; `go vet` and `go build`).
 4. Wait for the CI matrix to pass, then release a minor version.
 
+## Live tests
+
+The tests against the live API (`livetests/`, the port of the Python
+SDK's `tests/test_integration.py`) compile only with the build tag `live`
+and are not run by CI: each call to System One is billed, and CI holds no
+API key. They run where a maintainer holds a key, with the key in the
+environment, never on the command line:
+
+```sh
+TYPESAFE_LIVE_TESTS=1 go test -tags live -count=1 -v ./livetests/
+```
+
+Each test fails before it calls the API unless `TYPESAFE_LIVE_TESTS` is `1`
+and `TYPESAFE_API_KEY` is set; `TYPESAFE_BASE_URL` selects another host.
+`go test -list '.*' -tags live ./...` lists them without either variable,
+which is how CI's port test matrix check finds them. The untagged tests of
+the same package run in CI: the guard, the recorder's credential scrubber,
+and the example programs against a local stand-in for the API.
+
+`-args -record` also writes the bodies the API returned to
+[`testdata/live`](../testdata/live/README.md), each scrubbed of
+credentials before it reaches the disk. The last pass, its results and
+the facts it recorded about the API (latency, `MAX_CONCURRENT_STREAMS`,
+framing) are ledger rows W6.4-01 to W6.4-06 in
+[`perf/ledger.md`](perf/ledger.md).
+
 ## Measurement rule
 
 Performance numbers are comparable only when every host builds with the Go

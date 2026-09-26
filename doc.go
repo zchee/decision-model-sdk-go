@@ -12,9 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package typesafe is a Go client for the TypeSafe System One API.
+// Package typesafe is a Go client for the TypeSafe System One API, a port
+// of typesafe-sdk-python 0.7.1.
 //
-// The package is under construction: it is a port of typesafe-sdk-python
-// 0.7.1 and exports no API yet. The supported Go releases and platforms are
-// listed in docs/support.md.
+// A [Client] asks questions about a state and returns the answers: a
+// question set built with [NewQuestions] and sent by [Client.SystemOne],
+// or one declared by a struct's tags and asked by [Ask]. The repository's
+// examples directory holds complete programs, docs/deviations.md lists
+// where the port behaves differently from the Python SDK, and
+// docs/support.md the supported Go releases and platforms.
 package typesafe
