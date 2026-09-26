@@ -21,13 +21,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bytedance/sonic"
-
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
+	"github.com/zchee/typesafe-sdk-go/internal/testsupport/naive"
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
-// decodeBenchFixtures are the valid bodies both decode benchmarks run: the
+// decodeBenchFixtures are the valid bodies every decode benchmark runs: the
 // AC-P2 fixtures, in the order of the frozen table.
 var decodeBenchFixtures = []string{
 	"result.json",
@@ -72,28 +71,44 @@ func BenchmarkDecode(b *testing.B) {
 	}
 }
 
-// BenchmarkDecodeNaiveSonic is the naive comparator of owner decision G3:
-// sonic.Unmarshal of the same bodies into a map[string]any, which validates
-// the JSON (less strictly: it takes raw control characters and invalid
-// UTF-8) and builds a generic tree without the SDK's checks or types. A body
-// sonic refuses has no row: decoding into a map[string]any, sonic refuses
-// 1e400 anywhere on both architectures ("float infinity" on arm64, "float
-// number is infinity" on amd64), so parity-big-exp-unknown, which the SDK
-// and the Python SDK accept, has no naive row (ledger W2.0).
+// BenchmarkDecodeNaiveSonic is B2's naive comparator of owner decision G3
+// (a): internal/testsupport/naive's decode with sonic, sonic.Unmarshal of
+// the same bodies into a map[string]any, which validates the JSON (less
+// strictly: it takes raw control characters and invalid UTF-8) and builds a
+// generic tree without the SDK's checks or types; call/naive decodes the
+// same way. A body the codec refuses has no row: decoding into a
+// map[string]any, sonic refuses 1e400 anywhere on both architectures
+// ("float infinity" on arm64, "float number is infinity" on amd64), so
+// parity-big-exp-unknown, which the SDK and the Python SDK accept, has no
+// naive row (ledger W2.0). AC-P2's "≤ 0.5 × naive" compares result's
+// allocations with BenchmarkDecode's (W5.1 reports it, W5.2 asserts it).
 func BenchmarkDecodeNaiveSonic(b *testing.B) {
+	benchmarkDecodeNaive(b, naive.Sonic)
+}
+
+// BenchmarkDecodeNaiveJSON is BenchmarkDecodeNaiveSonic with encoding/json,
+// the second comparator of G3 (a), reported only. encoding/json also
+// refuses 1e400 into a float64, so parity-big-exp-unknown has no row here
+// either.
+func BenchmarkDecodeNaiveJSON(b *testing.B) {
+	benchmarkDecodeNaive(b, naive.StdJSON)
+}
+
+// benchmarkDecodeNaive runs cd's decode into a map[string]any over each
+// fixture that cd accepts, one sub-benchmark per fixture named as
+// BenchmarkDecode's.
+func benchmarkDecodeNaive(b *testing.B, cd naive.Codec) {
 	for _, name := range decodeBenchFixtures {
 		body := testsupport.Fixture(b, name)
-		var probe map[string]any
-		if err := sonic.Unmarshal(body, &probe); err != nil {
-			b.Logf("%s: sonic.Unmarshal refuses it on %s, no row: %v", name, runtime.GOARCH, err)
+		if _, err := cd.Decode(body); err != nil {
+			b.Logf("%s: %s refuses it on %s, no row: %v", name, cd.Name, runtime.GOARCH, err)
 			continue
 		}
 		b.Run(strings.TrimSuffix(name, ".json"), func(b *testing.B) {
 			b.ReportAllocs()
 			b.SetBytes(int64(len(body)))
 			for b.Loop() {
-				var m map[string]any
-				if err := sonic.Unmarshal(body, &m); err != nil {
+				if _, err := cd.Decode(body); err != nil {
 					b.Fatal(err)
 				}
 			}
