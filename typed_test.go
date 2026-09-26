@@ -1027,3 +1027,101 @@ func TestPreparedForConcurrentFirstUse(t *testing.T) {
 		t.Errorf("later call got set %p, the racers got %p", kept, got[0])
 	}
 }
+
+// Types for TestPreparedForTypeIdentity.
+type (
+	// aliasNoul is NoulAnswer under another name: the same type.
+	aliasNoul = NoulAnswer
+	// definedNoul is a new type defined from NoulAnswer: not an answer type.
+	definedNoul NoulAnswer
+
+	aliasSet struct {
+		Spam aliasNoul `typesafe:"kind=noul"`
+	}
+	definedTagged struct {
+		Spam definedNoul `typesafe:"kind=noul"`
+	}
+	definedUntagged struct {
+		Spam definedNoul
+		Tone ChoiceAnswer `typesafe:"kind=choice;options=calm"`
+	}
+	// genericSet is instantiated per test; each instantiation is its own
+	// type, with its own plan.
+	genericSet[T any] struct {
+		Spam  NoulAnswer `typesafe:"kind=noul"`
+		Extra T
+	}
+	embeddedAnswer struct {
+		NoulAnswer `typesafe:"kind=noul;instructions=Spam?"`
+	}
+)
+
+// TestPreparedForTypeIdentity pins how PreparedFor recognises an answer
+// field: by type identity, so an alias of an answer type is one and a type
+// defined from one is not; an instantiated generic struct is a struct like
+// any other; and an embedded answer type is a field named after its type.
+func TestPreparedForTypeIdentity(t *testing.T) {
+	tests := map[string]struct {
+		prepare   func() (*Prepared, error)
+		wantNames []string
+		wantMsg   string
+	}{
+		"success: an alias of an answer type is that answer type": {
+			prepare:   PreparedFor[aliasSet],
+			wantNames: []string{"Spam"},
+		},
+		"error: (7) a type defined from an answer type is not one": {
+			prepare: PreparedFor[definedTagged],
+			wantMsg: `PreparedFor[typesafe.definedTagged]: field Spam: a typesafe tag needs a NoulAnswer, ChoiceAnswer or ScoreAnswer field, and the field is a typesafe.definedNoul.`,
+		},
+		"success: an untagged field of a defined type is ignored": {
+			prepare:   PreparedFor[definedUntagged],
+			wantNames: []string{"Tone"},
+		},
+		"success: a generic struct instantiated with a plain type": {
+			prepare:   PreparedFor[genericSet[int]],
+			wantNames: []string{"Spam"},
+		},
+		"error: (5) a generic struct whose type argument makes an untagged answer field": {
+			prepare: PreparedFor[genericSet[NoulAnswer]],
+			wantMsg: `PreparedFor[typesafe.genericSet[github.com/zchee/typesafe-sdk-go.NoulAnswer]]: field Extra: the NoulAnswer field has no typesafe tag, so no kind; every answer field asks a question: add a tag such as typesafe:"kind=noul".`,
+		},
+		"success: an embedded answer type asks under its type's name": {
+			prepare:   PreparedFor[embeddedAnswer],
+			wantNames: []string{"NoulAnswer"},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			p, err := tt.prepare()
+			if tt.wantMsg != "" {
+				if p != nil || err == nil {
+					t.Fatalf("got {%p, %v}, want the error %q", p, err, tt.wantMsg)
+				}
+				if diff := gocmp.Diff(tt.wantMsg, err.Error()); diff != "" {
+					t.Errorf("message (-want +got):\n%s", diff)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("PreparedFor: %v", err)
+			}
+			if diff := gocmp.Diff(tt.wantNames, collectNames(p)); diff != "" {
+				t.Errorf("names (-want +got):\n%s", diff)
+			}
+		})
+	}
+	t.Run("success: each instantiation has its own plan", func(t *testing.T) {
+		pi, erri := PreparedFor[genericSet[int]]()
+		ps, errs := PreparedFor[genericSet[string]]()
+		if erri != nil || errs != nil {
+			t.Fatalf("errors: %v, %v", erri, errs)
+		}
+		if pi == ps {
+			t.Error("genericSet[int] and genericSet[string] share one prepared set; each type should have its own cache entry")
+		}
+		if diff := gocmp.Diff(string(pi.w.Questions), string(ps.w.Questions)); diff != "" {
+			t.Errorf("the two instantiations ask different questions (-int +string):\n%s", diff)
+		}
+	})
+}
