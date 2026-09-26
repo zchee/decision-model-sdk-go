@@ -175,6 +175,12 @@ func TestOneScanMatchesWholeScan(t *testing.T) {
 		`{"a":"` + strings.Repeat("0", 31) + `}}`, `{"a":"` + strings.Repeat("0", 63) + `]}`, `{"a":"` + strings.Repeat("0", 95) + `}}`,
 		`{"a":"` + strings.Repeat("x", 64) + `}}`, `{"a":"` + strings.Repeat("x", 64) + `]}`, `{"a":"` + strings.Repeat("x", 64) + `\"}`,
 		`{"model":"m","usage":{},"x":"` + strings.Repeat("x", 100) + `{}}`, `{"model":"m","usage":{},"x":"` + strings.Repeat("x", 100) + `\\\"}`,
+		// Slice 1's review (MINOR 1 and 2): a cut traversal that stops with
+		// another error than the cut's, here a bracket closing the root
+		// object, and a root key whose \u has three hex digits; each is
+		// refused by the whole-body path, and only the errCut test and the
+		// four-digit test of cutPoint keep the one scan from accepting it.
+		`{"model":"m","usage":{},"x":"y"]}`, `{"model":"m","usage":{},"\u123"}`,
 	} {
 		add(strconv.Quote(body), body)
 	}
@@ -265,6 +271,42 @@ func TestOneScanTakesValidBodies(t *testing.T) {
 			}
 			if once != tt.wantOnce {
 				t.Errorf("read the body once = %t, want %t (errCut = %v)", once, tt.wantOnce, errCut)
+			}
+		})
+	}
+}
+
+// TestK41ScannerBoundary pins what the decoder does with the shape of fuzz
+// finding 4 (c) (ruling K41; _spikes/w5.3/k41 reproduces the scanner bug
+// with sonic alone): sonic's scanner takes a string that runs to the end of
+// its input without its closing quote as a complete string when the string's
+// content is a multiple of 32 bytes long. Every body here is refused, on the
+// whole-body path (cutPoint refuses the cut, or the body does not end in a
+// brace), with the whole-body decode's own error.
+func TestK41ScannerBoundary(t *testing.T) {
+	zeros := func(n int) string { return strings.Repeat("0", n) }
+	tests := map[string]struct {
+		body    string
+		wantErr string
+	}{
+		"error: the finding, 64 bytes at the cut":               {body: `{"":"` + zeros(64) + `}`, wantErr: "eof"},
+		"error: 32 bytes with the brace, at the body's end":     {body: `{"":"` + zeros(31) + `}`, wantErr: "eof"},
+		"error: 32 bytes at the cut, the last an escaped quote": {body: `{"":"` + zeros(30) + `\"}`, wantErr: "eof"},
+		"error: a truncated body":                               {body: `{"":"` + zeros(64), wantErr: "eof"},
+		"error: a top-level string of 32 bytes":                 {body: `"` + zeros(32), wantErr: "not a JSON object"},
+		"error: after the members a response has":               {body: `{"model":"m","answers":{},"x":"` + zeros(32) + `}`, wantErr: "eof"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			one, whole, once := decodeBothScans(t, []byte(tt.body), false)
+			if once {
+				t.Error("the one-scan traversal decided alone; the shape must reach the whole-body path")
+			}
+			if !strings.Contains(one.Err, tt.wantErr) {
+				t.Errorf("error = %q, want one containing %q", one.Err, tt.wantErr)
+			}
+			if diff := gocmp.Diff(whole, one); diff != "" {
+				t.Errorf("the decode differs from the whole-body decode (-whole +one):\n%s", diff)
 			}
 		})
 	}
