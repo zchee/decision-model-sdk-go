@@ -179,6 +179,11 @@ type typedField struct {
 	// an embedded or nested struct are never answer fields (planField
 	// refuses a tag there).
 	offset uintptr
+	// end is where the field ends in its struct: reflect's Offset plus the
+	// size of the field's type, recorded apart from offset so that the
+	// store can check the one against the other before each write
+	// (decodeas_store.go, invariant 6).
+	end uintptr
 	// name is the question name: the answer is looked up under it.
 	name string
 	// kind is the question's kind, which is also the field's answer type.
@@ -291,8 +296,9 @@ func buildPlan(t reflect.Type) *typedPlan {
 			seen[q.entry.name] = len(fields)
 		}
 		qs.entries = append(qs.entries, q.entry)
-		fields = append(fields, typedField{index: i, offset: f.Offset, name: q.entry.name, kind: q.kind, optional: q.optional})
+		fields = append(fields, typedField{index: i, offset: f.Offset, end: f.Offset + f.Type.Size(), name: q.entry.name, kind: q.kind, optional: q.optional})
 	}
+	checkPlanLayout(t, fields)
 	p, err := qs.Prepare()
 	if err != nil {
 		// Every rule Prepare applies to a question was checked above, so the
@@ -309,6 +315,32 @@ func buildPlan(t reflect.Type) *typedPlan {
 		fields[i].levels = entries[i].Levels
 	}
 	return &typedPlan{typ: t, prepared: p, fields: fields}
+}
+
+// checkPlanLayout panics unless each answer field of a plan being built for
+// the struct type t records what reflect gives the field at its index: its
+// offset, its end (the offset plus the size of its type) and a kind whose
+// answer type is its type. The typed store writes through those records
+// (decodeas_store.go, invariants 2, 3 and 6); its per-write bound refuses a
+// write that leaves the recorded bytes, but not a plan whose offset and end
+// both name another field of the same size (review V72). The check runs once
+// per type, when the plan is built, and its message names the type, the
+// field and both layouts.
+func checkPlanLayout(t reflect.Type, fields []typedField) {
+	u := func(v uintptr) string { return strconv.FormatUint(uint64(v), 10) }
+	for i := range fields {
+		f := &fields[i]
+		if f.index < 0 || f.index >= t.NumField() {
+			panic("typesafe: the typed plan of " + t.String() + " records question " + strconv.Quote(f.name) + " at field index " +
+				strconv.Itoa(f.index) + ", outside the struct's " + strconv.Itoa(t.NumField()) + " fields; the plan is corrupt")
+		}
+		sf := t.Field(f.index)
+		if f.offset != sf.Offset || f.end != sf.Offset+sf.Type.Size() || answerKind(sf.Type) != f.kind {
+			panic("typesafe: the typed plan of " + t.String() + " records field " + sf.Name + " (index " + strconv.Itoa(f.index) +
+				", question " + strconv.Quote(f.name) + ") as a " + answerTypeName(f.kind) + " at bytes [" + u(f.offset) + ", " + u(f.end) +
+				"), but reflect gives a " + sf.Type.String() + " at bytes [" + u(sf.Offset) + ", " + u(sf.Offset+sf.Type.Size()) + "); the plan is corrupt")
+		}
+	}
 }
 
 // earlierField returns the index in fields of the field asking under name,

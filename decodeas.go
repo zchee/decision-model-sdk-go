@@ -181,20 +181,45 @@ func (p *typedPlan) decode(resp *SystemOneResponse, endpoint string, r headerRed
 		// decoded stays on the caller's stack.
 		switch f.kind {
 		case wire.KindNoul:
-			storeAnswer(b, f.offset, NoulAnswer{w: a.Noul, present: true})
+			storeAnswer(b, p, f, NoulAnswer{w: a.Noul, present: true})
 		case wire.KindChoice:
 			if at, bad := undeclaredOption(&a.Choice, f.options); bad {
 				return typedError(resp, endpoint, r, f.name, at, errTypedOption)
 			}
-			storeAnswer(b, f.offset, ChoiceAnswer{w: a.Choice, present: true})
+			storeAnswer(b, p, f, ChoiceAnswer{w: a.Choice, present: true})
 		default: // wire.KindScore: buildPlan gives every field one of the three kinds
 			if at, bad := undeclaredLevel(&a.Score, uint64(len(f.levels))); bad {
 				return typedError(resp, endpoint, r, f.name, at, errTypedLevel)
 			}
-			storeAnswer(b, f.offset, ScoreAnswer{w: a.Score, present: true})
+			storeAnswer(b, p, f, ScoreAnswer{w: a.Score, present: true})
 		}
 	}
 	return nil
+}
+
+// storeRefusal is the panic value of a typed store that refuses to write an
+// answer of n bytes at offset off into the field f of a struct of size
+// bytes, the T that p decodes (decodeas_store.go, invariant 6): the write
+// would not cover exactly the bytes the plan recorded for f inside T. Its
+// message, built only when the panic is printed or read, names T, the field
+// and the offset, and says what the store compared.
+type storeRefusal struct {
+	p            *typedPlan
+	f            *typedField
+	off, n, size uintptr
+}
+
+// Error returns the refusal's message.
+func (e storeRefusal) Error() string {
+	f := e.f
+	field := "#" + strconv.Itoa(f.index)
+	if f.index >= 0 && f.index < e.p.typ.NumField() {
+		field = e.p.typ.Field(f.index).Name
+	}
+	u := func(v uintptr) string { return strconv.FormatUint(uint64(v), 10) }
+	return "typesafe: the typed store refused to write field " + field + " (a " + answerTypeName(f.kind) + ", question " + strconv.Quote(f.name) + ") of " +
+		e.p.typ.String() + " at offset " + u(e.off) + ": a " + u(e.n) + "-byte write there would cover bytes [" + u(e.off) + ", " + u(e.off+e.n) +
+		") of the struct's " + u(e.size) + ", but the plan recorded the field's end at " + u(f.end) + "; the plan is corrupt"
 }
 
 // undeclaredOption returns the path, below the answer, of the first option

@@ -5688,3 +5688,111 @@ Share: 3 of 3 decoded live bodies (100 %) take the one scan; the API puts
 never ends one. The test's three synthetic controls (a last member that is
 a number, `true` or `null`) take the second traversal, so the check can
 fail.
+
+## W6-fixes: the store's per-write bound, the per-architecture UTF-8 check, `Answers` incomparable, the AC-P7 gate
+
+W6-fixes lands the small changes the owner ratified in the Phase 5 batch
+(rulings G8-a, G8-b; critic-p5 Q1, Q3, Q4 and n-7) and the review findings
+routed to it (V70 MINOR 1 and NIT 1, V72, V73 MINOR 1), one commit each,
+each gated alone (R111). Raw outputs are in `_spikes/w6-fixes/results/`,
+the scripts that produced them in `_spikes/w6-fixes/scripts/`. The branch
+started on 3a31a0a and was rebased onto 181921a (W6.1's landing) and then
+8cd8e8f (W6.4's); the final measurements ran on 181921a, and W6.4 changed
+no non-test Go file of the packages they time (the root package's `doc.go`
+comment only). A row names the commit it measured; each landed commit
+carries the same Go changes as that commit (`git diff <parent> <commit>
+-- '*.go'`), the ledger pass that added these rows having touched only
+`docs/perf/ledger.md` and `_spikes/w6-fixes/`. The series taken on
+3a31a0a before the rebase and before V72 are in `results/pre-rebase/`
+(W6-fixes-10). Timing A/B series use W5.3's runner (`A=_spikes/w5.3/ab.sh`:
+the base and the candidate test binaries alternate, 5 rounds of
+`-test.count 2`, 10 runs a side, in one lock hold; benchstat compares
+medians). (M) runs set `GOEXPERIMENT=nosimd,noruntimesecret`, `MAXLOAD=10`
+and `FLOCK=/opt/homebrew/opt/util-linux/bin/flock` on the lead's
+`$SP/bench.lock`; (L) runs use `/tmp/ts-spike/go/bin/go` with
+`GOPATH=/tmp/ts-spike/gopath`, `GOMODCACHE=/tmp/ts-spike/modcache`,
+`GOCACHE=/tmp/ts-spike/gocache`, `MAXLOAD=2`, the trees copied by `tar`
+into `/tmp/ts-spike/w6-fixes/<tree>`, and `flock /tmp/ts-spike/bench.lock`.
+
+### The store's per-write bound and the plan's layout check (commit 1; G8-a Q3 (a), V70 NIT 1, V72)
+
+`storeAnswer` (`decodeas_store.go`, invariant 6 of its header) checks
+every write before it happens: the plan's offset is inside `T`, the write
+of `F`'s size from it ends exactly at the field's end that `buildPlan`
+recorded apart from the offset (`typedField.end`, reflect's `Offset` plus
+the field type's `Size`), and that end is inside `T`, whose size `baseOf`
+takes from `T` at compile time (`unsafe.Sizeof`), not from the plan.
+Otherwise it panics with a `storeRefusal`, whose message names the type,
+the field, the question and the offset. One comparison against `T`'s size
+alone, as the owner's question put it, would miss the critic's S3 (every
+offset 0 stays inside `T`) and S2 on a field that is not the last, both of
+which put response bytes into pointer slots (critic-p5 M-2), so the bound
+also compares the write's end with the recorded end, and a first
+comparison keeps `off + n` from wrapping; the lead accepted the three
+comparisons (D-W6-fixes-status-1). Each is needed: removing any one fails
+a row of `TestStoreRefusesOutsideField` that only it catches. The bound
+cannot see a plan whose offset and end both name another field of the
+same size (review V72), so `buildPlan` also runs `checkPlanLayout` once
+per type: each field's offset, end and kind must be what reflect gives the
+field at its index, or it panics by name before the plan is used.
+`storeAnswer` stays inlined (cost 49, was 7) and `b` does not escape; the
+refusal value is built only on the panic path.
+
+Findings:
+
+1. **No allocation, AC-P3 unchanged** (W6-fixes-05, -07): `DecodeAs` 0/0
+   in 25 of 25 runs a side on both hosts at 39c97ca; the frozen row stays.
+2. **The (L) flood-1k delta is the alignment of an unchanged loop, not the
+   bound** (W6-fixes-01 to -04, -06). (M): `result.json` −5.47 %,
+   `result-20` −1.46 %, flood-1k ~ (p = 0.218). (L): `result.json`
+   −3.46 %, `result-20` −1.25 %, flood-1k +24.72 % (899.3 → 1 121.5 ns).
+   `undeclaredLevel`, the flood fixture's hot loop over 1 000 levels, is
+   the same 365 bytes in every binary; it starts at 32 mod 64 in both base
+   binaries measured (0x9973e0 and 0x997860: 895 and 899 ns) and at 0 mod
+   64 in all four binaries carrying the commit, with or without the bound
+   (0x997b40, 0x997400, 0x997fc0, 0x997880: 1 054 to 1 126 ns). The final
+   tree with only a 32-byte function placed before `undeclaredLevel`,
+   moving it to 32 mod 64 (an experiment, not committed:
+   `results/align-variant/decodeas.go.diff`), reads 918.7 ns against
+   1 120.5 (−18.0 %, `result.json` and `result-20` unchanged), which is
+   +2.2 % over the base's 899.3 ns at matched alignment. callgrind counts
+   +69 instructions per `DecodeAs` on that fixture (17 297 → 17 366,
+   +0.4 %) and +31 on `result.json` (1 376 → 1 407). The same tree without
+   the bound, also at 0 mod 64, reads −3.5 % on flood-1k and +3.8 % on
+   `result.json` against the bound tree in one series, so the bound's
+   comparisons are below the layout noise (D-W6-fixes-status-2 amends the
+   earlier reading, which rested on a series where the bound-less tree was
+   the slower one). `BenchmarkDecode/result` (`internal/codec`) is not on
+   the store's path and has no row (D-W6-fixes-status-1); the store is
+   timed, as in W5.3-18 and -21, by `_spikes/w4.3`'s `BenchmarkSD2`
+   `0-DecodeAs` arm, which calls the root package's `DecodeAs`.
+3. **Every wrong-offset shape ends in a named panic, never a fault or a
+   hang** (W6-fixes-08). A plan built wrong, the critic's S2 (plan offset
+   + 8) and S3 (every plan offset 0), an offset past the struct and V72's
+   same-size swap (the first two answer fields of one kind trading offset
+   and end), stops in `checkPlanLayout`'s panic when the plan is built, in
+   every test that builds it; a store that reads its offset one byte on
+   (S1's shape at the offset the store checks) stops in the store's
+   `storeRefusal`. Each ran on a whole-package `-race` run and with each of
+   the 279 root tests alone under `-race`: 0 faults, 0 checkptr errors, 0
+   timeouts. The same swap at the commit before `checkPlanLayout` passes
+   the per-write bound and writes the other field of the same type; only
+   the test-side `requireStoreLayout` and value comparisons catch it (14
+   named FAILs). The literal S1 (the write itself at `off+1`, after the
+   check) cannot be seen by a check that runs before it:
+   `TestStoreWritesTyped` fails it by name (the offset the store writes at
+   must be the plain name the bound checks), and a whole-package run still
+   ends in `checkptr: misaligned pointer conversion` under `-race`.
+
+| # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| W6-fixes-01 | 2026-09-26 19:13:25 UTC | W6-fixes 1: the store's bound, `BenchmarkSD2` | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.09 → 0.72 | `BASE=181921a CAND=39c97ca MAXLOAD=2 sh $A '(L)' results-f1 /tmp/ts-spike/bench.lock store-bound-sd2-L _spikes/w4.3 5 <181921a tree> <39c97ca tree> -test.run '^$' -test.bench '^BenchmarkSD2$/.*/0-DecodeAs$' -test.benchmem -test.count 2` (`scripts/c1-final-L.sh`) | `DecodeAs`: `result.json` 98.33 → 94.93 ns (−3.46 %), `result-20` 717.6 → 708.6 ns (−1.25 %), flood-1k 899.3 → 1 121.5 ns (+24.72 %); 0 allocations both | finding 2; `results/store-bound-sd2-L-{base,cand}.txt`, `.benchstat.txt` |
+| W6-fixes-02 | 2026-09-26 19:18:52 UTC | W6-fixes 1: alignment experiment | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.86 → 0.99 | as W6-fixes-01 with `BASE=39c97ca CAND=39c97ca-undeclaredLevel-at-32-mod-64` (the 39c97ca tree with `undeclaredLevel` moved above `undeclaredOption` and a 4-byte `//go:noinline` function, called from `storeRefusal.Error`, placed before it) | flood-1k 1 120.5 → 918.7 ns (−18.01 %); `result.json` 94.98 → 94.97 ns (~), `result-20` 711.5 → 710.7 ns (~); `undeclaredLevel` at 0x997ce0 (32 mod 64) | finding 2; not committed; `results/store-bound-align-L-{base,cand}.txt`, `.benchstat.txt`, `store-bound-align-nm-L.txt`, `align-variant/decodeas.go.diff` |
+| W6-fixes-03 | 2026-09-26 19:14:38 UTC | W6-fixes 1: the 39c97ca tree against itself without the bound | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.72 → 0.90 | as W6-fixes-01 with `BASE=39c97ca CAND=39c97ca-without-the-bound` (the `if` block of `storeAnswer` deleted, nothing else); `go tool nm -size -sort address` of the three SD2 binaries | without the bound: `result.json` 94.93 → 98.57 ns (+3.84 %), `result-20` 708.8 → 714.6 ns (+0.82 %), flood-1k 1 126 → 1 086 ns (−3.51 %); `undeclaredLevel` (365 B) at 0x997860 (181921a), 0x997fc0 (39c97ca), 0x997880 (without the bound) | finding 2; `results/store-bound-layout-L-{base,cand}.txt`, `.benchstat.txt`, `store-bound-nm-L.txt` |
+| W6-fixes-04 | 2026-09-26 19:15:52 UTC | W6-fixes 1: instructions per `DecodeAs` | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.90 → 0.89 | `sh scripts/c1-irprobe-final-L.sh`: callgrind (valgrind 3.24.0) `Ir` of the three SD2 binaries at 20 000 and 40 000 iterations, `(Ir(40000) − Ir(20000)) / 20000` | per `DecodeAs`, 181921a / 39c97ca / without the bound: flood-1k 17 297 / 17 366 / 17 356; `result.json` 1 376 / 1 407 / 1 378 (the differencing's run-to-run noise is about ±70, W6-fixes-10) | finding 2; `perf stat` is refused on (L) (`perf_event_paranoid` 3); `results/store-bound-ir-L.txt` |
+| W6-fixes-05 | 2026-09-26 19:15:48 UTC | W6-fixes 1: AC-P3 | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.90 | under `flock /tmp/ts-spike/bench.lock`, in each tree: `go test -count=5 -run '^TestAllocTypedDecode$' -v .` | 181921a and 39c97ca alike, 25 of 25 runs each: `DecodeAs` 0/0, `Answers()` decode 4/688, `SystemOne` 20/2 648, `Ask` 20/2 648 (one run of 39c97ca's 25 read `Ask` 21/2 696 once, the sporadic extra allocation of R104-corr's class; the pin is 3-of-5 and passed) | finding 1; `results/store-bound-acp3-L-{181921a,39c97ca}.txt` |
+| W6-fixes-06 | 2026-09-27 04:21:27 JST | W6-fixes 1: the store's bound, `BenchmarkSD2` | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 7.54 → 5.65 | as W6-fixes-01 on (M) (waited 4 × 60 s for load ≤ 10; `scripts/f1-M.sh`) | `DecodeAs`: `result.json` 81.58 → 77.12 ns (−5.47 %), `result-20` 638.8 → 629.5 ns (−1.46 %), flood-1k 658.6 → 663.8 ns (~, p = 0.218); 0 allocations both | finding 2; `results/store-bound-sd2-M-{base,cand}.txt`, `.benchstat.txt` |
+| W6-fixes-07 | 2026-09-27 04:29:18 JST | W6-fixes 1: AC-P3 | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 9.81 | as W6-fixes-05 on (M), under `$FLOCK $SP/bench.lock` | as W6-fixes-05, 25 of 25 runs each (one `Ask` run of 39c97ca at 21/2 696, same class) | finding 1; `results/alloc-M-{181921a,39c97ca}.txt` |
+| W6-fixes-08 | 2026-09-27 04:32:39–05:06:56 JST | W6-fixes 1: the store and plan mutants | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | `python3 scripts/c1-plant.py <39c97ca tree> <4648f26 tree>` plants each mutant in a copy (4648f26: commit 1 before `checkPlanLayout`); the offset shapes and W1: `go test -race -count=1 .` (timeout 600 s), then `sh scripts/c1-pertest.sh <mutant>` (each root test, fuzz seed set and example alone, `-race`, timeout 120 s); the bound reductions: `go test -count=1 -run '^TestStoreRefusesOutsideField$' -v .`; the literal S1: `go test -count=1 -run '^TestStoreWritesTyped$' -v .` | whole package, each in 47–57 s with 0 fault/checkptr/timeout lines: S2, S3, past the struct and W1 end in `panic: typesafe: the typed plan of …` (S2 `typesafe.reviewAnswers … field Spam … as a NoulAnswer at bytes [8, 16), but reflect gives a typesafe.NoulAnswer at bytes [0, 16)`; W1 `typesafe.duplicatesAnswers … field Spam … at bytes [216, 232), but reflect gives … [56, 72)`), S1r in `panic: typesafe: the typed store refused to write field …`; W1 at 4648f26: 14 named FAILs, no panic, no fault; alone, 279 tests each (pass / named FAIL / plan refusal / store refusal / bad): S2 253 / 1 / 25 / 0 / 0, S3 255 / 1 / 23 / 0 / 0, past the struct 253 / 1 / 25 / 0 / 0, W1 262 / 1 / 16 / 0 / 0, S1r 266 / 1 / 0 / 12 / 0; B0 (bound removed) fails all 10 rows of `TestStoreRefusesOutsideField`, B1 (no offset bound) the coordinated wrap row, B2 (no exact end) 6 rows, B3 (no end bound) the 2 past-the-end rows; S1w fails `TestStoreWritesTyped` (`a store whose offset is not the plain name that the bound before it checks`) and its whole-package run ends in `fatal error: checkptr: misaligned pointer conversion` | finding 3; the one named FAIL of each per-test run is `TestDecodeTypedPlanMismatch`, which recovers a panic and finds the plan check's instead of its own, and for S1r `TestStoreRefusesOutsideField`, whose expected offsets the mutant moves; `results/c1-mutants/` |
+| W6-fixes-09 | 2026-09-27 04:36:09 JST | W6-fixes 1: `-race` with coverage, the uncovered-lines check (STANDING 8) | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 5.52 | under `$FLOCK $SP/bench.lock` at 39c97ca: `go test -race -count=1 -coverprofile -covermode=atomic ./...`, then `uv run --script .github/scripts/uncovered-lines.py --profile <it> --doc docs/uncovered-lines.md` | 7 packages ok; `uncovered-lines: OK, 85 zero-count block(s) of 3140 in 19 file(s); 75 row(s)` (181921a: 85 of 3 126, V73): every new block covered, the store's refusal 10 times, `checkPlanLayout`'s two panic branches 1 and 7 times (`TestPlanLayoutRefusesCorruptPlans`); `docs/uncovered-lines.md` unchanged | `results/c1-uncovered-M.txt` |
+| W6-fixes-10 | 2026-09-26 18:27:33 UTC – 2026-09-27 03:46:22 JST | W6-fixes 1, earlier series: d3c6289 (commit 1 before V72) on 3a31a0a | (L); (M) | `go1.27.1 linux/amd64`; `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]`; `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 0.00–1.14 (L); 5.5–59.8 (M, other lanes) | the W6-fixes-01 to -09 commands against 3a31a0a and d3c6289 (`scripts/pre-rebase/`: `c1-plant.py`, `c1-pertest.sh`, `c1-irprobe.sh`) | (L) `result.json` −3.40 %, `result-20` −0.67 % (~ in a second series), flood-1k +17.98 % and +17.73 % with `undeclaredLevel` at 32 / 0 / 0 mod 64 in base / commit / commit without the bound; the bound-less tree slower in that series (1 113 against 1 064 ns); callgrind 17 324 → 17 372 and, re-taken, 17 327 → 17 362; (M) `result.json` −3.83 % and −4.67 %, the others ~; AC-P3 0/0 both hosts; mutants S2, S3, past the struct and S1r (on a tree before the refusal message's final wording) ended in the store's refusal in every test that reached it (278 tests alone each, 0 bad) | superseded by W6-fixes-01 to -09 (rebase onto 181921a, V72); the first series in `results/pre-rebase/`, the re-take at d3c6289 in `results/pre-rebase/d3c6289/` |

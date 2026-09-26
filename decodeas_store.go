@@ -30,6 +30,9 @@ package typesafe
 //     taken once per type by buildPlan (typedField.offset). An answer field
 //     is never promoted from an embedded struct: planField refuses a
 //     typesafe tag below the struct's own fields, so no offset is a sum.
+//     Before a plan is used, checkPlanLayout compares each field's offset,
+//     end and kind with what reflect gives the field at its index, and
+//     panics by name on any difference (review V72).
 //  3. F is that field's type: buildPlan admits a field only when its type is
 //     the answer type of its kind (answerKind), and decode picks F from the
 //     same kind. So the write covers exactly the field, at its own
@@ -40,22 +43,47 @@ package typesafe
 //     shape of this file).
 //  5. The pointer is not kept: a fieldBase lives on the caller's stack for
 //     one decode, and nothing here stores it.
+//  6. Invariants 2 and 3 are checked before every write, not only trusted
+//     (the per-write bound, owner ruling G8-a Q3 (a)): storeAnswer writes
+//     only when the offset is inside T, the write of F's size from it ends
+//     exactly at the field's end that buildPlan recorded apart from the
+//     offset (typedField.end, reflect's Offset plus the size of the field's
+//     type), and that end is inside T, whose size baseOf takes from T itself
+//     at compile time rather than from the plan. Otherwise it panics with a
+//     message that names T, the field and the offset. So a plan holding a
+//     wrong offset (another field's, 0, one past the last field) or a store
+//     of the wrong answer type stops before a byte is written, where the
+//     write would put response bytes into a pointer slot of T or past T
+//     into the caller's frame (critic-p5 M-2). The check compares values the
+//     decode already holds: no allocation, no reflection, until it fails.
+//     It cannot see a plan whose offset and end both name another field of
+//     the same size; checkPlanLayout refuses that plan when it is built
+//     (invariant 2).
 
 import "unsafe"
 
-// fieldBase is the address of the T a typed decode fills. It is opaque
-// outside this file, which keeps every use of unsafe here.
+// fieldBase is the address and the size of the T a typed decode fills. It
+// is opaque outside this file, which keeps every use of unsafe here.
 type fieldBase struct {
 	p unsafe.Pointer
+	// size is T's size, the bound of every write (invariant 6).
+	size uintptr
 }
 
-// baseOf returns the address of *t as a fieldBase.
+// baseOf returns the address of *t, and T's size, as a fieldBase.
 func baseOf[T any](t *T) fieldBase {
-	return fieldBase{p: unsafe.Pointer(t)}
+	return fieldBase{p: unsafe.Pointer(t), size: unsafe.Sizeof(*t)}
 }
 
-// storeAnswer writes v into the field of type F at offset off of the struct
-// b points to (invariants 1 to 5 above).
-func storeAnswer[F NoulAnswer | ChoiceAnswer | ScoreAnswer](b fieldBase, off uintptr, v F) {
+// storeAnswer writes v into the answer field f of the struct b points to,
+// a value of the type p was built for (invariants 1 to 6 above). It panics
+// before the write unless the write stays inside the struct and covers
+// exactly the bytes buildPlan recorded for f (invariant 6). The first
+// comparison keeps off+n from wrapping around.
+func storeAnswer[F NoulAnswer | ChoiceAnswer | ScoreAnswer](b fieldBase, p *typedPlan, f *typedField, v F) {
+	off, n := f.offset, unsafe.Sizeof(v)
+	if off > b.size || off+n != f.end || f.end > b.size {
+		panic(storeRefusal{p: p, f: f, off: off, n: n, size: b.size})
+	}
 	*(*F)(unsafe.Add(b.p, off)) = v
 }
