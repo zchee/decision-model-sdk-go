@@ -106,8 +106,8 @@ IDs that the plan's waves cite.
 
 | ID | Upstream | Go test / deviation | status |
 | --- | --- | --- | --- |
-| L1 | `test_secret_headers_redacted` | `TestSecretHeadersRedacted` (9 × 3) | planned |
-| L2 | `test_transport_errors_do_not_expose_credentials` | `TestTransportErrorsNeverExposeCredentials` | planned |
+| L1 | `test_secret_headers_redacted` | `TestSecretHeadersRedacted` (9 × 3 under `DefaultRetry()` with 1 ms backoff: 429 → 3 attempts with `retry=1`/`retry=2`; every record of every attempt down to LevelTrace and every rendering of the error; it replaces Phase 2's one-attempt grid) + `TestErrorHeadersRedacted` (R87) | ported |
+| L2 | `test_transport_errors_do_not_expose_credentials` | `TestTransportErrorsNeverExposeCredentials` (5 classes × 3 chain shapes × 2 credentials, 3 attempts each; the type checks as the Go analogue of R81 (3)/R82 (a); the cause's text survives in `%+v`, R95) + `TestTransportDebugRecordsHoldNoCredential` (R84) | ported |
 | L3 | `test_exception_redaction_escaped_values` | `TestRedactionCoversGoEscapeForms` (4 headers × 3 credentials; raw, `%q`, `%+q` and JSON forms, the Go analogue of raw, bytes repr and `json.dumps`) | ported |
 | L4 | `test_exception_redaction_shared_causes_cycles_and_notes` | deviation "cause via `errors.Unwrap` unless it printed a credential" (Go errors have no notes or cycles: the chain is walked, never copied, and a cause that printed a credential is replaced whole by `*scrubbedError`, R81 (3)) + `TestCredentialsCause` | deviation |
 | L5 | `test_exception_redaction_structured_constructor` | deviation "cause via `errors.Unwrap` unless it printed a credential" (Go errors are not rebuilt from messages: the stand-in keeps the redacted text, the redacted `%+v` rendering of the chain as text (R95) and the standard sentinels it matched; a caller error type holding the request in a pointer field stays reachable by `errors.As`, R82 (a)) + `TestCredentialsCause` + `TestScrubbedErrorFormat` | deviation |
