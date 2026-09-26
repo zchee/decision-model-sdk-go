@@ -78,8 +78,9 @@ func Ask[T any](ctx context.Context, c *Client, state any, opts ...CallOption) (
 //
 // A T that PreparedFor refuses fails with its [*ConfigError]. Otherwise the
 // fields are read in their order in T, and the first that does not fit
-// fails the whole decode with a [*ResponseValidationError] whose FieldPath
-// names the answer, as the Python SDK names the same failure in a response
+// fails the whole decode: DecodeAs returns the zero T, never one holding
+// the fields read before the failure, and a [*ResponseValidationError]
+// whose FieldPath names the answer, as the Python SDK names the same failure in a response
 // model that holds the answers under "answers" (a pydantic response_model
 // such as {"model": str, "answers": {"spam": NoulAnswer}}):
 //

@@ -330,6 +330,54 @@ func TestDecodeAsOptional(t *testing.T) {
 	}
 }
 
+// TestDecodeAsReturnsZeroOnFailure pins DecodeAs's godoc (review W4.2
+// NIT 1): a decode that fails after reading some fields returns the zero
+// T, not the fields read before the failure, from DecodeAs and from Ask,
+// and leaves the response as it was.
+func TestDecodeAsReturnsZeroOnFailure(t *testing.T) {
+	// spam is read first; tone then picks an option reviewAnswers does not
+	// list.
+	body := resultWith(spamJSON, `"tone":{"type":"choice","choice":"x","confidence":1,"probabilities":{}}`, qualityJSON)
+	tests := map[string]struct {
+		decode func(*testing.T, *SystemOneResponse) (reviewAnswers, error)
+	}{
+		"error: DecodeAs returns the zero T": {
+			decode: func(_ *testing.T, r *SystemOneResponse) (reviewAnswers, error) { return DecodeAs[reviewAnswers](r) },
+		},
+		"error: Ask returns the zero T": {
+			decode: func(t *testing.T, _ *SystemOneResponse) (reviewAnswers, error) {
+				return Ask[reviewAnswers](t.Context(), newTestClient(t, replying(http.StatusOK, body)), "x")
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			var resp SystemOneResponse
+			if err := resp.UnmarshalJSON(body); err != nil {
+				t.Fatalf("UnmarshalJSON: %v", err)
+			}
+			before, err := resp.MarshalJSON()
+			if err != nil {
+				t.Fatalf("MarshalJSON: %v", err)
+			}
+			got, err := tt.decode(t, &resp)
+			if !errors.Is(err, errTypedOption) {
+				t.Fatalf("err = %v, want the undeclared-option failure", err)
+			}
+			if diff := gocmp.Diff(reviewAnswers{}, got, typedCmp); diff != "" {
+				t.Errorf("the T returned with the error is not the zero T (-want +got):\n%s", diff)
+			}
+			after, err := resp.MarshalJSON()
+			if err != nil {
+				t.Fatalf("MarshalJSON: %v", err)
+			}
+			if diff := gocmp.Diff(string(before), string(after)); diff != "" {
+				t.Errorf("the response changed (-before +after):\n%s", diff)
+			}
+		})
+	}
+}
+
 // TestAskPassesCallOptions checks that Ask hands its call options to
 // SystemOne (review W4.2 MINOR 2): a Model and a Header reach the request
 // that goes out, and without them the request carries the client's model
@@ -497,6 +545,12 @@ func TestAskValidationFieldPaths(t *testing.T) {
 			ask:    askAs[reviewAnswers](),
 			decode: decodeAs[reviewAnswers](),
 			path:   "answers.quality.probabilities.3",
+		},
+		"error: the pick is checked before the probabilities": {
+			body:   resultWith(spamJSON, `"tone":{"type":"choice","choice":"bad","confidence":1,"probabilities":{"other":1}}`, qualityJSON),
+			ask:    askAs[typedSystemOneResponse](),
+			decode: decodeAs[typedSystemOneResponse](),
+			path:   "answers.tone.choice",
 		},
 		"error: the legend is checked before the probabilities": {
 			body:   resultWith(`"quality":{"type":"score","score":1.7,"confidence":0.8,"legend":{"0":"bad","5":"x"},"probabilities":{"4":1}}`),
