@@ -38,15 +38,24 @@ import (
 // windows-2025; ubuntu-26.04 is the image that asserts the Linux-only half.
 func TestRefusedAddr(t *testing.T) {
 	t.Run("error: a closed listener's address can be taken again", func(t *testing.T) {
-		ln, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatal(err)
+		// The race this shows can hit it too: another listener may take the
+		// freed port before the re-listen. Retry once, on a new port.
+		var addr string
+		var taken net.Listener
+		var err error
+		for range 2 {
+			ln, lerr := net.Listen("tcp", "127.0.0.1:0")
+			if lerr != nil {
+				t.Fatal(lerr)
+			}
+			addr = ln.Addr().String()
+			if cerr := ln.Close(); cerr != nil {
+				t.Fatal(cerr)
+			}
+			if taken, err = net.Listen("tcp", addr); err == nil {
+				break
+			}
 		}
-		addr := ln.Addr().String()
-		if err := ln.Close(); err != nil {
-			t.Fatal(err)
-		}
-		taken, err := net.Listen("tcp", addr)
 		if err != nil {
 			t.Fatalf("listen on the closed listener's address %s: %v; want it free for anyone", addr, err)
 		}

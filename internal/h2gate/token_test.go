@@ -128,7 +128,8 @@ func k21Burst(t *testing.T, tr *Transport, base, prefix string, n int) []result 
 // deadline), the client opens at most 2 connections, and a fresh burst of
 // 200 calls against the limit of 8 afterwards succeeds 200/200. The 100 ms
 // and 50 ms grow on a host the control (k21Control, which runs no h2gate
-// code) finds slow now.
+// code) finds slow now. It runs in CI's -race test step (go test -race with
+// coverage) on ubuntu-26.04, xcode-27 and windows-2025.
 func TestTokenResidualK21(t *testing.T) {
 	type scenario struct {
 		prefix string // the burst's paths
