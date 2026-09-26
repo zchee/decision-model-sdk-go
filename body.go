@@ -16,33 +16,23 @@ package typesafe
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"strconv"
-	"unicode/utf8"
 
 	"github.com/zchee/typesafe-sdk-go/internal/codec"
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
 // bodyMember is one member a call adds to the top level of its request
-// body, as the Python SDK's extra_body does: the member's name and its value.
-type bodyMember struct {
-	key   string
-	value any
-}
-
-// The members every request body starts with, in this order.
-const (
-	memberState     = "state"
-	memberModel     = "model"
-	memberQuestions = "questions"
-)
+// body, as the Python SDK's extra_body does ([engine.BodyMember]).
+type bodyMember = engine.BodyMember
 
 // encodeBody encodes the request body of one System One call into a pooled
-// scratch buffer. It returns the body holding the call's reference, which
-// the caller drops with Release when the call returns; [requestReaders]
-// gives the transport its own references.
+// scratch buffer, with [engine.EncodeBody] instantiated with the root
+// package's RawJSON and Content. It returns the body holding the call's
+// reference, which the caller drops with Release when the call returns;
+// [requestReaders] gives the transport its own references.
 //
 // The body is the JSON object {"state":…,"model":…,"questions":…} followed
 // by the members of extra, laid out as the Python SDK's {**body,
@@ -87,164 +77,24 @@ const (
 // valid UTF-8, and with an [*InvalidRequestError] when a member cannot be
 // encoded. The configuration is checked first.
 func encodeBody(state any, model string, qs *Prepared, extra []bodyMember) (codec.Body, error) {
-	if qs == nil || qs.Len() == 0 {
+	var q *wire.Prepared
+	if qs != nil {
+		q = &qs.w
+	}
+	body, f := engine.EncodeBody[RawJSON, Content](state, model, q, extra)
+	switch f.Kind {
+	case engine.FailNone:
+		return body, nil
+	case engine.FailNoQuestions:
 		return codec.Body{}, newConfigError("At least one question is required.")
-	}
-	stateAt, modelAt, questionsAt := -1, -1, -1 // the last extra member that replaces each
-	for i := range extra {
-		switch extra[i].key {
-		case memberState:
-			stateAt = i
-		case memberModel:
-			modelAt = i
-		case memberQuestions:
-			questionsAt = i
-		}
-	}
-	if modelAt < 0 && !utf8.ValidString(model) {
+	case engine.FailModel:
 		return codec.Body{}, newConfigError("Model " + strconv.Quote(model) + " is not valid UTF-8.")
 	}
-
-	body := codec.NewBody()
-	buf := body.Buffer()
-	*buf = append(*buf, `{"state":`...)
-	var err error
-	if stateAt < 0 {
-		if err = appendState(buf, state); err != nil {
-			err = encodeError(memberState, err)
-		}
-	} else {
-		err = appendMember(buf, memberState, extra[stateAt].value, appendState)
+	member := f.Key
+	if f.Extra {
+		member = "extra body member " + quotedName(f.Key)
 	}
-	if err == nil {
-		*buf = append(*buf, `,"model":`...)
-		if modelAt < 0 {
-			*buf, err = wire.AppendString(*buf, model) // valid UTF-8: cannot fail
-		} else {
-			err = appendMember(buf, memberModel, extra[modelAt].value, appendValue)
-		}
-	}
-	if err == nil {
-		*buf = append(*buf, `,"questions":`...)
-		if questionsAt < 0 {
-			*buf = append(*buf, qs.w.Questions...)
-		} else {
-			err = appendMember(buf, memberQuestions, extra[questionsAt].value, appendValue)
-		}
-	}
-	if err == nil {
-		err = appendExtra(buf, extra)
-	}
-	if err != nil {
-		body.Release()
-		return codec.Body{}, err
-	}
-	*buf = append(*buf, '}')
-	return body, nil
-}
-
-// appendExtra appends the extra members other than the three that replace a
-// built-in member, each as ,"key":value: in the order extra first names a
-// key, with the value extra gives it last.
-func appendExtra(buf *[]byte, extra []bodyMember) error {
-	var last map[string]int // key -> index of its last member, while unwritten; nil for short lists
-	if len(extra) > repeatScanLimit {
-		last = make(map[string]int, len(extra))
-		for i := range extra {
-			last[extra[i].key] = i
-		}
-	}
-next:
-	for i := range extra {
-		key := extra[i].key
-		if key == memberState || key == memberModel || key == memberQuestions {
-			continue
-		}
-		j := i // the member whose value is written
-		if last != nil {
-			var unwritten bool
-			if j, unwritten = last[key]; !unwritten {
-				continue
-			}
-			delete(last, key)
-		} else {
-			for k := range i {
-				if extra[k].key == key {
-					continue next // written at its first position
-				}
-			}
-			for k := i + 1; k < len(extra); k++ {
-				if extra[k].key == key {
-					j = k
-				}
-			}
-		}
-		*buf = append(*buf, ',')
-		var err error
-		if *buf, err = wire.AppendString(*buf, key); err != nil {
-			return encodeError("extra body member "+quotedName(key), err)
-		}
-		*buf = append(*buf, ':')
-		if err := appendValue(buf, extra[j].value); err != nil {
-			return encodeError("extra body member "+quotedName(key), err)
-		}
-	}
-	return nil
-}
-
-// appendMember appends the value of the extra member key, which replaces a
-// built-in member, with write, reporting a failure as that member's.
-func appendMember(buf *[]byte, key string, value any, write func(*[]byte, any) error) error {
-	if err := write(buf, value); err != nil {
-		return encodeError("extra body member "+quotedName(key), err)
-	}
-	return nil
-}
-
-// appendState appends a request state: text, a JSON object or an array.
-func appendState(buf *[]byte, state any) error {
-	switch v := state.(type) {
-	case RawJSON:
-		return codec.AppendRawState(buf, v)
-	case *RawJSON:
-		if v == nil {
-			return fmt.Errorf("nil *RawJSON holds no JSON value, %w", codec.ErrStateShape)
-		}
-		return codec.AppendRawState(buf, *v)
-	case Content:
-		if !v.set {
-			return fmt.Errorf("unset Content encodes as null, %w", codec.ErrStateShape)
-		}
-		var err error
-		*buf, err = wire.AppendContent(*buf, v.w)
-		return err
-	default:
-		return codec.EncodeState(buf, state)
-	}
-}
-
-// appendValue appends any JSON value, for a body member other than the
-// state.
-func appendValue(buf *[]byte, value any) error {
-	switch v := value.(type) {
-	case RawJSON:
-		return codec.AppendRawValue(buf, v)
-	case *RawJSON:
-		if v == nil {
-			return fmt.Errorf("nil *RawJSON holds no JSON value, %w", codec.ErrRawValue)
-		}
-		return codec.AppendRawValue(buf, *v)
-	case Content:
-		if !v.set {
-			*buf = append(*buf, "null"...)
-			return nil
-		}
-		var err error
-		*buf, err = wire.AppendContent(*buf, v.w)
-		return err
-	default:
-		return codec.EncodeValue(buf, value)
-	}
+	return codec.Body{}, encodeError(member, f.Err)
 }
 
 // encodeError is the [*InvalidRequestError] for the body member that could

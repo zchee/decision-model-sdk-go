@@ -245,10 +245,10 @@ func (qs *Questions) Prepare() (*Prepared, error) {
 }
 
 // repeatScanLimit is the number of strings up to which a repeat is found by
-// comparing each with the ones before it; past it a map is used. At 32
-// strings the scan makes at most 496 comparisons, cheaper than the map's
-// allocations, and question sets and option lists are rarely longer.
-const repeatScanLimit = 32
+// comparing each with the ones before it; past it a map is used
+// ([engine.RepeatScanLimit], which the request body's extra members use
+// too).
+const repeatScanLimit = engine.RepeatScanLimit
 
 // checkName checks the name of question i: valid UTF-8, and not the name of
 // an earlier question. seen holds the earlier names when the set is larger

@@ -163,15 +163,15 @@ func TestBodyBytesMatchPython(t *testing.T) {
 		"success: extra body replaces the model and appends members": {
 			state: "hi",
 			model: "call-model",
-			extra: []bodyMember{{"model", "override-model"}, {"beam_width", 4}, {"nullable", nil}},
+			extra: []bodyMember{{Key: "model", Value: "override-model"}, {Key: "beam_width", Value: 4}, {Key: "nullable", Value: nil}},
 			want:  `{"state":"hi","model":"override-model","questions":` + probeQuestions + `,"beam_width":4,"nullable":null}`,
 		},
 		"success: extra body replaces the state and the questions in place": {
 			state: "ignored",
 			extra: []bodyMember{
-				{"questions", map[string]any{"x": map[string]any{"type": "noul"}}},
-				{"state", map[string]any{"s": 1}},
-				{"z", []any{1}},
+				{Key: "questions", Value: map[string]any{"x": map[string]any{"type": "noul"}}},
+				{Key: "state", Value: map[string]any{"s": 1}},
+				{Key: "z", Value: []any{1}},
 			},
 			want: `{"state":{"s":1},"model":"jev-latest","questions":{"x":{"type":"noul"}},"z":[1]}`,
 		},
@@ -283,7 +283,7 @@ func TestBodyDeviationsFromPython(t *testing.T) {
 		},
 		"deviation: extra-value float spelling (R59)": {
 			state:  "hi",
-			extra:  []bodyMember{{"cfg", []any{0.5, 3.0, 1e16, math.Copysign(0, -1), 1e-6, 1e21}}},
+			extra:  []bodyMember{{Key: "cfg", Value: []any{0.5, 3.0, 1e16, math.Copysign(0, -1), 1e-6, 1e21}}},
 			python: `{"state":"hi","model":"jev-latest","questions":` + probeQuestions + `,"cfg":[0.5,3.0,1e+16,-0.0,1e-6,1e+21]}`,
 			wantByArch: map[string]string{
 				"arm64": `{"state":"hi","model":"jev-latest","questions":` + probeQuestions + `,"cfg":[0.5,3,10000000000000000,0,0.000001,1e+21]}`,
@@ -293,7 +293,7 @@ func TestBodyDeviationsFromPython(t *testing.T) {
 		},
 		"deviation: nested extra-value float spelling (R59)": {
 			state:  "hi",
-			extra:  []bodyMember{{"cfg", map[string]any{"t": map[string]any{"x": 3.0}}}},
+			extra:  []bodyMember{{Key: "cfg", Value: map[string]any{"t": map[string]any{"x": 3.0}}}},
 			python: `{"state":"hi","model":"jev-latest","questions":` + probeQuestions + `,"cfg":{"t":{"x":3.0}}}`,
 			want:   `{"state":"hi","model":"jev-latest","questions":` + probeQuestions + `,"cfg":{"t":{"x":3}}}`,
 			check:  sameNumbers,
@@ -333,14 +333,14 @@ func TestExtraBodyShallowOverride(t *testing.T) {
 	var manyWant strings.Builder
 	for i := range repeatScanLimit + 8 {
 		key := "k" + strconv.Itoa(i)
-		many = append(many, bodyMember{key, i})
+		many = append(many, bodyMember{Key: key, Value: i})
 		value := strconv.Itoa(i)
 		if i == 5 {
 			value = `"last"`
 		}
 		manyWant.WriteString(`,"` + key + `":` + value)
 	}
-	many = append(many, bodyMember{"k5", "last"}, bodyMember{"model", "m2"})
+	many = append(many, bodyMember{Key: "k5", Value: "last"}, bodyMember{Key: "model", Value: "m2"})
 
 	tests := map[string]struct {
 		state any
@@ -351,42 +351,42 @@ func TestExtraBodyShallowOverride(t *testing.T) {
 		"success: the upstream test: model replaced, beam_width and nullable appended": {
 			state: "hi",
 			model: "call-model",
-			extra: []bodyMember{{"model", "override-model"}, {"beam_width", 4}, {"nullable", nil}},
+			extra: []bodyMember{{Key: "model", Value: "override-model"}, {Key: "beam_width", Value: 4}, {Key: "nullable", Value: nil}},
 			want:  `{"state":"hi","model":"override-model",` + questions + `,"beam_width":4,"nullable":null}`,
 		},
 		"success: a replaced state is not encoded at all": {
 			state: make(chan int), // would fail if it were encoded
-			extra: []bodyMember{{"state", "replacement"}},
+			extra: []bodyMember{{Key: "state", Value: "replacement"}},
 			want:  `{"state":"replacement","model":"jev-latest",` + questions + `}`,
 		},
 		"success: a replaced model is not checked": {
 			state: "hi",
 			model: "\xff",
-			extra: []bodyMember{{"model", "m"}},
+			extra: []bodyMember{{Key: "model", Value: "m"}},
 			want:  `{"state":"hi","model":"m",` + questions + `}`,
 		},
 		"success: replaced questions": {
 			state: "hi",
-			extra: []bodyMember{{"questions", RawJSON(`{"x":{"type":"noul"}}`)}},
+			extra: []bodyMember{{Key: "questions", Value: RawJSON(`{"x":{"type":"noul"}}`)}},
 			want:  `{"state":"hi","model":"jev-latest","questions":{"x":{"type":"noul"}}}`,
 		},
 		"success: a repeated member keeps its first position and its last value": {
 			state: "hi",
-			extra: []bodyMember{{"a", 1}, {"b", 2}, {"a", 3}},
+			extra: []bodyMember{{Key: "a", Value: 1}, {Key: "b", Value: 2}, {Key: "a", Value: 3}},
 			want:  `{"state":"hi","model":"jev-latest",` + questions + `,"a":3,"b":2}`,
 		},
 		"success: a repeated built-in member takes its last value": {
 			state: "hi",
-			extra: []bodyMember{{"model", "x"}, {"z", true}, {"model", "y"}},
+			extra: []bodyMember{{Key: "model", Value: "x"}, {Key: "z", Value: true}, {Key: "model", Value: "y"}},
 			want:  `{"state":"hi","model":"y",` + questions + `,"z":true}`,
 		},
 		"success: a repeated state and questions take their last values": {
 			state: "hi",
 			extra: []bodyMember{
-				{"state", "first"},
-				{"questions", RawJSON(`{"a":{}}`)},
-				{"state", []any{"second"}},
-				{"questions", RawJSON(`{"b":{}}`)},
+				{Key: "state", Value: "first"},
+				{Key: "questions", Value: RawJSON(`{"a":{}}`)},
+				{Key: "state", Value: []any{"second"}},
+				{Key: "questions", Value: RawJSON(`{"b":{}}`)},
 			},
 			want: `{"state":["second"],"model":"jev-latest","questions":{"b":{}}}`,
 		},
@@ -397,27 +397,27 @@ func TestExtraBodyShallowOverride(t *testing.T) {
 		},
 		"success: RawJSON and Content values": {
 			state: "hi",
-			extra: []bodyMember{{"raw", RawJSON(" 4 ")}, {"text", Text("t")}, {"json", JSON([]byte(`{ "a" : 1 }`))}, {"unset", Content{}}},
+			extra: []bodyMember{{Key: "raw", Value: RawJSON(" 4 ")}, {Key: "text", Value: Text("t")}, {Key: "json", Value: JSON([]byte(`{ "a" : 1 }`))}, {Key: "unset", Value: Content{}}},
 			want:  `{"state":"hi","model":"jev-latest",` + questions + `,"raw": 4 ,"text":"t","json":{"a":1},"unset":null}`,
 		},
 		"success: a replacing model may be any JSON value": {
 			state: "hi",
-			extra: []bodyMember{{"model", 4}},
+			extra: []bodyMember{{Key: "model", Value: 4}},
 			want:  `{"state":"hi","model":4,` + questions + `}`,
 		},
 		"deviation: a []byte nested in a member is sent as base64 (R56)": {
 			state: "hi",
-			extra: []bodyMember{{"blob", map[string]any{"b": []byte("hi")}}},
+			extra: []bodyMember{{Key: "blob", Value: map[string]any{"b": []byte("hi")}}},
 			want:  `{"state":"hi","model":"jev-latest",` + questions + `,"blob":{"b":"aGk="}}`,
 		},
 		"success: an empty member name": {
 			state: "hi",
-			extra: []bodyMember{{"", 1}},
+			extra: []bodyMember{{Key: "", Value: 1}},
 			want:  `{"state":"hi","model":"jev-latest",` + questions + `,"":1}`,
 		},
 		"success: a member name that needs escaping": {
 			state: "hi",
-			extra: []bodyMember{{"a\"b\n", 1}},
+			extra: []bodyMember{{Key: "a\"b\n", Value: 1}},
 			want:  `{"state":"hi","model":"jev-latest",` + questions + `,"a\"b\n":1}`,
 		},
 	}
@@ -435,7 +435,7 @@ func TestExtraBodyShallowOverride(t *testing.T) {
 	}
 
 	t.Run("error: a replacing state follows the state rules", func(t *testing.T) {
-		_, err := bodyOf(t, "hi", "jev-latest", probeSet(t), bodyMember{"state", 3})
+		_, err := bodyOf(t, "hi", "jev-latest", probeSet(t), bodyMember{Key: "state", Value: 3})
 		ire := invalidRequest(t, err, `extra body member "state"`, "int encodes as a number")
 		if !errors.Is(ire, codec.ErrStateShape) {
 			t.Errorf("err = %v, want errors.Is codec.ErrStateShape", ire)
@@ -497,15 +497,15 @@ func TestUnencodableBodyFailsBeforeNetwork(t *testing.T) {
 		encode  bool  // the cause is sonic's (*codec.EncodeError)
 	}{
 		"error: the upstream test: an extra member with no JSON form": {
-			state: "x", extra: []bodyMember{{"bad", make(chan int)}},
+			state: "x", extra: []bodyMember{{Key: "bad", Value: make(chan int)}},
 			want: []string{`extra body member "bad"`, "chan int"}, encode: true,
 		},
 		"error: a function": {
-			state: "x", extra: []bodyMember{{"f", func() {}}},
+			state: "x", extra: []bodyMember{{Key: "f", Value: func() {}}},
 			want: []string{`extra body member "f"`, "func()"}, encode: true,
 		},
 		"error: NaN in an extra member": {
-			state: "x", extra: []bodyMember{{"n", math.NaN()}},
+			state: "x", extra: []bodyMember{{Key: "n", Value: math.NaN()}},
 			want: []string{"NaN or ±Infinite"}, encode: true,
 		},
 		"error: an infinity in the state": {
@@ -521,19 +521,19 @@ func TestUnencodableBodyFailsBeforeNetwork(t *testing.T) {
 			want:  []string{"state: string is not valid UTF-8"}, isCause: wire.ErrInvalidUTF8,
 		},
 		"error: invalid UTF-8 in an extra member's value": {
-			state: "x", extra: []bodyMember{{"v", "\xff"}},
+			state: "x", extra: []bodyMember{{Key: "v", Value: "\xff"}},
 			want: []string{`extra body member "v": string is not valid UTF-8`}, isCause: wire.ErrInvalidUTF8,
 		},
 		"error: invalid UTF-8 in an extra member's name": {
-			state: "x", extra: []bodyMember{{"k\xff", 1}},
+			state: "x", extra: []bodyMember{{Key: "k\xff", Value: 1}},
 			want: []string{`extra body member "k\xff": string is not valid UTF-8`}, isCause: wire.ErrInvalidUTF8,
 		},
 		"error: an empty RawJSON extra member": {
-			state: "x", extra: []bodyMember{{"r", RawJSON("  ")}},
+			state: "x", extra: []bodyMember{{Key: "r", Value: RawJSON("  ")}},
 			want: []string{`extra body member "r": raw JSON is empty, not a JSON value`}, isCause: codec.ErrRawValue,
 		},
 		"error: invalid JSON content in an extra member": {
-			state: "x", extra: []bodyMember{{"c", JSON([]byte(`{"a":}`))}},
+			state: "x", extra: []bodyMember{{Key: "c", Value: JSON([]byte(`{"a":}`))}},
 			want: []string{`extra body member "c": invalid JSON at byte 5`},
 		},
 		"error: a []byte state (R49)": {
@@ -548,7 +548,7 @@ func TestUnencodableBodyFailsBeforeNetwork(t *testing.T) {
 		},
 		"error: a named byte-slice extra member (R59b)": {
 			state:   "x",
-			extra:   []bodyMember{{"b", blob("hi")}},
+			extra:   []bodyMember{{Key: "b", Value: blob("hi")}},
 			want:    []string{`extra body member "b": a plain []byte is ambiguous: typesafe.blob is a byte slice; send string(b)`},
 			isCause: codec.ErrPlainBytes,
 		},
@@ -559,25 +559,25 @@ func TestUnencodableBodyFailsBeforeNetwork(t *testing.T) {
 		},
 		"error: a pointer to a named byte slice extra member (NIT C)": {
 			state:   "x",
-			extra:   []bodyMember{{"p", new(blob("hi"))}},
+			extra:   []bodyMember{{Key: "p", Value: new(blob("hi"))}},
 			want:    []string{`extra body member "p": a plain []byte is ambiguous: *typesafe.blob points to a byte slice; send string(b)`},
 			isCause: codec.ErrPlainBytes,
 		},
 		"error: a nil pointer to a byte slice extra member (NIT C)": {
 			state:   "x",
-			extra:   []bodyMember{{"p", (*blob)(nil)}},
+			extra:   []bodyMember{{Key: "p", Value: (*blob)(nil)}},
 			want:    []string{`extra body member "p": nil *typesafe.blob holds no value, not a JSON value`},
 			isCause: codec.ErrRawValue,
 		},
 		"error: a []byte extra member (R56)": {
 			state:   "x",
-			extra:   []bodyMember{{"blob", []byte("hi")}},
+			extra:   []bodyMember{{Key: "blob", Value: []byte("hi")}},
 			want:    []string{`extra body member "blob": a plain []byte is ambiguous; send string(b) for text or RawJSON(b) for JSON`},
 			isCause: codec.ErrPlainBytes,
 		},
 		"error: a []byte replacing the model (R56)": {
 			state:   "x",
-			extra:   []bodyMember{{"model", []byte("m")}},
+			extra:   []bodyMember{{Key: "model", Value: []byte("m")}},
 			want:    []string{`extra body member "model": a plain []byte is ambiguous`},
 			isCause: codec.ErrPlainBytes,
 		},
@@ -604,7 +604,7 @@ func TestUnencodableBodyFailsBeforeNetwork(t *testing.T) {
 
 	t.Run("success: an encodable body does reach the network", func(t *testing.T) {
 		rec := &testsupport.Recorder{Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, []byte(`{}`))}}
-		if err := send(t, rec, "x", bodyMember{"good", 1}); err != nil {
+		if err := send(t, rec, "x", bodyMember{Key: "good", Value: 1}); err != nil {
 			t.Fatal(err)
 		}
 		if got := rec.Count(); got != 1 {
@@ -652,7 +652,7 @@ func TestScalarStatesRefused(t *testing.T) {
 		"error: RawJSON null":               {state: RawJSON("\tnull"), want: "raw JSON starts with null"},
 		"error: empty RawJSON":              {state: RawJSON(nil), want: "state: raw JSON is empty"},
 		"error: unset Content":              {state: Content{}, want: "state: unset Content encodes as null"},
-		"error: a replacing state of false": {state: "text", extra: []bodyMember{{"state", false}}, want: `extra body member "state": bool encodes as a boolean`},
+		"error: a replacing state of false": {state: "text", extra: []bodyMember{{Key: "state", Value: false}}, want: `extra body member "state": bool encodes as a boolean`},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -810,7 +810,7 @@ func TestEncodeBodyModel(t *testing.T) {
 // reads the same bytes (PM4, by digest), each holds the body until it is
 // closed, and GetBody fails once the body is gone.
 func TestRequestReaders(t *testing.T) {
-	body, err := encodeBody(map[string]any{"k": "v"}, "jev-latest", probeSet(t), []bodyMember{{"n", 1}})
+	body, err := encodeBody(map[string]any{"k": "v"}, "jev-latest", probeSet(t), []bodyMember{{Key: "n", Value: 1}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -939,7 +939,7 @@ func TestNestedContentEncodesAsContent(t *testing.T) {
 		},
 		"success: Content nested in an extra member's value": {
 			state: "hi",
-			extra: []bodyMember{{"ctx", map[string]any{"c": text, "u": Content{}}}},
+			extra: []bodyMember{{Key: "ctx", Value: map[string]any{"c": text, "u": Content{}}}},
 			want: []string{
 				body(`"hi"`, `,"ctx":{"c":"a\bb","u":null}`),
 				body(`"hi"`, `,"ctx":{"u":null,"c":"a\bb"}`),
@@ -956,7 +956,7 @@ func TestNestedContentEncodesAsContent(t *testing.T) {
 		},
 		"error: JSON content with a trailing comma, nested in an extra member": {
 			state:   "hi",
-			extra:   []bodyMember{{"ctx", []any{JSON([]byte(`{"a":1,}`))}}},
+			extra:   []bodyMember{{Key: "ctx", Value: []any{JSON([]byte(`{"a":1,}`))}}},
 			wantErr: `extra body member "ctx": invalid JSON at byte 7: unexpected "}", want a member name`,
 			syntax:  true,
 		},
@@ -972,7 +972,7 @@ func TestNestedContentEncodesAsContent(t *testing.T) {
 		},
 		"error: nested text that is not UTF-8, in an extra member": {
 			state:   "hi",
-			extra:   []bodyMember{{"ctx", []any{Text("\xff")}}},
+			extra:   []bodyMember{{Key: "ctx", Value: []any{Text("\xff")}}},
 			wantErr: `extra body member "ctx": string is not valid UTF-8`,
 			wantIs:  wire.ErrInvalidUTF8,
 		},
@@ -1062,12 +1062,12 @@ func TestNestedRawJSONEncodesAsJSON(t *testing.T) {
 		},
 		"success: RawJSON inside an extra member's value": {
 			state: "hi",
-			extra: []bodyMember{{"cfg", []any{RawJSON(`{"k":true}`), four}}},
+			extra: []bodyMember{{Key: "cfg", Value: []any{RawJSON(`{"k":true}`), four}}},
 			want:  body(`"hi"`, `,"cfg":[{"k":true},4]`),
 		},
 		"success: a *RawJSON extra member takes the verbatim path": {
 			state: "hi",
-			extra: []bodyMember{{"p", &four}},
+			extra: []bodyMember{{Key: "p", Value: &four}},
 			want:  body(`"hi"`, `,"p":4`),
 		},
 		"error: truncated RawJSON nested in the state": {
@@ -1092,7 +1092,7 @@ func TestNestedRawJSONEncodesAsJSON(t *testing.T) {
 		},
 		"error: RawJSON with trailing data nested in an extra member": {
 			state:   "hi",
-			extra:   []bodyMember{{"cfg", []any{RawJSON(`1 2`)}}},
+			extra:   []bodyMember{{Key: "cfg", Value: []any{RawJSON(`1 2`)}}},
 			wantErr: `extra body member "cfg": invalid JSON at byte 2: unexpected "2" after the value`,
 			sonic:   true,
 			syntax:  true,
@@ -1110,7 +1110,7 @@ func TestNestedRawJSONEncodesAsJSON(t *testing.T) {
 		},
 		"error: a nil *RawJSON extra member": {
 			state:   "hi",
-			extra:   []bodyMember{{"p", (*RawJSON)(nil)}},
+			extra:   []bodyMember{{Key: "p", Value: (*RawJSON)(nil)}},
 			wantErr: `extra body member "p": nil *RawJSON holds no JSON value, not a JSON value`,
 			wantIs:  codec.ErrRawValue,
 		},
@@ -1204,7 +1204,7 @@ func TestEncodeErrorMessageIsBounded(t *testing.T) {
 		},
 		"error: a 1 MiB member name with control characters, escaped and cut": {
 			state: "x",
-			extra: []bodyMember{{"k\n\x1b\u2028" + payload, make(chan int)}},
+			extra: []bodyMember{{Key: "k\n\x1b\u2028" + payload, Value: make(chan int)}},
 			want:  `extra body member "k\n\x1b\u2028` + secret,
 		},
 	}

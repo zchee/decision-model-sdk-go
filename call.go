@@ -104,7 +104,7 @@ func Header(name, value string) CallOption {
 // boolean is refused where typesafe-sdk-python sends it; an extra
 // "questions" of nil is sent as null.
 func ExtraBody(key string, v any) CallOption {
-	return func(o *callOptions) { o.extra = append(o.extra, bodyMember{key: key, value: v}) }
+	return func(o *callOptions) { o.extra = append(o.extra, bodyMember{Key: key, Value: v}) }
 }
 
 // Retry sets the retry policy of this call, in place of the client's

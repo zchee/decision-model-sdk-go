@@ -54,3 +54,9 @@ func RetryCountValue(attempt int) []string {
 	}
 	return []string{strconv.Itoa(attempt)}
 }
+
+// RepeatScanLimit is the number of strings up to which a repeat is found by
+// comparing each with the ones before it; past it a map is used. At 32
+// strings the scan makes at most 496 comparisons, cheaper than the map's
+// allocations, and question sets and option lists are rarely longer.
+const RepeatScanLimit = 32

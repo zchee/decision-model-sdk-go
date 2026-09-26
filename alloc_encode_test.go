@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/zchee/typesafe-sdk-go/internal/codec"
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
@@ -61,18 +62,17 @@ func noInput() struct{} { return struct{}{} }
 // kind at 1 KiB, 64 KiB, 1 MiB and 6 MiB: one request body encoded around a
 // prepared question set and released on a warm pool allocates at most
 // E_sonic + B times, where E_sonic is the state's own encode (the SDK's
-// appendState into a buffer that needs no growth, measured in the same run)
-// and B = 1 when the caller's argument is boxed at the call; E_sonic is
-// pinned to the frozen E(kind) (1, 0 for RawJSON, 1 + m for a state with m
-// maps) and the body to exactly E(kind) + B, so a sonic upgrade or an
-// encoder change that moves either fails here. Its bytes above E_sonic's
-// are exactly the boxing's, 16 B for a bare string, 24 B for a bare RawJSON
-// and 0 otherwise: no case varies from run to run, on any host or CI image,
-// so the pin is exact, inside the frozen 112 B (also checked, as is the
-// plan's 1.05 × body + 4 KiB),
-// and the scratch the call leaves is within the 8 MiB ceiling, so the pool
-// keeps it. Opening readers is the transport's cost and is not part of it
-// (AC-P6 counts it).
+// engine.AppendState into a buffer that needs no growth, measured in the
+// same run) and B = 1 when the caller's argument is boxed at the call;
+// E_sonic is pinned to the frozen E(kind) (1, 0 for RawJSON, 1 + m for a
+// state with m maps) and the body to exactly E(kind) + B, so a sonic upgrade
+// or an encoder change that moves either fails here. Its bytes above
+// E_sonic's are exactly the boxing's, 16 B for a bare string, 24 B for a
+// bare RawJSON and 0 otherwise: no case varies from run to run, on any host
+// or CI image, so the pin is exact, inside the frozen 112 B (also checked,
+// as is the plan's 1.05 × body + 4 KiB), and the scratch the call leaves is
+// within the 8 MiB ceiling, so the pool keeps it. Opening readers is the
+// transport's cost and is not part of it (AC-P6 counts it).
 //
 // Each case starts from empty pools (two collections), as a process that
 // sends only states of that size does, since a scratch another case grew
@@ -131,10 +131,10 @@ func TestAllocEncode(t *testing.T) {
 				buf := make([]byte, 0, 2*len(sc.json)+64<<10)
 				esonic := testsupport.MeasureMin(t, name+" E_sonic", noInput, func(struct{}) {
 					buf = buf[:0]
-					err = appendState(&buf, sc.boxed)
+					err = engine.AppendState[RawJSON, Content](&buf, sc.boxed)
 				})
 				if err != nil {
-					t.Fatalf("appendState: %v", err)
+					t.Fatalf("AppendState: %v", err)
 				}
 				wantE, b := k.wantE(sc.maps), k.b()
 
