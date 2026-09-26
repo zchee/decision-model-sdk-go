@@ -41,7 +41,7 @@ of its arms. Together they give 125 rows.
 | Criterion | Rows | Host that gates it |
 | --- | --- | --- |
 | AC-P2, "≤ 0.5 × naive" allocations on the plain 3-answer fixture | `BenchmarkDecode/result` allocs/op divided by `BenchmarkDecodeNaiveSonic/result` allocs/op | reported by W5.1; W5.2 asserts it |
-| AC-P6 time clause | `BenchmarkCall/sdk` ns/op < `BenchmarkCall/naive` ns/op, the q3 rows only; the `-q20` rows are recorded and are a W5.3 target (ruling R101) | amd64 gates (G3); arm64 is recorded (K18). W3.4 asserts it on (L) and freezes it |
+| AC-P6 time clause | `BenchmarkCall/sdk` ns/op < `BenchmarkCall/naive` ns/op, the q3 rows only; the `-q20` rows are recorded and are a W5.3 target (ruling R101) | amd64 gates (G3); arm64 is recorded (K18). Frozen at W3.4 ([`frozen-budgets.md`](frozen-budgets.md)): (L) q3 0.890 holds; (M) q3 1.274, recorded (ledger W3.4-08, -09) |
 | AC-P7 | CodSpeed reports `BenchmarkCall/sdk` faster than `BenchmarkCall/naive` on the pull-request run | CodSpeed (amd64); report-only until K7 is met |
 
 The names above are stable. The plan's `call/sdk` is `BenchmarkCall/sdk` and

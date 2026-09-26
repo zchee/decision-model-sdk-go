@@ -3756,8 +3756,13 @@ and `BASE=1f694b0`.
    8.5 µs), and its minimum is 5.041 µs. Against the encoding/json client,
    reported only: q3 0.367 (L) and 0.567 (M), q20 0.335 and 0.622.
 5. **Gates.** `go test -race -count=1 ./...` on (L), once (R62), passed in
-   all seven packages (W3.4-10). On (M), each commit of the branch passed
-   the section 11 lint chain and `go test -race -count=1 ./...` (W3.4-11).
+   all seven packages (W3.4-10). On (M), each commit's tree passed the
+   section 11 lint chain and `go test -race -count=1 ./...` before it was
+   committed, and the freeze commit's tree also passed ci.yaml's root
+   allocation step (W3.4-11). govulncheck ran as
+   `go run golang.org/x/vuln/cmd/govulncheck@latest` (W5.1's precedent):
+   the installed binary was built with go1.26 and cannot load go1.27
+   sources.
 
 | # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -3771,6 +3776,7 @@ and `BASE=1f694b0`.
 | W3.4-08 | 2026-09-26 13:22:55 JST | W3.4 B5 `call/sdk` against `call/naive` | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 8.53 → 8.15 | the W3.4-07 command with `MAXLOAD=8` and `call-M-2` | q3: sdk 5.126 µs ± 53 % (min 5.041), naive 4.022 µs (sdk/naive **1.274**), naive-json 9.046 µs, floor 519.3 ns; q20: sdk 24.87 µs, naive 14.32 µs (1.737); allocs as W3.4-07 | arm64 recorded, not gated (G3, K18, K23); waited 5 × 60 s and ran at 8.53; `results/call-M-2.txt`, `results/benchstat-call-M-2.txt` |
 | W3.4-09 | 2026-09-26 04:14:34 UTC | W3.4 B5 `call/sdk` against `call/naive` | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.81 → 1.43 | `BASE=1f694b0 MAXLOAD=44 sh $R '(L)' $O /tmp/ts-spike/bench.lock call-L -run '^$' -bench '^BenchmarkCall$' -benchmem -count=10 ./internal/benchmark/` | q3: sdk 6.205 µs ± 0 %, naive 6.969 µs ± 3 % (sdk/naive **0.890**, 0.898 by minima: AC-P6's time clause holds), naive-json 16.90 µs, floor 765.2 ns; q20: sdk 25.89 µs, naive 26.42 µs (0.980, margin 2.0 %); allocs sdk 22 / floor 8 / naive 68 / naive-json 114 (q20: 42 / 8 / 247 / 517) | amd64 = the gate (G3); `results/call-L.txt`, `results/benchstat-call-L.txt` |
 | W3.4-10 | 2026-09-26 04:16:17 UTC | W3.4 R62 race run | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 1.39 → 1.37 | `BASE=1f694b0 sh $R '(L)' $O /tmp/ts-spike/bench.lock race-L -race -count=1 ./...` | ok in all 7 packages | not a timing row; `results/race-L.txt` |
+| W3.4-11 | 2026-09-26 13:29:09 JST; 13:30:08 JST | W3.4 gates on each commit's tree | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 8.38 → 7.08; 6.33 → 6.49 | under `flock $SP/bench.lock`, with `GOEXPERIMENT=nosimd,noruntimesecret` and `GOPACKAGESDEBUG` unset: `go build ./... && go vet ./...`, the section 11 lint chain (`gofumpt -extra -l`, `modernize -test`, `golangci-lint run --allow-serial-runners`, `go vet`, `staticcheck`, `go run golang.org/x/vuln/cmd/govulncheck@latest`, `go mod tidy -diff`), `go test -race -count=1 ./...`; on the second tree also ci.yaml's root allocation step with its `-list` guard | both trees: `0 issues.`, `No vulnerabilities found.`, `-race` ok in all 7 packages; the second: guard 7 names, the step ok, `CALL q3 … own=14/2008 (N = 14, frozen at W3.4)` | not a measurement; the first tree is 2769f1e's (`git write-tree` 9406d22, exported with `git archive`; its Go files are 1f694b0's byte for byte), the second the freeze commit's Go files (index tree 2be3b91); `results/gates-M-2769f1e.txt`, `results/gates-M-freeze.txt` |
 
 <a id="w34-tables"></a>
 
