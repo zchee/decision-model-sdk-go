@@ -215,7 +215,7 @@ func TestLiveTestsFailWithoutEnv(t *testing.T) {
 // echoed credential header, a bearer credential) is refused with no file
 // written and no message repeating the text.
 func TestScrubRefusesCredentials(t *testing.T) {
-	const wrongKey = "wrong-live-key-0000000000"
+	const otherKey = "wrong-live-key-0000000000"
 	tests := map[string]struct {
 		body    string
 		secrets []string
@@ -233,8 +233,8 @@ func TestScrubRefusesCredentials(t *testing.T) {
 			want:    `{"detail":{"message":"key *** is invalid","key":"***"}}`,
 		},
 		"success: the wrong key of the unauthenticated test is replaced too": {
-			body:    `{"detail":"bad key ` + wrongKey + `"}`,
-			secrets: []string{syntheticKey, wrongKey},
+			body:    `{"detail":"bad key ` + otherKey + `"}`,
+			secrets: []string{syntheticKey, otherKey},
 			want:    `{"detail":"bad key ***"}`,
 		},
 		"success: words holding ts_ inside them are not key shapes": {
@@ -357,5 +357,52 @@ func TestRecorderOnSyntheticResponses(t *testing.T) {
 	// The raw bodies did hold the key: the scrub, not the server, removed it.
 	if !bytes.Contains(resp.Meta().RawBody(), []byte(syntheticKey)) || !bytes.Contains(apiErr.Body, []byte(syntheticKey)) {
 		t.Errorf("the synthetic server did not echo the key; the test proves nothing")
+	}
+}
+
+// recordedBodies are the bodies the owner-run live pass recorded (-record):
+// each scenario's response, and the two authentication failures.
+var recordedBodies = []string{
+	"models.json",
+	"questions.json",
+	"typed-response.json",
+	"unauthenticated.json",
+	"wrong-key.json",
+}
+
+// TestRecordedBodiesHoldNoCredentials checks what reached testdata/live:
+// exactly the recorded bodies, each a JSON object as the API sent it (no
+// trailing newline added), with no credential shape in it: no ts_ token, no
+// Authorization or X-Api-Key member, no bearer credential. When the
+// environment holds TYPESAFE_API_KEY, as on the machine that recorded them,
+// the key's bytes must not occur either; the check prints nothing of it.
+// internal/codec's TestLiveBodiesOneScan decodes every one of them.
+func TestRecordedBodiesHoldNoCredentials(t *testing.T) {
+	dir := filepath.Join("..", "testdata", "live")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var onDisk []string
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".json") {
+			onDisk = append(onDisk, e.Name())
+		}
+	}
+	if diff := gocmp.Diff(recordedBodies, onDisk); diff != "" {
+		t.Fatalf("testdata/live/*.json (-want +got):\n%s", diff)
+	}
+	key := strings.TrimSpace(os.Getenv(typesafe.APIKeyEnv))
+	for _, name := range onDisk {
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if found := credentialFindings(data, key, wrongLiveKey); len(found) > 0 {
+			t.Errorf("%s holds %s", name, strings.Join(found, ", "))
+		}
+		if len(data) < 2 || data[0] != '{' || data[len(data)-1] != '}' {
+			t.Errorf("%s is not a JSON object as the API sent it: %d bytes from %q to %q", name, len(data), data[:min(len(data), 1)], data[max(len(data)-1, 0):])
+		}
 	}
 }

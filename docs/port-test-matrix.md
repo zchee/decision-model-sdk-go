@@ -10,7 +10,7 @@ rows were seeded from Appendix D of the port plan, which also defines the row
 IDs that the plan's waves cite. The checker also holds the next line to the
 rows:
 
-Rows by status: 32 deviation, 6 planned, 91 ported.
+Rows by status: 32 deviation, 3 planned, 94 ported.
 
 ## Status values
 
@@ -101,9 +101,9 @@ Rows by status: 32 deviation, 6 planned, 91 ported.
 
 | ID | Upstream | Go test / deviation | status |
 | --- | --- | --- | --- |
-| I1 | `test_live_models` | `livetests.TestLiveModels` | planned |
-| I2 | `test_live_questions` | `livetests.TestLiveQuestions` | planned |
-| I3 | `test_live_pydantic_response` | `livetests.TestLiveTypedResponse` | planned |
+| I1 | `test_live_models` | `livetests.TestLiveModels` (`-tags live`, run by the owner-approved live pass, ledger W6.4-01) | ported |
+| I2 | `test_live_questions` | `livetests.TestLiveQuestions` (raw, typed choice and typed score in one call; ledger W6.4-01) | ported |
+| I3 | `test_live_pydantic_response` | `livetests.TestLiveTypedResponse` (`Ask[T]`; the recorded body decoded again by `DecodeAs[T]` and `Answers()`, which agree; ledger W6.4-01) | ported |
 
 ### `tests/test_logging.py` (8)
 

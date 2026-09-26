@@ -49,10 +49,6 @@ var record = flag.Bool("record", false, "write the live response bodies to testd
 // (tests/conftest.py: timeout=120).
 const liveTimeout = 120 * time.Second
 
-// wrongKey is the key TestLiveUnauthenticated sends: printable ASCII, so the
-// SDK accepts it, and no key the API issues.
-const wrongKey = "invalid-live-test-key-00000000"
-
 // ticketState is the state of upstream's test_live_questions.
 var ticketState = map[string]any{
 	"subject": "Charged twice this month",
@@ -446,52 +442,97 @@ func TestLiveTypedResponse(t *testing.T) {
 	}
 }
 
-// TestLiveUnauthenticated checks AC-F11's last clause: a key the API did not
-// issue is answered with 403, which the SDK reports as an *APIError whose
-// IsAuthentication is true, on both endpoints and without a retry. The
-// models endpoint's error body is recorded as unauthenticated.json, with the
-// wrong key scrubbed as the real one would be.
+// withoutCredential sends each request without its Authorization header,
+// on a clone, so the request the SDK built is left as it is: the API sees a
+// request that carries no credential at all, which the SDK itself never
+// sends.
+type withoutCredential struct{ base *http.Transport }
+
+// RoundTrip implements http.RoundTripper.
+func (w withoutCredential) RoundTrip(r *http.Request) (*http.Response, error) {
+	r2 := r.Clone(r.Context())
+	r2.Header.Del("Authorization")
+	return w.base.RoundTrip(r2)
+}
+
+// CloseIdleConnections closes the base transport's idle connections, as the
+// client's Close asks.
+func (w withoutCredential) CloseIdleConnections() { w.base.CloseIdleConnections() }
+
+// TestLiveUnauthenticated checks AC-F11's last clause and the case next to
+// it, on both endpoints and without a retry: a request that carries no
+// credential is answered with 403 and the error type authentication_error,
+// and one with a key the API did not issue with 401 and the same error type.
+// The SDK reports both as an *APIError whose IsAuthentication is true: the
+// first through its ErrorType (Kind permission denied), the second through
+// its status as well (Kind authentication). The models endpoint's error
+// bodies are recorded as unauthenticated.json (403) and wrong-key.json
+// (401), each key scrubbed as the real one would be.
 func TestLiveUnauthenticated(t *testing.T) {
 	env := requireLive(t)
-	lc := newLiveClient(t, typesafe.WithAPIKey(wrongKey), typesafe.WithRetry(typesafe.NoRetry()))
+	var p http.Protocols
+	p.SetHTTP2(true)
+	stock := &http.Transport{Proxy: http.ProxyFromEnvironment, Protocols: &p}
 	qs, err := typesafe.NewQuestions().Noul("spam", typesafe.Noul{Instructions: typesafe.Text("Is this spam?")}).Prepare()
 	if err != nil {
 		t.Fatal(err)
 	}
-	calls := map[string]func() error{
-		"models": func() error {
-			_, err := lc.c.Models().List(t.Context())
-			return err
+	cases := map[string]struct {
+		opts   []typesafe.ClientOption
+		status int
+		kind   typesafe.APIErrorKind
+		record string
+	}{
+		"no credential": {
+			opts:   []typesafe.ClientOption{typesafe.WithRoundTripper(withoutCredential{stock})},
+			status: http.StatusForbidden,
+			kind:   typesafe.APIErrorPermissionDenied,
+			record: "unauthenticated.json",
 		},
-		"system one": func() error {
-			_, err := lc.c.SystemOne(t.Context(), "hello", qs)
-			return err
+		"wrong key": {
+			status: http.StatusUnauthorized,
+			kind:   typesafe.APIErrorAuthentication,
+			record: "wrong-key.json",
 		},
 	}
-	for _, name := range slices.Sorted(maps.Keys(calls)) {
-		t.Run(name, func(t *testing.T) {
-			lc.begin()
-			err := calls[name]()
-			lc.done(t, "unauthenticated "+name)
-			apiErr, ok := errors.AsType[*typesafe.APIError](err)
-			if !ok {
-				t.Fatalf("error = %v, want an *APIError", err)
-			}
-			if apiErr.StatusCode != http.StatusForbidden || !apiErr.IsAuthentication() {
-				t.Errorf("StatusCode = %d, IsAuthentication() = %t, Kind = %v, ErrorType = %q; want 403 and true",
-					apiErr.StatusCode, apiErr.IsAuthentication(), apiErr.Kind, apiErr.ErrorType)
-			}
-			if strings.Contains(apiErr.Error(), env.apiKey) {
-				t.Error("the error text holds the environment's key")
-			}
-			t.Logf("unauthenticated %s: %s", name, apiErr)
-			if name == "models" {
-				recordBody(t, "unauthenticated.json", apiErr.Body, env.apiKey, wrongKey)
-			}
-		})
-	}
-	if st := lc.c.Stats(); st.Attempts != 2 {
-		t.Errorf("Stats().Attempts = %d, want 2 (no retry)", st.Attempts)
+	for _, name := range slices.Sorted(maps.Keys(cases)) {
+		tc := cases[name]
+		lc := newLiveClient(t, append([]typesafe.ClientOption{typesafe.WithAPIKey(wrongLiveKey), typesafe.WithRetry(typesafe.NoRetry())}, tc.opts...)...)
+		calls := map[string]func() error{
+			"models": func() error {
+				_, err := lc.c.Models().List(t.Context())
+				return err
+			},
+			"system one": func() error {
+				_, err := lc.c.SystemOne(t.Context(), "hello", qs)
+				return err
+			},
+		}
+		for _, endpoint := range slices.Sorted(maps.Keys(calls)) {
+			t.Run(name+"/"+endpoint, func(t *testing.T) {
+				lc.begin()
+				err := calls[endpoint]()
+				lc.done(t, name+" "+endpoint)
+				apiErr, ok := errors.AsType[*typesafe.APIError](err)
+				if !ok {
+					t.Fatalf("error = %v, want an *APIError", err)
+				}
+				if apiErr.StatusCode != tc.status || apiErr.Kind != tc.kind || apiErr.ErrorType != "authentication_error" || !apiErr.IsAuthentication() {
+					t.Errorf("StatusCode = %d, Kind = %v, ErrorType = %q, IsAuthentication() = %t; want %d, %v, authentication_error, true",
+						apiErr.StatusCode, apiErr.Kind, apiErr.ErrorType, apiErr.IsAuthentication(), tc.status, tc.kind)
+				}
+				if strings.Contains(apiErr.Error(), env.apiKey) || strings.Contains(apiErr.Error(), wrongLiveKey) {
+					t.Error("the error text holds a key")
+				}
+				t.Logf("%s %s: %s", name, endpoint, apiErr)
+				if endpoint == "models" {
+					recordBody(t, tc.record, apiErr.Body, env.apiKey, wrongLiveKey)
+				}
+			})
+		}
+		if st := lc.c.Stats(); st.Attempts != 2 {
+			t.Errorf("%s: Stats().Attempts = %d, want 2 (no retry)", name, st.Attempts)
+		}
 	}
 }
 

@@ -31,6 +31,11 @@ import (
 // the billed API.
 const liveTestsEnv = "TYPESAFE_LIVE_TESTS"
 
+// wrongLiveKey is the key TestLiveUnauthenticated sends: printable ASCII,
+// so the SDK accepts it, and no key the API issues. The recorder scrubs it
+// as it scrubs the real one.
+const wrongLiveKey = "invalid-live-test-key-00000000"
+
 // liveEnv is what a live test needs from the environment. The key stays in
 // memory: the scrubber needs it to find an echo of it in a body, and it is
 // never printed.
