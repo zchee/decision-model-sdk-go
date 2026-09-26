@@ -87,8 +87,8 @@ IDs that the plan's waves cite.
 
 | ID | Upstream | Go test / deviation | status |
 | --- | --- | --- | --- |
-| E1 | `test_exception_reconstruction` | deviation "errors are values" + `TestErrorsAsRoundTrip` | deviation |
-| E2 | `test_api_error_from_process_pool` | deviation "no process pools" | deviation |
+| E1 | `test_exception_reconstruction` | deviation "errors are values" + `TestErrorsAsRoundTrip` (the 14 upstream rows, each matched with `errors.As` through wraps, copied by value, read alike and unwrapped alike) | deviation |
+| E2 | `test_api_error_from_process_pool` | deviation "no process pools": a value handed to another goroutine is the same value and nothing is serialised (`TestErrorsAsRoundTrip` reads a copy from four goroutines) | deviation |
 | E3 | `test_api_error_request_context` | `TestAPIErrorRendersEndpointStatusMessageRequestID` + `TestAPIErrorRequestContextThroughClient` | ported |
 | E4 | `test_api_error_endpoint_omits_url_credentials` | `TestEndpointOmitsCredentialsQueryFragment` (constructor-level: a base URL with credentials is refused when the client is built, R63) | ported |
 | E5 | `test_message_override` | `TestAPIErrorMessageOverride` (constructor-level, as upstream) | ported |

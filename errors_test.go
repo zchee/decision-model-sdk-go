@@ -25,12 +25,14 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	gocmp "github.com/google/go-cmp/cmp"
 
 	"github.com/zchee/typesafe-sdk-go/internal/codec"
+	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
@@ -551,66 +553,338 @@ func TestErrorRenderings(t *testing.T) {
 	}
 }
 
+// sdkErrors holds a nil pointer of each of the seven types: the compiler
+// checks that every one implements [Error], and the tests read their types.
+var sdkErrors = [...]Error{
+	(*APIError)(nil), (*ConnectionError)(nil), (*TimeoutError)(nil), (*ResponseValidationError)(nil),
+	(*ResponseTooLargeError)(nil), (*ConfigError)(nil), (*InvalidRequestError)(nil),
+}
+
+// errorView is everything a caller can read from an SDK error: its text, its
+// exported fields, its accessors and what it unwraps to. What a type does not
+// have is zero. It leaves out Header and Body, whose secret-named headers are
+// redacted at construction (R87) and are the redaction tests' to check.
+type errorView struct {
+	Type          string
+	Text          string
+	Kind          APIErrorKind
+	StatusCode    int
+	Endpoint      string
+	Message       string
+	ErrorType     string
+	FieldPath     string
+	Limit         int64
+	Timeout       time.Duration
+	Proxy         bool
+	RetryAfter    time.Duration
+	HasRetryAfter bool
+	RequestID     string
+	HasRequestID  bool
+	IsAuth        bool
+	Unwrapped     []error
+}
+
+// sameErrorValues compares the errors of an errorView by identity, so that an
+// Unwrap chain of a copy must hold the very values the original's does.
+var sameErrorValues = gocmp.Comparer(func(a, b error) bool { return a == b }) //nolint:errorlint // identity is the point: errors.Is would accept a wrapped error.
+
+// errorTypeName returns the name errorView.Type holds for T.
+func errorTypeName[T Error]() string { return reflect.TypeFor[T]().String() }
+
+// errorViewOf reads everything a caller can read from e.
+func errorViewOf(e Error) errorView {
+	v := errorView{Type: reflect.TypeOf(e).String(), Text: e.Error(), Unwrapped: unwrappedErrors(e)}
+	switch e := e.(type) {
+	case *APIError:
+		v.Kind, v.StatusCode, v.Endpoint, v.Message, v.ErrorType = e.Kind, e.StatusCode, e.Endpoint, e.Message, e.ErrorType
+		v.RetryAfter, v.HasRetryAfter = e.RetryAfter()
+		v.RequestID, v.HasRequestID = e.RequestID()
+		v.IsAuth = e.IsAuthentication()
+	case *ResponseValidationError:
+		v.StatusCode, v.Endpoint, v.FieldPath = e.StatusCode, e.Endpoint, e.FieldPath
+		v.RequestID, v.HasRequestID = e.RequestID()
+	case *ResponseTooLargeError:
+		v.StatusCode, v.Endpoint, v.Limit = e.StatusCode, e.Endpoint, e.Limit
+		v.RequestID, v.HasRequestID = e.RequestID()
+	case *ConnectionError:
+		v.Proxy = e.Proxy()
+	case *TimeoutError:
+		v.Timeout, v.Proxy = e.Timeout, e.Proxy()
+	}
+	return v
+}
+
+// unwrappedErrors returns what err unwraps to one level down, through either form
+// of Unwrap.
+func unwrappedErrors(err error) []error {
+	switch u := err.(type) { //nolint:errorlint // one level of this error only, not the chain.
+	case interface{ Unwrap() error }:
+		if cause := u.Unwrap(); cause != nil {
+			return []error{cause}
+		}
+	case interface{ Unwrap() []error }:
+		return u.Unwrap()
+	}
+	return nil
+}
+
+// copyErrorValue returns a pointer to a value copy of what e points to, as
+// `c := *e; return &c` does for a caller.
+func copyErrorValue(e Error) Error {
+	src := reflect.ValueOf(e).Elem()
+	dst := reflect.New(src.Type())
+	dst.Elem().Set(src)
+	return dst.Interface().(Error)
+}
+
+// listModelsError lists the models against rec, which answers one request, and
+// returns the SDK error of type T that the call fails with after one attempt.
+func listModelsError[T Error](t *testing.T, rec *testsupport.Recorder) T {
+	t.Helper()
+	_, err := newTestClient(t, rec).Models().List(t.Context())
+	e, ok := errors.AsType[T](err)
+	if !ok {
+		t.Fatalf("List error = %v (%T), want a %s", err, err, errorTypeName[T]())
+	}
+	if n := rec.Count(); n != 1 {
+		t.Fatalf("the transport saw %d requests, want 1", n)
+	}
+	return e
+}
+
+// responseValidationError builds the *ResponseValidationError the SDK builds for a
+// response with status and header, whose body decoding failed with err.
+func responseValidationError(status int, header http.Header, err error) *ResponseValidationError {
+	return newResponseValidationError(&wire.ResponseMeta{Status: status, Header: header, Body: []byte(`{}`)}, "", err)
+}
+
 // TestErrorsAsRoundTrip is the Go half of test_exception_reconstruction
-// (E1): errors are values, so where Python rebuilds an exception from its
-// args, copies and unpickles it, a Go error is matched with errors.As
-// through any wrapping, copied by value with the same rendering, and each
-// of the seven types is a typesafe.Error.
+// (E1, tests/test_errors.py:30-59, AC-F3) and what E2
+// (test_api_error_from_process_pool) leaves of it: errors are values, so where
+// Python rebuilds an exception from its args and copies and unpickles it, a Go
+// error is matched with errors.As through any wrapping, copied by value with
+// the same rendering, accessors and Unwrap chain, read from another goroutine
+// as it is, and each of the seven types is a [Error] that errors.As tells apart
+// from the other six.
+//
+// The rows, by upstream row: 1 TypeSafeError is "*ConfigError"; 2
+// TypeSafeAPIConnectionError is "*ConnectionError"; 3 to 11 are the status
+// rows "row 3" to "row 11", built by newAPIError as the SDK builds them, except
+// row 4 (a message set by the caller, so a literal) and the 429 that also runs
+// through the client; 12 is "row 12" (and "*ResponseValidationError", with a
+// request id, which upstream's row lacks); 13 is "*TimeoutError"; 14, whose
+// httpx Timeout object has no Go counterpart (one deadline per attempt,
+// Appendix B), is "row 14", the deadline that came from the caller's context
+// alone. The other rows are the Go types with no upstream row and the fields
+// no upstream row sets.
 func TestErrorsAsRoundTrip(t *testing.T) {
-	meta := &wire.ResponseMeta{Status: 200, Header: headers("X-Typesafe-Request-Id", "req"), Body: []byte(`{}`)}
+	decodeErr := &codec.DecodeError{Path: codec.FieldPath{Top: "answers", Name: "q", HasName: true, Member: "noul"}, Err: errors.New("missing")}
+	cause := errors.New("proxyconnect tcp: connection refused")
+	transportErr := errors.New("connection reset by peer")
+	const rateEndpoint = "GET https://x/v1/models"
 	tests := map[string]struct {
 		err  Error
-		copy func(Error) Error
+		want errorView
 	}{
 		"success: *APIError": {
-			err:  apiError(429, `{"message":"slow down"}`, headers("Retry-After-Ms", "125"), "GET https://x/v1/models"),
-			copy: func(e Error) Error { c := *e.(*APIError); return &c },
+			err: apiError(429, `{"message":"slow down"}`, headers("Retry-After-Ms", "125"), rateEndpoint),
+			want: errorView{
+				Type: errorTypeName[*APIError](), Text: rateEndpoint + ": 429 slow down", Kind: APIErrorRateLimit, StatusCode: 429,
+				Endpoint: rateEndpoint, Message: "slow down", RetryAfter: 125 * time.Millisecond, HasRetryAfter: true,
+			},
 		},
 		"success: *ResponseValidationError": {
-			err:  newResponseValidationError(meta, "", &codec.DecodeError{Path: codec.FieldPath{Top: "answers", Name: "q", HasName: true, Member: "noul"}, Err: errors.New("missing")}),
-			copy: func(e Error) Error { c := *e.(*ResponseValidationError); return &c },
+			err: responseValidationError(200, headers("X-Typesafe-Request-Id", "req"), decodeErr),
+			want: errorView{
+				Type: errorTypeName[*ResponseValidationError](), Text: "200 Invalid response data at 'answers.q.noul'. (request_id=req)", StatusCode: 200,
+				FieldPath: "answers.q.noul", RequestID: "req", HasRequestID: true, Unwrapped: []error{decodeErr},
+			},
 		},
 		"success: *ResponseTooLargeError": {
-			err:  &ResponseTooLargeError{StatusCode: 200, Limit: 1},
-			copy: func(e Error) Error { c := *e.(*ResponseTooLargeError); return &c },
+			err: &ResponseTooLargeError{StatusCode: 200, Limit: 1},
+			want: errorView{
+				Type: errorTypeName[*ResponseTooLargeError](), Text: "200 The response body is larger than the limit of 1 bytes.", StatusCode: 200, Limit: 1,
+			},
 		},
 		"success: *ConnectionError": {
 			err:  newConnectionError("Connection failure", nil, false),
-			copy: func(e Error) Error { c := *e.(*ConnectionError); return &c },
+			want: errorView{Type: errorTypeName[*ConnectionError](), Text: "Connection error: Connection failure"},
 		},
 		"success: *TimeoutError": {
 			err:  newTimeoutError(time.Second, context.DeadlineExceeded),
-			copy: func(e Error) Error { c := *e.(*TimeoutError); return &c },
+			want: errorView{Type: errorTypeName[*TimeoutError](), Text: "Request timed out (timeout=1s).", Timeout: time.Second, Unwrapped: []error{context.DeadlineExceeded}},
 		},
 		"success: *ConfigError": {
 			err:  newConfigError("SDK failure"),
-			copy: func(e Error) Error { c := *e.(*ConfigError); return &c },
+			want: errorView{Type: errorTypeName[*ConfigError](), Text: "SDK failure"},
 		},
 		"success: *InvalidRequestError": {
 			err:  newInvalidRequestError("bad state", errSentinel),
-			copy: func(e Error) Error { c := *e.(*InvalidRequestError); return &c },
+			want: errorView{Type: errorTypeName[*InvalidRequestError](), Text: "bad state", Unwrapped: []error{errSentinel}},
+		},
+		"success: row 3, an API error of 500 without a body": {
+			err:  apiError(500, "", headers(), ""),
+			want: errorView{Type: errorTypeName[*APIError](), Text: "500 status code (no body)", Kind: APIErrorInternalServer, StatusCode: 500, Message: "status code (no body)"},
+		},
+		"success: row 4, an API error with an empty message": {
+			err:  &APIError{StatusCode: 400, Header: headers(), Body: []byte(`{}`), Message: ""},
+			want: errorView{Type: errorTypeName[*APIError](), Text: "400", Kind: APIErrorOther, StatusCode: 400},
+		},
+		"success: row 5, 400": {
+			err:  apiError(400, `{"message":"Bad request"}`, headers(), ""),
+			want: errorView{Type: errorTypeName[*APIError](), Text: "400 Bad request", Kind: APIErrorBadRequest, StatusCode: 400, Message: "Bad request"},
+		},
+		"success: row 6, 401": {
+			err:  apiError(401, `{}`, headers(), ""),
+			want: errorView{Type: errorTypeName[*APIError](), Text: "401 {}", Kind: APIErrorAuthentication, StatusCode: 401, Message: "{}", IsAuth: true},
+		},
+		"success: row 7, 403": {
+			err:  apiError(403, `{}`, headers(), ""),
+			want: errorView{Type: errorTypeName[*APIError](), Text: "403 {}", Kind: APIErrorPermissionDenied, StatusCode: 403, Message: "{}"},
+		},
+		"success: row 8, 404": {
+			err:  apiError(404, `{}`, headers(), ""),
+			want: errorView{Type: errorTypeName[*APIError](), Text: "404 {}", Kind: APIErrorNotFound, StatusCode: 404, Message: "{}"},
+		},
+		"success: row 9, 422": {
+			err:  apiError(422, `{}`, headers(), ""),
+			want: errorView{Type: errorTypeName[*APIError](), Text: "422 {}", Kind: APIErrorUnprocessableEntity, StatusCode: 422, Message: "{}"},
+		},
+		"success: row 10, 503": {
+			err:  apiError(503, `{}`, headers(), ""),
+			want: errorView{Type: errorTypeName[*APIError](), Text: "503 {}", Kind: APIErrorInternalServer, StatusCode: 503, Message: "{}"},
+		},
+		"success: row 11, 429 with a wait and a request id": {
+			err: apiError(429, `{}`, headers("retry-after-ms", "125", "x-typesafe-request-id", "req-rate"), ""),
+			want: errorView{
+				Type: errorTypeName[*APIError](), Text: "429 {} (request_id=req-rate)", Kind: APIErrorRateLimit, StatusCode: 429, Message: "{}",
+				RetryAfter: 125 * time.Millisecond, HasRetryAfter: true, RequestID: "req-rate", HasRequestID: true,
+			},
+		},
+		"success: row 11, 429 through the client": {
+			err: listModelsError[*APIError](t, replying(429, []byte(`{}`), "retry-after-ms", "125", "x-typesafe-request-id", "req-rate")),
+			want: errorView{
+				Type: errorTypeName[*APIError](), Text: modelsEndpoint + ": 429 {} (request_id=req-rate)", Kind: APIErrorRateLimit, StatusCode: 429,
+				Endpoint: modelsEndpoint, Message: "{}", RetryAfter: 125 * time.Millisecond, HasRetryAfter: true, RequestID: "req-rate", HasRequestID: true,
+			},
+		},
+		"success: 403 that names an authentication error": {
+			err: apiError(403, `{"detail":{"message":"Must supply an API key!","error_type":"authentication_error"}}`, headers(), ""),
+			want: errorView{
+				Type: errorTypeName[*APIError](), Text: "403 Must supply an API key!", Kind: APIErrorPermissionDenied, StatusCode: 403,
+				Message: "Must supply an API key!", ErrorType: "authentication_error", IsAuth: true,
+			},
+		},
+		"success: row 12, response validation without a request id": {
+			err: responseValidationError(200, headers(), decodeErr),
+			want: errorView{
+				Type: errorTypeName[*ResponseValidationError](), Text: "200 Invalid response data at 'answers.q.noul'.", StatusCode: 200,
+				FieldPath: "answers.q.noul", Unwrapped: []error{decodeErr},
+			},
+		},
+		"success: row 14, a timeout without a setting": {
+			err:  newTimeoutError(0, context.DeadlineExceeded),
+			want: errorView{Type: errorTypeName[*TimeoutError](), Text: "Request timed out.", Unwrapped: []error{context.DeadlineExceeded}},
+		},
+		"success: a timeout on the proxy hop": {
+			err:  newProxyTimeoutError(10*time.Second, cause),
+			want: errorView{Type: errorTypeName[*TimeoutError](), Text: "Request timed out on the proxy hop (timeout=10s).", Timeout: 10 * time.Second, Proxy: true, Unwrapped: []error{cause}},
+		},
+		"success: a connection failure on the proxy hop": {
+			err:  newConnectionError("proxyconnect tcp: connection refused", cause, true),
+			want: errorView{Type: errorTypeName[*ConnectionError](), Text: "Connection error: proxyconnect tcp: connection refused", Proxy: true, Unwrapped: []error{cause}},
+		},
+		"success: a transport error through the client": {
+			err:  listModelsError[*ConnectionError](t, &testsupport.Recorder{Replies: []testsupport.Reply{{Err: transportErr}}}),
+			want: errorView{Type: errorTypeName[*ConnectionError](), Text: "Connection error: connection reset by peer", Unwrapped: []error{transportErr}},
+		},
+		"success: a configuration error with a sentinel and a cause": {
+			err:  newConfigError("HTTP/2 was not negotiated", errSentinel, cause),
+			want: errorView{Type: errorTypeName[*ConfigError](), Text: "HTTP/2 was not negotiated", Unwrapped: []error{errSentinel, cause}},
 		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			wrapped := fmt.Errorf("call: %w", fmt.Errorf("attempt: %w", tt.err))
-			var te Error
-			if !errors.As(wrapped, &te) || te != tt.err {
-				t.Fatalf("errors.As(typesafe.Error) = %v, want the error itself", te)
+			if diff := gocmp.Diff(tt.want, errorViewOf(tt.err), sameErrorValues); diff != "" {
+				t.Fatalf("the error is not the one the row means (-want +got):\n%s", diff)
 			}
-			target := reflect.New(reflect.TypeOf(tt.err))
-			if !errors.As(wrapped, target.Interface()) || target.Elem().Interface() != tt.err {
-				t.Errorf("errors.As(%T) did not find the error", tt.err)
+			c := copyErrorValue(tt.err)
+			if c == tt.err || reflect.TypeOf(c) != reflect.TypeOf(tt.err) {
+				t.Fatalf("copy is %p of %T, want another pointer to a %T", c, c, tt.err)
 			}
-			c := tt.copy(tt.err)
-			if c == tt.err || c.Error() != tt.err.Error() || fmt.Sprint(c) != tt.err.Error() {
-				t.Errorf("copy renders %q, want %q", c.Error(), tt.err.Error())
+			chains := map[string]struct{ orig, copy error }{
+				"one wrap":  {fmt.Errorf("call: %w", tt.err), fmt.Errorf("call: %w", c)},
+				"two wraps": {fmt.Errorf("call: %w", fmt.Errorf("attempt: %w", tt.err)), fmt.Errorf("call: %w", fmt.Errorf("attempt: %w", c))},
+				"a join":    {errors.Join(errSentinel, tt.err), errors.Join(errSentinel, c)},
 			}
+			for chain, ch := range chains {
+				for which, pair := range map[string]struct{ err, want error }{"the error": {ch.orig, tt.err}, "the copy": {ch.copy, c}} {
+					var found Error
+					if !errors.As(pair.err, &found) || found != pair.want { //nolint:errorlint // the very pointer, not an error that matches it.
+						t.Errorf("%s: errors.As(typesafe.Error) for %s = %v, want the very error", chain, which, found)
+					}
+					target := reflect.New(reflect.TypeOf(tt.err))
+					if !errors.As(pair.err, target.Interface()) || target.Elem().Interface() != pair.want { //nolint:errorlint // the very pointer, not an error that matches it.
+						t.Errorf("%s: errors.As(%T) for %s did not find the very error", chain, tt.err, which)
+					}
+					for _, other := range sdkErrors {
+						if reflect.TypeOf(other) == reflect.TypeOf(tt.err) {
+							continue
+						}
+						if errors.As(pair.err, reflect.New(reflect.TypeOf(other)).Interface()) {
+							t.Errorf("%s: errors.As(%T) matched %s, a %T", chain, other, which, tt.err)
+						}
+					}
+					for _, want := range tt.want.Unwrapped {
+						if !errors.Is(pair.err, want) {
+							t.Errorf("%s: errors.Is(%s, %v) = false, want true", chain, which, want)
+						}
+					}
+				}
+			}
+			for _, verb := range []string{"%v", "%+v", "%s", "%q"} {
+				if got, want := fmt.Sprintf(verb, c), fmt.Sprintf(verb, tt.err); got != want {
+					t.Errorf("copy under %s = %q, want %q", verb, got, want)
+				}
+			}
+			if got, want := fmt.Sprintf("%v|%s|%q", tt.err, tt.err, tt.err), tt.want.Text+"|"+tt.want.Text+"|"+strconv.Quote(tt.want.Text); got != want {
+				t.Errorf("%%v|%%s|%%q = %q, want %q", got, want)
+			}
+			if diff := gocmp.Diff(tt.want, errorViewOf(c), sameErrorValues); diff != "" {
+				t.Errorf("the copy reads differently (-want +got):\n%s", diff)
+			}
+			var wg sync.WaitGroup
+			for range 4 {
+				wg.Go(func() {
+					if diff := gocmp.Diff(tt.want, errorViewOf(c), sameErrorValues); diff != "" {
+						t.Errorf("the copy reads differently from another goroutine (-want +got):\n%s", diff)
+					}
+				})
+			}
+			wg.Wait()
 		})
 	}
-	var rve *ResponseValidationError
-	if !errors.As(tests["success: *ResponseValidationError"].err, &rve) || rve.Error() != "200 Invalid response data at 'answers.q.noul'. (request_id=req)" {
-		t.Errorf("response validation error = %v", rve)
+}
+
+// TestErrorInterfaceExcludesForeignErrors checks that errors.As with a
+// typesafe.Error target finds an SDK error and nothing else: a cancellation,
+// a context deadline and the errors of other packages are not SDK errors,
+// wrapped or not (R81 (1)).
+func TestErrorInterfaceExcludesForeignErrors(t *testing.T) {
+	tests := map[string]error{
+		"error: context.Canceled":         context.Canceled,
+		"error: context.DeadlineExceeded": context.DeadlineExceeded,
+		"error: fs.ErrNotExist":           fs.ErrNotExist,
+		"error: a plain error":            errors.New("plain"),
+		"error: a wrapped cancellation":   fmt.Errorf("call: %w", context.Canceled),
+		"error: nothing":                  nil,
+	}
+	for name, err := range tests {
+		t.Run(name, func(t *testing.T) {
+			if found, ok := errors.AsType[Error](err); ok {
+				t.Errorf("errors.As(%v, typesafe.Error) = true with %v, want false", err, found)
+			}
+		})
 	}
 }
 
