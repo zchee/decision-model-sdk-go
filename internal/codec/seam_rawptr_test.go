@@ -22,6 +22,7 @@ import (
 	"go/parser"
 	"go/token"
 	"maps"
+	"os"
 	"path"
 	"path/filepath"
 	"slices"
@@ -89,20 +90,26 @@ func rawPointerUses(fset *token.FileSet, f *ast.File) []string {
 }
 
 // TestSeamCodecUnsafeIsNoCopyString bounds internal/codec's use of unsafe
-// to NoCopyString (critic-p5 m-2, condition C3). The raw-pointer rule of
-// TestSeamRootRawPointers exempts internal/codec, and TestSeamOneUnsafeFile
-// counts the package's unsafe importers, one, nocopy.go, but not what that
-// file does: a raw-write helper added there and called from the root
-// package would write through a raw pointer outside decodeas_store.go and
-// pass both. So nocopy.go must declare exactly one thing, the function
-// NoCopyString, and reach a raw pointer only through unsafe.String and
-// unsafe.SliceData. It runs in the lint job's internal/codec seam tests
-// step (go test -run 'Seam') on ubuntu-26.04 and in CI's -race test step on
-// ubuntu-26.04, xcode-27 and windows-2025.
+// to NoCopyString (critic-p5 m-2, condition C3; review V70 MINOR 1). The
+// raw-pointer rule of TestSeamRootRawPointers exempts internal/codec, and
+// TestSeamOneUnsafeFile counts the package's unsafe importers, one,
+// nocopy.go, but not what the package's files do: a raw-write helper added
+// to nocopy.go, or to another codec file through reflect with no unsafe
+// import at all (reflect.NewAt over a Value's UnsafePointer), and called
+// from the root package would write through a raw pointer outside
+// decodeas_store.go and pass both. So nocopy.go must declare exactly one
+// thing, the function NoCopyString, and reach a raw pointer only through
+// unsafe.String and unsafe.SliceData; and every other non-test file of the
+// package, whatever its build constraints or GOARCH suffix, must import
+// unsafe under no name and use no raw-pointer route of rawPointerUses. It
+// runs in the lint job's internal/codec seam tests step (go test -run
+// 'Seam') on ubuntu-26.04 and in CI's -race test step on ubuntu-26.04,
+// xcode-27 and windows-2025.
 func TestSeamCodecUnsafeIsNoCopyString(t *testing.T) {
 	mod := findModule(t)
+	codecDir := filepath.Join(mod.root, "internal", "codec")
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, filepath.Join(mod.root, "internal", "codec", "nocopy.go"), nil, parser.SkipObjectResolution)
+	f, err := parser.ParseFile(fset, filepath.Join(codecDir, "nocopy.go"), nil, parser.SkipObjectResolution)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,6 +141,39 @@ func TestSeamCodecUnsafeIsNoCopyString(t *testing.T) {
 	if want := []string{"selector SliceData", "unsafe.String"}; !slices.Equal(routes, want) {
 		t.Errorf("internal/codec/nocopy.go reaches raw pointers through %q, want only %q (unsafe.String over unsafe.SliceData)", routes, want)
 	}
+
+	// Every other non-test file, read from disk so that a file this build
+	// leaves out (validate_amd64.go on arm64, and the reverse) is read too.
+	entries, err := os.ReadDir(codecDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var checked []string
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || name == "nocopy.go" {
+			continue
+		}
+		af, err := parser.ParseFile(fset, filepath.Join(codecDir, name), nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		checked = append(checked, name)
+		for _, spec := range af.Imports {
+			if p, err := strconv.Unquote(spec.Path.Value); err == nil && p == "unsafe" {
+				t.Errorf("internal/codec/%s:%d: imports unsafe; only nocopy.go may (NoCopyString)", name, fset.Position(spec.Pos()).Line)
+			}
+		}
+		for _, use := range rawPointerUses(fset, af) {
+			t.Errorf("internal/codec/%s:%s (only nocopy.go's NoCopyString reaches a raw pointer in internal/codec)", name, use)
+		}
+	}
+	for _, want := range []string{"decode.go", "encode.go", "validate_amd64.go", "validate_arm64.go"} {
+		if !slices.Contains(checked, want) {
+			t.Fatalf("read %d non-test files of internal/codec %q and not %s; the check would read too little", len(checked), checked, want)
+		}
+	}
+	t.Logf("nocopy.go and %d other non-test files of internal/codec read", len(checked))
 }
 
 // isPointerCall reports whether e is a call of a method named Pointer
