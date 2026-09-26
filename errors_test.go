@@ -116,7 +116,7 @@ func TestConfigError(t *testing.T) {
 // apiError builds the *APIError the SDK builds for a response with status,
 // body and header, at endpoint.
 func apiError(status int, body string, header http.Header, endpoint string) *APIError {
-	return newAPIError(&wire.ResponseMeta{Status: status, Header: header, Body: []byte(body)}, endpoint)
+	return newAPIError(&wire.ResponseMeta{Status: status, Header: header, Body: []byte(body)}, endpoint, headerRedactor{})
 }
 
 func mustURL(t *testing.T, raw string) *url.URL {
@@ -677,7 +677,7 @@ func listModelsError[T Error](t *testing.T, rec *testsupport.Recorder) T {
 // responseValidationError builds the *ResponseValidationError the SDK builds
 // for a response with status and header, whose body decoding failed with err.
 func responseValidationError(status int, header http.Header, err error) *ResponseValidationError {
-	return newResponseValidationError(&wire.ResponseMeta{Status: status, Header: header, Body: []byte(`{}`)}, "", err)
+	return newResponseValidationError(&wire.ResponseMeta{Status: status, Header: header, Body: []byte(`{}`)}, "", headerRedactor{}, err)
 }
 
 // TestErrorsAsRoundTrip is the Go half of test_exception_reconstruction

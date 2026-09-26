@@ -209,7 +209,7 @@ func measureCallItems(t *testing.T, c *Client, state any, qs *Prepared) callItem
 		res[i] = testsupport.Measure(func() { resp = new(SystemOneResponse) })
 		resp.meta = wire.ResponseMeta{Status: hresp.StatusCode, Header: hresp.Header, Body: raw}
 		dec[i] = testsupport.Measure(func() {
-			err = decodeSystemOne(ctx, c.cfg.logger, &resp.meta, c.systemOneEndpoint, qs, c.cfg.model, &resp.res)
+			err = decodeSystemOne(ctx, c.cfg.logger, &resp.meta, c.systemOneEndpoint, c.cfg.redactor(), qs, c.cfg.model, &resp.res)
 		})
 		if err != nil {
 			t.Fatal(err)

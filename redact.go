@@ -65,6 +65,54 @@ func isCredential(name string, values []string, apiKey string) bool {
 	return keyNeedle(apiKey) && slices.ContainsFunc(values, func(v string) bool { return strings.Contains(v, apiKey) })
 }
 
+// headerRedactor redacts the response header that the error types keep
+// (rulings R87, R93): a header is a credential by its name always, and by
+// holding the client's API key when the key is at least
+// [minKeyNeedleBytes] long ([isCredential]). Its zero value redacts by name
+// alone, for an error built without a client's key, such as UnmarshalJSON's.
+// Build a client's with [newHeaderRedactor] or [config.redactor].
+type headerRedactor struct {
+	// key is the API key when it is long enough to look for, else empty.
+	key string
+}
+
+// newHeaderRedactor returns the redactor for a client whose API key is
+// apiKey: by name and by apiKey when apiKey is at least
+// [minKeyNeedleBytes] long (ruling R68), by name alone otherwise.
+func newHeaderRedactor(apiKey string) headerRedactor {
+	if !keyNeedle(apiKey) {
+		return headerRedactor{}
+	}
+	return headerRedactor{key: apiKey}
+}
+
+// redactor returns the redactor for the client c configures.
+func (c *config) redactor() headerRedactor { return newHeaderRedactor(c.apiKey) }
+
+// header returns a copy of h in which every value of each header that is a
+// credential is replaced by "***", one "***" per value, and every other
+// header shares its value slice with h; nil stays nil. The error types that
+// keep a response's header store this copy, so no rendering of them, and no
+// caller that dumps their Header, shows a credential the server sent.
+func (r headerRedactor) header(h http.Header) http.Header {
+	if h == nil {
+		return nil
+	}
+	out := make(http.Header, len(h))
+	for name, values := range h {
+		if !isCredential(name, values, r.key) {
+			out[name] = values
+			continue
+		}
+		masked := make([]string, len(values))
+		for i := range masked {
+			masked[i] = redacted
+		}
+		out[name] = masked
+	}
+	return out
+}
+
 // redactedHeaders is a header map as a log record shows it: a group with one
 // attribute per header, in name order, whose value is the header's values
 // joined by ", ", or "***" when they are a credential ([isCredential]). Build

@@ -41,11 +41,11 @@ func recordsText(logs *testsupport.LogRecorder) string {
 // header spellings and three statuses of test_secret_headers_redacted
 // (tests/test_logging.py:14-67): a credential in a request header the
 // caller set, in the same response header, and the API key never appear in
-// any record down to LevelTrace or in the error's text (every verb that
-// prints it through Error), while the other headers' values do, and "***"
-// stands for the redacted ones. %#v of an *APIError dumps its exported
-// fields, the response Header among them, as it does for any Go struct. Each call makes one
-// attempt; the upstream 429 row's two retries are W3.3's (L1).
+// any record down to LevelTrace or in any rendering of the error, %#v
+// included, which dumps the exported fields: the error stores the response
+// header with its credentials redacted (ruling R87). The other headers'
+// values do appear, and "***" stands for the redacted ones. Each call makes
+// one attempt; the upstream 429 row's two retries are W3.3's (L1).
 func TestClientLogsNoCredential(t *testing.T) {
 	// The upstream parametrize grid, 9 spellings x 3 statuses, as a map.
 	type test struct {
@@ -69,7 +69,7 @@ func TestClientLogsNoCredential(t *testing.T) {
 			logs := testsupport.NewLogRecorder(LevelTrace)
 			clearEnv(t)
 			c := newEnvClient(t, rec, WithAPIKey("auth-credential"), WithHeader(header, "request-credential"), WithHeader("x-visible", "request-visible"), WithLogger(logs.Logger()))
-			_, err := c.Models().List(t.Context())
+			_, err := c.Models().List(t.Context(), Retry(NoRetry()))
 			if (err == nil) != (status == http.StatusOK) {
 				t.Fatalf("List error = %v for status %d", err, status)
 			}
@@ -89,7 +89,7 @@ func TestClientLogsNoCredential(t *testing.T) {
 				if err == nil {
 					continue
 				}
-				for _, verb := range []string{"%v", "%+v", "%s", "%q"} {
+				for _, verb := range []string{"%v", "%+v", "%#v", "%s", "%q"} {
 					if out := fmt.Sprintf(verb, err); strings.Contains(out, secret) {
 						t.Errorf("%s of the error holds %q: %s", verb, secret, out)
 					}

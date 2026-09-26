@@ -126,18 +126,18 @@ func TestAllocDecodeFixtures(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			meta := &wire.ResponseMeta{Status: 200, Body: []byte(testsupport.FixtureString(t, name))}
 			var first wire.SystemOneResult
-			if err := decodeSystemOne(t.Context(), nil, meta, "", nil, "", &first); err != nil {
+			if err := decodeSystemOne(t.Context(), nil, meta, "", headerRedactor{}, nil, "", &first); err != nil {
 				t.Fatal(err)
 			}
 			qs, model := questionsFor(t, &first), strings.Clone(first.Model)
 			measure := func(label string, qs *Prepared, model string) testsupport.Allocs {
 				ctx := t.Context()
 				var warm wire.SystemOneResult
-				if err := decodeSystemOne(ctx, nil, meta, "", qs, model, &warm); err != nil {
+				if err := decodeSystemOne(ctx, nil, meta, "", headerRedactor{}, qs, model, &warm); err != nil {
 					t.Fatal(err)
 				}
 				return testsupport.MeasureMin(t, name+" "+label, func() *wire.SystemOneResult { return new(wire.SystemOneResult) }, func(res *wire.SystemOneResult) {
-					if err := decodeSystemOne(ctx, nil, meta, "", qs, model, res); err != nil {
+					if err := decodeSystemOne(ctx, nil, meta, "", headerRedactor{}, qs, model, res); err != nil {
 						t.Fatal(err)
 					}
 				})
@@ -197,7 +197,7 @@ func TestLinearityFlood(t *testing.T) {
 		allocs  uint64
 	}
 	decode := func(f *flood, res *wire.SystemOneResult) {
-		if err := decodeSystemOne(t.Context(), nil, f.meta, "", f.qs, f.model, res); err != nil {
+		if err := decodeSystemOne(t.Context(), nil, f.meta, "", headerRedactor{}, f.qs, f.model, res); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -205,7 +205,7 @@ func TestLinearityFlood(t *testing.T) {
 	for _, name := range []string{"structured-legend-flood-1k.json", "structured-legend-flood-10k.json"} {
 		f := &flood{name: name, meta: &wire.ResponseMeta{Status: 200, Body: []byte(testsupport.FixtureString(t, name))}}
 		var first wire.SystemOneResult
-		if err := decodeSystemOne(t.Context(), nil, f.meta, "", nil, "", &first); err != nil {
+		if err := decodeSystemOne(t.Context(), nil, f.meta, "", headerRedactor{}, nil, "", &first); err != nil {
 			t.Fatal(err)
 		}
 		f.qs, f.model = questionsFor(t, &first), first.Model

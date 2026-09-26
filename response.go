@@ -145,7 +145,7 @@ func (r *SystemOneResponse) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 	if _, err := codec.DecodeSystemOne(data, nil, "", &r.res); err != nil {
-		return newResponseValidationError(&wire.ResponseMeta{}, "", err)
+		return newResponseValidationError(&wire.ResponseMeta{}, "", headerRedactor{}, err)
 	}
 	r.meta = wire.ResponseMeta{}
 	return nil
@@ -225,7 +225,7 @@ func (r *ModelsResponse) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 	if err := codec.DecodeModels(data, &r.list); err != nil {
-		return newResponseValidationError(&wire.ResponseMeta{}, "", err)
+		return newResponseValidationError(&wire.ResponseMeta{}, "", headerRedactor{}, err)
 	}
 	r.meta = wire.ResponseMeta{}
 	return nil

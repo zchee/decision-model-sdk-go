@@ -214,7 +214,16 @@ type APIError struct {
 	Kind APIErrorKind
 	// StatusCode is the HTTP status code.
 	StatusCode int
-	// Header is the response header. It is shared, not copied.
+	// Header is a copy of the response header in which each value of a
+	// header that carries a credential is "***": a header named
+	// Authorization, Proxy-Authorization, X-Api-Key, Api-Key, Cookie or
+	// Set-Cookie, or whose name contains "token" or "secret" (compared
+	// without regard to case), and a header with a value that holds the
+	// client's API key when the key is at least 8 bytes long. Every other
+	// header, Retry-After, Retry-After-Ms and X-Typesafe-Request-Id
+	// included, is as the server sent it, so [APIError.RetryAfter] and
+	// [APIError.RequestID] read it. typesafe-sdk-python keeps the headers
+	// as they arrived and redacts them only in its logs.
 	Header http.Header
 	// Body is the response body as it arrived, or nil when it was empty or
 	// over the size limit. It is shared, not copied, and must not be
@@ -269,8 +278,9 @@ func (*APIError) typesafeError() {}
 // newAPIError returns the *APIError for an unsuccessful response: its kind,
 // its message read from the body by the lenient reader
 // (codec.ReadErrorBody), escaped and cut at 200 characters, or "status code
-// (no body)" for an empty or null body.
-func newAPIError(meta *wire.ResponseMeta, endpoint string) *APIError {
+// (no body)" for an empty or null body, and the response header with its
+// credentials redacted by r ([headerRedactor], ruling R87).
+func newAPIError(meta *wire.ResponseMeta, endpoint string, r headerRedactor) *APIError {
 	eb := codec.ReadErrorBody(meta.Body)
 	msg := "status code (no body)"
 	if !eb.NoBody {
@@ -279,7 +289,7 @@ func newAPIError(meta *wire.ResponseMeta, endpoint string) *APIError {
 	return &APIError{
 		Kind:       apiErrorKind(meta.Status),
 		StatusCode: meta.Status,
-		Header:     meta.Header,
+		Header:     r.header(meta.Header),
 		Body:       meta.Body,
 		Endpoint:   endpoint,
 		Message:    msg,
@@ -300,7 +310,8 @@ func newAPIError(meta *wire.ResponseMeta, endpoint string) *APIError {
 type ResponseValidationError struct {
 	// StatusCode is the HTTP status code.
 	StatusCode int
-	// Header is the response header. It is shared, not copied.
+	// Header is a copy of the response header with each credential's value
+	// "***", as [APIError.Header] describes.
 	Header http.Header
 	// Body is the response body as it arrived. It is shared, not copied,
 	// and must not be modified.
@@ -334,15 +345,16 @@ func (e *ResponseValidationError) RequestID() (string, bool) { return requestID(
 func (*ResponseValidationError) typesafeError() {}
 
 // newResponseValidationError returns the *ResponseValidationError for a
-// successful response whose body the decoder refused with err.
-func newResponseValidationError(meta *wire.ResponseMeta, endpoint string, err error) *ResponseValidationError {
+// successful response whose body the decoder refused with err, with the
+// response header's credentials redacted by r ([headerRedactor]).
+func newResponseValidationError(meta *wire.ResponseMeta, endpoint string, r headerRedactor, err error) *ResponseValidationError {
 	var path codec.FieldPath
 	if de, ok := errors.AsType[*codec.DecodeError](err); ok {
 		path = de.Path
 	}
 	return &ResponseValidationError{
 		StatusCode: meta.Status,
-		Header:     meta.Header,
+		Header:     r.header(meta.Header),
 		Body:       meta.Body,
 		Endpoint:   endpoint,
 		FieldPath:  renderFieldPath(path),
@@ -359,7 +371,8 @@ func newResponseValidationError(meta *wire.ResponseMeta, endpoint string, err er
 type ResponseTooLargeError struct {
 	// StatusCode is the HTTP status code.
 	StatusCode int
-	// Header is the response header. It is shared, not copied.
+	// Header is a copy of the response header with each credential's value
+	// "***", as [APIError.Header] describes.
 	Header http.Header
 	// Endpoint is the request's method and URL without credentials, query
 	// or fragment, or empty when it is not known.
@@ -380,6 +393,13 @@ func (e *ResponseTooLargeError) Error() string {
 func (e *ResponseTooLargeError) RequestID() (string, bool) { return requestID(e.Header) }
 
 func (*ResponseTooLargeError) typesafeError() {}
+
+// newResponseTooLargeError returns the *ResponseTooLargeError for a
+// successful response whose body passed limit, with the response header's
+// credentials redacted by r ([headerRedactor]).
+func newResponseTooLargeError(meta *wire.ResponseMeta, endpoint string, r headerRedactor, limit int64) *ResponseTooLargeError {
+	return &ResponseTooLargeError{StatusCode: meta.Status, Header: r.header(meta.Header), Endpoint: endpoint, Limit: limit}
+}
 
 // ConnectionError reports a request that produced no HTTP response: the
 // connection could not be made, failed or was lost, or a proxy refused it.

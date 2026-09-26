@@ -244,7 +244,7 @@ func (c *Client) SystemOne(ctx context.Context, state any, qs *Prepared, opts ..
 	}
 	resp := new(SystemOneResponse)
 	err = c.send(ctx, &rq, s.retry, &resp.meta, func() error {
-		return decodeSystemOne(ctx, c.cfg.logger, &resp.meta, c.systemOneEndpoint, qs, model, &resp.res)
+		return decodeSystemOne(ctx, c.cfg.logger, &resp.meta, c.systemOneEndpoint, c.cfg.redactor(), qs, model, &resp.res)
 	})
 	if err != nil {
 		return nil, err
@@ -290,7 +290,7 @@ func (m Models) List(ctx context.Context, opts ...CallOption) (*ModelsResponse, 
 	}
 	resp := new(ModelsResponse)
 	err = c.send(ctx, &rq, s.retry, &resp.meta, func() error {
-		return decodeModels(&resp.meta, c.modelsEndpoint, &resp.list)
+		return decodeModels(&resp.meta, c.modelsEndpoint, c.cfg.redactor(), &resp.list)
 	})
 	if err != nil {
 		return nil, err
@@ -412,9 +412,9 @@ func (c *Client) attempt(ctx context.Context, rq *request, attempt int) (wire.Re
 	case errors.Is(err, errTooLarge):
 		c.logResponse(ctx, rq, attempt, start, &meta)
 		if success {
-			return meta, &ResponseTooLargeError{StatusCode: meta.Status, Header: meta.Header, Endpoint: rq.endpoint, Limit: c.cfg.maxResponseBytes}
+			return meta, newResponseTooLargeError(&meta, rq.endpoint, c.cfg.redactor(), c.cfg.maxResponseBytes)
 		}
-		return meta, newAPIError(&meta, rq.endpoint)
+		return meta, newAPIError(&meta, rq.endpoint, c.cfg.redactor())
 	case err != nil:
 		err = c.attemptError(ctx, actx, rq.timeout, h, err)
 		c.logFailure(ctx, rq, attempt, start, err)
@@ -423,7 +423,7 @@ func (c *Client) attempt(ctx context.Context, rq *request, attempt int) (wire.Re
 	meta.Body = raw
 	c.logResponse(ctx, rq, attempt, start, &meta)
 	if !success {
-		return meta, newAPIError(&meta, rq.endpoint)
+		return meta, newAPIError(&meta, rq.endpoint, c.cfg.redactor())
 	}
 	return meta, nil
 }

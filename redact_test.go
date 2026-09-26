@@ -17,11 +17,13 @@ package typesafe
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	gocmp "github.com/google/go-cmp/cmp"
 
@@ -362,6 +364,213 @@ func TestAPIKeyNeedleThreshold(t *testing.T) {
 			want := "[Authorization=*** X-Echo=" + tt.wantEcho + "]"
 			if got := fmt.Sprint(newRedactedHeaders(header, tt.key)); got != want {
 				t.Errorf("rendered = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// TestRedactHeader pins the copy of a response header that the error types
+// store (rulings R87, R93): each value of a header that is a credential by
+// its name (every case of the nine AC-F5 spellings) or, for a client whose
+// key is at least 8 bytes long, by holding the key, becomes "***", one per
+// value; every other header keeps its value slice, shared with the
+// response's; the response's map is left as it was; nil stays nil. The
+// zero headerRedactor, and a client's whose key is shorter (R68), redact by
+// name alone.
+func TestRedactHeader(t *testing.T) {
+	const key = "ts_live_0123456789abcdef"
+	tests := map[string]struct {
+		r    headerRedactor
+		h    http.Header
+		want http.Header
+	}{
+		"success: nil stays nil": {r: newHeaderRedactor(key)},
+		"success: an empty header": {
+			r: newHeaderRedactor(key), h: http.Header{}, want: http.Header{},
+		},
+		"success: every name-marked spelling, by the zero value too": {
+			h: http.Header{
+				"Authorization": {"Bearer a"}, "Proxy-Authorization": {"Basic b"}, "X-Api-Key": {"c"}, "Api-Key": {"d"},
+				"Cookie": {"e"}, "Set-Cookie": {"f=1", "g=2"}, "X-Access-Token": {"h"}, "X-Client-Secret": {"i"}, "x-MiXeD-ToKeN": {"j"},
+			},
+			want: http.Header{
+				"Authorization": {redacted}, "Proxy-Authorization": {redacted}, "X-Api-Key": {redacted}, "Api-Key": {redacted},
+				"Cookie": {redacted}, "Set-Cookie": {redacted, redacted}, "X-Access-Token": {redacted}, "X-Client-Secret": {redacted}, "x-MiXeD-ToKeN": {redacted},
+			},
+		},
+		"success: the headers the error's methods read stay as they are": {
+			r:    newHeaderRedactor(key),
+			h:    http.Header{"Retry-After": {"2"}, "Retry-After-Ms": {"125"}, "X-Typesafe-Request-Id": {"req_123"}, "Content-Type": {"application/json"}},
+			want: http.Header{"Retry-After": {"2"}, "Retry-After-Ms": {"125"}, "X-Typesafe-Request-Id": {"req_123"}, "Content-Type": {"application/json"}},
+		},
+		"success: a value that holds a key of 8 bytes or more, under any name": {
+			r:    newHeaderRedactor(key),
+			h:    http.Header{"X-Echo": {"ok", "Bearer " + key}, "X-Other": {"visible"}},
+			want: http.Header{"X-Echo": {redacted, redacted}, "X-Other": {"visible"}},
+		},
+		"success: the zero value does not look for a key": {
+			h:    http.Header{"X-Echo": {"Bearer " + key}},
+			want: http.Header{"X-Echo": {"Bearer " + key}},
+		},
+		"success: a key of 7 bytes is not looked for (R68)": {
+			r:    newHeaderRedactor("k123456"),
+			h:    http.Header{"X-Echo": {"Bearer k123456"}, "Cookie": {"k123456"}},
+			want: http.Header{"X-Echo": {"Bearer k123456"}, "Cookie": {redacted}},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			before := tt.h.Clone()
+			got := tt.r.header(tt.h)
+			if diff := gocmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("header (-want +got):\n%s", diff)
+			}
+			if diff := gocmp.Diff(before, tt.h); diff != "" {
+				t.Errorf("header changed the response's header (-before +after):\n%s", diff)
+			}
+			for name, values := range got {
+				if len(values) > 0 && values[0] != redacted && &values[0] != &tt.h[name][0] {
+					t.Errorf("%s was copied, want its value slice shared", name)
+				}
+			}
+		})
+	}
+	t.Run("success: the 8-byte threshold lives in the redactor", func(t *testing.T) {
+		if r := newHeaderRedactor("k123456"); r != (headerRedactor{}) {
+			t.Errorf("newHeaderRedactor(7-byte key) = %+v, want the zero value", r)
+		}
+		if r := newHeaderRedactor("k1234567"); r.key != "k1234567" {
+			t.Errorf("newHeaderRedactor(8-byte key) = %+v, want the key kept", r)
+		}
+		if r := (&config{apiKey: key}).redactor(); r.key != key {
+			t.Errorf("config.redactor() = %+v, want the client's key", r)
+		}
+	})
+}
+
+// TestErrorHeadersRedacted pins ruling R87 (K31, verify-p2 item 4) through
+// the client for the three error types that keep a response's header,
+// *APIError (from a failure status, and from one whose body passed the size
+// limit), *ResponseValidationError and *ResponseTooLargeError: the
+// stored Header, and so every fmt verb of the error, of the error's value
+// held in an unexported field (which fmt prints field by field, D-W2.1b)
+// and of a pointer to it held there, shows "***" for Set-Cookie, X-Api-Key,
+// Authorization and a header whose value echoes the API key, and never the
+// server's credential; the request id and the retry-after headers stay as
+// sent, so RequestID, RetryAfter and IsAuthentication answer as before.
+func TestErrorHeadersRedacted(t *testing.T) {
+	const key = "ts_live_0123456789abcdef"
+	const cookie, serverKey, serverAuth = "session=server-credential", "server-api-credential", "Bearer server-auth-credential"
+	secrets := []string{cookie, serverKey, serverAuth, key, "server-credential", "server-auth-credential"}
+	sent := []string{
+		"Set-Cookie", cookie, "X-Api-Key", serverKey, "Authorization", serverAuth, "X-Echo", "echo Bearer " + key,
+		"X-Typesafe-Request-Id", "req_123", "Retry-After-Ms", "125", "X-Visible", "response-visible",
+	}
+	want := http.Header{
+		"Content-Type": {"application/json"}, "Set-Cookie": {redacted}, "X-Api-Key": {redacted}, "Authorization": {redacted}, "X-Echo": {redacted},
+		"X-Typesafe-Request-Id": {"req_123"}, "Retry-After-Ms": {"125"}, "X-Visible": {"response-visible"},
+	}
+	type holder struct {
+		value any // the error's struct value, which fmt prints field by field
+		ptr   error
+	}
+	validation := func(t *testing.T, err error) (http.Header, any) {
+		e, ok := errors.AsType[*ResponseValidationError](err)
+		if !ok {
+			t.Fatalf("error = %T %v, want a *ResponseValidationError", err, err)
+		}
+		if id, ok := e.RequestID(); !ok || id != "req_123" {
+			t.Errorf("RequestID() = %q, %t, want req_123", id, ok)
+		}
+		return e.Header, *e
+	}
+	tests := map[string]struct {
+		status    int
+		body      string
+		opts      []ClientOption
+		systemOne bool // call SystemOne rather than list the models
+		check     func(t *testing.T, err error) (http.Header, any)
+	}{
+		"error: *APIError (401)": {
+			status: http.StatusUnauthorized, body: `{"message":"bad key"}`,
+			check: func(t *testing.T, err error) (http.Header, any) {
+				e, ok := errors.AsType[*APIError](err)
+				if !ok {
+					t.Fatalf("error = %T %v, want an *APIError", err, err)
+				}
+				if d, ok := e.RetryAfter(); !ok || d != 125*time.Millisecond {
+					t.Errorf("RetryAfter() = %v, %t, want 125ms, true", d, ok)
+				}
+				if !e.IsAuthentication() {
+					t.Error("IsAuthentication() = false for a 401")
+				}
+				if id, ok := e.RequestID(); !ok || id != "req_123" {
+					t.Errorf("RequestID() = %q, %t, want req_123", id, ok)
+				}
+				return e.Header, *e
+			},
+		},
+		"error: *APIError (503 over the size limit, without its body)": {
+			status: http.StatusServiceUnavailable, body: `{"message":"overloaded"}`, opts: []ClientOption{WithMaxResponseBytes(4)},
+			check: func(t *testing.T, err error) (http.Header, any) {
+				e, ok := errors.AsType[*APIError](err)
+				if !ok || e.Body != nil {
+					t.Fatalf("error = %T %v, want an *APIError without a body", err, err)
+				}
+				if d, ok := e.RetryAfter(); !ok || d != 125*time.Millisecond {
+					t.Errorf("RetryAfter() = %v, %t, want 125ms, true", d, ok)
+				}
+				return e.Header, *e
+			},
+		},
+		"error: *ResponseValidationError (200, a body that is not a model list)": {
+			status: http.StatusOK, body: `{"models":5}`, check: validation,
+		},
+		"error: *ResponseValidationError (200, a System One body without its members)": {
+			status: http.StatusOK, body: `{}`, systemOne: true, check: validation,
+		},
+		"error: *ResponseTooLargeError (200 over the size limit)": {
+			status: http.StatusOK, body: `{"models":[]}`, opts: []ClientOption{WithMaxResponseBytes(4)},
+			check: func(t *testing.T, err error) (http.Header, any) {
+				e, ok := errors.AsType[*ResponseTooLargeError](err)
+				if !ok {
+					t.Fatalf("error = %T %v, want a *ResponseTooLargeError", err, err)
+				}
+				if id, ok := e.RequestID(); !ok || id != "req_123" {
+					t.Errorf("RequestID() = %q, %t, want req_123", id, ok)
+				}
+				return e.Header, *e
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			clearEnv(t)
+			rec := replying(tt.status, []byte(tt.body), sent...)
+			c := newEnvClient(t, rec, append([]ClientOption{WithAPIKey(key)}, tt.opts...)...)
+			var err error
+			if tt.systemOne {
+				_, err = c.SystemOne(t.Context(), "hi", noulQuestion(t), Retry(NoRetry()))
+			} else {
+				_, err = c.Models().List(t.Context(), Retry(NoRetry()))
+			}
+			header, value := tt.check(t, err)
+			if diff := gocmp.Diff(want, header); diff != "" {
+				t.Errorf("the stored Header (-want +got):\n%s", diff)
+			}
+			h := holder{value: value, ptr: err}
+			for _, verb := range []string{"%v", "%+v", "%#v", "%s", "%q"} {
+				for what, v := range map[string]any{"the error": err, "a holder": h} {
+					out := fmt.Sprintf(verb, v)
+					for _, s := range secrets {
+						if strings.Contains(out, s) {
+							t.Errorf("%s of %s holds %q: %s", verb, what, s, out)
+						}
+					}
+				}
+			}
+			if out := fmt.Sprintf("%#v", err); !strings.Contains(out, `"Set-Cookie":[]string{"***"}`) || !strings.Contains(out, `"X-Typesafe-Request-Id":[]string{"req_123"}`) {
+				t.Errorf("%%#v of the error does not show the redacted and the kept headers: %s", out)
 			}
 		})
 	}

@@ -35,8 +35,9 @@ import (
 // each with the answer's name and type escaped and cut at 128 characters,
 // then one line counting the rest. The lines are logged even when the decode
 // then fails, for the answers the Python SDK would have logged before
-// failing. A nil logger logs nothing.
-func decodeSystemOne(ctx context.Context, logger *slog.Logger, meta *wire.ResponseMeta, endpoint string, qs *Prepared, model string, dst *wire.SystemOneResult) error {
+// failing. A nil logger logs nothing. r redacts the error's header
+// ([headerRedactor]).
+func decodeSystemOne(ctx context.Context, logger *slog.Logger, meta *wire.ResponseMeta, endpoint string, r headerRedactor, qs *Prepared, model string, dst *wire.SystemOneResult) error {
 	var q *wire.Prepared
 	if qs != nil {
 		q = &qs.w
@@ -46,17 +47,17 @@ func decodeSystemOne(ctx context.Context, logger *slog.Logger, meta *wire.Respon
 		logSkipped(ctx, logger, &skipped)
 	}
 	if err != nil {
-		return newResponseValidationError(meta, endpoint, err)
+		return newResponseValidationError(meta, endpoint, r, err)
 	}
 	return nil
 }
 
 // decodeModels decodes the body of a successful list-models response,
 // meta.Body, into *dst. A body the decoder refuses is a
-// [*ResponseValidationError].
-func decodeModels(meta *wire.ResponseMeta, endpoint string, dst *wire.ModelList) error {
+// [*ResponseValidationError], whose header r redacts.
+func decodeModels(meta *wire.ResponseMeta, endpoint string, r headerRedactor, dst *wire.ModelList) error {
 	if err := codec.DecodeModels(meta.Body, dst); err != nil {
-		return newResponseValidationError(meta, endpoint, err)
+		return newResponseValidationError(meta, endpoint, r, err)
 	}
 	return nil
 }
