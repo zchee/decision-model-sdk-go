@@ -112,7 +112,10 @@ type callSettings struct {
 // runs the plan's layout check, which panics by name on an offset, an end or
 // a kind that disagrees with reflect's (the root package's
 // requireStoreLayout also cross-checks the plan's offsets, which it can
-// read and this package cannot).
+// read and this package cannot). Trusting the plan check here is sound only
+// while that root copy stays: it compares each plan offset and end with
+// reflect's independently of the check, so a check that passed a wrong plan
+// still fails a root test (critic-p6 n-9).
 func requireStoreLayout[T any](t *testing.T) {
 	t.Helper()
 	if _, err := typesafe.PreparedFor[T](); err != nil {
