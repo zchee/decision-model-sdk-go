@@ -26,7 +26,7 @@ import (
 )
 
 // The settings of [DefaultRetry]: typesafe-sdk-python's RetryPolicy()
-// (py:_core/retry.py:52-85).
+// (py:_core/retry.py:52-86).
 const (
 	defaultMaxRetries     = 2
 	defaultBackoffInitial = 500 * time.Millisecond
@@ -54,7 +54,10 @@ const (
 //   - a budget of 30 s per call ([RetryPolicy.Budget]).
 //
 // After an attempt fails, the call makes another when all of these hold, in
-// the order tenacity, which the Python SDK runs its policy on, checks them:
+// the order tenacity, which the Python SDK runs its policy on, checks them
+// (tenacity also computes the wait, drawing its jitter, before it counts
+// the attempts; the Go loop draws the jitter only for a retry that may
+// follow, which no caller can observe):
 //
 //   - The error is one the policy retries: a *TimeoutError or a
 //     *ConnectionError of a kind it retries, an [*APIError] whose status is
@@ -65,8 +68,10 @@ const (
 //     it. A cancellation ([context.Canceled]) is never retried, whatever the
 //     predicate says.
 //   - Fewer than MaxRetries retries have been made.
-//   - The budget allows the wait: the time since the call started plus the
-//     wait is below the budget (tenacity's stop_before_delay).
+//   - The budget allows the wait: the time since the call's first attempt
+//     started, which is after the call's options were checked and its body
+//     encoded, plus the wait is below the budget (tenacity's
+//     stop_before_delay).
 //
 // The wait is the server's when the policy honours it and the failed
 // response carries a Retry-After-Ms (milliseconds) or a Retry-After
@@ -87,8 +92,16 @@ const (
 // A setting out of range is kept in the value and reported when the policy
 // is used: [NewClient] with [WithRetry], or a call with [Retry], fails with a
 // [*ConfigError] that carries the Python SDK's message, before anything is
-// sent. A duration cannot be NaN or infinite, where the Python SDK refuses
-// such a number of seconds.
+// sent. The messages name the Python SDK's parameters: max_retries is
+// [RetryPolicy.MaxRetries]; backoff_initial, backoff_max and backoff_jitter
+// are the arguments of [RetryPolicy.Backoff]; timeout is
+// [RetryPolicy.Budget], and timeout=None is [RetryPolicy.NoBudget]. Its
+// other parameters are http_statuses ([RetryPolicy.Statuses]),
+// respect_retry_after ([RetryPolicy.RespectRetryAfter]),
+// api_connection_error ([RetryPolicy.ConnectionErrors]), api_timeout_error
+// ([RetryPolicy.TimeoutErrors]) and predicate ([RetryPolicy.Predicate]);
+// exceptions has no counterpart. A duration cannot be NaN or infinite, where
+// the Python SDK refuses such a number of seconds.
 type RetryPolicy struct {
 	maxRetries int
 	initial    time.Duration
@@ -148,7 +161,7 @@ func (p RetryPolicy) MaxRetries(n int) RetryPolicy {
 // Retry-After decides: initial doubled n-1 times, at most maximum, less a
 // random fraction of at most jitter of it, rounded to the millisecond and
 // never above the doubled value (the Python SDK's _backoff,
-// py:_core/retry.py:28-34). A zero initial or maximum retries at once.
+// py:_core/retry.py:27-33). A zero initial or maximum retries at once.
 // initial and maximum must not be negative and jitter must be between 0 and
 // 1, or the policy is refused when it is used.
 func (p RetryPolicy) Backoff(initial, maximum time.Duration, jitter float64) RetryPolicy {
@@ -195,18 +208,19 @@ func (p RetryPolicy) TimeoutErrors(retry bool) RetryPolicy {
 // predicate does; nil removes a predicate. accept is called with the error
 // of each failed attempt that the other rules do not retry, the last
 // attempt's included, and may be called from several goroutines at once. It
-// cannot make a call retry a cancellation ([context.Canceled]). The Python
-// SDK's exceptions setting has no counterpart: accept can test an error's
-// type with [errors.As].
+// is not called for a cancellation ([context.Canceled]), which is never
+// retried. The Python SDK's exceptions setting has no counterpart: accept
+// can test an error's type with [errors.As].
 func (p RetryPolicy) Predicate(accept func(err error) bool) RetryPolicy {
 	p.predicate = accept
 	return p
 }
 
 // Budget returns p with a budget of d for each call: the call makes no
-// retry whose wait would bring the time since the call started to d or
-// beyond, and returns the error of its last attempt instead (tenacity's
-// stop_before_delay). d must be positive, or the policy is refused when it
+// retry whose wait would bring the time since its first attempt started to
+// d or beyond, and returns the error of its last attempt instead
+// (tenacity's stop_before_delay). The clock starts once the call's options
+// are checked and its body is encoded. d must be positive, or the policy is refused when it
 // is used. The default is 30 s; [RetryPolicy.NoBudget] removes the budget.
 func (p RetryPolicy) Budget(d time.Duration) RetryPolicy {
 	p.budget, p.unbounded = d, false
@@ -223,7 +237,7 @@ func (p RetryPolicy) NoBudget() RetryPolicy {
 }
 
 // check returns a *ConfigError for the first setting of p out of range, in
-// the order the Python SDK checks them (py:_core/retry.py:91-100), with its
+// the order the Python SDK checks them (py:_core/retry.py:88-98), with its
 // message, or nil.
 func (p *RetryPolicy) check() error {
 	switch {
@@ -264,7 +278,7 @@ func (p *RetryPolicy) retriesStatus(status int) bool {
 }
 
 // retryable reports whether p retries an attempt that failed with err
-// (py:_core/retry.py:102-111, with the Go rules on 2xx and cancellation).
+// (py:_core/retry.py:100-109, with the Go rules on 2xx and cancellation).
 // As in the Python SDK, the predicate is called only for an error the other
 // rules do not retry, and for every such failed attempt, the last included.
 func (p *RetryPolicy) retryable(err error) bool {
@@ -287,7 +301,8 @@ func (p *RetryPolicy) retryable(err error) bool {
 // asks it after every failed attempt whether to make another.
 type retryState struct {
 	policy *RetryPolicy
-	// start is when the call started, which the budget counts from.
+	// start is when the call's first attempt started (send's start, after
+	// the options and the body), which the budget counts from.
 	start time.Time
 	// random is the backoff's jitter source; nil means math/rand/v2's
 	// Float64.
@@ -352,8 +367,8 @@ func (r *retryState) wait(ctx context.Context, attempt int, err error) error {
 
 // delay returns the wait before retry (from 1), after an attempt that
 // failed with err: the failed response's Retry-After-Ms or Retry-After when
-// the policy honours it and it parses (py:_core/retry.py:19-25 and
-// :113-118), else the backoff.
+// the policy honours it and it parses (py:_core/retry.py:18-24 and
+// :111-116), else the backoff.
 func (r *retryState) delay(retry int, err error) time.Duration {
 	p := r.policy
 	if !p.ignoreRetryAfter {
@@ -401,7 +416,7 @@ func waitError(ctx context.Context) error {
 	return err
 }
 
-// backoff is the Python SDK's _backoff (py:_core/retry.py:28-34) over
+// backoff is the Python SDK's _backoff (py:_core/retry.py:27-33) over
 // durations: the wait before retry (from 1) is initial doubled retry-1
 // times, or maximum once that reaches it, less random() * jitter of it,
 // rounded to the millisecond as Python's round(delay, 3) rounds, and never

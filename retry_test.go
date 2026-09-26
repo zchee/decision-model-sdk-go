@@ -393,7 +393,7 @@ func TestRetryPolicyCheckOrder(t *testing.T) {
 }
 
 // TestRetryPolicyDefaults pins the zero RetryPolicy to DefaultRetry, the
-// Python SDK's RetryPolicy() (py:_core/retry.py:52-85), setting by setting,
+// Python SDK's RetryPolicy() (py:_core/retry.py:52-86), setting by setting,
 // and NoRetry to DefaultRetry().MaxRetries(0); each setter returns a copy
 // and leaves its receiver as it was.
 func TestRetryPolicyDefaults(t *testing.T) {
