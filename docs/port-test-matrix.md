@@ -58,14 +58,14 @@ IDs that the plan's waves cite.
 | C11 | `test_error_mapping` | `TestAPIErrorMapping` (11 statuses) | ported |
 | C12 | `test_error_messages` | `TestAPIErrorMessages` (8 bodies) | ported |
 | C13 | `test_transport_errors` | `TestTransportErrorsBecomeConnectionOrTimeout` (loopback failures through the client) + `TestAttemptErrorClassification` | ported |
-| C14 | `test_system_one_timeout_override` | deviation "one deadline per attempt" + `TestPerCallTimeoutOverride` | deviation |
+| C14 | `test_system_one_timeout_override` | deviation "one deadline per attempt" + `TestPerCallTimeoutOverride` + `TestRetryRecoversWithOverrides` (each retry gets the call's per-attempt deadline anew) | deviation |
 | C15 | `test_headers_timeout_and_logging` | `TestProtectedHeadersAndPrefixBaseURL` + `TestSystemOneOverHTTP2` (the prefix on the wire) | ported |
 | C16 | `test_http_client_settings` | `TestCallerTransportKeepsItsSettings` | ported |
 | C17 | `test_supplied_network_resources_closed` | `TestCloseClosesSuppliedTransport` + `TestCloseIdlesSuppliedHTTPTransport` (a `*http.Transport` through `WithRoundTripper`, R79) | ported |
 | C18 | `test_owned_http_client_closed` | `TestCloseClosesOwnedTransport` | ported |
 | C19 | `test_exceptional_context_closes_http_client` | `TestCloseAfterFailedCall` | ported |
 | C20 | `test_task_cancellation_closes_context` | `TestCancelInFlightRequest` (one attempt; `context.Canceled` itself, not an SDK error, as upstream lets `CancelledError` through; the loopback server sees the stream reset) | ported |
-| C21 | `test_cancellation_propagates` | `TestCancelledContextMakesOneAttempt` (one attempt; `context.Canceled` itself) | ported |
+| C21 | `test_cancellation_propagates` | `TestCancelledContextMakesOneAttempt` (one attempt under the production policy: the transport's `context.Canceled`, upstream's shape, is a `*ConnectionError` that only the never-retry-a-cancellation rule keeps to one attempt; a cancelled context returns `context.Canceled` itself) | ported |
 
 ### `tests/test_config.py` (11)
 
@@ -165,31 +165,31 @@ IDs that the plan's waves cite.
 
 | ID | Upstream | Go test / deviation | status |
 | --- | --- | --- | --- |
-| RT1 | `test_retry_policy_invalid_timeout` | `TestRetryPolicyInvalidBudget` | planned |
-| RT2 | `test_zero_backoff_retries` | `TestZeroBackoffRetriesAtOnce` | planned |
-| RT3 | `test_invalid_backoff` | `TestRetryPolicyInvalidBackoff` | planned |
-| RT4 | `test_invalid_backoff_jitter` | `TestRetryPolicyInvalidJitter` | planned |
-| RT5 | `test_invalid_max_retries` | `TestRetryPolicyInvalidMaxRetries` | planned |
-| RT6 | `test_retry_policy_timeout_budget` | `TestRetryBudgetStopsBeforeDelay` (6 cases) | planned |
-| RT7 | `test_retry_policy_timeout_override` | `TestPerCallBudgetOverride` | planned |
-| RT8 | `test_default_retry_statuses` | `TestDefaultRetryStatuses` (12) | planned |
-| RT9 | `test_connection_retry_recovers` | `TestConnectionErrorsRetried` | planned |
-| RT10 | `test_server_delay_through_tenacity` | `TestRetryAfterHonoured` | planned |
-| RT11 | `test_parse_retry_after` | `TestParseRetryAfterTable` (9) | planned |
-| RT12 | `test_backoff_dates_cap_and_jitter` | `TestBackoffScheduleAndDates` | planned |
-| RT13 | `test_system_one_retry_override` | `TestPerCallRetryPolicyOverride` | planned |
-| RT14 | `test_async_concurrent_retry_state` | partial deviation "goroutines instead of asyncio" + `TestConcurrentCallsCountTheirOwnRetries` | planned |
-| RT15 | `test_system_one_retry_recovers_with_overrides` | `TestRetryRecoversWithOverrides` (same bytes, headers, timeout per attempt) | planned |
-| RT16 | `test_concurrent_system_one_overrides` | `TestConcurrentCallsKeepTheirOverrides` | planned |
-| RT17 | `test_exhausted_transport_retry` | `TestExhaustedTransportRetryReturnsLastError` | planned |
-| RT18 | `test_exhausted_retry_preserves_final_http_error` | `TestExhaustedRetryKeepsLastAPIError` | planned |
-| RT19 | `test_cancel_pending_retry` | `TestCancelPendingRetry` | planned |
-| RT20 | `test_retry_policy_max_retries` | `TestMaxRetriesCountsAttempts` | planned |
-| RT21 | `test_retry_policy_custom_statuses` | `TestCustomStatusesReplaceDefault` | planned |
-| RT22 | `test_retry_policy_per_call_override` | `TestPerCallMaxRetries` | planned |
-| RT23 | `test_retry_policy_exceptions_and_predicate` | partial deviation "`exceptions` dropped" + `TestPredicateOptsIn` | planned |
-| RT24 | `test_retry_policy_wait_options` | `TestWaitOptions` | planned |
-| RT25 | `test_backoff_extreme_values` | `TestBackoffExtremeValues` | planned |
+| RT1 | `test_retry_policy_invalid_timeout` | `TestRetryPolicyInvalidBudget` (zero and negative budgets refused with Python's message by `NewClient(WithRetry)` and by both calls with `Retry`, before any request; Python's inf and nan seconds are not a `time.Duration`; `NoBudget()` is `timeout=None`) | ported |
+| RT2 | `test_zero_backoff_retries` | `TestZeroBackoffRetriesAtOnce` (6: three zero backoffs × recover; `[absent, "1"]`; the wait is 0 of fake time) | ported |
+| RT3 | `test_invalid_backoff` | `TestRetryPolicyInvalidBackoff` (negative initial or maximum, named in the message; Python's nan and inf seconds are not a `time.Duration`) | ported |
+| RT4 | `test_invalid_backoff_jitter` | `TestRetryPolicyInvalidJitter` (-0.1, 1.1, NaN, ±Inf refused; 0 and 1 accepted) | ported |
+| RT5 | `test_invalid_max_retries` | `TestRetryPolicyInvalidMaxRetries` (negative refused; Python's 0.5, nan and inf are not an `int`) | ported |
+| RT6 | `test_retry_policy_timeout_budget` | `TestRetryBudgetStopsBeforeDelay` (6 cases × models and system_one, each SDK call a fresh budget; waits and attempt durations on fake time) | ported |
+| RT7 | `test_retry_policy_timeout_override` | `TestPerCallBudgetOverride` | ported |
+| RT8 | `test_default_retry_statuses` | `TestDefaultRetryStatuses` (12) | ported |
+| RT9 | `test_connection_retry_recovers` | `TestConnectionErrorsRetried` (the four kinds through the Recorder with the backoff waits; a refused dial, a reset mid-body, the attempt's deadline and a GOAWAY after the request was written through the SDK's transport and the loopback server) | ported |
+| RT10 | `test_server_delay_through_tenacity` | `TestRetryAfterHonoured` (4) | ported |
+| RT11 | `test_parse_retry_after` | `TestParseRetryAfterTable` (9, and the wait each gives through the client) | ported |
+| RT12 | `test_backoff_dates_cap_and_jitter` | `TestBackoffScheduleAndDates` (also the schedule and a date measured through the client) | ported |
+| RT13 | `test_system_one_retry_override` | `TestPerCallRetryPolicyOverride` | ported |
+| RT14 | `test_async_concurrent_retry_state` | partial deviation "Sync and async clients → one `*Client`, `context.Context`" + `TestConcurrentCallsCountTheirOwnRetries` (goroutines for asyncio tasks) | deviation |
+| RT15 | `test_system_one_retry_recovers_with_overrides` | `TestRetryRecoversWithOverrides` (same bytes, headers and per-attempt timeout on every attempt, a fresh `GetBody` read hashed per attempt (PM4); httpx's `Timeout(3.0, connect=1.0, read=5.0)` is one 3 s deadline, C14's one deadline per attempt) | ported |
+| RT16 | `test_concurrent_system_one_overrides` | `TestConcurrentCallsKeepTheirOverrides` | ported |
+| RT17 | `test_exhausted_transport_retry` | `TestExhaustedTransportRetryReturnsLastError` | ported |
+| RT18 | `test_exhausted_retry_preserves_final_http_error` | `TestExhaustedRetryKeepsLastAPIError` | ported |
+| RT19 | `test_cancel_pending_retry` | `TestCancelPendingRetry` (`context.Canceled` itself, its cause kept; a caller deadline in the wait is a `*TimeoutError` without a timeout) | ported |
+| RT20 | `test_retry_policy_max_retries` | `TestMaxRetriesCountsAttempts` | ported |
+| RT21 | `test_retry_policy_custom_statuses` | `TestCustomStatusesReplaceDefault` | ported |
+| RT22 | `test_retry_policy_per_call_override` | `TestPerCallMaxRetries` | ported |
+| RT23 | `test_retry_policy_exceptions_and_predicate` | partial deviation "`RetryPolicy.exceptions` → dropped; `Predicate` kept" + `TestPredicateOptsIn` (the predicate half; a type test in the predicate stands for `exceptions`; a 2xx in the status set is never retried, deviation "2xx in retry statuses retries a non-validating body → never; `Predicate` can opt in") | deviation |
+| RT24 | `test_retry_policy_wait_options` | `TestWaitOptions` | ported |
+| RT25 | `test_backoff_extreme_values` | `TestBackoffExtremeValues` (1e-300, 1e300 and 1e308 seconds are not Durations: 1 ns and the longest Duration stand for them) | ported |
 
 ### `tests/test_types.py` (6)
 
