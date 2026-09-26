@@ -35,7 +35,10 @@ Two steps follow the CodSpeed step:
    table gives the `BenchmarkCall` rows' minimum, median and mean, and the
    sdk/naive ratios, together with `go version`, the ToolTags and the CPU
    model. The step's log lists every uploaded row by its full name. The
-   step never fails the job.
+   step compares no value, so no timing fails the job. It fails only when
+   it has nothing to report: when there is no results file, jq cannot read
+   one, or the results hold no `BenchmarkCall/sdk` or `BenchmarkCall/naive`
+   row. A green job with an empty report is how K35 hid lost rows.
 
 To run the same thing on (M) without uploading, use the command in
 [`benchmarks.md`](benchmarks.md#codspeed).
