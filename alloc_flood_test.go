@@ -39,8 +39,12 @@ import (
 // to many times the body; the clause bounds that peak and, the review's
 // finding, what stays live afterwards.
 //
-//   - Peak: the heap (runtime.MemStats.HeapAlloc, sampled every 200 µs by
-//     another goroutine, so the figure is a lower estimate of the true peak)
+//   - Peak: the heap (runtime.MemStats.HeapAlloc, read by another goroutine
+//     on a 200 µs ticker, which on the test's one P runs only when the
+//     runtime preempts the decoding goroutine, about every 10 ms: on the
+//     order of 100 samples a second, 55 to 122 on the hosts and CI runners
+//     measured (ledger W6-secfix-20), which the FLOOD peak line counts; so
+//     the figure is a lower estimate of the true peak)
 //     stays within 2.2 × (base + L), where base is the heap before the call
 //     and L = 2 × cap + n × (2.25 × 288 + 64) bytes the call's largest live
 //     set: readBody's buffers at their last doubling (AC-P5 (v)'s term); the
@@ -137,6 +141,7 @@ func TestMemStatsFlood(t *testing.T) {
 
 	var peak atomic.Int64
 	var held atomic.Uint64 // Sys − HeapReleased at its peak
+	var samples atomic.Int64
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
 	wg.Go(func() {
@@ -150,6 +155,7 @@ func TestMemStatsFlood(t *testing.T) {
 			case <-tick.C:
 			}
 			runtime.ReadMemStats(&m)
+			samples.Add(1)
 			if h := int64(m.HeapAlloc); h > peak.Load() { //nolint:gosec // G115: a heap size, far below 2^63.
 				peak.Store(h)
 			}
@@ -169,8 +175,8 @@ func TestMemStatsFlood(t *testing.T) {
 	live := int64(2*DefaultMaxResponseBytes) + int64(answers)*(9*entryBytes/4+indexBytes)
 	peakBound := int64(2.2 * float64(base+live))
 	grew := peak.Load() - base
-	t.Logf("FLOOD peak: body %d bytes, %d answers, %v; heap base %d, peak %+d bytes (%.1f× the body), bound %+d (2.2 × (base + %d))",
-		len(flood), answers, took.Round(time.Millisecond), base, grew, float64(grew)/float64(len(flood)), peakBound-base, live)
+	t.Logf("FLOOD peak: body %d bytes, %d answers, %v; heap base %d, peak %+d bytes (%.1f× the body), bound %+d (2.2 × (base + %d)); %d samples (%.0f a second)",
+		len(flood), answers, took.Round(time.Millisecond), base, grew, float64(grew)/float64(len(flood)), peakBound-base, live, samples.Load(), float64(samples.Load())/took.Seconds())
 	if peak.Load() > peakBound {
 		t.Errorf("the flood call's heap reached %d bytes, past 2.2 × (base %d + the largest live set %d) = %d", peak.Load(), base, live, peakBound)
 	}

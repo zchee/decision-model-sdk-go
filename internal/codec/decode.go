@@ -219,7 +219,7 @@ const DecoderCeiling = 4 << 20
 // map keeps its entries in groups of eight slots behind eight control bytes
 // and doubles a table when it is 7/8 full, so a table's slots are at least
 // 7/16 used; with the largest slot here, a string key and an int (24 bytes),
-// that is (8 + 8 × 24) / (8 × 7/16) = 59.4 bytes per entry. A cleared map
+// that is (8 + 8 × 24) / (8 × 7/16) = 57.1 bytes per entry. A cleared map
 // keeps its groups.
 const mapEntryBytes = 64
 
