@@ -2704,8 +2704,8 @@ use `R=_spikes/s-c1/run.sh` (W0.5's runner), `O=_spikes/w5.1/results`,
    | (M) | q20 | 23.73 µs | 12.62 µs | 1.880 |
 
    The q20 margin on (L) is 1.7 %, against a spread of ± 0 %. The
-   clause is stated on q3, so q20 is recorded only. **This margin is a
-   W5.3 input.** The per-call cost that Phase 3 adds (the retry state,
+   clause is stated on q3, and W3.4 asserts q3 on (L); q20 is recorded
+   only (ruling R101). **This margin is a W5.3 input.** The per-call cost that Phase 3 adds (the retry state,
    telemetry) could flip q20 on amd64 before W3.4 freezes the clause.
    q20's gap is the decode of 20 answers: `Decode/result-20` takes
    21.56 µs against sonic-map's 16.79 µs on (L). Against R28b's prototype (critic probe, (M)
@@ -2736,18 +2736,29 @@ use `R=_spikes/s-c1/run.sh` (W0.5's runner), `O=_spikes/w5.1/results`,
    1.02× and 1.04×. W5.3's target on (M) is ≤ 1.5× for `result.json`.
 5. **B1: the SDK's body encode allocates 0–2 times against sonic.Marshal's
    3–9.** A `RawJSON` state is appended verbatim: 47 ns against 2.1 µs at
-   1 KiB on (M), and 0 allocations. For text, struct and map states at
-   1 KiB the SDK is faster (text 760 ns against 1.706 µs (M), 889 ns
-   against 1.049 µs (L)).
-   At 64 KiB and 1 MiB, `sonic.Marshal` is faster by 1.19–1.49×: text 1 MiB
-   605 against 473 µs (M), and 733 against 581 µs (L). The difference is
+   1 KiB on (M), and 0 allocations. That row measures a design choice: the
+   SDK appends `RawJSON` unchecked (the caller's contract), and the naive
+   client validates it. For text, struct and map states at 1 KiB the SDK
+   is faster (text 760 ns against 1.706 µs (M) by medians, 742 ns against
+   1.221 µs by minima, the naive row spreading 40 %; 889 ns against
+   1.049 µs (L)).
+   At 64 KiB and 1 MiB, `sonic.Marshal` is faster by 1.19–1.49× by medians
+   and 1.15–1.49× by minima (the low end, text 64 KiB on (M), spreads 12 %
+   on the SDK's side): text 1 MiB 605 against 473 µs (M), and 733 against
+   581 µs (L). The difference is
    R48's `utf8.Valid` pass over the encoded state, which `sonic.Marshal`
    does not run. B1's text holds Japanese and an emoji, so that pass is
    not the ASCII fast path. The codec's own row shows its weight:
    `EncodeState/cjk/64KiB` takes 54.2 µs, of which the check alone
-   (`…/check`) is 51.2 µs, on (L). W5.3 candidate: validate inside the
-   escaper (sonic's `ValidateString` option) instead of a second pass.
-   This keeps R48's refusal, and S-E1 would have to re-measure NF1.
+   (`…/check`) is 51.2 µs, on (L). This is R54's W5.3 target (validator
+   ≤ 1 × sonic's encode time on CJK), and R54's candidate stands: a
+   stdlib word-at-a-time ASCII scan, then sonic's SIMD `utf8.Validate` on
+   the non-ASCII tail, run by the SDK on the encoded state so that R48's
+   refusal is kept. sonic's `ValidateString` encoder option is not a
+   candidate: it is also a second pass over the whole output, and it
+   rewrites invalid UTF-8 to U+FFFD instead of refusing it
+   (`sonic@v1.15.4/internal/encoder/encoder.go:225-247`; W0.3's text above
+   says the same; review W5.1 MINOR 2).
 6. **B3: the first attempt's assembly takes 9 allocations**, at 677 ns
    (M) and 1.199 µs (L). These are the encode, the `GetBody` method
    value, the URL copy, the 4 of `context.WithTimeout`, the body reader
@@ -2757,8 +2768,14 @@ use `R=_spikes/s-c1/run.sh` (W0.5's runner), `O=_spikes/w5.1/results`,
    - One warm call takes 72.0 µs (M) and 79.9 µs (L), and no timed call
      dialled (`new-conns` 0).
    - A cold burst of 64 from a fresh client takes 2.93 ms (M) and
-     3.45 ms (L), with exactly 1 connection per burst on both hosts
-     (`conns/op` 1.000, AC-P4).
+     3.45 ms (L), and each burst opened 1 connection on both hosts
+     (`conns/op` 1.000). That count is a sanity check, not AC-P4's
+     evidence: with the gate bypassed, the stock HTTP/2 pool alone also
+     puts a cold burst on one loopback connection (review W5.1 MINOR 1,
+     mutant M13b). AC-P4's evidence stays `internal/h2gate`'s `TestFanOut`.
+     Since the review, B6 also reports the gate's own counters,
+     `leaders/op` and `firstholds/op`; the rows after the W3.2 rebase
+     record them.
    - The B/op and allocs/op of these rows include the server's.
 8. **CodSpeed discovery.** `go test -list 'Benchmark.*' ./...` lists 12
    benchmark functions: 8 in the root and 4 in `internal/codec`
@@ -2773,8 +2790,9 @@ use `R=_spikes/s-c1/run.sh` (W0.5's runner), `O=_spikes/w5.1/results`,
    docs commits alone on (M) (`results/gates-M.txt`): build, vet, the
    section 11 lint chain without govulncheck, and `go test -race`. The
    lint chain with govulncheck
-   (`go run golang.org/x/vuln/cmd/govulncheck@latest`) passed on the
-   branch head at 10:38:23 JST. The one `go test -race -count=1 ./...` on
+   (`go run golang.org/x/vuln/cmd/govulncheck@latest`) passed on the Go
+   tree of 6afc8a3, which 5d5afc8 leaves unchanged, at 10:38:23 and
+   11:23:52 JST, and in the review at 5d5afc8 at 11:31:22 JST. The one `go test -race -count=1 ./...` on
    (L) that R62 asks for, since the comparator pins sonic's behaviour,
    passed (`results/race-L.txt`).
 

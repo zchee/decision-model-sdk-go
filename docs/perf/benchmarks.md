@@ -1,7 +1,8 @@
 # Benchmarks (B1–B6)
 
 The SDK's benchmark set follows the Rust port's B1–B6. Every benchmark uses
-`for b.Loop()` and reports allocations. CodSpeed runs all of them on each
+`for b.Loop()` and reports allocations when run with `-benchmem`, as every
+command below is. CodSpeed runs all of them on each
 push to `main` and on each pull request (`.github/workflows/bench.yaml`). The
 numbers of record, per host, are in [`ledger.md`](ledger.md), section W5.1.
 The top of each benchmark file states what the benchmark measures and how it
@@ -15,7 +16,7 @@ can mislead.
 | B3 | `BenchmarkAssembly` | root, `bench_assembly_test.go` | Everything the first attempt of a call does before the transport: the encode, `GetBody`, the header template, the URL copy, the deadline, the body reader and the `*http.Request`. The question set is the section 5 set. | `request`, `prepare-and-request` |
 | B4 | pending | root | `Retry-After` parsing and the backoff schedule. These are added once W3.2's `retry.go` lands. | |
 | B5 | `BenchmarkCall` | root, `bench_call_test.go` | One whole `SystemOne` call over the in-memory `Recorder`, which answers at once, measured against the floor and the naive comparator. | `sdk`, `floor`, `naive`, `naive-json`, and the same four with `-q20` |
-| B6 | `BenchmarkLoopback` | root, `bench_loopback_test.go` | Calls over HTTP/2 and TLS on loopback through the default transport. These rows are wall clock only. | `call` (one warm connection; the metric `new-conns` should be 0); `cold-fanout-64` (a fresh client, 64 calls at once; the metric `conns/op` should be 1) |
+| B6 | `BenchmarkLoopback` | root, `bench_loopback_test.go` | Calls over HTTP/2 and TLS on loopback through the default transport. These rows are wall clock only. | `call` (one warm connection; the metric `new-conns` should be 0); `cold-fanout-64` (a fresh client, 64 calls at once; the metrics `leaders/op` and `firstholds/op`, the gate's own counters, should be 1, and `conns/op` too, although the stock HTTP/2 pool alone also meets that on loopback, so AC-P4's evidence is `internal/h2gate`'s `TestFanOut`) |
 
 Setup-only benchmarks, kept from earlier waves: `BenchmarkPrepare`,
 `BenchmarkFalsyJSON`, `BenchmarkHeaderTemplateClone` and `BenchmarkNoop`.
@@ -25,7 +26,7 @@ Setup-only benchmarks, kept from earlier waves: `BenchmarkPrepare`,
 | Criterion | Rows | Host that gates it |
 | --- | --- | --- |
 | AC-P2, "≤ 0.5 × naive" allocations on the plain 3-answer fixture | `BenchmarkDecode/result` allocs/op divided by `BenchmarkDecodeNaiveSonic/result` allocs/op | reported by W5.1; W5.2 asserts it |
-| AC-P6 time clause | `BenchmarkCall/sdk` ns/op < `BenchmarkCall/naive` ns/op | amd64 gates (G3); arm64 is recorded (K18). W3.4 freezes it |
+| AC-P6 time clause | `BenchmarkCall/sdk` ns/op < `BenchmarkCall/naive` ns/op, the q3 rows only; the `-q20` rows are recorded and are a W5.3 target (ruling R101) | amd64 gates (G3); arm64 is recorded (K18). W3.4 asserts it on (L) and freezes it |
 | AC-P7 | CodSpeed reports `BenchmarkCall/sdk` faster than `BenchmarkCall/naive` on the pull-request run | CodSpeed (amd64); report-only until K7 is met |
 
 The names above are stable. The plan's `call/sdk` is `BenchmarkCall/sdk` and
@@ -116,10 +117,16 @@ GOEXPERIMENT=nosimd,noruntimesecret go test -list 'Benchmark.*' ./...
 To run CodSpeed locally on (M), without uploading:
 
 ```sh
-GOEXPERIMENT=nosimd,noruntimesecret codspeed run --skip-upload -- go test -bench=. ./...
+GOEXPERIMENT=nosimd,noruntimesecret codspeed run --skip-upload -m walltime -- go test -bench=. ./...
 ```
 
+Without `-m walltime` the runner takes the mode from the shell session
+(`codspeed use <mode>`); walltime is CodSpeed's only instrument for Go.
+
 CodSpeed results are report-only until 20 runs on `main` show a spread
-below 5 % for `BenchmarkCall/sdk` (K7). B6 runs in CodSpeed with the rest.
-Its rows are wall clock over loopback: their noise comes from the kernel,
-TLS and scheduling. They are not gates at any point.
+below 5 % for `BenchmarkCall/sdk` (K7). B6 runs in CodSpeed with the rest,
+report-only, and is never a gate (ruling R101): its rows are wall clock over
+loopback, and their noise comes from the kernel, TLS and scheduling.
+`BenchmarkLoopback` is excluded from K7's count and from any gate built on
+it; W5.4, which owns `bench.yaml`, may skip it under CodSpeed's environment
+if its noise pollutes the run summary.
