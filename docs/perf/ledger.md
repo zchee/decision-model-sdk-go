@@ -4477,3 +4477,235 @@ The three-of-five rule (finding 9):
 | --- | ---: | ---: | ---: | ---: | ---: |
 | (M) | 5700 | 3 | 0.00053 | 1.46e-09 | 9.85e-06 |
 | (L) | 5725 | 5 | 0.00087 | 6.65e-09 | 9.85e-06 |
+
+## W5.3: optimisation candidates, one at a time
+
+W5.3 tries the charter's candidates in the lead's order, each as one
+commit with its before and after on (M) and (L): the seam-test commit
+first (K40 as the owner amended it in R116; not a candidate, it changes
+no production code), then K36 (the trailing-data check's second scan of
+the body), then the typed decode's field-offset store (R116), then the
+AC-P6 candidates. A kept candidate's pins and frozen-budgets rows move in
+its own commit (R104); a reverted one leaves a finding here and no code.
+Raw outputs are in `_spikes/w5.3/results/`. Commands use
+`A=_spikes/w5.3/ab.sh` (builds the test binary of the base tree and of
+the candidate tree, then runs them alternately, base first, ROUNDS times
+in one lock hold, so that a drift of the host reaches both alike),
+`C=_spikes/w5.3/cs.sh` (CodSpeed's walltime runner run locally with
+`--skip-upload` on the four call rows of both trees, alternately; it
+records each run's per-iteration minimum, median and mean, a proxy for
+CodSpeed's own amd64 run), `O=_spikes/w5.3/results`,
+`SP=/private/tmp/claude-501/-Users-zchee-go-src-github-com-zchee-typesafe-sdk-go/40cb0f1f-c8a9-422c-a3e8-b3afc329b5cb/scratchpad`
+and `F=/opt/homebrew/opt/util-linux/bin/flock`. (M) runs set
+`GOEXPERIMENT=nosimd,noruntimesecret` and `MAXLOAD=10` (the runner waits
+up to five minutes for a load at or under it); (L) runs use
+`/tmp/ts-spike/go/bin/go`, section 11's `GOPATH`, `GOMODCACHE` and
+`GOCACHE`, the trees copied by `git archive` into
+`/tmp/ts-spike/src-w5.3/<commit>`, and `flock /tmp/ts-spike/bench.lock`.
+Each A/B series is 5 rounds of `-test.count 2`, 10 runs a side;
+benchstat compares medians.
+
+| Candidate | Change | Result on (L) | Result on (M) | Decision | Commit |
+| --- | --- | --- | --- | --- | --- |
+| K36 | the traversal runs over the body cut before the root's closing brace; decoder.Skip's second scan only when the cut cannot decide | `call/sdk` 6.180 → 5.610 µs (−9.2 %); `Decode/result` 3.428 → 2.779 µs (−18.9 %); allocations unchanged | `call/sdk` 4.846 → 4.365 µs (−9.9 %); `Decode/result` 3.478 → 2.950 µs (−15.2 %); allocations unchanged | keep | 05264fe |
+| R116 store | `DecodeAs` writes each answer at the field's offset (`decodeas_store.go`), so the `T` stays on the stack | `DecodeAs` on `result.json` 184.3 → 98.3 ns (−46.6 %); 1 → 0 allocations | `DecodeAs` on `result.json` 136.2 → 82.7 ns (−39.3 %); 1 → 0 allocations | keep (owner ruling R116) | 7df5a6b |
+
+### K36: one scan of the body (05264fe)
+
+The trailing-data check ran sonic's `decoder.Skip` over the whole body
+after `ast.Preorder`, only to find where the root value ends: CodSpeed's
+flamegraph put it at about 0.71 µs of each `call/sdk` iteration, the size
+of the gap by which the naive client's per-iteration minimum beats the
+SDK's (K36, `.omc/handoffs/w5.3-codspeed-note.md`). The traversal now
+runs over the body cut just before its last byte other than JSON
+whitespace, when that byte is `}`: a root that closes there makes sonic
+stop at the cut with its end-of-input error while the visitor stands in
+the root object between two members, and the visitor is handed the
+root's end. Whatever else happens, the traversal of the whole body and
+`decoder.Skip` decide as before, so every refusal keeps its text and its
+path.
+
+K36 findings:
+
+1. **The per-call time falls by about a tenth on both hosts, the decode
+   by a sixth, and no allocation count moves.** `call/sdk` against
+   `call/naive` (medians, W5.3-03 and W5.3-05): (L) 0.902 → 0.817 for q3
+   and 0.984 → 0.850 for q20; (M) 1.325 → 1.158 and 1.847 → 1.594. The
+   local CodSpeed proxy on (M) (W5.3-07, three runs a side): `call/sdk`'s
+   per-iteration minimum 4041–4083 → 3583–3625 ns, median 4541–4583 →
+   4000–4083 ns, mean 4969–5137 → 4393–4496 ns; `call/naive` unchanged
+   (minimum 2458–2500 ns both). `B/op` of `call/sdk` falls by about 70 B
+   (2.93 → 2.86 KiB on (L), W5.3-01): `decoder.Skip` takes a 32 776-byte
+   state machine from a `sync.Pool` that the collector empties, so every
+   few hundred calls paid a 40 KiB allocation, too rare to show in
+   allocs/op.
+2. **The decode rows (W5.3-04, W5.3-06).** (L): `result` 3.428 → 2.779 µs (−18.9 %), `escaped-names` 5.004 → 4.234 µs
+   (−15.4 %), `escaped-member-names` 7.254 → 7.039 µs (−3.0 %), `result-20`
+   21.49 → 17.75 µs (−17.4 %), `structured-legend-flood-1k` 615.8 → 543.0 µs
+   (−11.8 %). (M):
+   `result` 3.478 → 2.950 µs (−15.2 %), `escaped-names` 5.090 → 4.399 µs
+   (−13.6 %), `escaped-member-names` 6.841 → 6.593 µs (−3.6 %, p = 0.052,
+   not significant), `result-20` 21.57 → 18.55 µs (−14.0 %),
+   `structured-legend-flood-1k` 679.8 → 613.5 µs (−9.8 %). Against
+   `naive.Sonic`'s decode in the same runs, (M): `result` 2.35 → 1.86 ×,
+   `result-20` 2.74 → 2.39 ×, flood-1k 3.51 → 2.98 ×; K23's arm64 targets
+   (`result` ≤ 1.5 × sonic-map, q3 `call/sdk` ≤ `call/naive`) are closer
+   and not met. (L): `result` 1.235 → 1.000 ×, `result-20` 1.293 → 1.072 ×, flood-1k
+   1.030 → 0.910 ×, `escaped-names` 1.237 → 1.051 ×.
+3. **Which bodies take the one scan** (`k36-paths.txt`, W5.3-12): every
+   fixture that decodes, the four with escapes included (`duplicates`,
+   `escaped-names`, `escaped-member-names`, `deviation-lone-surrogate`),
+   and `models.json`: 21 of the 41 fixtures, all 14 benchmark bodies
+   among them. The other 20, malformed or deviation bodies that fail,
+   take the whole-body path: 7 because `cutPoint` refuses them (they do
+   not end in `}`, or end with no value before it), 13 because the cut
+   traversal declines (it fails, or the root closes before the cut).
+   A failing body can cost two traversals; a body that decodes, one.
+4. **FuzzDecodeResponse's new differential, the one-scan decode against
+   the whole-body one, found three ways sonic stops at the cut with the
+   root's error in the state the check reads as the root's end** (W5.3-13
+   to -16), each now refused by `cutPoint` and a committed seed:
+   (a) at 753f723, on both hosts, `{"\u"}`: sonic fails to unquote a root
+   key and returns the end-of-input error before the key reaches the
+   visitor; (b) at 5ee759a, (L), `{"0000000000000000000000000000000\0}`:
+   the same, a key that runs into the cut ending in a backslash; (c) at
+   5bb86f9, (L), after 294 s, `{"":"000…0}` (a 64-byte string): sonic's
+   native string scanner returns a string cut open by the end of its
+   input as complete when the string's content is a multiple of 32 bytes
+   long (probed: 32, 64, …, 288 bytes before the cut all do, every other
+   length fails as it should), so the string's value reaches the visitor
+   and the cut looks like the root's end. (c) is a sonic bug at a 32-byte
+   block boundary, an upstream report for the owner (W7). `cutPoint` now
+   cuts a body only when the byte before the cut ends a container or a
+   string, or is the root's opening brace (no number or literal is
+   scanned into the cut), when its quotes that no backslash escapes are
+   even (the cut is outside every string), and when every `\u` in it has
+   four hex digits after it (of unquote's failures only a short `\u` is
+   the end-of-input error once every string ends at a real quote; sonic's
+   `native/unquote.c`). The first version refused every body with a
+   backslash; this narrower rule, the lead's one attempt, lets the
+   escaped fixtures take the one scan with no finding in 600 s of fuzzing
+   on (L) (W5.3-09). The raw log of (c)'s run was deleted with the
+   5bb86f9 tree on (L) at 17:36 JST; the failing input is kept as a seed
+   and as test cases.
+5. **Depth.** `decoder.Skip` keeps one slot per open container and one
+   more for a member or element it has yet to read, 4096 slots in all
+   (sonic's `native/scanning.h`, `fsm_push`), so a container nested 4096
+   deep, which the visitor's cap takes, fails Skip once it holds a
+   member or a second element (`TestDecodeDepthBound`'s "refused by
+   Skip" case). A body nested deeper than `skipDepth` = 4095 takes the
+   whole-body path, which keeps Skip's verdict.
+6. **Tests.** `TestOneScanMatchesWholeScan` compares both paths on 11 030
+   bodies: every fixture as a System One and as a models body, every
+   prefix of seven fixtures with and without a closing brace appended,
+   tails, escapes around the cut, the cut-open strings of finding (c),
+   repeated members and the depth boundary; `TestOneScanTakesValidBodies`
+   pins which path a body takes. Eight mutants of the guards each fail
+   them (W5.3-11). `TestDecodeFixtures` and root's
+   `TestMalformedFixturesRefused`, the module's form of K23's S-D1
+   validity gate, pass on both hosts (W5.3-09).
+
+### The seam test (a2a29b4, K40 and R116)
+
+`TestSeamRootRawPointers` lets exactly one non-test file of the root
+package import `unsafe`, `decodeas_store.go` (the store's commit changed
+it from "none or that one"), and fails on reflect's `UnsafePointer`,
+`UnsafeAddr` and `NewAt`, unsafe's `SliceData` and `StringData`, any
+selector on `unsafe`, and a `Pointer()` result converted to a pointer, in
+every other non-test file of the root package and of the module packages
+it imports (31 files of 3 packages; `internal/codec` and
+`internal/testsupport/naive` exempt). Its detector has a table test;
+three mutants fail it (W5.3-17): `UnsafePointer()` in `decodeas.go`, the
+same in a new `internal/wire` file, and `unsafe` imported by
+`response.go`.
+
+### The typed store (7df5a6b, R116)
+
+`DecodeAs` stored each answer through `v.Field(i).Addr().Interface()`,
+which moved the decoded `T` to the heap, AC-P3's one allocation (144 B on
+`result.json`). The owner's ruling R116 allows `unsafe` field offsets in
+the typed decode, one implementation for both architectures; W4.3's S-D2
+variant (2) is the reference. `buildPlan` records each answer field's
+`reflect.StructField.Offset` once per type, and `decodeas_store.go` writes
+each answer by a typed assignment at that offset, `*(*F)(unsafe.Add(base,
+off)) = v` with `F` one of the three answer types, so the compiler emits
+the write barriers of `F`'s pointer fields. An answer field is always one
+of the struct's own fields: `planField` refuses a tag in an embedded or
+nested struct (R96), so no offset is a sum, and an embedded field of an
+answer type is the struct's own field at its own offset (pinned by
+`TestStoreFieldKinds`). `decodeTyped` panics on a plan of another type.
+
+Typed store findings:
+
+1. **`DecodeAs` allocates nothing and runs about 40 % faster on
+   `result.json`**, now within 1.3 × of S-D2's offset replica (W5.3-18,
+   W5.3-21). (M): `result.json` 136.2 → 82.7 ns (replica 64.8 ns),
+   `result-20` 942.7 → 630.9 ns (−33.1 %; replica 555.6 ns),
+   `structured-legend-flood-1k` 724.5 → 665.6 ns (−8.1 %; replica 658.5
+   ns). (L): `result.json` 184.3 → 98.3 ns (−46.6 %; replica 73.3 ns), `result-20`
+   1198 → 714.8 ns (−40.3 %; replica 620.4 ns), and
+   `structured-legend-flood-1k` 992.9 → 1056.5 ns, **+6.4 %** (replica
+   990.1 ns). The flood's decode is the level check over its 1 000 levels,
+   a loop W4.3 found sensitive to where it lands on (L) (W4.3 finding 5:
+   the same instructions ran 42 % slower in `DecodeAs` than in the
+   replica); the store does not change that loop, and its commit moves
+   the code around it. A finding, not a reason to revert: (M) gains 8.1 %
+   on the same fixture.
+2. **AC-P3 and `Ask`** (W5.3-20, W5.3-23): `DecodeAs` 1/144 → 0/0 on both
+   hosts against the `Answers()` decode's 4/688, and `Ask` 23/2 792 →
+   22/2 648, exactly `SystemOne`'s count; the pin in `TestAllocTypedDecode`
+   and a new AC-P3 row of frozen-budgets.md moved in the same commit. So
+   AC-P3's margin is now 0 against 4. `call/sdk` does not move (W5.3-19,
+   W5.3-22).
+3. **Invariants and their tests.** The store's file states five
+   invariants. `TestStoreFieldKinds` prints the layout table of a struct
+   that interleaves the three answer types, and an embedded one, with a
+   field of every other kind (string, bool, every integer, float and
+   complex width, slice, map, pointer, array, interface, channel, empty
+   struct), and checks that each answer field's offset is reflect's, is
+   aligned, and overlaps no other field; `TestStoreKeepsNeighbours` fills
+   every other field with a value and checks it survives the store;
+   `TestStoreWritesTyped` checks the file's shape (only `unsafe.Pointer`
+   and `unsafe.Add`, one typed store through `*F`, no copy, no directive);
+   `TestDecodeTypedPlanMismatch` pins the panic. Six mutants fail them
+   (W5.3-25): the offset off by one byte, the next field's offset and a
+   wider write each corrupt memory (the last two end the test binary with
+   a fatal error inside the AC-F12 differential, and fail
+   `TestStoreKeepsNeighbours` when it runs alone), the answer copied as
+   bytes fails `TestStoreWritesTyped`, the store moved to another file
+   and `UnsafePointer()` in `decodeas.go` fail the seam tests. `go vet` is
+   clean, `-race` with checkptr passes, and `-gcflags=-m` shows `b does
+   not escape` in `decode` and no `moved to heap: t` in any `decodeTyped`
+   instantiation (W5.3-26). AC-F12's differential and the R99-rev path
+   tests are unchanged and pass.
+4. **The sync.Pool route** (a pool of `*T` per type, the lead's refinement
+   before R116) was considered and not built: R116 made it unnecessary.
+
+| # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| W5.3-01 | 2026-09-26 08:36:53 UTC | W5.3 K36 `BenchmarkCall`, first run | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 2.49 → 9.10 | `BASE=67dcbb0 CAND=05264fe MAXLOAD=4 sh $A '(L)' $O /tmp/ts-spike/bench.lock k36-call-L internal/benchmark 5 <base tree> <cand tree> -test.run '^$' -test.bench '^BenchmarkCall$/^(sdk\|naive)(-q20)?$' -test.benchmem -test.count 2` | `call/sdk` 7.088 → 6.250 µs (−11.8 %), q20 29.89 → 26.49 µs (−11.4 %); naive unchanged; allocations 22 and 42 both sides | during W6.1's fuzz campaign on (L) (8 workers, load 2.5 → 9.1): absolute times about 15 % above W5.3-03; kept, not of record; `results/k36-call-L-{base,cand}.txt` |
+| W5.3-02 | 2026-09-26 08:43:31 UTC | W5.3 K36 `BenchmarkDecode`, first run | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 8.73 → 10.49 | `BASE=67dcbb0 CAND=05264fe MAXLOAD=4 sh $A '(L)' $O /tmp/ts-spike/bench.lock k36-decode-L internal/codec 5 <base tree> <cand tree> -test.run '^$' -test.bench '^BenchmarkDecode(NaiveSonic)?$/^(result\|escaped-names\|escaped-member-names\|result-20\|structured-legend-flood-1k)$' -test.benchmem -test.count 2` | `result` −17.7 %, `result-20` −15.8 %, `escaped-names` −15.4 %, `escaped-member-names` −5.4 %, flood-1k −13.9 % | as W5.3-01 (load 8.7 → 10.5; waited 5 × 60 s); not of record; `results/k36-decode-L-{base,cand}.txt` |
+| W5.3-03 | 2026-09-26 09:33:10 UTC | W5.3 K36 `BenchmarkCall` | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.81 → 2.04 | `BASE=67dcbb0 CAND=05264fe MAXLOAD=2 sh $A '(L)' $O /tmp/ts-spike/bench.lock k36-call-L2 internal/benchmark 5 <base tree> <cand tree> -test.run '^$' -test.bench '^BenchmarkCall$/^(sdk\|naive)(-q20)?$' -test.benchmem -test.count 2` | `call/sdk` 6.180 → 5.610 µs (−9.2 %), `call/naive` 6.852 → 6.863 µs (~); q20 25.38 → 22.03 µs (−13.2 %), naive 25.79 → 25.93 µs (~); sdk/naive q3 0.902 → 0.817, q20 0.984 → 0.850; minima sdk 6149 → 5585 ns; B/op 2.930 → 2.870 KiB; allocations 22 and 42 both sides | row of record for (L), after W6.1's campaign ended (`results/batch-L.log`); `results/k36-call-L2-{base,cand}.txt` |
+| W5.3-04 | 2026-09-26 09:35:47 UTC | W5.3 K36 `BenchmarkDecode` | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.75 → 1.83 | `BASE=67dcbb0 CAND=05264fe MAXLOAD=2 sh $A '(L)' $O /tmp/ts-spike/bench.lock k36-decode-L2 internal/codec 5 <base tree> <cand tree> -test.run '^$' -test.bench '^BenchmarkDecode(NaiveSonic)?$/^(result\|escaped-names\|escaped-member-names\|result-20\|structured-legend-flood-1k)$' -test.benchmem -test.count 2` | `result` 3.428 → 2.779 µs (−18.9 %), `escaped-names` 5.004 → 4.234 µs (−15.4 %), `escaped-member-names` 7.254 → 7.039 µs (−3.0 %), `result-20` 21.49 → 17.75 µs (−17.4 %), flood-1k 615.8 → 543.0 µs (−11.8 %); naive rows unchanged | against naive.Sonic in the same runs: `result` 1.235 → 1.000 ×, `result-20` 1.293 → 1.072 ×, flood-1k 1.030 → 0.910 ×; `results/k36-decode-L2-{base,cand}.txt` |
+| W5.3-05 | 2026-09-26 17:48:21 JST | W5.3 K36 `BenchmarkCall` | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 7.73 → 6.24 | `BASE=67dcbb0 CAND=05264fe GOEXPERIMENT=nosimd,noruntimesecret FLOCK=$F MAXLOAD=10 sh $A '(M)' $O $SP/bench.lock k36-call-M internal/benchmark 5 <base tree> <cand tree> -test.run '^$' -test.bench '^BenchmarkCall$/^(sdk\|naive)(-q20)?$' -test.benchmem -test.count 2` | `call/sdk` 4.846 → 4.365 µs (−9.9 %), `call/naive` 3.657 → 3.769 µs (~); q20 23.95 → 20.88 µs (−12.8 %), naive 12.97 → 13.10 µs (~); sdk/naive q3 1.325 → 1.158, q20 1.847 → 1.594; minima sdk 4717 → 4219 ns; allocations 22 and 42 both sides | `results/k36-call-M-{base,cand}.txt` |
+| W5.3-06 | 2026-09-26 17:50:13 JST | W5.3 K36 `BenchmarkDecode` | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 5.22 → 5.73 | `BASE=67dcbb0 CAND=05264fe GOEXPERIMENT=nosimd,noruntimesecret FLOCK=$F MAXLOAD=10 sh $A '(M)' $O $SP/bench.lock k36-decode-M internal/codec 5 <base tree> <cand tree> -test.run '^$' -test.bench '^BenchmarkDecode(NaiveSonic)?$/^(result\|escaped-names\|escaped-member-names\|result-20\|structured-legend-flood-1k)$' -test.benchmem -test.count 2` | `result` 3.478 → 2.950 µs (−15.2 %), `escaped-names` 5.090 → 4.399 µs (−13.6 %), `escaped-member-names` 6.841 → 6.593 µs (−3.6 %, p = 0.052), `result-20` 21.57 → 18.55 µs (−14.0 %), flood-1k 679.8 → 613.5 µs (−9.8 %); naive rows unchanged | against naive.Sonic: `result` 2.35 → 1.86 ×, `result-20` 2.74 → 2.39 ×, flood-1k 3.51 → 2.98 × (K23: not met); `results/k36-decode-M-{base,cand}.txt` |
+| W5.3-07 | 2026-09-26 17:54:23 JST | W5.3 K36 local CodSpeed proxy | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.26 → 10.80 | `BASE=67dcbb0 CAND=05264fe GOEXPERIMENT=nosimd,noruntimesecret FLOCK=$F MAXLOAD=10 sh $C '(M)' $O $SP/bench.lock k36-codspeed-M 3 <base tree> <cand tree>` | per-iteration min / median / mean, 3 runs a side: `call/sdk` 4041–4083 → 3583–3625, 4541–4583 → 4000–4083, 4969–5137 → 4393–4496 ns; `call/naive` 2458–2500 both, 3125–3250, 3595–4050 ns; q20 sdk min 20666–20833 → 17791–17958 ns | codspeed-runner 5.3.1, walltime, `--skip-upload`; arm64, not CodSpeed's amd64; `results/k36-codspeed-M.txt` |
+| W5.3-08 | 2026-09-26 17:36:39 JST | W5.3 K36 gates | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.49 → – | `gates.sh` in a detached worktree at 05264fe under `$F $SP/bench.lock`: build, vet, the section 11 chain (govulncheck via `go run`), the seam tests, `go test -race -count=1 ./...`, ci.yaml's two non-race steps (the second extracted with yq) | every gate ok; every allocation pin unchanged | `results/gates-M-05264fe.txt` (modernize's progress lines removed) |
+| W5.3-09 | 2026-09-26 08:48:13 UTC | W5.3 K36 `-race`, validity gate, fuzz | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 9.68 → 18.16 | under `flock /tmp/ts-spike/bench.lock`: `go test -race -count=1 ./...`; `go test -count=1 -run '^(TestDecodeFixtures\|TestOneScanMatchesWholeScan\|TestOneScanTakesValidBodies\|TestDecodeDepthBound\|TestSeam.*)$' -v ./internal/codec/`; `-run '^TestMalformedFixturesRefused$' .`; then, the lock released, `go test -run '^$' -fuzz '^FuzzDecodeResponse$' -fuzztime 600s -parallel 8 ./internal/codec/` | `-race` PASS in seven packages; every validity and seam test PASS (11 030 differential bodies, 236 on the one scan); fuzz PASS, 600 s, 287 corpus entries | at 05264fe; W6.1's fuzz campaign ran beside the fuzz run; `results/k36-gates-L.txt` |
+| W5.3-10 | 2026-09-26 17:47:11 JST | W5.3 K36 fuzz | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 7.37 → – | `GOEXPERIMENT=nosimd,noruntimesecret go test -run '^$' -fuzz '^FuzzDecodeResponse$' -fuzztime 30s -parallel 4 ./internal/codec/` at 05264fe, not under the lock | PASS | the lead's rule for (M): at most 30 s, never under the lock; `results/k36-fuzz-M.txt` |
+| W5.3-11 | 2026-09-26 17:35:17 JST | W5.3 K36 guard mutants | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | each mutant planted in a copy of 05264fe's tree, then `go test -count=1 -run 'TestOneScan\|FuzzDecodeResponse\|TestDecodeDepthBound' ./internal/codec/` | all 8 fail: no quote-count check; escaped quotes not subtracted; no `\u` check; any backslash before a quote escaping it; no last-byte rule; no depth rule; no between-members rule; `slotCard` kept after the models array | unit tests, not a measurement; `results/k36-mutants-M.txt` |
+| W5.3-12 | 2026-09-26 17:36:04 JST | W5.3 K36 per-fixture path | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | a throwaway test (not committed) decoding every fixture under testdata on a fresh decoder and reading `stats.wholes` | 21 of 41 fixtures take the one scan: all 14 benchmark bodies and `models.json`, escaped ones included; 7 refused by `cutPoint`, 13 declined by the cut traversal, all of them failing bodies | a tabulation, not a measurement; `results/k36-paths.txt` |
+| W5.3-13 | 2026-09-26 16:51:05 JST | W5.3 K36 first version, fuzz | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 9.60 → 8.99 | `go test -run '^$' -fuzz '^FuzzDecodeResponse$' -fuzztime 120s -parallel 4 ./internal/codec/` at 753f723, under `$F $SP/bench.lock` | FAIL after 90 s: `{"\u"}` accepted by the one scan, refused by the whole-body path (finding 4 (a)) | a run the lead's later rule would keep off the lock and under 30 s on (M); `results/k36-first-fuzz-M-753f723.txt` |
+| W5.3-14 | 2026-09-26 07:50:53 UTC | W5.3 K36 first version, `-race`, fuzz | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.00 → 3.72 | at 753f723 under `flock /tmp/ts-spike/bench.lock`: `go test -race -count=1 ./...`, the validity tests, then `-fuzz '^FuzzDecodeResponse$' -fuzztime 300s -parallel 8` | `-race` PASS; fuzz FAIL after 2 s: `{"0000000\":…,"\u0\"}`, the same class | `results/k36-first-fuzz-L-753f723.txt` |
+| W5.3-15 | 2026-09-26 08:01:39 UTC | W5.3 K36 second version, `-race`, fuzz | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.66 → 4.00 | as W5.3-14, at 5ee759a | `-race` PASS; fuzz FAIL after 27 s: `{"0000000000000000000000000000000\0}` (finding 4 (b)) | `results/k36-second-fuzz-L-5ee759a.txt` |
+| W5.3-16 | 2026-09-26 08:07:47 UTC | W5.3 K36 third version, fuzz | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 1.79 → 27.67 | `go test -run '^$' -fuzz '^FuzzDecodeResponse$' -fuzztime 600s -parallel 16 ./internal/codec/` at 5bb86f9 under `flock /tmp/ts-spike/bench.lock` | FAIL after 294 s: `{"":"` + 64 × `0` + `}` (finding 4 (c)) | the raw log and the 5bb86f9 tree were deleted from (L) at 17:36 JST before being copied; the input is a seed of FuzzDecodeResponse and a case of TestOneScanMatchesWholeScan; `-parallel 16` predates the lead's `-parallel 8` |
+| W5.3-17 | 2026-09-26 17:12:43 JST | W5.3 seam test mutants (a2a29b4) | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | each mutant planted in a copy of the tree, then `go test -count=1 -run 'TestSeamImports\|TestSeamRootRawPointers' ./internal/codec/` | the tree and a named `decodeas_store.go` importing unsafe pass; `UnsafePointer()` in `decodeas.go`, the same in a new `internal/wire` file, and unsafe imported by `response.go` fail | unit tests; `results/seam-mutants-M.txt` |
+| W5.3-18 | 2026-09-26 09:39:49 UTC | W5.3 typed store `BenchmarkSD2` | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 1.83 → 1.07 | `BASE=05264fe CAND=7df5a6b MAXLOAD=2 sh $A '(L)' $O /tmp/ts-spike/bench.lock store-sd2-L _spikes/w4.3 5 <base tree> <cand tree> -test.run '^$' -test.bench '^BenchmarkSD2$/.*/(0-DecodeAs\|2-unsafe-offset)$' -test.benchmem -test.count 2` | `DecodeAs`: `result.json` 184.3 → 98.3 ns (−46.6 %), `result-20` 1198 → 714.8 ns (−40.3 %), flood-1k 992.9 → 1056.5 ns (+6.4 %); the offset replica 73.3, 620.4 and 990.1 ns; `DecodeAs` allocations 1 → 0 | W4.3's S-D2 benchmark, whose `0-DecodeAs` arm times the root package's `DecodeAs`; `results/store-sd2-L-{base,cand}.txt` |
+| W5.3-19 | 2026-09-26 09:51:03 UTC | W5.3 typed store `BenchmarkCall/sdk` | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 5.93 → 4.09 | `BASE=05264fe CAND=7df5a6b MAXLOAD=2 sh $A '(L)' $O /tmp/ts-spike/bench.lock store-call-L internal/benchmark 5 <base tree> <cand tree> -test.run '^$' -test.bench '^BenchmarkCall$/^sdk$' -test.benchmem -test.count 2` | 5.604 → 5.613 µs (~, p = 0.494) | waited 5 × 60 s for load ≤ 2, ran at 5.9 of 44; `results/store-call-L-{base,cand}.txt` |
+| W5.3-20 | 2026-09-26 09:51:27 UTC | W5.3 typed store AC-P3, `-race` | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 4.09 → 2.14 | under `flock /tmp/ts-spike/bench.lock`: `go test -count=1 -run '^TestAllocTypedDecode$' -v .` at 05264fe and 7df5a6b; `go test -race -count=1 ./...` and the seam and store tests at 7df5a6b | `DecodeAs` 1/144 → 0/0, `Answers()` decode 4/688 both, `SystemOne` 22/2648 both, `Ask` 23/2792 → 22/2648; `-race` PASS in seven packages; seam and store tests PASS | `results/store-typed-L.txt` |
+| W5.3-21 | 2026-09-26 18:15:59 JST | W5.3 typed store `BenchmarkSD2` | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 9.20 → 6.71 | `BASE=05264fe CAND=7df5a6b GOEXPERIMENT=nosimd,noruntimesecret FLOCK=$F MAXLOAD=10 sh $A '(M)' $O $SP/bench.lock store-sd2-M _spikes/w4.3 5 <base tree> <cand tree> -test.run '^$' -test.bench '^BenchmarkSD2$/.*/(0-DecodeAs\|2-unsafe-offset)$' -test.benchmem -test.count 2` | `DecodeAs`: `result.json` 136.2 → 82.7 ns (−39.3 %), `result-20` 942.7 → 630.9 ns (−33.1 %), flood-1k 724.5 → 665.6 ns (−8.1 %); the offset replica 64.8, 555.6 and 658.5 ns; `DecodeAs` allocations 1 → 0 | waited 1 × 60 s for load ≤ 10; `results/store-sd2-M-{base,cand}.txt` |
+| W5.3-22 | 2026-09-26 18:18:24 JST | W5.3 typed store `BenchmarkCall/sdk` | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.71 → 6.98 | `BASE=05264fe CAND=7df5a6b GOEXPERIMENT=nosimd,noruntimesecret FLOCK=$F MAXLOAD=10 sh $A '(M)' $O $SP/bench.lock store-call-M internal/benchmark 5 <base tree> <cand tree> -test.run '^$' -test.bench '^BenchmarkCall$/^sdk$' -test.benchmem -test.count 2` | 4.500 → 4.499 µs (~) | `results/store-call-M-{base,cand}.txt` |
+| W5.3-23 | 2026-09-26 18:18:49 JST | W5.3 typed store AC-P3 | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.98 → 6.98 | under `$F $SP/bench.lock`: `GOEXPERIMENT=nosimd,noruntimesecret go test -count=1 -run '^TestAllocTypedDecode$' -v .` at 05264fe and 7df5a6b | `DecodeAs` 1/144 → 0/0, `Answers()` decode 4/688 both, `SystemOne` 22/2648 both, `Ask` 23/2792 → 22/2648 | `results/store-typed-M.txt` |
+| W5.3-24 | 2026-09-26 18:13:14 JST | W5.3 typed store gates | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 37.23 → – | as W5.3-08, at 7df5a6b | every gate ok | load 37.2 at the start from other lanes (counts do not depend on it, R17); `results/gates-M-7df5a6b.txt` |
+| W5.3-25 | 2026-09-26 18:10:17 JST | W5.3 typed store mutants | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | each mutant planted in a copy of 7df5a6b's tree, then the store, AC-P3, AC-F12 and seam tests | all 6 fail: offset off by one, the next field's offset, a wider write (the two corrupt the stack: a fatal error in the AC-F12 differential; `TestStoreKeepsNeighbours` fails alone), the answer copied as bytes, the store in another file, `UnsafePointer()` in `decodeas.go` | unit tests; `results/store-mutants-M.txt` |
+| W5.3-26 | 2026-09-26 18:11:16 JST | W5.3 typed store vet, escape analysis, `-race` | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | `go vet ./...`; `go build -gcflags=-m=2 .`; `go test -c -gcflags=-m .`; `go test -race -count=1 -run 'TestStore\|TestDecodeTypedPlanMismatch\|TestDecodeAs\|Ask\|Typed\|PreparedFor' .` | vet ok; `b does not escape` in `decode`; no `moved to heap: t`; `-race` (checkptr) PASS | `results/store-escape-M.txt` |
