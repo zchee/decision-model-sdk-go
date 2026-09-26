@@ -216,7 +216,7 @@ Rows by status: 35 deviation, 0 planned, 94 ported.
 
 | ID | Upstream | Go test / deviation | status |
 | --- | --- | --- | --- |
-| XA1 | `test_public_members` | `TestPublicAPISurface`: golden of exported names and signatures from `go/types` (`go/importer` "source"), stable across comment edits, and of each exported type's comparability (`types.Comparable`) | ported |
+| XA1 | `test_public_members` | `TestPublicAPISurface`: golden of exported names and signatures from `go/types` (`go/importer` "source"), stable across comment edits, and of each exported type's comparability (`types.Comparable`); `TestRetryPolicyRules` and `TestAnswersIncomparable` pin the two types kept incomparable on purpose (review V63, owner ruling G8-b) | ported |
 | XA2 | `test_package_exports` | `TestPublicAPISurface` (same golden, comparability included); `internal/` packages are unimportable by construction | ported |
 | XA3 | `test_constructor_kwargs` | `TestClientOptionsSurface`: golden of the `With*` option names (functional options; no positional parameters) | ported |
 

@@ -31,7 +31,7 @@ method (Answer) Noul() (NoulAnswer, bool)
 method (Answer) Score() (ScoreAnswer, bool)
 type AnswerKind uint8, comparable
 method (AnswerKind) String() string
-type Answers struct, comparable
+type Answers struct, incomparable
 method (Answers) All() iter.Seq2[string, Answer]
 method (Answers) Choice(string) (ChoiceAnswer, bool)
 method (Answers) Choices() iter.Seq2[string, ChoiceAnswer]

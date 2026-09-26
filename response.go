@@ -96,7 +96,7 @@ func (r *SystemOneResponse) Usage() Usage { return Usage{r.res.Usage} }
 // Answers returns the answers, keyed by question name. The view reads r: it
 // is valid as long as r is, and after [SystemOneResponse.UnmarshalJSON] it
 // shows the answers r then holds.
-func (r *SystemOneResponse) Answers() Answers { return Answers{&r.res.Answers} }
+func (r *SystemOneResponse) Answers() Answers { return Answers{s: &r.res.Answers} }
 
 // Meta returns the HTTP response the answers came in.
 func (r *SystemOneResponse) Meta() ResponseMeta { return ResponseMeta{r.meta} }

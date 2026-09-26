@@ -53,6 +53,21 @@ func firstOf[K, V any](seq iter.Seq2[K, V]) (K, V, int) {
 	return k, v, n
 }
 
+// TestAnswersIncomparable pins that Answers is not comparable (owner ruling
+// G8-b, critic-p5 n-7), as RetryPolicy's pin in TestRetryPolicyRules does
+// for that type (review V63): == on two views would compare the responses
+// they show, not their answers. The marker adds no byte: an Answers is one
+// pointer.
+func TestAnswersIncomparable(t *testing.T) {
+	typ := reflect.TypeFor[Answers]()
+	if typ.Comparable() {
+		t.Error("Answers is comparable, want it not: == would compare two views by the response they share")
+	}
+	if got, want := typ.Size(), reflect.TypeFor[*wire.Answers]().Size(); got != want {
+		t.Errorf("Answers is %d bytes, want %d, one pointer", got, want)
+	}
+}
+
 // TestAnswerViews checks the views of the answers beyond the round trip:
 // every iterator stops when its consumer does, a question the response
 // does not answer, or answers with another kind, reports false, a label or

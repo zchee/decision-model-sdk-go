@@ -258,7 +258,16 @@ func (a Answer) MarshalJSON() ([]byte, error) { return wire.AppendAnswer(nil, &a
 // is, it shows the new answers after the response's UnmarshalJSON, and every
 // value it yields is a copy that shares the response's slices and bytes,
 // which must not be modified. The zero Answers is empty.
+//
+// Answers is not comparable, so == does not compile on it and it cannot be
+// a map key: as a view, it would compare equal only to a view of the same
+// response, whatever the answers of the two held. Compare the answers
+// themselves, with [Answers.Get] or [Answers.All].
 type Answers struct {
+	// _ keeps Answers incomparable (owner ruling G8-b, critic-p5 n-7): the
+	// view pointer alone would make == compile and compare two views by the
+	// response they share. A zero-size first field adds no byte.
+	_ [0]func()
 	s *wire.Answers
 }
 
