@@ -97,6 +97,16 @@
 // (K28c), recovers inside it and panics again on the calling goroutine once
 // RoundTrip has returned.
 //
+// # Logging
+//
+// The transport logs its events to [Config.Logger] (section 6.3
+// observability). The DEBUG events "h2: gate error" and "h2: redial error"
+// print the error that failed the dial, whose text a caller's dialer, a
+// proxy or net/http wrote and which may repeat a credential of the request;
+// they print it through [Config.ErrorText], into which the root package
+// passes its credential scrub (ruling R84). The error is rendered only for
+// an event the logger keeps.
+//
 // # Goroutines
 //
 // The package starts none of its own. Its hooks run on the transport's

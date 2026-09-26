@@ -18,7 +18,10 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
+	"net/http"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -121,4 +124,134 @@ func TestLogEvents(t *testing.T) {
 			t.Errorf("DEBUG events (-want +got):\n%s", diff)
 		}
 	})
+}
+
+// errorEvents returns the DEBUG records that print an error, as
+// "<message> reason=<reason> error=<error>", in order.
+func errorEvents(logs *testsupport.LogRecorder) []string {
+	var out []string
+	for _, r := range logs.At(slog.LevelDebug) {
+		e, ok := r.Attr("error")
+		if !ok {
+			continue
+		}
+		why, _ := r.Attr("reason")
+		out = append(out, r.Message+" reason="+why.String()+" error="+e.String())
+	}
+	return out
+}
+
+// plainLogger forwards the transport's events to l without an Enabled
+// method, as a Logger that is not a *slog.Logger may.
+type plainLogger struct{ l *slog.Logger }
+
+func (p plainLogger) DebugContext(ctx context.Context, msg string, args ...any) {
+	p.l.DebugContext(ctx, msg, args...)
+}
+
+func (p plainLogger) WarnContext(ctx context.Context, msg string, args ...any) {
+	p.l.WarnContext(ctx, msg, args...)
+}
+
+// TestLogErrorText checks Config.ErrorText (ruling R84): the DEBUG events
+// that print an error, "h2: gate error" for a leader's failed dial and "h2:
+// redial error" for a dial that fails after the gate is warm, print what
+// ErrorText renders for the request that failed, or err.Error() without
+// one; and a logger that leaves DEBUG out (its Enabled method says so, or
+// there is no logger) never has the error rendered, so a scrub costs
+// nothing at INFO. A Logger without an Enabled method gets every event
+// rendered.
+func TestLogErrorText(t *testing.T) {
+	// The dial's text is a caller dialer's, which may repeat a credential:
+	// the default prints it as it is, escapes included.
+	errDial := errors.New("dial refused for Bearer ts_live_0123456789 \x1b[31m")
+	type logSetup int
+	const (
+		debugLogs logSetup = iota
+		infoLogs
+		noLogger
+		withoutEnabled
+	)
+	tests := map[string]struct {
+		warm   bool // the dial that fails is a re-dial after a warm-up
+		logs   logSetup
+		render bool // set ErrorText
+		want   []string
+		calls  int64
+	}{
+		"success: the default prints a gate error's text": {
+			logs: debugLogs, want: []string{"h2: gate error reason=dial error=" + errDial.Error()},
+		},
+		"success: the default prints a redial error's text": {
+			warm: true, logs: debugLogs, want: []string{"h2: redial error reason=dial error=" + errDial.Error()},
+		},
+		"success: ErrorText renders a gate error for the leader's request": {
+			logs: debugLogs, render: true, want: []string{"h2: gate error reason=dial error=rendered GET /fail: true"}, calls: 1,
+		},
+		"success: ErrorText renders a redial error for the failing request": {
+			warm: true, logs: debugLogs, render: true, want: []string{"h2: redial error reason=dial error=rendered GET /fail: true"}, calls: 1,
+		},
+		"success: a Logger without Enabled gets the gate error rendered": {
+			logs: withoutEnabled, render: true, want: []string{"h2: gate error reason=dial error=rendered GET /fail: true"}, calls: 1,
+		},
+		"success: an INFO logger has no gate error rendered": {
+			logs: infoLogs, render: true,
+		},
+		"success: an INFO logger has no redial error rendered": {
+			warm: true, logs: infoLogs, render: true,
+		},
+		"success: no logger has no gate error rendered": {
+			logs: noLogger, render: true,
+		},
+		"success: no logger has no redial error rendered": {
+			warm: true, logs: noLogger, render: true,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{})
+			failFrom := int64(1)
+			if tt.warm {
+				failFrom = 2
+			}
+			var dials, calls atomic.Int64
+			cfg := Config{APIURL: mustURL(t, srv.URL()), DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				if dials.Add(1) < failFrom {
+					return (&net.Dialer{}).DialContext(ctx, network, addr)
+				}
+				return nil, errDial
+			}}
+			logs := testsupport.NewLogRecorder(slog.LevelDebug)
+			switch tt.logs {
+			case debugLogs:
+				cfg.Logger = logs.Logger()
+			case infoLogs:
+				logs = testsupport.NewLogRecorder(slog.LevelInfo)
+				cfg.Logger = logs.Logger()
+			case withoutEnabled:
+				cfg.Logger = plainLogger{logs.Logger()}
+			}
+			if tt.render {
+				cfg.ErrorText = func(req *http.Request, err error) string {
+					calls.Add(1)
+					return "rendered " + req.Method + " " + req.URL.Path + ": " + strconv.FormatBool(errors.Is(err, errDial))
+				}
+			}
+			tr := newTestTransport(t, cfg)
+			if tt.warm {
+				warmUp(t, tr, srv.URL())
+				tr.CloseIdleConnections() // the next call dials again
+			}
+			r := get(t.Context(), tr, srv.URL()+"/fail")
+			if _, ok := errors.AsType[*DialError](r.Err); !ok || !errors.Is(r.Err, errDial) {
+				t.Fatalf("error %s, want a *DialError around the dialer's", chain(r.Err))
+			}
+			if diff := gocmp.Diff(tt.want, errorEvents(logs)); diff != "" {
+				t.Errorf("events that print an error (-want +got):\n%s", diff)
+			}
+			if got := calls.Load(); got != tt.calls {
+				t.Errorf("ErrorText ran %d times, want %d", got, tt.calls)
+			}
+		})
+	}
 }

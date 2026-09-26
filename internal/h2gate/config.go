@@ -21,6 +21,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -87,9 +88,20 @@ const (
 // Logger receives the transport's events: DEBUG "h2: dial", "h2: gate
 // release", "h2: gate error" (with a reason), "h2: redial error", and WARN
 // "h2: response not HTTP/2". A *log/slog.Logger satisfies it.
+//
+// A Logger that also has the method Enabled(context.Context, slog.Level)
+// bool, as a *slog.Logger has, is asked before an event that prints an
+// error, and the error is rendered ([Config.ErrorText]) only when it keeps
+// DEBUG events; a Logger without the method gets every event rendered.
 type Logger interface {
 	DebugContext(ctx context.Context, msg string, args ...any)
 	WarnContext(ctx context.Context, msg string, args ...any)
+}
+
+// levelEnabler is the optional method of a [Logger] that says whether it
+// keeps events at a level.
+type levelEnabler interface {
+	Enabled(ctx context.Context, level slog.Level) bool
 }
 
 // Config configures [NewTransport] and [Wrap].
@@ -108,6 +120,15 @@ type Config struct {
 	ConnectTimeout time.Duration
 	// Logger receives the transport's events; nil discards them.
 	Logger Logger
+	// ErrorText renders the error that a DEBUG event prints, "h2: gate
+	// error" and "h2: redial error", for req, the request whose connection
+	// failed; nil renders err.Error(). The text is written by code the
+	// transport does not control (a caller's dialer, a proxy, net/http) and
+	// may repeat a credential of req's header, so the root package scrubs
+	// it here (ruling R84). It runs only for an event the Logger keeps:
+	// never with a nil Logger, nor when the Logger's Enabled method leaves
+	// DEBUG out.
+	ErrorText func(req *http.Request, err error) string
 
 	// The fields below configure the transport NewTransport builds. Wrap
 	// keeps the caller transport's own dialer, TLS configuration and proxy,
@@ -409,6 +430,7 @@ func NewTransport(cfg Config) (*Transport, error) {
 		waitBound: waitBound(connect, connect, mayProxy),
 		holdBound: connect + connect,
 		log:       cfg.Logger,
+		errorText: cfg.ErrorText,
 	}), nil
 }
 
@@ -520,6 +542,7 @@ func Wrap(base *http.Transport, cfg Config) (*Transport, error) {
 		waitBound: waitBound(connect, tr.TLSHandshakeTimeout, mayProxy),
 		holdBound: connect + tr.TLSHandshakeTimeout,
 		log:       cfg.Logger,
+		errorText: cfg.ErrorText,
 	}), nil
 }
 

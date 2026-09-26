@@ -302,7 +302,9 @@ func (t *transportOptions) build(api *url.URL, connectTimeout time.Duration, con
 		}
 		mode = *t.version
 	}
-	cfg := h2gate.Config{APIURL: api, Mode: h2gate.HTTP2Only, ConnectTimeout: connectTimeout, Logger: logger}
+	// The gate's DEBUG records print the transport's errors through the
+	// credential scrub (ruling R84).
+	cfg := h2gate.Config{APIURL: api, Mode: h2gate.HTTP2Only, ConnectTimeout: connectTimeout, Logger: logger, ErrorText: logErrorText}
 	if mode == HTTPAuto {
 		cfg.Mode = h2gate.HTTPAuto
 	}

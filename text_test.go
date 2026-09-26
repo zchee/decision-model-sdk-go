@@ -238,6 +238,53 @@ func TestCredentialsRedact(t *testing.T) {
 	}
 }
 
+// TestLogErrorText pins what the transport's DEBUG records print for a
+// transport error (h2gate.Config.ErrorText, ruling R84): the error's text
+// with every credential of the failing request's header and every URL
+// userinfo replaced by "***", then escaped and cut at 200 characters, the
+// scrub before the cut, so no piece of a credential survives at the edge.
+func TestLogErrorText(t *testing.T) {
+	const key = "ts_live_0123456789abcdef"
+	req := &http.Request{Header: http.Header{"Authorization": {"Bearer " + key}, "X-Client-Secret": {"provider-credential"}, "X-Visible": {"request-visible"}}}
+	pad := strings.Repeat("p", 190)
+	tests := map[string]struct {
+		err  error
+		want string
+	}{
+		"success: the Authorization value, the key and a secret header's value": {
+			err:  errors.New("dial: Bearer " + key + " refused; key " + key + "; secret provider-credential; visible request-visible"),
+			want: "dial: *** refused; key ***; secret ***; visible request-visible",
+		},
+		"success: the %q form of the key": {
+			err:  fmt.Errorf("dial: key %q refused", key),
+			want: `dial: key "***" refused`,
+		},
+		"success: URL userinfo": {
+			err:  errors.New("proxyconnect tcp: http://user:hunter2@proxy.test:3128: refused"),
+			want: "proxyconnect tcp: http://***@proxy.test:3128: refused",
+		},
+		"success: control characters escaped, backslashes kept": {
+			err:  errors.New(`dial refused \x1b ` + "\x1b[31m\n"),
+			want: `dial refused \x1b \x1b[31m\n`,
+		},
+		"success: the key across the 200-character cut, replaced before the cut": {
+			err:  errors.New(pad + key),
+			want: pad + "***",
+		},
+		"success: text past 200 characters cut": {
+			err:  errors.New(pad + strings.Repeat("q", 20)),
+			want: pad + strings.Repeat("q", 10) + "…",
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if diff := gocmp.Diff(tt.want, logErrorText(req, tt.err)); diff != "" {
+				t.Errorf("logErrorText (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 // opaqueError prints a fixed text and wraps an error whose text it does not
 // print.
 type opaqueError struct{ inner error }

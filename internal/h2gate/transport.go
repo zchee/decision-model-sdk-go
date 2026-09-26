@@ -17,6 +17,7 @@ package h2gate
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptrace"
@@ -103,6 +104,7 @@ type settings struct {
 	// waitBound bounds a waiter at the gate; holdBound bounds a FirstHold.
 	waitBound, holdBound time.Duration
 	log                  Logger
+	errorText            func(*http.Request, error) string
 }
 
 // Transport is the SDK's http.RoundTripper: the cold-start gate and the
@@ -116,6 +118,8 @@ type Transport struct {
 	waitBound time.Duration
 	holdBound time.Duration
 	log       Logger
+	// errorText renders the error of a DEBUG event (Config.ErrorText).
+	errorText func(*http.Request, error) string
 
 	// token is the header-write token: a request sends into it before
 	// RoundTrip and receives from it to give it back.
@@ -160,6 +164,7 @@ func newTransport(base *http.Transport, s settings) *Transport {
 		waitBound: s.waitBound,
 		holdBound: s.holdBound,
 		log:       s.log,
+		errorText: s.errorText,
 		token:     make(chan struct{}, 1),
 		firstHold: true,
 	}
@@ -169,6 +174,9 @@ func newTransport(base *http.Transport, s settings) *Transport {
 	if t.log == nil {
 		t.log = nopLogger{}
 	}
+	if t.errorText == nil {
+		t.errorText = errorString
+	}
 	return t
 }
 
@@ -177,6 +185,19 @@ type nopLogger struct{}
 
 func (nopLogger) DebugContext(context.Context, string, ...any) {}
 func (nopLogger) WarnContext(context.Context, string, ...any)  {}
+func (nopLogger) Enabled(context.Context, slog.Level) bool     { return false }
+
+// errorString is the default Config.ErrorText: the error's own text.
+func errorString(_ *http.Request, err error) string { return err.Error() }
+
+// debugEnabled reports whether the logger keeps DEBUG events: its Enabled
+// method's answer, or true for a Logger without one.
+func (t *Transport) debugEnabled(ctx context.Context) bool {
+	if e, ok := t.log.(levelEnabler); ok {
+		return e.Enabled(ctx, slog.LevelDebug)
+	}
+	return true
+}
 
 // Stats returns a snapshot of the counters.
 func (t *Transport) Stats() Stats {
@@ -343,7 +364,9 @@ func (t *Transport) lead(req *http.Request, gen *generation) (*http.Response, er
 	t.mu.Unlock()
 	t.failures.Add(1)
 	t.coldResets.Add(1)
-	t.log.DebugContext(ctx, "h2: gate error", "reason", reason(de), "waiters", waiters, "error", de.Err)
+	if t.debugEnabled(ctx) {
+		t.log.DebugContext(ctx, "h2: gate error", "reason", reason(de), "waiters", waiters, "error", t.errorText(req, de.Err))
+	}
 	return nil, de.clone()
 }
 
@@ -411,9 +434,9 @@ func (t *Transport) send(req *http.Request, gen *generation) (*http.Response, er
 	if err != nil {
 		if c.lookedUp.Load() && !c.connected.Load() && ctx.Err() == nil {
 			de := classify(err)
-			if gen == nil && t.warm.Load() {
+			if gen == nil && t.warm.Load() && t.debugEnabled(ctx) {
 				// After warm, re-dials are the stock pool's, serial and ungated.
-				t.log.DebugContext(ctx, "h2: redial error", "reason", reason(de), "error", err)
+				t.log.DebugContext(ctx, "h2: redial error", "reason", reason(de), "error", t.errorText(req, err))
 			}
 			return nil, de
 		}

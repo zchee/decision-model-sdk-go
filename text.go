@@ -331,6 +331,18 @@ func (c credentials) redact(s string) (string, bool) {
 	return s, found
 }
 
+// logErrorText renders err, an error of the SDK's transport for the request
+// req, for the transport's DEBUG records "h2: gate error" and "h2: redial
+// error" (h2gate.Config.ErrorText, ruling R84): every credential of req's
+// header and every URL userinfo replaced by "***" ([credentials.redact]),
+// then escaped and cut at 200 characters ([safeMessage]), as the text of a
+// *ConnectionError is. The transport calls it only for a record the logger
+// keeps.
+func logErrorText(req *http.Request, err error) string {
+	text, _ := requestCredentials(req.Header).redact(err.Error())
+	return safeMessage(text)
+}
+
 // maxChainErrors bounds the errors [credentials.cause] reads in a chain; a
 // longer chain is treated as holding a credential.
 const maxChainErrors = 64
