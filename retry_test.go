@@ -1148,6 +1148,8 @@ func TestCancelPendingRetry(t *testing.T) {
 	tests := map[string]struct {
 		policy RetryPolicy
 		reply  testsupport.Reply
+		// took is the fake time the transport takes to answer.
+		took time.Duration
 		// ctx returns the call's context and the function that ends it,
 		// nil when the context ends on its own.
 		ctx func(t *testing.T) (context.Context, func())
@@ -1196,6 +1198,40 @@ func TestCancelPendingRetry(t *testing.T) {
 				}
 			},
 		},
+		"error: a deadline at the wait's end makes no second attempt": {
+			// The review's probe (MINOR 3): the wait and the caller's
+			// deadline end at the same instant.
+			reply: rtReply(429, `{}`, "Retry-After", "1"),
+			ctx: func(t *testing.T) (context.Context, func()) {
+				ctx, cancel := context.WithTimeout(bubbleCtx(t), time.Second)
+				t.Cleanup(cancel)
+				return ctx, nil
+			},
+			waited: time.Second,
+			check: func(t *testing.T, _ context.Context, err error) {
+				te, ok := errors.AsType[*TimeoutError](err)
+				if !ok || te.Timeout != 0 || !errors.Is(err, context.DeadlineExceeded) {
+					t.Errorf("error = %T %v, want a *TimeoutError without a timeout wrapping context.DeadlineExceeded", err, err)
+				}
+			},
+		},
+		"error: a deadline at a zero wait's start makes no second attempt": {
+			// The attempt takes the second the caller has, then asks for no
+			// wait.
+			reply: rtReply(429, `{}`, "Retry-After-Ms", "0"),
+			took:  time.Second,
+			ctx: func(t *testing.T) (context.Context, func()) {
+				ctx, cancel := context.WithTimeout(bubbleCtx(t), time.Second)
+				t.Cleanup(cancel)
+				return ctx, nil
+			},
+			waited: time.Second,
+			check: func(t *testing.T, _ context.Context, err error) {
+				if _, ok := errors.AsType[*TimeoutError](err); !ok || !errors.Is(err, context.DeadlineExceeded) {
+					t.Errorf("error = %T %v, want a *TimeoutError wrapping context.DeadlineExceeded", err, err)
+				}
+			},
+		},
 		"error: a cancellation before a zero wait": {
 			reply: rtReply(429, `{}`, "Retry-After-Ms", "0"),
 			ctx: func(t *testing.T) (context.Context, func()) {
@@ -1211,6 +1247,7 @@ func TestCancelPendingRetry(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				ctx, end := tt.ctx(t)
 				rec := &testsupport.Recorder{Respond: func(testsupport.RecordedRequest) testsupport.Reply {
+					time.Sleep(tt.took)
 					if tt.cancelInReply {
 						end()
 					}
@@ -1238,6 +1275,35 @@ func TestCancelPendingRetry(t *testing.T) {
 			})
 		})
 	}
+}
+
+// TestCallerDeadlineEndsAnAttempt pins what a call returns when the
+// caller's deadline ends an attempt that the policy would retry: the
+// attempt's own *TimeoutError without a timeout, which wraps the
+// transport's error, and no wait and no second attempt.
+func TestCallerDeadlineEndsAnAttempt(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		cause := errors.New("transport: the request's context ended")
+		var n int
+		rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			n++
+			<-req.Context().Done()
+			return nil, cause
+		})
+		c := newTestClient(t, rt, WithRetry(DefaultRetry()))
+		ctx, cancel := context.WithTimeout(bubbleCtx(t), time.Second)
+		defer cancel()
+		start := time.Now()
+		err := listCall(ctx, c)
+		te, ok := errors.AsType[*TimeoutError](err)
+		if !ok || te.Timeout != 0 || !errors.Is(err, cause) {
+			t.Errorf("error = %T %v, want the attempt's own *TimeoutError without a timeout, wrapping the transport's error", err, err)
+		}
+		if got := time.Since(start); got != time.Second || n != 1 {
+			t.Errorf("the call ran %v of fake time and made %d attempts, want 1s and 1", got, n)
+		}
+		assertAttempts(t, c, 1)
+	})
 }
 
 // TestMaxRetriesCountsAttempts ports test_retry_policy_max_retries (RT20):

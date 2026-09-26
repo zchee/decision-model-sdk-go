@@ -297,8 +297,11 @@ type retryState struct {
 // wait decides whether the call makes another attempt after attempt (0 for
 // the first), which failed with err, and waits for it. It returns nil once
 // the retry may start, or the error the call returns: err itself when the
-// policy stops, or the context's when the call's context ends the wait.
-// Only a wait that is not zero makes a timer.
+// policy stops, or the context's when the call's context ends the wait. No
+// retry starts on a context that has ended: a caller's deadline that comes
+// no later than the wait's end ends the call at the deadline, and the
+// context is checked again when the wait ends. Only a wait that is not zero
+// and ends before the caller's deadline makes a timer.
 func (r *retryState) wait(ctx context.Context, attempt int, err error) error {
 	p := r.policy
 	if !p.retryable(err) || attempt >= p.retries() {
@@ -322,12 +325,22 @@ func (r *retryState) wait(ctx context.Context, attempt int, err error) error {
 		}
 		return waitError(ctx)
 	}
+	// The context's own timer may not have run yet at its deadline, so the
+	// deadline is compared, not only ctx.Err().
+	if dl, ok := ctx.Deadline(); ok && !dl.After(time.Now().Add(d)) {
+		<-ctx.Done()
+		return waitError(ctx)
+	}
 	if d <= 0 {
 		return nil
 	}
 	t := time.NewTimer(d)
 	select {
 	case <-t.C:
+		// A context that ended at the instant the wait did makes no attempt.
+		if ctx.Err() != nil {
+			return waitError(ctx)
+		}
 		return nil
 	case <-ctx.Done():
 		// Since Go 1.23 a stopped timer's channel holds no stale value, so
