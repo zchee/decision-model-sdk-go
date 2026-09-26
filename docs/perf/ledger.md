@@ -4510,6 +4510,7 @@ benchstat compares medians.
 | K36 | the traversal runs over the body cut before the root's closing brace; decoder.Skip's second scan only when the cut cannot decide | `call/sdk` 6.180 → 5.610 µs (−9.2 %); `Decode/result` 3.428 → 2.779 µs (−18.9 %); allocations unchanged | `call/sdk` 4.846 → 4.365 µs (−9.9 %); `Decode/result` 3.478 → 2.950 µs (−15.2 %); allocations unchanged | keep | 05264fe |
 | R116 store | `DecodeAs` writes each answer at the field's offset (`decodeas_store.go`), so the `T` stays on the stack | `DecodeAs` on `result.json` 184.3 → 98.3 ns (−46.6 %); 1 → 0 allocations | `DecodeAs` on `result.json` 136.2 → 82.7 ns (−39.3 %); 1 → 0 allocations | keep (owner ruling R116) | 7df5a6b |
 | N1 | the first attempt's copy of the endpoint URL and the `*SystemOneResponse` (the models page for `Models.List`) in one allocation, `systemOneAlloc` | `call/sdk` 5.621 → 5.588 µs (−0.6 %, the host's drift: `call/naive` −0.5 % in the same run); 22 → 21 allocations, bytes unchanged | `call/sdk` ~ (p = 0.579; noisy, load up to 20.83); 22 → 21 allocations | keep: N 14 → 13 | 0422123 |
+| N2 | the answer entries of a set of 1 to 4 questions in the call's allocation (`systemOneAllocWith`), given to the decode as spare room (`codec.DecodeSystemOneInto`, `wire.Answers.GrowInto`) | `call/sdk` 5.583 → 5.552 µs (~, p = 0.072; `call/naive` +0.8 % in the same run); 21 → 20 allocations, q3 bytes unchanged | `call/sdk` 4.485 → 4.413 µs (~, p = 0.123; re-taken at load 13.16, the first run noisy); 21 → 20 allocations | keep: N 13 → 12, the Rust port's | c53a291, with 69085ab |
 
 ### K36: one scan of the body (05264fe)
 
@@ -4720,6 +4721,123 @@ N1 findings:
    storage fails it, and no copy at all (the request pointing at the
    client's URL) fails it and `TestRequestURLIsCopied`.
 
+### N2: the answer entries in the call's allocation (c53a291, 69085ab)
+
+The decode allocated the array of answer entries (`wire.Answers.Grow`,
+448 B for three answers) apart from the response that holds it. For a set
+of 1 to 4 questions (`maxInlineAnswers`), `SystemOne` now allocates an
+array of that many entries in the call's allocation
+(`systemOneAllocWith[[n]wire.AnswerEntry]`, one type per size, so the
+array is exactly n entries) and gives it to the decode as spare room
+(`codec.DecodeSystemOneInto`, `wire.Answers.GrowInto`). A larger set, or a
+response with more answers than the questions asked, gets its entries from
+the decode as before. The lead's conditions arrived after c53a291 was
+pushed; 69085ab answers them, and fixes the one difference they turned up.
+
+N2 findings:
+
+1. **AC-P6: N 13 → 12 at the same bytes on both hosts** (W5.3-34,
+   W5.3-35): SDK-own 13/2 008 → 12/2 008, the call 21/2 648 → 20/2 648 in
+   5 of 5 runs a side; the call's allocation 256 → 704 B and its decode
+   4/688 → 3/240 (688 B of response, URL copy and three entries fill the
+   704 B size class, so no byte is added); q20 unchanged at 33 (20
+   questions are past the bound). A set of 1, 2 or 4 questions costs 16,
+   32 or 64 B more by size-class rounding (400, 544 and 832 B blocks in the
+   416, 576 and 896 B classes); no frozen shape has one. The pins moved in
+   c53a291 with the frozen AC-P6 row (R104): `TestAllocWholeCall` own ==
+   12, `TestAllocLoggedCall` 20/2 648, ci.yaml's comment, AC-P3's `Ask`
+   figure.
+2. **The standalone decode is unchanged** (the lead's condition 1):
+   `SystemOneResponse.UnmarshalJSON` (the JSON round trip) and AC-P2's
+   fixture decode run `codec.DecodeSystemOne` without a spare, and their
+   entries stay the decode's own allocation: `result.json` 4/688, AC-P2's
+   pin unmoved. 69085ab adds to the AC-P2 row which path its pin measures,
+   and that a call's decode of 1 to 4 questions is 3/240 inside AC-P6's
+   composition. AC-P3 re-stated: `DecodeAs` 0/0 against the `Answers()`
+   decode's 4/688 (that test decodes without a spare), `Ask` 20/2 648 =
+   `SystemOne` 20/2 648 + 0.
+3. **Lifetime and aliasing** (condition 2): the entries share one block
+   with the response and the first URL copy, so an `Answers` taken from a
+   response keeps the whole block (704 B for three questions) reachable,
+   as it kept the response and the decode's array before, the same bytes;
+   an answer value copied out holds no pointer into it. `newSystemOneAlloc`
+   says so; `TestAnswersOutliveTheirResponse` keeps an `Answers` past its
+   response through collections and reuse of freed memory, for 3 and 5
+   questions; `TestDecodeDoesNotAliasBody` now also decodes into a spare.
+   That test found the one difference: a response with no answers left the
+   call path's set as an empty slice of the spare where the standalone
+   decode leaves nil (`no-answers.json`); `GrowInto` now takes a spare
+   only for at least one entry (69085ab).
+4. **The bound** (condition 3): `TestAllocAnswersInlineBound` (new,
+   ci.yaml's root list, K38) pins a call of 4 questions at the count of 3
+   and one of 5 at one more. With all-`noul` sets answered by
+   `result.json`: 3 questions 21/2 696, 4 questions 21/2 888, 5 questions
+   22/2 696 (these sets make one more allocation than q3's mixed shape,
+   the same on both sides of the bound).
+5. **Bytes and parity** (conditions 4 and 5): the call's total stays
+   2 648 B and SDK-own 2 008 B on every run on both hosts; `TestMemStatsCap`
+   (AC-P5) passes in the gates and in ci.yaml's allocation step on (L);
+   AC-P1's encode is untouched. The wire bytes and the byte-parity tests
+   (`TestPreparedBytesMatchPython` among them) pass unchanged; `go doc -all
+   .` is unchanged (W5.3-42).
+6. **Mutants** (condition 6; W5.3-37, W5.3-40): eight fail c53a291's
+   tests, among them a shared array for three questions
+   (`TestSystemOneAnswersInline`, `TestAllocLoggedCall`) and the decode
+   ignoring the spare (`TestAllocWholeCall`, `TestAllocLoggedCall`); two
+   fail 69085ab's: a spare taken for no entries (`TestAnswersGrowInto`,
+   `TestDecodeDoesNotAliasBody`) and no inline array for four questions
+   (`TestAllocAnswersInlineBound`).
+7. **Time: within noise.** (L) `call/sdk` 5.583 → 5.552 µs (~, p =
+   0.072) with `call/naive` +0.8 % in the same run (W5.3-33). The first
+   (M) run fell in the lead's second window (10:23–10:30Z, external busy
+   loops; load 199 → 234), with my own P2 mutant runs overlapping its last
+   rounds: `noisy`, not used (W5.3-38). The re-take started at load 13.16,
+   under 16: `call/sdk` 4.485 → 4.413 µs (~, p = 0.123) (W5.3-39).
+
+### Slice 1's review pins and K41 (9f23a43)
+
+Slice 1's review (V60) found two of K36's guards without a test that
+fails when the guard is gone (MINOR 1 and 2): mutant K10, any error of the
+cut traversal taken as the cut, accepts `{"model":"m","usage":{},"x":"y"]}`
+(the whole-body path: invalid character), and mutant K9, a `\u` of three
+hex digits taken as complete, accepts `{"model":"m","usage":{},"\u123"}`
+(the whole-body path: eof). Both bodies joined the guard table of
+`TestOneScanMatchesWholeScan` and `FuzzDecodeResponse`'s testdata corpus
+(`internal/codec/testdata/fuzz/FuzzDecodeResponse/`), which leaves the fuzz
+target's source as W6.1 knows it; each mutant now fails both (W5.3-40).
+
+K41 (fuzz finding 4 (c)): `_spikes/w5.3/k41` reproduces the scanner bug
+with sonic alone, for the upstream issue, and replaces the (L) log lost at
+W5.3-16. Run on (M) (W5.3-45), darwin/arm64, sonic v1.15.4:
+
+1. **The bug is not amd64's.** A string that runs to the end of the input
+   without its closing quote, content n zeros: for n = 32, 64, 96 and 128,
+   `ast.Preorder` reports a string of n − 1 bytes, the last byte dropped,
+   and no error when the string is the whole input; inside an object it
+   reports the string and then the object's end-of-input error. For n = 0,
+   1, 31, 33, 63 and 65 it reports an error. `decoder.Skip` accepts the
+   top-level string at n = 32·k ((0, n + 1)), and for `{"":"` + 32 zeros
+   (37 bytes) returns an end of 41, past its input. `sonic.UnmarshalString`
+   refuses every case. The reviewer found the same at every 32·k from 32
+   to 288 (K41-corr).
+2. **The SDK refuses every such body.** `codec.DecodeSystemOne` refuses
+   the finding's body and its neighbours with the whole-body decode's own
+   error: `eof` for each open string in an object, and "the response is not
+   a JSON object" for a top-level one, whose string the buggy scanner
+   passes and the visitor refuses. `TestK41ScannerBoundary` pins that each
+   such body reaches the whole-body path (the one scan does not decide) and
+   gets that path's error: `cutPoint` refuses the cut when the byte before
+   it is not `{ } ] "`, and counts unescaped quotes when it is.
+3. **No production path hands sonic an open string at an end of its own
+   making.** The one scan cuts the body only where `cutPoint` has shown no
+   string is open; the whole-body traversal and `decoder.Skip` (the
+   trailing check after it) read the whole body, where an open string at
+   the end is the body's own truncation and its container is left open, so
+   the traversal fails at the end either way; the lazy pass
+   (`sonic.GetFromString`) reads only a body the traversal accepted; and
+   `ReadErrorBody` checks an error body with `wire.AppendJSON`, the SDK's
+   own scanner, before sonic sees it.
+
 | # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | W5.3-01 | 2026-09-26 08:36:53 UTC | W5.3 K36 `BenchmarkCall`, first run | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 2.49 → 9.10 | `BASE=67dcbb0 CAND=05264fe MAXLOAD=4 sh $A '(L)' $O /tmp/ts-spike/bench.lock k36-call-L internal/benchmark 5 <base tree> <cand tree> -test.run '^$' -test.bench '^BenchmarkCall$/^(sdk\|naive)(-q20)?$' -test.benchmem -test.count 2` | `call/sdk` 7.088 → 6.250 µs (−11.8 %), q20 29.89 → 26.49 µs (−11.4 %); naive unchanged; allocations 22 and 42 both sides | during W6.1's fuzz campaign on (L) (8 workers, load 2.5 → 9.1): absolute times about 15 % above W5.3-03; kept, not of record; `results/k36-call-L-{base,cand}.txt` |
@@ -4749,8 +4867,21 @@ N1 findings:
 | W5.3-25 | 2026-09-26 18:10:17 JST | W5.3 typed store mutants | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | each mutant planted in a copy of 7df5a6b's tree, then the store, AC-P3, AC-F12 and seam tests | all 6 fail: offset off by one, the next field's offset, a wider write (the two corrupt the stack: a fatal error in the AC-F12 differential; `TestStoreKeepsNeighbours` fails alone), the answer copied as bytes, the store in another file, `UnsafePointer()` in `decodeas.go` | unit tests; `results/store-mutants-M.txt` |
 | W5.3-26 | 2026-09-26 18:11:16 JST | W5.3 typed store vet, escape analysis, `-race` | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | `go vet ./...`; `go build -gcflags=-m=2 .`; `go test -c -gcflags=-m .`; `go test -race -count=1 -run 'TestStore\|TestDecodeTypedPlanMismatch\|TestDecodeAs\|Ask\|Typed\|PreparedFor' .` | vet ok; `b does not escape` in `decode`; no `moved to heap: t`; `-race` (checkptr) PASS | `results/store-escape-M.txt` |
 | W5.3-27 | 2026-09-26 09:59:35 UTC | W5.3 N1 `BenchmarkCall` | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.00 → 0.45 | `BASE=6f9a3af CAND=6ad7cf8 MAXLOAD=2 sh $A '(L)' $O /tmp/ts-spike/bench.lock n1-call-L internal/benchmark 5 <base tree> <cand tree> -test.run '^$' -test.bench '^BenchmarkCall$/^(sdk\|naive)(-q20)?$' -test.benchmem -test.count 2` | `call/sdk` 5.621 → 5.588 µs (−0.59 %, p = 0.011), `call/naive` 6.872 → 6.836 µs (−0.52 %, p = 0.035), q20 ~; allocations `call/sdk` 22 → 21, `call/sdk-q20` 42 → 41, bytes unchanged | the host's drift, alike on both sides (finding 2); `results/n1-call-L-{base,cand}.txt`, `results/batch-n1-L.log` |
-| W5.3-28 | 2026-09-26 10:01:11 UTC | W5.3 N1 AC-P6 counts, ci.yaml's allocation-budget step, `-race` | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.45 → 0.96 | under `flock /tmp/ts-spike/bench.lock`: `go test -count=5 -run '^TestAllocWholeCall$' -v .` at 6f9a3af and at 6ad7cf8; ci.yaml's allocation-budget step (extracted from the tree's ci.yaml with sed, run under `bash -eo pipefail`) and `go test -race -count=1 ./...` at 6ad7cf8 | q3 own 14/2 008 → 13/2 008 in 5 of 5 runs a side, call 22/2 648 → 21/2 648; q20 own 34 → 33; the step exits 0; `-race` passes | `results/n1-alloc-L.txt` |
-| W5.3-29 | 2026-09-26 19:02:06 JST | W5.3 N1 AC-P6 counts | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 37.48 → 37.48 | `GOEXPERIMENT=nosimd,noruntimesecret go test -count=5 -run '^TestAllocWholeCall$' -v .` at 6f9a3af and at 6ad7cf8 | as W5.3-28: own 14/2 008 → 13/2 008 in 5 of 5 runs a side; q20 34 → 33 | counts do not depend on the load (R17); `results/n1-alloc-M.txt` |
+| W5.3-28 | 2026-09-26 10:01:11 UTC | W5.3 N1 AC-P6 counts, ci.yaml's allocation-budget step, `-race` | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.45 → 0.96 | under `flock /tmp/ts-spike/bench.lock`: `go test -count=5 -run '^TestAllocWholeCall$' -v .` at 6f9a3af and at 6ad7cf8; ci.yaml's allocation-budget step (extracted from the tree's ci.yaml with sed, run under `bash -eo pipefail`) and `go test -race -count=1 ./...` at 6ad7cf8 | q3 own 14/2 008 → 13/2 008 in 5 of 5 runs a side, call 22/2 648 → 21/2 648; q20 own 34 → 33; every test of the step passes (its output; the file's `step-exit 0` is the status of the grep that filtered it, not the step's); `-race` passes | `results/n1-alloc-L.txt` |
+| W5.3-29 | 2026-09-26 19:02:06 JST | W5.3 N1 AC-P6 counts | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 37.48 → 37.48 | `GOEXPERIMENT=nosimd,noruntimesecret go test -count=5 -run '^TestAllocWholeCall$' -v .` at 6f9a3af and at 6ad7cf8 | as W5.3-28: own 14/2 008 → 13/2 008 in 5 of 5 runs a side; q20 34 → 33 | counts do not depend on the load (R17); taken inside the lead's window 10:01:13–10:02:30Z (a coverage build ran on (M) outside the lock), so re-taken as W5.3-41; `results/n1-alloc-M.txt` |
 | W5.3-30 | 2026-09-26 19:06:44 JST | W5.3 N1 `BenchmarkCall` | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 8.74 → 20.83 | `BASE=6f9a3af CAND=6ad7cf8 GOEXPERIMENT=nosimd,noruntimesecret FLOCK=$F MAXLOAD=10 sh $A '(M)' $O $SP/bench.lock n1-call-M internal/benchmark 5 <base tree> <cand tree> -test.run '^$' -test.bench '^BenchmarkCall$/^(sdk\|naive)(-q20)?$' -test.benchmem -test.count 2` | `call/sdk` 4.637 → 4.644 µs (~, p = 0.579), `call/naive` ~, q20 ~; allocations 22 → 21 and 42 → 41 | **noisy**: the load rose above 16 during the run (± 693 % on one side); waited 4 × 60 s for load ≤ 10; `results/n1-call-M-{base,cand}.txt` |
 | W5.3-31 | 2026-09-26 18:59:17 JST | W5.3 N1 gates | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 89.65 → – | as W5.3-08, at 6ad7cf8 | every gate ok | load 89.7 at the start from other lanes (counts do not depend on it, R17); the modernize trace lines are left out of the copy; `results/gates-M-6ad7cf8.txt` |
 | W5.3-32 | 2026-09-26 18:19:08 JST | W5.3 N1 mutants | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | each mutant planted in the working tree, then `go vet .` and the root package's unit tests | both fail: the retry reusing the call's URL storage (`TestRetryURLIsCopied`); no copy, the request pointing at the client's URL (`TestRequestURLIsCopied`, `TestRetryURLIsCopied`) | `results/n1-mutants-M.txt` |
+| W5.3-33 | 2026-09-26 10:17:08 UTC | W5.3 N2 `BenchmarkCall` | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 1.87 → 1.59 | `BASE=1500b71 CAND=c53a291 MAXLOAD=2 sh $A '(L)' $O /tmp/ts-spike/bench.lock n2-call-L internal/benchmark 5 <base tree> <cand tree> -test.run '^$' -test.bench '^BenchmarkCall$/^(sdk\|naive)(-q20)?$' -test.benchmem -test.count 2` | `call/sdk` 5.583 → 5.552 µs (~, p = 0.072), `call/naive` 6.840 → 6.897 µs (+0.83 %, p = 0.023), q20 ~; allocations 21 → 20, q20 41 → 41; `call/sdk` B/op 2.885 → 2.893 KiB | waited 1 × 60 s for load ≤ 2; `results/n2-call-L-{base,cand}.txt`, `results/batch-n2-L.log` |
+| W5.3-34 | 2026-09-26 10:18:44 UTC | W5.3 N2 AC-P6 and AC-P3 counts, ci.yaml's allocation step, `-race` | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 1.59 → 1.46 | under `flock /tmp/ts-spike/bench.lock`: `go test -count=5 -run '^(TestAllocWholeCall\|TestAllocTypedDecode)$' -v .` at 1500b71 and at c53a291; ci.yaml's allocation step (as W5.3-28) and `go test -race -count=1 ./...` at c53a291 | q3 own 13/2 008 → 12/2 008 in 5 of 5 runs a side, call 21/2 648 → 20/2 648, the call's allocation 1/256 → 1/704 and its decode 4/688 → 3/240; q20 own 33 → 33; `DecodeAs` 0/0 against the `Answers()` decode's 4/688, `Ask` 21/2 648 → 20/2 648; every test of the step passes (its output; `step-exit` is grep's status, as W5.3-28); `-race` passes | `results/n2-alloc-L.txt` |
+| W5.3-35 | 2026-09-26 19:16:17 JST | W5.3 N2 AC-P6 and AC-P3 counts | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 9.43 → 9.43 | `GOEXPERIMENT=nosimd,noruntimesecret go test -count=5 -run '^(TestAllocWholeCall\|TestAllocTypedDecode)$' -v .` at 1500b71 and at c53a291 | as W5.3-34 | counts (R17); `results/n2-alloc-M.txt` |
+| W5.3-36 | 2026-09-26 19:16:26 JST | W5.3 N2 gates | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 9.65 → – | as W5.3-08, at c53a291 | every gate ok | `results/gates-M-c53a291.txt` |
+| W5.3-37 | 2026-09-26 19:14:06 JST | W5.3 N2 mutants | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | each mutant planted in a copy of the working tree, then `go vet ./...` and the N2 and allocation tests of the root package, `internal/wire` and `internal/codec` | all 8 fail: a shared array for three questions; `GrowInto` taking a spare from a set with entries, taking a spare too small, keeping the spare's length; `SystemOne` passing no spare; `finish` ignoring the spare; a four-entry array for three questions; no inline case for three questions | in the first run a spare kept at its length survived (every caller passes a length of 0) and `SystemOne` passing no spare did not compile; `TestAnswersGrowInto` gained a spare with a length and the mutant was rewritten to compile, before the commit; `results/n2-mutants-M.txt` |
+| W5.3-38 | 2026-09-26 19:26:20 JST | W5.3 N2 `BenchmarkCall`, first run | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 199.48 → 234.30 | as W5.3-39 | `call/sdk` 11.13 → 11.56 µs (~); allocations 21 → 20 | **noisy**, not used: the lead's window 10:23–10:30Z (external `node -e` busy loops saturated (M)) after 5 × 60 s of waiting; my own P2 mutant runs overlapped rounds 3 to 5; `results/n2-call-M-noisy-{base,cand}.txt` |
+| W5.3-39 | 2026-09-26 19:42:32 JST | W5.3 N2 `BenchmarkCall`, re-taken | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 13.16 → 6.12 | `BASE=1500b71 CAND=c53a291 GOEXPERIMENT=nosimd,noruntimesecret FLOCK=$F MAXLOAD=10 sh $A '(M)' $O $SP/bench.lock n2-call-M internal/benchmark 5 <base tree> <cand tree> -test.run '^$' -test.bench '^BenchmarkCall$/^(sdk\|naive)(-q20)?$' -test.benchmem -test.count 2` | `call/sdk` 4.485 → 4.413 µs (~, p = 0.123), `call/naive` ~, q20 ~; allocations 21 → 20, q20 41 → 41 | waited 5 × 60 s for load ≤ 10 and started at 13.16, under the lead's 16; `results/n2-call-M-{base,cand}.txt` |
+| W5.3-40 | 2026-09-26 19:45:20 JST | W5.3 mutants of 69085ab and 9f23a43 | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | each mutant planted in a copy of the working tree, then `go vet` and the one-scan, K41, aliasing, fuzz-seed and N2 tests | all 5 fail: K10 (any error of the cut traversal taken as the cut) and K9 (a `\\u` of three hex digits taken as complete), each on its guard-table row and its testdata corpus entry; no quote-parity check in `cutPoint`; a spare taken for no entries; no inline array for four questions | `results/review-mutants-M.txt` |
+| W5.3-41 | 2026-09-26 19:47:59 JST | W5.3 N1 AC-P6 counts, re-taken | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 111.70 → 111.70 | as W5.3-29, at 6f9a3af and at 1500b71 (0422123's code) | as W5.3-29: own 14/2 008 → 13/2 008 in 5 of 5 runs a side, call 22/2 648 → 21/2 648 | re-takes W5.3-29, which fell in the lead's window 10:01:13–10:02:30Z; counts do not depend on the load (R17), the load was from other work; `results/n1-alloc-M-retake.txt` |
+| W5.3-42 | 2026-09-26 20:07:26 JST | W5.3 public API | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | `GOEXPERIMENT=nosimd,noruntimesecret go doc -all .` in detached worktrees at 67dcbb0 (the base) and at 9f23a43 | identical, 1 785 lines, the same SHA-256 | `results/godoc-M.txt` |
+| W5.3-43 | 2026-09-26 19:54:15 JST | W5.3 gates of 69085ab | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 5.55 → – | as W5.3-08, at 69085ab | every gate ok | `results/gates-M-69085ab.txt` |
+| W5.3-44 | 2026-09-26 19:55:32 JST | W5.3 gates of 9f23a43 | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.41 → – | as W5.3-08, at 9f23a43 | every gate ok | `results/gates-M-9f23a43.txt` |
+| W5.3-45 | 2026-09-26 19:47:08 JST | W5.3 K41 reproduction | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | `GOEXPERIMENT=nosimd,noruntimesecret go run ./_spikes/w5.3/k41`, the program as 9f23a43 commits it, run from the working tree before that commit | findings 1 and 2 of the K41 section: `ast.Preorder` takes the open string as complete at n = 32, 64, 96, 128 and at no other n tried; `decoder.Skip` accepts it at n = 32·k and reports an end past a 37-byte input; the codec refuses all 5 bodies | `results/k41-repro-M.txt` |
