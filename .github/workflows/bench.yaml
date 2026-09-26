@@ -114,11 +114,12 @@ jobs:
           exit "$fail"
 
       # AC-P7, report-only until K7 is met, so the step never fails the job.
-      # CodSpeed's report shows a row's minimum; go test's ns/op, which AC-P6
-      # reads, is the mean. The table gives both, and the median, for the
-      # BenchmarkCall rows, with the facts a ledger row needs: hosted runners
-      # differ in CPU model from run to run. The log also lists every row the
-      # results hold, under the name CodSpeed keys its history by.
+      # CodSpeed's report shows a row's minimum; AC-P7 reads the mean, which
+      # is go test's ns/op and AC-P6's basis (ruling R108). The table gives
+      # both, and the median, for the BenchmarkCall rows, with the facts a
+      # ledger row needs: hosted runners differ in CPU model from run to run.
+      # The log also lists every row the results hold, under the name CodSpeed
+      # keys its history by.
       - name: Report AC-P7 (report-only)
         continue-on-error: true
         run: |
@@ -134,16 +135,16 @@ jobs:
             jq -rs '
               [.[].benchmarks[] | select(.uri | startswith("internal/benchmark/call_test.go::BenchmarkCall::"))
                 | {key: (.uri | split("::")[2]), value: .stats}] | from_entries as $c
-              | def ns($s): if $s == null then "–" else ($s | round | tostring) end;
+              | def us($s): if $s == null then "–" else ($s | round / 1000 | tostring) end;
                 def ratio($a; $b; $f):
                   if $c[$a] == null or $c[$b] == null then "–"
                   else ($c[$a][$f] / $c[$b][$f] * 1000 | round / 1000 | tostring) end;
-                "| `BenchmarkCall` row | min ns | median ns | mean ns | rounds |",
+                "| `BenchmarkCall` row | min µs | median µs | mean µs | rounds |",
                 "| --- | ---: | ---: | ---: | ---: |",
                 (["sdk", "naive", "naive-json", "floor", "sdk-q20", "naive-q20", "naive-json-q20", "floor-q20"][] as $r
-                  | "| \($r) | \(ns($c[$r].min_ns)) | \(ns($c[$r].median_ns)) | \(ns($c[$r].mean_ns)) | \($c[$r].rounds // "–") |"),
+                  | "| \($r) | \(us($c[$r].min_ns)) | \(us($c[$r].median_ns)) | \(us($c[$r].mean_ns)) | \($c[$r].rounds // "–") |"),
                 "",
-                "| Ratio, below 1 = sdk faster | min | median | mean |",
+                "| Ratio, below 1 = sdk faster | min | median | mean (AC-P7, R108) |",
                 "| --- | ---: | ---: | ---: |",
                 (["", "-q20"][] as $q
                   | "| sdk\($q) / naive\($q) | \(ratio("sdk\($q)"; "naive\($q)"; "min_ns")) | \(ratio("sdk\($q)"; "naive\($q)"; "median_ns")) | \(ratio("sdk\($q)"; "naive\($q)"; "mean_ns")) |")' \
