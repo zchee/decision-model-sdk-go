@@ -119,9 +119,9 @@ IDs that the plan's waves cite.
 
 | ID | Upstream | Go test / deviation | status |
 | --- | --- | --- | --- |
-| P1 | `test_standalone_pydantic_response_model` | `TestDecodeAsWithSeparateQuestions` (questions built separately; `DecodeAs[KnownResponse]`; extra answer members ignored) | planned |
+| P1 | `test_standalone_pydantic_response_model` | `TestDecodeAsWithSeparateQuestions` (questions built separately; `DecodeAs[KnownResponse]`; extra answer members ignored; the field is tagged `name=spam`, since a question's default name is the Go field name as written, W4.1) | planned |
 | P2 | `test_explicit_default_response_model` | `TestSystemOneDefaultResponse` | planned |
-| P3 | `test_pydantic_system_one_response_subclass` | `TestDecodeAsOptionalFieldAndUnknownAnswer` (`optional` field absent → `Present() == false`; user struct with `options=friendly\|hostile`; unknown `future` type dropped; `Answers()` still complete; request id kept) | planned |
+| P3 | `test_pydantic_system_one_response_subclass` | `TestDecodeAsOptionalFieldAndUnknownAnswer` (`optional` field absent → `Present() == false`; user struct with `options=friendly\|hostile`; unknown `future` type dropped; `Answers()` still complete; request id kept; fields tagged `name=spam`, `name=tone`, `name=missing` as in P1; W4.1 records `optional` in the plan, W4.2 decodes it) | planned |
 | P4 | `test_pydantic_response_validation` | `TestAskValidationFieldPaths` | planned |
 | P5 | `test_custom_response_preserves_api_errors` | `TestAskPreservesAPIErrors` | planned |
 
@@ -243,4 +243,4 @@ IDs that the plan's waves cite.
 
 | ID | Upstream | Go test / deviation | status |
 | --- | --- | --- | --- |
-| XT1 | `test_public_typing` | negative expectations → the 13 + 3 runtime `*ConfigError` rejections of AC-F8 (upstream `tests/typing/negative/*` reviewed for Go analogues in W4.1); the three positive fixtures (`valid.py`, `transport.py`, `pydantic_response_models.py`) → `go vet ./examples/...` (W6.4) | planned |
+| XT1 | `test_public_typing` | negative expectations → the 13 + 3 runtime `*ConfigError` rejections of AC-F8 (upstream `tests/typing/negative/*` reviewed for Go analogues in W4.1: the 27 expectations are mapped line by line in the comment above `TestPreparedForRejections`; 2 → rejection 10 (`response_model=int`), 1 → rejection 4, 5 → a Go compile error whose tag analogue is rejection 5, 7 (three) or 13, 16 → a Go compile error or not representable (retry types, the sync/async client split, a value as a type argument, list/dict criteria, a non-string type, transport return types), 2 → `*InvalidRequestError` for a nil state (W1.2), 1 → accepted, as Python's runtime accepts a choice with empty criteria); the three positive fixtures (`valid.py`, `transport.py`, `pydantic_response_models.py`) → `go vet ./examples/...` (W6.4) | planned |
