@@ -26,3 +26,9 @@ func StdlibMarshal(v any) ([]byte, error) { return json.Marshal(v) }
 // StdlibUnmarshal returns encoding/json's Unmarshal of data into v; see
 // [StdlibMarshal].
 func StdlibUnmarshal(data []byte, v any) error { return json.Unmarshal(data, v) }
+
+// StdlibRawMessage returns data as a json.RawMessage boxed in an any, the
+// request state kind that reaches the SDK's encoder as a json.Marshaler
+// (the root package's AC-P1 tests; see [StdlibMarshal] for why they cannot
+// name the type).
+func StdlibRawMessage(data []byte) any { return json.RawMessage(data) }

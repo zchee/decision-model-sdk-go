@@ -158,15 +158,16 @@ jobs:
       - name: go test without -race (root allocation budgets)
         run: |
           tests=(
-            TestAllocPrepare        # Prepare's pinned counts (ruling R50)
-            TestAllocBodyKinds      # AC-P1 at 1 KiB, the request body (W1.2)
-            TestAllocDecodeFixtures # AC-P2 (W2.0)
-            TestLinearityFlood      # AC-P8 (W2.0)
-            TestAllocWholeCall      # AC-P6, N = 14 (W3.4)
-            TestMemStatsCap         # AC-P5 (W2.3)
-            TestAllocResponseJSON   # response payloads (W2.4)
-            TestAllocTypedDecode    # AC-P3 (W4.2)
-            TestAllocLoggedCall     # what logging costs a call (W3.3, ruling R102)
+            TestAllocPrepare         # Prepare's pinned counts (ruling R50)
+            TestAllocEncode          # AC-P1 single size, every state kind (W5.2)
+            TestAllocScratchSequence # AC-P1 mixed-size sequence (W5.2)
+            TestAllocDecodeFixtures  # AC-P2 (W2.0)
+            TestLinearityFlood       # AC-P8 (W2.0)
+            TestAllocWholeCall       # AC-P6, N = 14 (W3.4)
+            TestMemStatsCap          # AC-P5 (W2.3)
+            TestAllocResponseJSON    # response payloads (W2.4)
+            TestAllocTypedDecode     # AC-P3 (W4.2)
+            TestAllocLoggedCall      # what logging costs a call (W3.3, ruling R102)
           )
           pattern="^($(IFS='|'; echo "${tests[*]}"))\$"
           listed="$(go test -list "$pattern" . | grep -c '^Test')" || true
