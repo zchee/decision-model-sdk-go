@@ -18,6 +18,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -30,6 +31,7 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
+	"github.com/zchee/typesafe-sdk-go/internal/h2gate"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
@@ -443,6 +445,12 @@ func TestRetryPolicyDefaults(t *testing.T) {
 	if none := DefaultRetry().Statuses(); none.retriesStatus(503) || none.retriesStatus(429) {
 		t.Error("Statuses() with no codes still retries a status")
 	}
+	// A 2xx in the set is never retried by status. The loop cannot reach
+	// this through a response (a 2xx is not an *APIError) unless a caller's
+	// transport returns an SDK error itself.
+	if ok := DefaultRetry().Statuses(200, 204); ok.retriesStatus(200) || ok.retriesStatus(204) {
+		t.Error("Statuses(200, 204) retries a 2xx by status")
+	}
 }
 
 // TestZeroBackoffRetriesAtOnce ports test_zero_backoff_retries (RT2): a zero
@@ -451,38 +459,40 @@ func TestRetryPolicyDefaults(t *testing.T) {
 func TestZeroBackoffRetriesAtOnce(t *testing.T) {
 	tests := map[string]struct {
 		initial, maximum time.Duration
+		recover          bool
 	}{
-		"success: zero initial":             {initial: 0, maximum: 5 * time.Second},
-		"success: zero maximum":             {initial: 500 * time.Millisecond, maximum: 0},
-		"success: zero initial and maximum": {initial: 0, maximum: 0},
+		"success: zero initial, the retry recovers":              {initial: 0, maximum: 5 * time.Second, recover: true},
+		"error: zero initial, the retry fails again":             {initial: 0, maximum: 5 * time.Second},
+		"success: zero maximum, the retry recovers":              {initial: 500 * time.Millisecond, maximum: 0, recover: true},
+		"error: zero maximum, the retry fails again":             {initial: 500 * time.Millisecond, maximum: 0},
+		"success: zero initial and maximum, the retry recovers":  {recover: true},
+		"error: zero initial and maximum, the retry fails again": {},
 	}
 	for name, tt := range tests {
-		for _, recover := range []bool{false, true} {
-			t.Run(name+" recover="+strconv.FormatBool(recover), func(t *testing.T) {
-				synctest.Test(t, func(t *testing.T) {
-					replies := []testsupport.Reply{rtReply(503, `{"message": "temporarily unavailable"}`)}
-					if recover {
-						replies = append(replies, rtReply(200, `{"models":[]}`))
+		t.Run(name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				replies := []testsupport.Reply{rtReply(503, `{"message": "temporarily unavailable"}`)}
+				if tt.recover {
+					replies = append(replies, rtReply(200, `{"models":[]}`))
+				}
+				log := &attemptLog{rec: &testsupport.Recorder{Replies: replies}}
+				c := newTestClient(t, log, WithRetry(DefaultRetry().MaxRetries(1).Backoff(tt.initial, tt.maximum, 0.25)))
+				resp, err := c.Models().List(bubbleCtx(t))
+				if tt.recover {
+					if err != nil || len(resp.Models()) != 0 {
+						t.Fatalf("List = %v, %v; want no models", resp, err)
 					}
-					log := &attemptLog{rec: &testsupport.Recorder{Replies: replies}}
-					c := newTestClient(t, log, WithRetry(DefaultRetry().MaxRetries(1).Backoff(tt.initial, tt.maximum, 0.25)))
-					resp, err := c.Models().List(bubbleCtx(t))
-					if recover {
-						if err != nil || len(resp.Models()) != 0 {
-							t.Fatalf("List = %v, %v; want no models", resp, err)
-						}
-					} else if ae, ok := errors.AsType[*APIError](err); !ok || !strings.Contains(ae.Error(), "temporarily unavailable") {
-						t.Fatalf("List error = %T %v, want the 503's *APIError", err, err)
-					}
-					if diff := gocmp.Diff(wantCounts(2), retryCounts(log.rec.Requests())); diff != "" {
-						t.Errorf("X-TypeSafe-Retry-Count (-want +got):\n%s", diff)
-					}
-					if diff := gocmp.Diff([]time.Duration{0}, waits(log.attempts(), 0)); diff != "" {
-						t.Errorf("waits (-want +got):\n%s", diff)
-					}
-				})
+				} else if ae, ok := errors.AsType[*APIError](err); !ok || !strings.Contains(ae.Error(), "temporarily unavailable") {
+					t.Fatalf("List error = %T %v, want the 503's *APIError", err, err)
+				}
+				if diff := gocmp.Diff(wantCounts(2), retryCounts(log.rec.Requests())); diff != "" {
+					t.Errorf("X-TypeSafe-Retry-Count (-want +got):\n%s", diff)
+				}
+				if diff := gocmp.Diff([]time.Duration{0}, waits(log.attempts(), 0)); diff != "" {
+					t.Errorf("waits (-want +got):\n%s", diff)
+				}
 			})
-		}
+		})
 	}
 }
 
@@ -495,17 +505,23 @@ func TestZeroBackoffRetriesAtOnce(t *testing.T) {
 func TestRetryBudgetStopsBeforeDelay(t *testing.T) {
 	tests := map[string]struct {
 		budget   time.Duration // zero: NoBudget
+		defaults bool          // DefaultRetry() as it is: its own 30 s budget
 		duration time.Duration
 		delay    string // Retry-After, in seconds as Python's str(float) spells it
 		wait     time.Duration
 		attempts int
 	}{
-		"success: no budget, max_retries stops":          {budget: 0, duration: time.Second, delay: "0.5", wait: 500 * time.Millisecond, attempts: 3},
-		"success: 30s budget stops at 25s + 5s":          {budget: 30 * time.Second, duration: 10 * time.Second, delay: "5.0", wait: 5 * time.Second, attempts: 2},
-		"success: 2.5s budget stops at 2s + 0.5s":        {budget: 2500 * time.Millisecond, duration: 750 * time.Millisecond, delay: "0.5", wait: 500 * time.Millisecond, attempts: 2},
-		"success: a zero wait still counts elapsed time": {budget: 2 * time.Second, duration: time.Second, delay: "0.0", wait: 0, attempts: 2},
-		"success: a wait equal to the budget stops":      {budget: time.Second, duration: 0, delay: "1.0", wait: time.Second, attempts: 1},
-		"success: a server wait over the budget stops":   {budget: time.Second, duration: 0, delay: "60.0", wait: time.Minute, attempts: 1},
+		"error: no budget, max_retries stops":          {budget: 0, duration: time.Second, delay: "0.5", wait: 500 * time.Millisecond, attempts: 3},
+		"error: 30s budget stops at 25s + 5s":          {budget: 30 * time.Second, duration: 10 * time.Second, delay: "5.0", wait: 5 * time.Second, attempts: 2},
+		"error: 2.5s budget stops at 2s + 0.5s":        {budget: 2500 * time.Millisecond, duration: 750 * time.Millisecond, delay: "0.5", wait: 500 * time.Millisecond, attempts: 2},
+		"error: a zero wait still counts elapsed time": {budget: 2 * time.Second, duration: time.Second, delay: "0.0", wait: 0, attempts: 2},
+		"error: a wait equal to the budget stops":      {budget: time.Second, duration: 0, delay: "1.0", wait: time.Second, attempts: 1},
+		"error: a server wait over the budget stops":   {budget: time.Second, duration: 0, delay: "60.0", wait: time.Minute, attempts: 1},
+		// The default budget is 30 s exactly: 10 s + 20 s reaches it, and
+		// 10 s + 19.999 s does not, while 10 s + 19.999 s + 10 s + 19.999 s
+		// does.
+		"error: the default budget stops at 10s + 20s":   {defaults: true, duration: 10 * time.Second, delay: "20.0", wait: 20 * time.Second, attempts: 1},
+		"error: the default budget allows 10s + 19.999s": {defaults: true, duration: 10 * time.Second, delay: "19.999", wait: 19999 * time.Millisecond, attempts: 2},
 	}
 	for name, tt := range tests {
 		for resource, call := range resources(t) {
@@ -523,7 +539,10 @@ func TestRetryBudgetStopsBeforeDelay(t *testing.T) {
 					}}
 					log := &attemptLog{rec: rec}
 					policy := DefaultRetry().Budget(tt.budget)
-					if tt.budget == 0 {
+					switch {
+					case tt.defaults:
+						policy = DefaultRetry()
+					case tt.budget == 0:
 						policy = DefaultRetry().NoBudget()
 					}
 					// No per-attempt deadline: an attempt's own duration is
@@ -602,36 +621,43 @@ func TestPerCallBudgetOverride(t *testing.T) {
 
 // TestDefaultRetryStatuses ports test_default_retry_statuses (RT8): under
 // the production policy 408, 429 and 5xx are tried three times and other
-// statuses once, the last error keeping its status, and only retries carry
-// X-TypeSafe-Retry-Count.
+// statuses once, the last error keeping its status, only retries carry
+// X-TypeSafe-Retry-Count, and each retry waits the Retry-After-Ms of the
+// response before it, whatever its status.
 func TestDefaultRetryStatuses(t *testing.T) {
 	tests := map[string]struct {
 		status, attempts int
 	}{
-		"success: 408 retried": {status: 408, attempts: 3},
-		"success: 429 retried": {status: 429, attempts: 3},
-		"success: 500 retried": {status: 500, attempts: 3},
-		"success: 503 retried": {status: 503, attempts: 3},
-		"success: 599 retried": {status: 599, attempts: 3},
-		"success: 400 once":    {status: 400, attempts: 1},
-		"success: 401 once":    {status: 401, attempts: 1},
-		"success: 403 once":    {status: 403, attempts: 1},
-		"success: 404 once":    {status: 404, attempts: 1},
-		"success: 409 once":    {status: 409, attempts: 1},
-		"success: 422 once":    {status: 422, attempts: 1},
-		"success: 302 once":    {status: 302, attempts: 1},
+		"error: 408 retried": {status: 408, attempts: 3},
+		"error: 429 retried": {status: 429, attempts: 3},
+		"error: 500 retried": {status: 500, attempts: 3},
+		"error: 503 retried": {status: 503, attempts: 3},
+		"error: 599 retried": {status: 599, attempts: 3},
+		"error: 400 once":    {status: 400, attempts: 1},
+		"error: 401 once":    {status: 401, attempts: 1},
+		"error: 403 once":    {status: 403, attempts: 1},
+		"error: 404 once":    {status: 404, attempts: 1},
+		"error: 409 once":    {status: 409, attempts: 1},
+		"error: 422 once":    {status: 422, attempts: 1},
+		"error: 302 once":    {status: 302, attempts: 1},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				rec := &testsupport.Recorder{Replies: []testsupport.Reply{rtReply(tt.status, `{"message": "failed"}`, "Retry-After-Ms", "0")}}
-				c := newTestClient(t, rec, WithRetry(DefaultRetry()))
+				log := &attemptLog{rec: rec}
+				c := newTestClient(t, log, WithRetry(DefaultRetry()))
 				err := listCall(bubbleCtx(t), c)
 				if ae, ok := errors.AsType[*APIError](err); !ok || ae.StatusCode != tt.status {
 					t.Fatalf("error = %T %v, want a %d *APIError", err, err, tt.status)
 				}
 				if diff := gocmp.Diff(wantCounts(tt.attempts), retryCounts(rec.Requests())); diff != "" {
 					t.Errorf("X-TypeSafe-Retry-Count (-want +got):\n%s", diff)
+				}
+				// Retry-After-Ms: 0 holds for every status, where the
+				// backoff would wait 500 ms, then 1 s.
+				if diff := gocmp.Diff(make([]time.Duration, tt.attempts-1), waits(log.attempts(), 0)); diff != "" {
+					t.Errorf("waits (-want +got):\n%s", diff)
 				}
 				assertAttempts(t, c, tt.attempts)
 			})
@@ -800,8 +826,8 @@ func TestPerCallRetryPolicyOverride(t *testing.T) {
 	tests := map[string]struct {
 		clientAttempts, callAttempts int
 	}{
-		"success: client 1, call 3": {clientAttempts: 1, callAttempts: 3},
-		"success: client 3, call 1": {clientAttempts: 3, callAttempts: 1},
+		"error: client 1, call 3": {clientAttempts: 1, callAttempts: 3},
+		"error: client 3, call 1": {clientAttempts: 3, callAttempts: 1},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -1312,9 +1338,9 @@ func TestMaxRetriesCountsAttempts(t *testing.T) {
 	tests := map[string]struct {
 		maxRetries, attempts int
 	}{
-		"success: 0 retries, 1 attempt":  {maxRetries: 0, attempts: 1},
-		"success: 1 retry, 2 attempts":   {maxRetries: 1, attempts: 2},
-		"success: 4 retries, 5 attempts": {maxRetries: 4, attempts: 5},
+		"error: 0 retries, 1 attempt":  {maxRetries: 0, attempts: 1},
+		"error: 1 retry, 2 attempts":   {maxRetries: 1, attempts: 2},
+		"error: 4 retries, 5 attempts": {maxRetries: 4, attempts: 5},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -1338,8 +1364,8 @@ func TestCustomStatusesReplaceDefault(t *testing.T) {
 	tests := map[string]struct {
 		status, attempts int
 	}{
-		"success: 409 retried":     {status: 409, attempts: 3},
-		"success: 500 not retried": {status: 500, attempts: 1},
+		"error: 409 retried":     {status: 409, attempts: 3},
+		"error: 500 not retried": {status: 500, attempts: 1},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -1367,9 +1393,9 @@ func TestPerCallMaxRetries(t *testing.T) {
 		status       int
 		attempts     int
 	}{
-		"success: max_retries 0 on the call": {client: DefaultRetry().MaxRetries(2), call: DefaultRetry().MaxRetries(0), status: 429, attempts: 1},
-		"success: NoRetry on the call":       {client: DefaultRetry(), call: NoRetry(), status: 503, attempts: 1},
-		"success: the call's default statuses, not the client's 409 alone": {
+		"error: max_retries 0 on the call": {client: DefaultRetry().MaxRetries(2), call: DefaultRetry().MaxRetries(0), status: 429, attempts: 1},
+		"error: NoRetry on the call":       {client: DefaultRetry(), call: NoRetry(), status: 503, attempts: 1},
+		"error: the call's default statuses, not the client's 409 alone": {
 			client: DefaultRetry().Statuses(409), call: DefaultRetry(), status: 429, attempts: 3,
 		},
 	}
@@ -1402,25 +1428,27 @@ func TestPredicateOptsIn(t *testing.T) {
 	}
 	anyAPIError := func(err error) bool { _, ok := errors.AsType[*APIError](err); return ok }
 	anyValidation := func(err error) bool { _, ok := errors.AsType[*ResponseValidationError](err); return ok }
+	anyTooLarge := func(err error) bool { _, ok := errors.AsType[*ResponseTooLargeError](err); return ok }
 	always := func(error) bool { return true }
 	tests := map[string]struct {
 		policy   RetryPolicy
+		client   []ClientOption
 		reply    testsupport.Reply
 		attempts int
 		// asked is how often the predicate is called, -1 to leave it out.
 		asked int
 		check func(t *testing.T, err error)
 	}{
-		"success: a predicate retries a 404": {
+		"error: a predicate retries a 404": {
 			policy: DefaultRetry().MaxRetries(1), reply: rtReply(404, `{"message": "gone"}`, "Retry-After-Ms", "0"), attempts: 2, asked: 2,
 		},
-		"success: a type test in place of exceptions={TypeSafeAPIError}": {
+		"error: a type test in place of exceptions={TypeSafeAPIError}": {
 			policy: DefaultRetry().MaxRetries(1).Predicate(anyAPIError), reply: rtReply(404, `{"message": "gone"}`, "Retry-After-Ms", "0"), attempts: 2, asked: -1,
 		},
-		"success: the predicate is not asked about an error the rules retry": {
+		"error: the predicate is not asked about an error the rules retry": {
 			policy: DefaultRetry().MaxRetries(1), reply: rtReply(503, `{}`, "Retry-After-Ms", "0"), attempts: 2, asked: 0,
 		},
-		"success: a 2xx in the status set is never retried": {
+		"error: a 2xx in the status set is never retried": {
 			policy: DefaultRetry().MaxRetries(1).Statuses(200), reply: rtReply(200, `{"models": 1}`, "Retry-After-Ms", "0"), attempts: 1, asked: -1,
 			check: func(t *testing.T, err error) {
 				if _, ok := errors.AsType[*ResponseValidationError](err); !ok {
@@ -1428,10 +1456,19 @@ func TestPredicateOptsIn(t *testing.T) {
 				}
 			},
 		},
-		"success: a predicate opts a 2xx that does not validate in": {
+		"error: a predicate opts a 2xx that does not validate in, and its Retry-After holds": {
 			policy: DefaultRetry().MaxRetries(1).Predicate(anyValidation), reply: rtReply(200, `{"models": 1}`, "Retry-After-Ms", "0"), attempts: 2, asked: -1,
 		},
-		"success: a predicate cannot retry a cancellation": {
+		"error: a predicate opts a 2xx over the size limit in, and its Retry-After holds": {
+			policy: DefaultRetry().MaxRetries(1).Predicate(anyTooLarge), client: []ClientOption{WithMaxResponseBytes(8)},
+			reply: rtReply(200, `{"models":[]}`, "Retry-After-Ms", "0"), attempts: 2, asked: -1,
+			check: func(t *testing.T, err error) {
+				if _, ok := errors.AsType[*ResponseTooLargeError](err); !ok {
+					t.Errorf("error = %T %v, want a *ResponseTooLargeError", err, err)
+				}
+			},
+		},
+		"error: a predicate cannot retry a cancellation": {
 			policy: DefaultRetry().MaxRetries(1).Predicate(always), reply: testsupport.Reply{Err: context.Canceled}, attempts: 1, asked: -1,
 			check: func(t *testing.T, err error) {
 				if !errors.Is(err, context.Canceled) {
@@ -1455,7 +1492,8 @@ func TestPredicateOptsIn(t *testing.T) {
 					})
 				}
 				rec := &testsupport.Recorder{Replies: []testsupport.Reply{tt.reply}}
-				c := newTestClient(t, rec, WithRetry(policy))
+				log := &attemptLog{rec: rec}
+				c := newTestClient(t, log, append([]ClientOption{WithRetry(policy)}, tt.client...)...)
 				err := listCall(bubbleCtx(t), c)
 				if err == nil {
 					t.Fatal("List succeeded, want an error")
@@ -1463,8 +1501,90 @@ func TestPredicateOptsIn(t *testing.T) {
 				if n := rec.Count(); n != tt.attempts {
 					t.Errorf("%d attempts, want %d", n, tt.attempts)
 				}
+				// Every reply asks for no wait, where the backoff would
+				// wait 500 ms: the server's wait holds for every class a
+				// response carries, the opted-in ones included.
+				if diff := gocmp.Diff(make([]time.Duration, tt.attempts-1), waits(log.attempts(), 0)); diff != "" {
+					t.Errorf("waits (-want +got):\n%s", diff)
+				}
 				if tt.asked >= 0 && asked != tt.asked {
 					t.Errorf("the predicate was asked %d times, want %d", asked, tt.asked)
+				}
+				if tt.check != nil {
+					tt.check(t, err)
+				}
+			})
+		})
+	}
+}
+
+// TestRetryClassSwitches pins the settings that turn a built-in class off,
+// and the classes no setting turns on: ConnectionErrors(false) leaves a
+// *ConnectionError to one attempt and a *TimeoutError retried, and
+// TimeoutErrors(false) the reverse, as the Python SDK checks its timeout
+// class first (py:_core/retry.py:100-109); Predicate(nil) removes a
+// predicate; and the transport's refusal of a host that did not negotiate
+// HTTP/2, a *ConfigError wrapping ErrHTTP2NotNegotiated (section 6.3), is
+// never retried under the production policy.
+func TestRetryClassSwitches(t *testing.T) {
+	is404 := func(err error) bool {
+		ae, ok := errors.AsType[*APIError](err)
+		return ok && ae.StatusCode == http.StatusNotFound
+	}
+	connection := testsupport.Reply{Err: errors.New("connection refused")}
+	timeout := testsupport.Reply{Err: netTimeout{}}
+	tests := map[string]struct {
+		policy   RetryPolicy
+		reply    testsupport.Reply
+		attempts int
+		check    func(t *testing.T, err error)
+	}{
+		"error: ConnectionErrors(false) makes a connection error final": {
+			policy: DefaultRetry().ConnectionErrors(false), reply: connection, attempts: 1,
+			check: func(t *testing.T, err error) {
+				if _, ok := errors.AsType[*ConnectionError](err); !ok {
+					t.Errorf("error = %T %v, want a *ConnectionError", err, err)
+				}
+			},
+		},
+		"error: ConnectionErrors(false) leaves timeouts retried": {
+			policy: DefaultRetry().ConnectionErrors(false), reply: timeout, attempts: 3,
+		},
+		"error: TimeoutErrors(false) makes a timeout final": {
+			policy: DefaultRetry().TimeoutErrors(false), reply: timeout, attempts: 1,
+			check: func(t *testing.T, err error) {
+				if _, ok := errors.AsType[*TimeoutError](err); !ok {
+					t.Errorf("error = %T %v, want a *TimeoutError", err, err)
+				}
+			},
+		},
+		"error: TimeoutErrors(false) leaves connection errors retried": {
+			policy: DefaultRetry().TimeoutErrors(false), reply: connection, attempts: 3,
+		},
+		"error: Predicate(nil) removes a predicate": {
+			policy: DefaultRetry().Predicate(is404).Predicate(nil), reply: rtReply(404, `{"message": "gone"}`), attempts: 1,
+		},
+		"error: a host that did not negotiate HTTP/2 is never retried": {
+			policy: DefaultRetry(), reply: testsupport.Reply{Err: fmt.Errorf("%w: the API host's TLS handshake negotiated %q", h2gate.ErrNotNegotiated, "http/1.1")},
+			attempts: 1,
+			check: func(t *testing.T, err error) {
+				if _, ok := errors.AsType[*ConfigError](err); !ok || !errors.Is(err, ErrHTTP2NotNegotiated) {
+					t.Errorf("error = %T %v, want a *ConfigError wrapping ErrHTTP2NotNegotiated", err, err)
+				}
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				rec := &testsupport.Recorder{Replies: []testsupport.Reply{tt.reply}}
+				c := newTestClient(t, rec, WithRetry(tt.policy))
+				err := listCall(bubbleCtx(t), c)
+				if err == nil {
+					t.Fatal("List succeeded, want an error")
+				}
+				if n := rec.Count(); n != tt.attempts {
+					t.Errorf("%d attempts, want %d", n, tt.attempts)
 				}
 				if tt.check != nil {
 					tt.check(t, err)
@@ -1542,10 +1662,11 @@ func TestBackoffExtremeValues(t *testing.T) {
 	}
 }
 
-// TestRoundMillis pins roundMillis to Python's round(x, 3): the exact value
-// of the float, half to even (2.675 is 2.67499999… and rounds down; 0.0005
-// is 0.000500000000000000010… and rounds up; 0.125 is exact and ends in an
-// even 2).
+// TestRoundMillis pins roundMillis to Python's round(x, 3), each row checked
+// against CPython: the exact value of the float, half to even. 0.0005 is
+// 0.00050000000000000001… and rounds up; 1.0005 is 1.00049999999999994…
+// and rounds down; 0.0625 and 0.1875 are exact ties and round to the even
+// 0.062 and 0.188.
 func TestRoundMillis(t *testing.T) {
 	tests := map[string]struct {
 		in, want float64
@@ -1558,6 +1679,9 @@ func TestRoundMillis(t *testing.T) {
 		"success: 1e-9 rounds to 0":         {in: 1e-9, want: 0},
 		"success: 0.0006 rounds to 0.001":   {in: 0.0006, want: 0.001},
 		"success: 5 stays":                  {in: 5, want: 5},
+		"success: the exact tie 0.0625":     {in: 0.0625, want: 0.062},
+		"success: 0.0375 is below the half": {in: 0.0375, want: 0.037},
+		"success: the exact tie 0.1875":     {in: 0.1875, want: 0.188},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
