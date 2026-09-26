@@ -581,15 +581,18 @@ func (c *call) responded() {
 	}
 }
 
-// giveBack returns the token, once; expired reports a FirstHold bound.
+// giveBack returns the token, once; expired reports a FirstHold bound. The
+// expiry is counted before the token goes back: a receive from the buffered
+// token is synchronized before the send it makes room for completes, so the
+// request that takes the token next sees the count in Stats.
 func (c *call) giveBack(expired bool) {
 	if !c.given.CompareAndSwap(false, true) {
 		return
 	}
-	<-c.t.token
 	if expired {
 		c.t.holdExpiries.Add(1)
 	}
+	<-c.t.token
 }
 
 // getConn is the httptrace GetConn hook.

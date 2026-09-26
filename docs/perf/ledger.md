@@ -5972,3 +5972,133 @@ and hold `/opt/homebrew/opt/util-linux/bin/flock <SCRATCHPAD>/bench.lock`;
 | W6-secfix-31 | 2026-09-27 09:33:53–09:34:28 JST (M); 2026-09-27 00:34:59–00:35:39 UTC (L) | W6-secfix 11 (ruling D-W6-secfix-header-scope-2, D-W6-secfix-commit-11): a response header's proxy needles are the whole credentials alone (the Basic token, the password as it is and as the URL escapes it), from 8 bytes; an error's text keeps every credential, the words included, at any length | (M); (L) | `go1.27.1 darwin/arm64`; `go1.27.1 linux/amd64` | as W6-secfix-01; as W6-secfix-02 | 8.76; 1.62 | `_spikes/w6-secfix/min9.sh go <35f581f> <work>` | the tests pass on both hosts; five mutants KILLED by name on both: **scheme-gate-off** 1 (`TestProxyHeaderScanScope`: a password of 8 bytes or more over HTTPS), **minimum-off** 4 (its 2-byte plain-HTTP residual and plain-HTTP 429 cases; `TestProxyCredsRecord`'s header scan and its set with no header needles), **proxy-gate-off** 1 (its plain-HTTP request sent to no proxy), **words-on-headers** 2 (its "open sesame-street now" case, the 13-byte word shown; `TestProxyCredsRecord`'s header scan), **mark-off** 12 (`TestProxied`, `TestProxyAnswerHeadersRedacted`, seven parity sinks, the sesame-street case) and `TestProxyKeepAliveSecondRequestHidden` | `min9-M.txt`, `min9-L.txt` |
 | W6-secfix-32 | 2026-09-27 09:28:58–09:31:43 JST | W6-secfix 11: AC-P6 and the logging cost, c3c64c7 against a40d33e, whose production code is 35f581f's (the two differ in two test files) | (M) | `go1.27.1 darwin/arm64` | as W6-secfix-01 | 11.18 and down (allocations only) | `_spikes/w6-secfix/acp6.sh <c3c64c7> <a40d33e> $SP/bench.lock` | **AC-P6 unchanged in all 10 runs: CALL q3 own=12/2008, ITEM q3 as W6-secfix-26**; LOG as W6-secfix-26 (the recorded frozen cell refreshed to +3/112 in this commit, D-W6-secfix-debug-bytes-B) | `acp6-a40d33e-M.txt` |
 | W6-secfix-G7 | 2026-09-27 09:33:30–09:35:08 JST (M) and the non-race steps after it; 2026-09-27 00:33:39–00:34:59 UTC (L) | commit 11, 35f581f, on 4c8e2b8, alone (R111); this row and its raw files change only docs and `_spikes` after its gate. Its first gate, at a40d33e, passed every step but uncovered-lines, which found `inHeader`'s return for a set with no whole credential of 8 bytes untested; the test was added, and the sesame-street case D-W6-secfix-commit-11 names replaced the word case | (M); (L) | `go1.27.1 darwin/arm64`; `go1.27.1 linux/amd64` | as W6-secfix-01; as W6-secfix-02 | 5.52; 0.91 | `gate.sh 35f581f <dir> $SP/bench.lock`; (L) `go test -race -count=1 ./...` under `flock`; the two non-race steps' `run:` blocks | build, vet, `go test ./...` 0 FAIL lines, section 11 rc 0 (golangci-lint 0 issues, govulncheck "No vulnerabilities found"), seam and API tests pass (`TestPublicAPISurface` unchanged), `-race` 0 FAIL lines, uncovered-lines OK, 85 zero-count blocks of 3 220, 75 rows; (L) `-race` 8/8 packages; both non-race steps rc 0 (CALL q3 own=12/2008) | `gate-35f581f-M.txt`, `nonrace-35f581f-M.txt`, `race-35f581f-L.txt` |
+
+## W6-flake: the hold expiry counted before the token goes back
+
+`TestSettleHold/"success: a hold that its bound ends clears the mark"`
+failed twice under (M) load on untouched main (8cd8e8f, 1ed4c1d) with
+`SettleHolds:1 HoldExpiries:0`. `(*call).giveBack` received the token back
+(`<-c.t.token`) and only then counted the expiry, and the subtest polled
+`len(tr.token) == 0` every millisecond and then read `Stats()`: a poll
+that fell between the two read no expiry. The poll synchronizes with
+nothing either (`len` of a channel is not a synchronizing operation in the
+Go memory model), so the read had no ordering guarantee under any order.
+The commit (rulings D-W6-fixes-flake, D-flake-2) fixes both sides. Raw
+outputs are in `_spikes/w6-flake/results/`, the scripts in
+`_spikes/w6-flake/scripts/`. (M) runs set
+`GOEXPERIMENT=nosimd,noruntimesecret` and take `$FLOCK $SP/bench.lock`
+once per chunk, each under 2 minutes; (L) runs use
+`/tmp/ts-spike/go/bin/go` on trees copied by `tar` into
+`/tmp/ts-spike/w6-flake/{base,fix,mut}` and `flock
+/tmp/ts-spike/bench.lock`. `base` is 1ed4c1d, `fix` this commit's tree,
+`mut` this commit's tree with `scripts/mutant.sh`'s old order (its
+`giveBack` body byte-identical to 1ed4c1d's, the test files this
+commit's).
+
+- **Production.** `giveBack` counts the expiry, then receives the token.
+  A receive from the buffered token is synchronized before the completion
+  of the send it makes room for, so the request that takes the token next
+  sees the count. The `given` compare-and-swap stays first: it keeps the
+  count once-only when the bound's timer and RoundTrip's end race to give
+  the token back. The call that loses that race (`finish`) synchronizes
+  with the swap only, as before, so the count now sits between the swap
+  and the receive: a test that reads `len(tr.token)` right after its own
+  calls returned (token_test.go:222, panic_test.go:58) can see a token
+  the timer is giving back still held for one atomic add longer than
+  before; neither read failed in any run here.
+- **Test.** The subtest waits as that next request does: it sends into
+  the token (bound 5 s, `waitUntil`'s), reads `Stats()` at once and gives
+  the token back. Under the fix the channel rule orders the count before
+  the read; there is no poll and no wait on the count. Deviation from the
+  charter's item 2 (wait on `Stats().HoldExpiries == 1`, then a bounded
+  wait for the token): that shape passes under either order (0 of 1 800
+  under the mutant, W6-flake-07), so the mutant of item 3 (c) could not
+  fail it.
+- **Readers.** `Stats()` is read by `internal/h2gate`'s tests and, in the
+  root package, by `Client.Stats` (`Dials` only), `bench_internal_test.go`
+  and `transport_synctest_test.go` (`Leaders`, `FirstHolds`, after their
+  bursts returned); no telemetry or log reads a counter. `HoldExpiries`
+  has three readers: this subtest; `TestWaiterFallThrough`'s hung first
+  response (gate_test.go:400, after all 64 calls returned: the leader is
+  answered only after the other 63 returned, and a waiter that took the
+  token after the bound is now ordered after the count); and
+  `testHoldBoundOnFakeTime` (synctest_test.go:203: fake time cannot reach
+  the leader's 60 s response while the bound's timer goroutine is
+  runnable). None needs the count after the token, so none depended on
+  the old order.
+- **Other counters.** `giveBack`'s is the only count published after the
+  token. `Dials`, `FirstHolds`, `SettleHolds` and `TokenExpiries` are
+  counted on the request's own path before it gives the token back or
+  returns; `Handovers` and `abandonLocked`'s `ColdResets` under the gate's
+  lock before `gen.done` closes. `Leaders` (after the state turns
+  dialing), `Releases` (after `gen.done` closes and the gate turns warm),
+  `lead`'s `Failures` and `ColdResets` (after `gen.done` closes) and
+  `FallThroughs` (after `parked` drops) follow a gate event other
+  goroutines can see, but precede the counting request's return; every
+  test reads them after that return or waits on the counter itself. They
+  are unchanged: no token is involved and no reader reads them against
+  that event.
+- **The same shape elsewhere.** Of the package's 19 `waitUntil` calls at
+  1ed4c1d, settle_test.go:209 was the only one that waited on the token
+  and then read a counter. Five wait on the counter they assert
+  (gate_test.go:242, 270, 303, 435; panic_test.go:136); the rest wait on
+  the dialer, `parked`, the gate state or the server's records and read
+  no counter published after that (gate_test.go:231, 260, 265, 308;
+  alpn_test.go:76, 127; log_test.go:66, 102; panic_test.go:145;
+  recovery_test.go:62, 92, 130, 207).
+
+Findings:
+
+1. **Reproduced at base** (W6-flake-01, -02): 11 of 3 300 `-race` runs of
+   `TestSettleHold` on (M) failed, all in that subtest at
+   settle_test.go:212 with `HoldExpiries:0`: 4 of 1 800 at `-cpu 1,2,4`, 7
+   of 1 500 at `GOMAXPROCS=2`. (L), an idle 44-core host, did not
+   reproduce it in 3 300 runs (W6-flake-08), so (L) shows the fix passing
+   and the mutant failing there, not the base rate.
+2. **The fix: none in 6 600** (W6-flake-03, -04, -08): 0 of 3 300 on (M)
+   and 0 of 3 300 on (L), with the same chunks. At base's (M) rate, 3 300
+   clean runs happen by chance with probability about e^-11.
+3. **The old order fails the rewritten subtest by name, not
+   deterministically** (W6-flake-05, -06, -08): 9 of 3 300 on (M) (6 of
+   1 800, 3 of 1 500) and 1 of 3 300 on (L), every failure
+   settle_test.go:223 `HoldExpiries:0 ... when the next request took the
+   token`. The window is a few instructions in the timer's goroutine, so
+   no scheduling-free test sees it every time.
+4. **Which observer pins the order** (W6-flake-07, an experiment in a
+   scratch copy, `scripts/order_observers_test.go.txt`): under the
+   mutant, 1 800 runs each, a blocking send into the token (the commit's
+   shape) failed 8 times, a spin on a non-blocking send 20, base's `len`
+   poll 7, and the charter's wait on the count, then the token, 0; under
+   the fix the first three failed 0 times each. The blocking send is what
+   a request waiting for the token does (`waitToken`), and the channel
+   rule covers it, so the commit uses it; the spin would pin the order
+   more often at the cost of a busy loop in the test.
+5. **Nothing moves but the order** (W6-flake-09 to -15): `go doc -all` of
+   `.` and `./internal/h2gate` byte-identical to 1ed4c1d's; no API golden
+   touched and `TestPublicAPISurface` passes; both non-race CI steps pass
+   as ci.yaml writes them, their lists unchanged; the §11 chain, the seam
+   tests and the 13 AC-P4 tests pass; `-race` passes on both hosts.
+   `uncovered-lines.py` on ci.yaml's own flags at 1ed4c1d (per-package
+   `-coverprofile`, no `-coverpkg`) passes with 85 zero-count blocks of
+   3 143 and `docs/uncovered-lines.md` unchanged: `giveBack` has 5 blocks
+   (4 at base: the receive after the count's `if` is a block of its own),
+   all covered (`results/giveback-blocks.txt`).
+
+| # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| W6-flake-01 | 2026-09-27 06:29:21 JST | W6-flake: base reproduction | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | `scripts/stress.sh <base -race test binary of internal/h2gate> base-c1 600 1,2,4` (`-test.run '^TestSettleHold$' -test.count=600 -test.cpu=1,2,4`, `timeout 115`) | 4 of 1 800 FAIL, every one `success: a hold that its bound ends clears the mark` at settle_test.go:212 (`SettleHolds:1 HoldExpiries:0`); 41 s | finding 1; `results/stress-base-c1.log` |
+| W6-flake-02 | 2026-09-27 06:30:10 JST | W6-flake: base reproduction | (M) | `go1.27.1 darwin/arm64` | as W6-flake-01 | – | `scripts/stress.sh <base binary> base-c2-gmp2 1500 - 2` (`GOMAXPROCS=2`, `-test.count=1500`) | 7 of 1 500 FAIL, the same subtest and line; 34 s | finding 1; `results/stress-base-c2-gmp2.log` |
+| W6-flake-03 | 2026-09-27 06:44:52 JST | W6-flake: the fix | (M) | `go1.27.1 darwin/arm64` | as W6-flake-01 | – | as W6-flake-01 with this commit's binary (`fix-c1`) | 0 of 1 800; 44 s | finding 2; `results/stress-fix-c1.log` |
+| W6-flake-04 | 2026-09-27 06:46:04 JST | W6-flake: the fix | (M) | `go1.27.1 darwin/arm64` | as W6-flake-01 | – | as W6-flake-02 with this commit's binary (`fix-c2-gmp2`) | 0 of 1 500; 37 s | finding 2; `results/stress-fix-c2-gmp2.log` |
+| W6-flake-05 | 2026-09-27 06:48:09 JST | W6-flake: the old-order mutant | (M) | `go1.27.1 darwin/arm64` | as W6-flake-01 | – | `scripts/mutant.sh <this tree> <copy>`, then as W6-flake-01 with the copy's binary (`mut-c1`) | 6 of 1 800 FAIL, every one the rewritten subtest at settle_test.go:223 (`HoldExpiries:0 ... when the next request took the token`); 42 s | finding 3; `results/stress-mut-c1.log` |
+| W6-flake-06 | 2026-09-27 06:50:02 JST | W6-flake: the old-order mutant | (M) | `go1.27.1 darwin/arm64` | as W6-flake-01 | – | as W6-flake-02 with the mutant's binary (`mut-c2-gmp2`) | 3 of 1 500 FAIL, the same subtest and line; 34 s | finding 3; `results/stress-mut-c2-gmp2.log` |
+| W6-flake-07 | 2026-09-27 06:32:32–06:42:49 JST | W6-flake: observer shapes (experiment) | (M) | `go1.27.1 darwin/arm64` | as W6-flake-01 | – | `scripts/order_observers_test.go.txt` in a scratch copy with this commit's `giveBack` and with the mutant's; `scripts/stress.sh <binary> exp-<fix\|mut>-<Shape> 600 1,2,4 "" '^TestOrder<Shape>$'`, one chunk per shape | of 1 800 each, mutant: `Take` (blocking send) 8, `Spin` 20, `Poll` (base's shape) 7, `Counter` (charter item 2) 0; fix: `Take`, `Spin`, `Poll` 0 each (`Counter` not run on the fix) | finding 4; `results/stress-exp-*.log` |
+| W6-flake-08 | 2026-09-26 22:01:32–22:06:44 UTC | W6-flake: base, fix, mutant | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.17–0.81 | `ssh <L> 'bash -s' < scripts/stress-L.sh` (builds the three `-race` binaries, then 600 × `-cpu 1,2,4` each), then `scripts/stress-L-gmp2.sh` (`GOMAXPROCS=2`, 1 500; base and mut, then `TREES=fix`) | `-cpu 1,2,4`: base 0, fix 0, mut 0 of 1 800; `GOMAXPROCS=2`: base 0, fix 0, mut 1 of 1 500 (the rewritten subtest) | findings 1–3; `results/L/` |
+| W6-flake-09 | 2026-09-27 06:52:40 JST | W6-flake: R111 | (M) | `go1.27.1 darwin/arm64` | as W6-flake-01 | 4.74 | under `set -o pipefail` and the lock: `go build ./... && go vet ./... && go test -count=1 ./...` | rc 0, 0 FAIL lines, 8 packages ok, 18 s | `results/gate-r111-M.log` |
+| W6-flake-10 | 2026-09-27 06:53:15 JST | W6-flake: ci.yaml's `-race` step, the uncovered-lines check (STANDING 8) | (M) | `go1.27.1 darwin/arm64` | as W6-flake-01 | 4.53 | `go test -race -count=1 -coverprofile=<p> -covermode=atomic ./...` (ci.yaml's flags at 1ed4c1d), then `uv run --script .github/scripts/uncovered-lines.py --profile <p> --doc docs/uncovered-lines.md` | rc 0, 0 FAIL, 0 DATA RACE, 63 s; `uncovered-lines: OK, 85 zero-count block(s) of 3143 in 19 file(s); 75 row(s) (4 timing range(s)), each with a reason`; `docs/uncovered-lines.md` unchanged; `giveBack` 4 → 5 blocks, `internal/h2gate` 293 → 294, all covered | finding 5; `results/gate-race-cover-M.log`, `results/uncovered-M.log`, `results/giveback-blocks.txt` |
+| W6-flake-11 | 2026-09-27 06:55:53 JST | W6-flake: the non-race CI steps (AC-P6, K38 lists) | (M) | `go1.27.1 darwin/arm64` | as W6-flake-01 | 5.12 | each step's `run:` text read from ci.yaml (`scripts/extract-step.py`), run by `bash --noprofile --norc -eo pipefail` under the lock | rc 0 (3 s) and rc 0 (8 s); 20 of 20 listed tests PASS (16 root, 4 `internal/codec`), `TestAllocWholeCall` among them; lists and guards unchanged | finding 5; `results/gate-nonrace-steps-M.log` |
+| W6-flake-12 | 2026-09-27 06:56:31 JST | W6-flake: the §11 chain | (M) | `go1.27.1 darwin/arm64` | as W6-flake-01 | – | `test -z "$(gofumpt -extra -l .)" && modernize -test ./... && golangci-lint run ./... && go vet ./... && staticcheck ./... && go run golang.org/x/vuln/cmd/govulncheck@latest ./... && go mod tidy -diff` | rc 0, 16 s; golangci-lint 2.13.2 `0 issues.`; `No vulnerabilities found.` | `results/gate-s11-M.log` |
+| W6-flake-13 | 2026-09-27 06:57:06 JST | W6-flake: seam, API surface, AC-P4 | (M) | `go1.27.1 darwin/arm64` | as W6-flake-01 | – | `go test -count=1 -run Seam -v ./internal/codec/ .`; `-run '^TestPublicAPISurface$' -v .`; §11's AC-P4 list (13 names) `-v ./internal/h2gate/` | 12 seam tests PASS; `TestPublicAPISurface` PASS; 13 of 13 PASS | finding 5; `results/gate-seam-api-h2t-M.log` |
+| W6-flake-14 | 2026-09-27 07:08:39 JST | W6-flake: the `go doc` diff | (M) | `go1.27.1 darwin/arm64` | as W6-flake-01 | – | `go doc -all <pkg>` in a 1ed4c1d tree and here, for `.` and `./internal/h2gate` | identical: 1 816 and 386 lines, the same sha256 | finding 5; `results/godoc-M.txt` |
+| W6-flake-15 | 2026-09-27 06:58:29 JST | W6-flake: `-race` | (M) | `go1.27.1 darwin/arm64` | as W6-flake-01 | 6.09 | `go test -race -count=1 ./...` | rc 0, 0 FAIL, 60 s | `results/gate-race-M.log` |
+| W6-flake-16 | 2026-09-26 22:00:04 UTC | W6-flake: `-race` | (L) | `go1.27.1 linux/amd64` | as W6-flake-08 | 0.00 | `go test -race -count=1 ./...` in `/tmp/ts-spike/w6-flake/fix` | rc 0, 0 FAIL, 73 s | `results/gate-race-L.log` |

@@ -206,10 +206,21 @@ func TestSettleHold(t *testing.T) {
 		c := take(t, tr)
 		c.gotConn(httptrace.GotConnInfo{Conn: fresh, Reused: true})
 		c.wroteHeaders()
-		waitUntil(t, "the hold bound to give the token back", func() bool { return len(tr.token) == 0 })
+		// The next request takes the token when the bound gives it back.
+		// giveBack counts the expiry first, and its receive from the token
+		// is synchronized before this send completes, so the count is
+		// visible here without a wait on it; a poll of len(tr.token)
+		// synchronizes with nothing.
+		select {
+		case tr.token <- struct{}{}:
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for the hold bound to give the token back")
+		}
+		st := tr.Stats()
+		<-tr.token        // the next request gives the token back
 		c.giveBack(false) // RoundTrip's end, after the bound: a no-op
-		if st := tr.Stats(); st.HoldExpiries != 1 || st.SettleHolds != 1 {
-			t.Errorf("stats %+v, want 1 settle hold ended by the bound", st)
+		if st.HoldExpiries != 1 || st.SettleHolds != 1 {
+			t.Errorf("stats %+v when the next request took the token, want 1 settle hold ended by the bound and counted before the token went back", st)
 		}
 		if holder(t, tr, fresh) {
 			t.Error("a holder after the expired hold kept the token: the mark was not cleared")
