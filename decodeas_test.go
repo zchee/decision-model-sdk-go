@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -329,6 +330,44 @@ func TestDecodeAsOptional(t *testing.T) {
 	}
 }
 
+// TestAskPassesCallOptions checks that Ask hands its call options to
+// SystemOne (review W4.2 MINOR 2): a Model and a Header reach the request
+// that goes out, and without them the request carries the client's model
+// and no such header.
+func TestAskPassesCallOptions(t *testing.T) {
+	tests := map[string]struct {
+		opts       []CallOption
+		wantModel  string
+		wantHeader string
+	}{
+		"success: Model and Header reach the request": {
+			opts:       []CallOption{Model("probe-model"), Header("x-probe", "1")},
+			wantModel:  `"model":"probe-model"`,
+			wantHeader: "1",
+		},
+		"success: without options, the client's model and no header": {wantModel: `"model":"jev-latest"`},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			rec := replying(http.StatusOK, resultWith(spamJSON, toneJSON, qualityJSON))
+			got, err := Ask[reviewAnswers](t.Context(), newTestClient(t, rec), "x", tt.opts...)
+			if err != nil {
+				t.Fatalf("Ask: %v", err)
+			}
+			if !got.Spam.Present() || got.Spam.Noul() != 0.98 {
+				t.Errorf("Spam = (noul %v, present %v), want (0.98, true)", got.Spam.Noul(), got.Spam.Present())
+			}
+			req := onlyRequest(t, rec)
+			if !bytes.Contains(req.Body, []byte(tt.wantModel)) {
+				t.Errorf("request body %s does not carry %s", req.Body, tt.wantModel)
+			}
+			if h := req.Header.Get("x-probe"); h != tt.wantHeader {
+				t.Errorf("request header x-probe = %q, want %q", h, tt.wantHeader)
+			}
+		})
+	}
+}
+
 // askFunc runs Ask with one struct type of the test's choosing.
 type askFunc func(t *testing.T, c *Client) error
 
@@ -549,7 +588,9 @@ func TestDecodeAsStoredResponse(t *testing.T) {
 // still the *APIError it is without one (400 with its body and request id,
 // 429 with its Retry-After), a transport failure is still a
 // *ConnectionError, each after one attempt, and a struct type PreparedFor
-// refuses fails with that *ConfigError before any request.
+// refuses fails with that *ConfigError before any request. Each error is
+// the bare value, of the type itself, not a wrapper that errors.As would
+// see through, so a caller's type switch holds (review W4.2 MINOR 3).
 func TestAskPreservesAPIErrors(t *testing.T) {
 	type unTagged struct {
 		Spam NoulAnswer
@@ -562,6 +603,7 @@ func TestAskPreservesAPIErrors(t *testing.T) {
 		reply       testsupport.Reply
 		ask         askFunc
 		check       func(*testing.T, error)
+		wantType    reflect.Type
 		wantRequest int
 	}{
 		"error: upstream: 400 is an *APIError with its body and request id": {
@@ -571,6 +613,7 @@ func TestAskPreservesAPIErrors(t *testing.T) {
 				t.Helper()
 				checkAPIError(t, err, APIErrorBadRequest, http.StatusBadRequest, `{"detail":"Invalid request"}`, "req-error", 0)
 			},
+			wantType:    reflect.TypeFor[*APIError](),
 			wantRequest: 1,
 		},
 		"error: 429 is an *APIError with its Retry-After": {
@@ -580,6 +623,7 @@ func TestAskPreservesAPIErrors(t *testing.T) {
 				t.Helper()
 				checkAPIError(t, err, APIErrorRateLimit, http.StatusTooManyRequests, `{"detail":"Too many requests"}`, "req-429", 7*time.Second)
 			},
+			wantType:    reflect.TypeFor[*APIError](),
 			wantRequest: 1,
 		},
 		"error: a transport failure is a *ConnectionError": {
@@ -592,6 +636,7 @@ func TestAskPreservesAPIErrors(t *testing.T) {
 					t.Errorf("err = %T %v, want a *ConnectionError naming the cause", err, err)
 				}
 			},
+			wantType:    reflect.TypeFor[*ConnectionError](),
 			wantRequest: 1,
 		},
 		"error: a struct type PreparedFor refuses fails before any request": {
@@ -604,13 +649,18 @@ func TestAskPreservesAPIErrors(t *testing.T) {
 					t.Errorf("err = %T %v, want PreparedFor's own *ConfigError %v", err, err, refusal)
 				}
 			},
+			wantType: reflect.TypeFor[*ConfigError](),
 		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			rec := &testsupport.Recorder{Replies: []testsupport.Reply{tt.reply}}
 			c := newTestClient(t, rec)
-			tt.check(t, tt.ask(t, c))
+			err := tt.ask(t, c)
+			tt.check(t, err)
+			if got := reflect.TypeOf(err); got != tt.wantType {
+				t.Errorf("Ask's error is a %v, want the bare %v SystemOne returns", got, tt.wantType)
+			}
 			if rec.Count() != tt.wantRequest {
 				t.Errorf("the transport saw %d requests, want %d", rec.Count(), tt.wantRequest)
 			}
