@@ -493,6 +493,10 @@ type (
 	rejEmbeddedHiddenTag struct {
 		hiddenTaggedBase
 	}
+	// (9) an unexported tagged field inside a named struct-typed field.
+	rejNamedHiddenTag struct {
+		Inner hiddenTaggedBase
+	}
 	// (9) a tagged field inside a named struct-typed field (R96).
 	rejNamedStruct struct {
 		Inner TaggedBase
@@ -689,6 +693,10 @@ func TestPreparedForRejections(t *testing.T) {
 		"error: (9) unexported tagged field inside an embedded struct": {
 			prepare: PreparedFor[rejEmbeddedHiddenTag],
 			wantMsg: `PreparedFor[typesafe.rejEmbeddedHiddenTag]: field hiddenTaggedBase: fields of an embedded struct are not promoted, and hiddenTaggedBase.spam has a typesafe tag; declare spam in typesafe.rejEmbeddedHiddenTag itself, since PreparedFor reads only the struct's own fields.`,
+		},
+		"error: (9) unexported tagged field inside a named struct field": {
+			prepare: PreparedFor[rejNamedHiddenTag],
+			wantMsg: `PreparedFor[typesafe.rejNamedHiddenTag]: field Inner: fields of a nested struct are not read, and Inner.spam has a typesafe tag; declare spam in typesafe.rejNamedHiddenTag itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) tagged field inside a named struct field": {
 			prepare: PreparedFor[rejNamedStruct],
