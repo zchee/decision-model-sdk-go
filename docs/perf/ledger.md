@@ -5235,6 +5235,8 @@ and `_spikes/w5.4/render.py` prints the tables below from
 | W5.4-08 | 2026-09-26 06:09:46 UTC | W5.4 AC-P7, pre-W5.3 dispatch | `ubuntu-26.04` (AMD EPYC 9V45, 4 CPUs) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | – | `bench.yaml` at c15ba0c (`gh workflow run bench.yaml --ref wave/w5.4`): aaa9698's job plus the report step | `BenchmarkCall/sdk` min / median / mean 2.844 / 3.044 / 3.303 µs; `/naive` 2.464 / 2.965 / 3.632 µs; **sdk/naive 1.154 / 1.027 / 0.909** (min / median / mean) | GitHub run 36222408328 (workflow_dispatch, `wave/w5.4`), CodSpeed run 6ab761aa075e817cd5b19ada; stdev sdk 2.346 / naive 4.515 µs; IQR outliers sdk 5.8 % / naive 13.9 % of 929948 / 956420 rounds; W5.4's first dispatch, **pre-W5.3** (history, not AC-P7 of record); guard `125 rows; CodSpeed results: 125 rows in 3 files`; the report step's table (`results/report-36222408328.md`) equals CodSpeed's stored statistics to the ns; not a K7 run |
 | W5.4-09 | 2026-09-26 15:04:12 JST | W5.4 discovery | (M), and `ubuntu-26.04` for the CodSpeed side | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 8.50 before and after the 1x run | `GOEXPERIMENT=nosimd,noruntimesecret go test -list 'Benchmark.*' ./...` by package; the guard's own `go test -run '^$' -bench . -benchtime=1x -cpu=1 ./...` expansion; against the `.benchmarks[].uri` rows that W5.4-08's report step lists | functions: 15 in 3 packages (6 root, 5 `internal/benchmark`, 4 `internal/codec`; `BenchmarkLoopback` in two), and the CodSpeed run's 125 URIs reduce to the same 15: **equal**. Rows: 125 local = 125 in CodSpeed: **equal**. Names across runs: `compare_runs` of aaa9698's main run (W5.4-07) with W5.4-08 compares all 125 rows, with no new and no missing ones | `results/list-functions-M.txt`, `results/list-rows-M.txt`, `results/codspeed-uris-36222408328.txt`; CodSpeed's 19 "skipped" rows are URIs from before G5 (14 in `bench_prepare_test.go`, 3 in `bench_config_test.go`, `bench_noop_test.go::BenchmarkNoop`, `bench_call_test.go::BenchmarkCall::sdk`); not a timing row |
 | W5.4-10 | 2026-09-26 15:12:57 JST | W5.4 K7 count | – | – | – | – | `gh run list --workflow bench.yaml --branch main --event push --limit 100`, counting successful runs from 36221839206 on, per CPU model (ruling R109) | **EPYC 7763: 1 of 20 runs** (36221839206, aaa9698, CodSpeed run 6ab75ed2e412c1cc664ef2d7); no other model has a counted run. Beside it, the spread of the sdk/naive mean ratio over the counted runs of any model: n/a with one run (no threshold set, R109). The 45 earlier main runs are not counted (D-K35-land: from ca226bb to 3ffe77b 11 rows were lost, and before ca226bb the names differ, G5) | `results/k7-count.txt`; not a timing row |
+| W5.4-11 | 2026-09-26 06:23:48 UTC | W5.4 K7 data point | `ubuntu-26.04` (AMD EPYC 9V74) | `go1.27.1 linux/amd64` | not printed by the job | – | `bench.yaml` at 7778166 (main's push run, the R103 revert; the K35 job without W5.4's report step) | `BenchmarkCall/sdk` min / median / mean 5.097 / 5.468 / 6.204 µs; `/naive` 4.457 / 5.358 / 7.008 µs; **sdk/naive 1.144 / 1.021 / 0.885** (min / median / mean) | GitHub run 36223111400 (push, `main`), CodSpeed run 6ab764f4658c3a183213aa0e, K35 guard green; CPU model from `compare_runs` against W5.4-07 (7763 → 9V74); stdev sdk 7.160 / naive 9.603 µs; IQR outliers sdk 7.8 % / naive 17.9 % of 492837 / 531248 rounds; **K7 run 1 on the EPYC 9V74** (R109); CodSpeed's comparison with W5.4-07 marks 48 rows improved and 3 regressed, all across the CPU change |
+| W5.4-12 | 2026-09-26 15:25:33 JST | W5.4 K7 count | – | – | – | – | the W5.4-10 command again, per CPU model (R109) | **EPYC 7763: 1 of 20** (36221839206); **EPYC 9V74: 1 of 20** (36223111400); the spread of `BenchmarkCall/sdk`'s mean is n/a on each model (one run each). Beside it, the sdk/naive mean ratio over the two counted runs, any model: 0.877 and 0.885, spread 0.98 % (no threshold set, R109) | `results/k7-count.txt` (second snapshot); not a timing row |
 
 ### Tables
 
@@ -5248,20 +5250,22 @@ and `_spikes/w5.4/render.py` prints the tables below from
 | aaa9698 | workflow_dispatch wave/p5-codspeedfix | 36221215525 | 6ab75bdbb5bd728624a3372a | 7763 | 1.132 | 1.064 | 0.983 | 5.410 | 5.821 | 7.014 |
 | aaa9698 | push main | 36221839206 | 6ab75ed2e412c1cc664ef2d7 | 7763 | 1.145 | 1.020 | 0.877 | 5.450 | 5.791 | 6.684 |
 | c15ba0c | workflow_dispatch wave/w5.4 | 36222408328 | 6ab761aa075e817cd5b19ada | 9V45 | 1.154 | 1.027 | 0.909 | 2.844 | 3.044 | 3.303 |
+| 7778166 | push main | 36223111400 | 6ab764f4658c3a183213aa0e | 9V74 | 1.144 | 1.021 | 0.885 | 5.097 | 5.468 | 6.204 |
 
 K7 (ruling R109), successful push runs on main from 36221839206 on, counted per CPU model;
 blocking needs 20 runs on one model with BenchmarkCall/sdk's mean within 5 %:
 - AMD EPYC 7763: 1 of 20 runs; BenchmarkCall/sdk mean spread n/a (1 run)
-- beside it, the sdk/naive mean ratio over those runs, any model (no threshold set): n/a (1 run)
+- AMD EPYC 9V74: 1 of 20 runs; BenchmarkCall/sdk mean spread n/a (1 run)
+- beside it, the sdk/naive mean ratio over those runs, any model (no threshold set): 0.98 % over 2 runs
 
 Every run above, K7 or not, for comparison:
-- BenchmarkCall/sdk mean: 112.33 % over 8 runs (AMD EPYC 7763: 4.93 % over 6 runs; AMD EPYC 9V45: n/a (1 run); AMD EPYC 9V74: n/a (1 run))
-- sdk/naive mean ratio: 12.16 % over 8 runs (AMD EPYC 7763: 12.16 % over 6 runs; AMD EPYC 9V45: n/a (1 run); AMD EPYC 9V74: n/a (1 run))
+- BenchmarkCall/sdk mean: 112.33 % over 9 runs (AMD EPYC 7763: 4.93 % over 6 runs; AMD EPYC 9V45: n/a (1 run); AMD EPYC 9V74: 0.99 % over 2 runs)
+- sdk/naive mean ratio: 12.16 % over 9 runs (AMD EPYC 7763: 12.16 % over 6 runs; AMD EPYC 9V45: n/a (1 run); AMD EPYC 9V74: 5.87 % over 2 runs)
 
 ### W5.4 findings
 
 1. **AC-P7 holds on the mean and fails on the minimum and the median.** On
-   all eight runs, `BenchmarkCall/sdk` / `BenchmarkCall/naive` is 0.877 to
+   all nine runs, `BenchmarkCall/sdk` / `BenchmarkCall/naive` is 0.877 to
    0.983 by mean, 1.020 to 1.076 by median and 1.124 to 1.162 by minimum,
    the value CodSpeed's report shows. CodSpeed's overlay times every
    `b.Loop` iteration on its own (rounds = iterations, one per round).
@@ -5281,17 +5285,18 @@ Every run above, K7 or not, for comparison:
    0.877 to 0.983), report-only under R108.** The runs of record come
    after the rebase onto W5.3's landing.
 2. **The CPU model moves every row.** Three models have appeared: the
-   EPYC 7763 (six runs), the 9V74 (W5.4-04) and the 9V45 (W5.4-08). On
-   the 9V45, which has AVX-512, every row ran 1.4 to 2.7 times faster
+   EPYC 7763 (six runs), the 9V74 (W5.4-04, -11) and the 9V45 (W5.4-08).
+   On the 9V45, which has AVX-512, every row ran 1.4 to 2.7 times faster
    than on the 7763, and `BenchmarkCall/sdk`'s mean went from 6.68 to
-   3.30 µs. Over these eight runs the mean's spread is 112 %, and 4.9 %
-   on the 7763 alone. The sdk/naive ratio holds across models (mean
-   0.909 on the 9V45, 0.937 on the 9V74), but it spreads 12 % across the
+   3.30 µs. Over these nine runs the mean's spread is 112 %, and 4.9 % on
+   the 7763 alone. The sdk/naive ratio holds across models (mean 0.909 on
+   the 9V45; 0.937 and 0.885 on the 9V74), but it spreads 12 % across the
    7763 runs. Taken across models, K7 (20 main runs within 5 %) would
    measure which machine each run got. So ruling R109 counts K7 per CPU
-   model and never mixes models (W5.4-10: EPYC 7763, 1 of 20), and records
-   beside it the sdk/naive mean ratio's spread over the counted runs of
-   any model, with no threshold set.
+   model and never mixes models (W5.4-12: EPYC 7763 1 of 20, EPYC 9V74 1
+   of 20), and records beside it the sdk/naive mean ratio's spread over
+   the counted runs of any model (0.98 % over two), with no threshold
+   set.
 3. **Noise on one CPU model exceeds CodSpeed's 10 % threshold.** On the
    7763, the `EncodeBody/rawjson/{64KiB,1MiB}/naive-json` rows moved 13 to
    14 % between runs with no change to their code. CodSpeed's own check

@@ -14,7 +14,7 @@ instead. The numbers behind each statement are in the
 | --- | --- |
 | Workflow | `.github/workflows/bench.yaml`, job `CodSpeed (walltime)` |
 | Triggers | Every push to `main`; `workflow_dispatch` on any branch; `pull_request`, although none are opened (ruling R2) |
-| Runner | `ubuntu-26.04`, GitHub-hosted, linux/amd64, 4 vCPUs (the `-4` suffix on each row in the log). The CPU model changes from run to run: AMD EPYC 7763, 9V74 and 9V45 so far (ledger W5.4). |
+| Runner | `ubuntu-26.04`, GitHub-hosted, linux/amd64, 4 vCPUs (the `-4` suffix on each row in the log). The CPU model changes from run to run: AMD EPYC 7763, 9V74 and 9V45 and Intel Xeon 6973P-C so far (ledger W5.4). |
 | Go | `actions/setup-go@v7` with `go-version-file: go.mod`. It reads the `toolchain` line, go1.27.1. |
 | Experiments | No `GOEXPERIMENT`. The `nosimd,noruntimesecret` override of the [measurement rule](../support.md#measurement-rule) is for a host whose Go env file sets experiments. The runner has none, so its default already is the Go 1.27 baseline. The report step prints the ToolTags. |
 | Instrument | `CodSpeedHQ/action@v5` (runner 5.2.1, go runner 1.3.0), `mode: walltime`. Walltime is the only instrument CodSpeed has for Go (plan decision D4). |
