@@ -283,6 +283,7 @@ func TestDecodeAsAgreesWithAnswers(t *testing.T) {
 // against Answers(), and returns the decoded T.
 func checkAgreement[T any](t *testing.T, body []byte) T {
 	t.Helper()
+	p := requireStoreLayout[T](t)
 	var resp SystemOneResponse
 	if err := resp.UnmarshalJSON(body); err != nil {
 		t.Fatalf("UnmarshalJSON: %v", err)
@@ -291,7 +292,6 @@ func checkAgreement[T any](t *testing.T, body []byte) T {
 	if err != nil {
 		t.Fatalf("DecodeAs: %v", err)
 	}
-	p := typedPlanFor[T]()
 	answers := resp.Answers()
 	v := reflect.ValueOf(got)
 	var typed []string

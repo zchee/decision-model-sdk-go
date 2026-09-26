@@ -55,6 +55,7 @@ func TestAllocTypedDecode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	requireStoreLayout[reviewAnswers](t)
 	body := testsupport.Fixture(t, "result.json")
 	rec := &testsupport.Recorder{Discard: true, Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, body)}}
 	c := newTestClient(t, rec)
@@ -120,6 +121,7 @@ type failToneAnswers struct {
 // before, 5 now. The response is UnmarshalJSON's, whose Meta has no header,
 // so the count is the error's alone.
 func TestAllocTypedFailure(t *testing.T) {
+	requireStoreLayout[failToneAnswers](t)
 	var resp SystemOneResponse
 	if err := resp.UnmarshalJSON(testsupport.Fixture(t, "result.json")); err != nil {
 		t.Fatal(err)

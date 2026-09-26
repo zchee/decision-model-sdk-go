@@ -34,6 +34,10 @@ import (
 //   - the offset off by one byte (f.offset+1): TestStoreKeepsNeighbours and
 //     TestStoreFieldKinds;
 //   - another field's offset (the next answer field's): both, too;
+//   - a plan offset that is not reflect's (the next field's, or 0):
+//     requireStoreLayout stops TestStoreFieldKinds, TestStoreKeepsNeighbours
+//     and the tests that decode before them by name, before the store writes
+//     (critic-p5 m-3);
 //   - a wider write (a ScoreAnswer stored where the field is a NoulAnswer):
 //     TestStoreKeepsNeighbours;
 //   - the answer copied as bytes, without the typed assignment (and so
@@ -109,38 +113,65 @@ func wantAnswers(t *testing.T, resp *SystemOneResponse, v storeKinds) storeKinds
 	return v
 }
 
-// TestStoreFieldKinds checks the store's layout assumptions on a struct of
-// every field kind, and prints the alignment and size table of each field:
-// the plan records every answer field's own offset, the embedded one
-// included (an answer field is never promoted, so no offset is a sum), each
-// offset is a multiple of its type's alignment, and no answer field
-// overlaps another field. DecodeAs then fills exactly the answer fields and
-// leaves every other field zero.
-func TestStoreFieldKinds(t *testing.T) {
-	typ := reflect.TypeFor[storeKinds]()
-	p := typedPlanFor[storeKinds]()
+// requireStoreLayout checks that the typed store may write into a T through
+// T's plan, and stops the test before any write when it may not: the plan is
+// T's, and each answer field's plan offset is reflect's offset of that
+// field (the embedded one included: an answer field is never promoted, so no
+// offset is a sum), a multiple of its type's alignment, and overlaps no
+// other field. Every mismatch is reported, then the test stops with
+// t.Fatalf. Without the stop, a wrong offset writes response bytes over a
+// neighbour or past the struct, and the run ends in a fault, a checkptr
+// failure under -race or a hang in a later comparison instead of failing by
+// test name (critic-p5 m-3, condition C3). It returns T's plan; a plan that
+// refuses T is returned unchecked, since the store never runs on it.
+func requireStoreLayout[T any](t *testing.T) *typedPlan {
+	t.Helper()
+	typ := reflect.TypeFor[T]()
+	p := typedPlanFor[T]()
 	if p.err != nil {
-		t.Fatal(p.err)
+		return p
 	}
 	if p.typ != typ {
-		t.Fatalf("plan type = %v, want %v", p.typ, typ)
+		t.Fatalf("plan type = %v, want %v; the store must not write into a %v through it", p.typ, typ, typ)
 	}
-	answerAt := map[int]bool{}
+	bad := 0
 	for _, f := range p.fields {
 		sf := typ.Field(f.index)
-		answerAt[f.index] = true
 		if f.offset != sf.Offset {
-			t.Errorf("field %s: plan offset %d, want reflect's %d", sf.Name, f.offset, sf.Offset)
+			bad++
+			t.Errorf("%v field %s: plan offset %d, want reflect's %d", typ, sf.Name, f.offset, sf.Offset)
 		}
 		if f.offset%uintptr(sf.Type.Align()) != 0 {
-			t.Errorf("field %s: offset %d is not a multiple of %s's alignment %d", sf.Name, f.offset, sf.Type, sf.Type.Align())
+			bad++
+			t.Errorf("%v field %s: offset %d is not a multiple of %s's alignment %d", typ, sf.Name, f.offset, sf.Type, sf.Type.Align())
 		}
 		for j := range typ.NumField() {
 			o := typ.Field(j)
 			if j != f.index && o.Type.Size() > 0 && o.Offset < f.offset+sf.Type.Size() && f.offset < o.Offset+o.Type.Size() {
-				t.Errorf("answer field %s [%d, %d) overlaps field %s [%d, %d)", sf.Name, f.offset, f.offset+sf.Type.Size(), o.Name, o.Offset, o.Offset+o.Type.Size())
+				bad++
+				t.Errorf("%v answer field %s [%d, %d) overlaps field %s [%d, %d)", typ, sf.Name, f.offset, f.offset+sf.Type.Size(), o.Name, o.Offset, o.Offset+o.Type.Size())
 			}
 		}
+	}
+	if bad > 0 {
+		t.Fatalf("%v: %d layout mismatches in its plan; the store must not write through it", typ, bad)
+	}
+	return p
+}
+
+// TestStoreFieldKinds checks the store's layout assumptions on a struct of
+// every field kind with requireStoreLayout, before any write, and prints the
+// alignment and size table of each field. DecodeAs then fills exactly the
+// answer fields and leaves every other field zero.
+func TestStoreFieldKinds(t *testing.T) {
+	typ := reflect.TypeFor[storeKinds]()
+	p := requireStoreLayout[storeKinds](t)
+	if p.err != nil {
+		t.Fatal(p.err)
+	}
+	answerAt := map[int]bool{}
+	for _, f := range p.fields {
+		answerAt[f.index] = true
 	}
 	if len(p.fields) != 4 {
 		t.Fatalf("plan has %d answer fields, want 4", len(p.fields))
@@ -173,7 +204,7 @@ func TestStoreKeepsNeighbours(t *testing.T) {
 	}
 	resp := storeKindsResponse(t)
 	want := wantAnswers(t, resp, v)
-	p := typedPlanFor[storeKinds]()
+	p := requireStoreLayout[storeKinds](t)
 	if err := p.decode(resp, "", headerRedactor{}, baseOf(&v)); err != nil {
 		t.Fatal(err)
 	}
