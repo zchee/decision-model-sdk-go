@@ -4516,6 +4516,10 @@ benchstat compares medians.
 | P3 | the size hint counts a raw field that is a string, `RawJSON` or `Content` at its length (`rawValueSize`) | `n8a` −16 % and `n8b` −13 %, 15 → 10 and 18 → 13, bytes −56 % and −58 %; `c5` **+8.5 %** (+2 KiB) and `c1` +5.4 % | `n8a` −10 %, `n8b` −11 %; `c5` ~ (p = 0.579) | keep (the (L) cost is finding 3) | 035934a |
 | P4 | the size hint counts the JSON score levels and `Builder.GrowLevels` reserves their spans | `c4b-score-20x8-json` 46.93 → 42.71 µs (−9.0 %), 36 → 28 | `c4b` 27.13 → 24.75 µs (−8.8 %) | keep | c8c26af |
 | P5 | the choices' and scores' tables cut from one array per kind (`prepareTables`, `cut`) | `c3-choice-20x10` −1.9 %, 27 → 8; `c4a-score-20x8-text` −4.4 %, 27 → 8; `c4b` −1.6 %, 28 → 9 | `c3` −3.3 %, `c1` −2.5 %, `c4a` and `c4b` ~ | keep | e178067 |
+| isSecretHeader | an ASCII header name compared with its letters folded in place; any other name lower-cased as before | counts as (M) | `isSecretHeader` 1 → 0 allocations per mixed-case name; the redacted copy of a 4-header response 7 → 3; a credential-free request header's scan 4 → 0 | keep | 9972097 |
+| NIT F | a typed failure's FieldPath rendered once (`newResponseValidationErrorAt`) | counts as (M) | a typed failure at `tone.choice` 9 → 5 allocations | keep | f6f91b9 |
+| R97-corr (c) | the retry policy's statuses and predicate behind one pointer: `RetryPolicy` 80 → 56 B, `callOptions` 145 → 121 B | counts as (M) | every option-bearing call 32 B less at the same count (`Retry` +1/160 → +1/128); a policy built with `Statuses` or `Predicate` one allocation more (accepted) | keep | 1487d03 |
+| R54 | the encode's UTF-8 check through sonic's SIMD validator (after an ASCII scan in Go, then on the whole input) | as built: CJK check −89 %, ASCII check +188 to +262 %; the whole-input variant fastest on both texts | the whole-input variant 15 to 22 times slower than `utf8.Valid` on ASCII, 2.2 times faster on CJK | **revert** (the lead's rule: the (M) probe disagrees); no code | – |
 
 ### K36: one scan of the body (05264fe)
 
@@ -4917,6 +4921,130 @@ On (M) the re-take (W5.3-57b) finds `c5` unchanged (p = 0.579) and the
    -57b; P4's first run (20:02:49) and P5's (20:08:42, started at load
    29.71) are `noisy` and were re-taken at loads 7.03 and 6.26.
 
+### Redaction by name, NIT F and R97-corr (c) (9972097, f6f91b9, 1487d03)
+
+Three allocation candidates off the call's frozen shape, each measured by
+its own pin and by the probes of W5.3-71 (before and after, on (M); counts,
+R17):
+
+1. **isSecretHeader** (D-r103revert-rereview): `strings.ToLower` copied
+   every mixed-case name, and every name net/http canonicalises is one. An
+   ASCII name, as every name on the wire is, is now compared with its
+   letters folded in place (`strings.EqualFold` against the six names, a
+   folding substring test for "token" and "secret"); a name with any other
+   byte is lower-cased as before, so the rule is `strings.ToLower`'s
+   (`FuzzIsSecretHeader` holds it to the old one, with runes that
+   lower-case to ASCII letters among the seeds). `isSecretHeader` 1 → 0
+   allocations per mixed-case name, the redacted header copy of a
+   four-header response 7 → 3, a credential-free request header's scan
+   4 → 0 (`TestAllocSecretHeaderName`, ci.yaml's root list, K38). The
+   DEBUG row of `TestAllocLoggedCall` does not move: its handler discards a
+   record without resolving its values, so the saving is on the error
+   paths, whose AC-P5 bounds hold. The redaction pins (R87) are unchanged;
+   four mutants fail the tests (W5.3-72).
+2. **NIT F** (V52, optional): a typed failure's error rendered the decoder's
+   path and then replaced it; it now renders the lifted path once. A
+   typed failure at `tone.choice` 9 → 5 allocations
+   (`TestAllocTypedFailure`, ci.yaml's list); two mutants fail it
+   (W5.3-72).
+3. **R97-corr (c)**: `callOptions` holds the call's policy by value, and
+   the 80 B policy made it 145 B, the 160 B class, which every call passing
+   any option allocates. The statuses and the predicate now sit behind one
+   pointer: the policy is 56 B and `callOptions` 121 B, the 128 B class.
+   Every option-bearing call costs 32 B less at the same count (`Retry`
+   +1/160 → +1/128, `Timeout` +2/176 → +2/144, `Model` +3/192 → +3/160,
+   `ExtraBody` +2/192 → +2/160, `Header` +7/720 → +7/688, all five
+   +11/784 → +11/752); the frozen AC-P6 row's recorded option costs moved
+   with it. **Accepted cost**: building a policy with `Statuses` or
+   `Predicate` costs one allocation more (1 → 2 and 0 → 1), paid where the
+   policy is built; option (b), the policy by pointer, would add an
+   allocation to every `Retry` call instead. `TestRetryPolicyRules` pins
+   the sizes and the setters' isolation; four mutants fail it (W5.3-73).
+   The exported API is unchanged: `go doc -all .` is byte-identical to
+   67dcbb0's after 1487d03 (W5.3-93).
+
+### R54: the UTF-8 validator (reverted, no code)
+
+R54's target: the UTF-8 check of ruling R48 (`utf8.Valid` over the encoded
+state) took 7.6 times sonic's own encode on a 6 MiB CJK state; B1 measured
+it at 51.2 of 54.2 µs on `cjk/64KiB` on amd64, because CJK's three-byte
+runes take `utf8.Valid`'s slow path. The ruling's candidate, an ASCII scan
+in Go and sonic's SIMD `utf8.Validate` on the rest, was built (6bb69bf,
+never pushed) with an exhaustive differential test against `utf8.Valid`
+(every string of up to 3 bytes, every 4-byte lead byte, each rune class at
+every offset around sonic's 32-byte blocks) and `FuzzValidUTF8` (13.4 M
+executions in 300 s at `-parallel 8` on (L), no failure; `-race ./...`
+passes; W5.3-82).
+
+R54 findings:
+
+1. **As built, it traded ASCII for CJK** (W5.3-78, (L)): the CJK check
+   4.92 ms → 0.52 ms at 6 MiB (−89 %) and the CJK encode −82 %, but the
+   ASCII check +188 to +262 % (36.9 → 106 ns at 1 KiB, 1.91 → 6.90 µs at
+   64 KiB): the Go word loop reads ASCII at about 9 GiB/s where
+   `utf8.Valid`'s reads it at 25 to 34 GiB/s.
+2. **A probe of six variants** (W5.3-79 (L), W5.3-80 (M); the probe's
+   source is `_spikes/w5.3/probes/r54-variants_test.go.txt`) found, on
+   (L), sonic's `utf8.Validate` on the whole input the fastest on both
+   texts (ASCII 53, 102 and 35 GB/s at 1 KiB, 64 KiB and 6 MiB against
+   `utf8.Valid`'s 26, 34 and 27; CJK 11 to 12 GB/s against 1.25), but on
+   (M) sonic's arm64 validator reads ASCII at 3.1 to 3.6 GB/s against
+   `utf8.Valid`'s 54 to 79 GB/s, 15 to 22 times slower, and CJK at 4.5 to
+   5.4 GB/s against 2.3 to 2.4. Every variant with a Go ASCII scan first
+   loses to `utf8.Valid` on ASCII on both hosts (37 to 39 GB/s against 54
+   to 79 on (M) at best).
+3. **Reverted by the lead's rule** (the (M) probe disagrees): no R54 code
+   lands; the attempt is kept as `_spikes/w5.3/probes/r54-reverted.patch.txt`.
+   A per-architecture choice (sonic's validator on amd64, `utf8.Valid` on
+   arm64) would win on amd64 and change nothing on arm64; it is an open
+   question for the owner, not built. The byte-parity tests are untouched.
+
+### K23, K24 and W5.2's margins (records)
+
+1. **K23, arm64's decode against the naive sonic decode** (K36's own A/Bs,
+   W5.3-04 on (L) and W5.3-06 on (M), the SDK's `BenchmarkDecode` over
+   `BenchmarkDecodeNaiveSonic`, before → after K36): (M) `result.json`
+   2.35 → 1.86, `result-20` 2.74 → 2.39, `structured-legend-flood-1k`
+   3.51 → 2.98; (L) 1.23 → 1.00, 1.29 → 1.07, 1.03 → 0.91. K36 narrowed the
+   arm64 gap by about a fifth; the rest is sonic's arm64 path, which has
+   no JIT: the naive decode's `sonic.Unmarshal` into `map[string]any` runs
+   sonic's arm64 native scanner, the SDK's `ast.Preorder` the visitor in
+   Go. Options (b) and (c) stay disqualified; no K23 candidate was built.
+   Later W5.3 commits leave the standalone decode as K36 left it (N2 gives
+   a spare only inside a call). Two later (M) runs were noisy (W5.3-86,
+   -87).
+2. **K24, the arm64 pool ceiling and pre-growth**: not attempted. The
+   growth rows (`TestAllocScratchSequence`, recorded, not asserted) come
+   from sonic's encoder growing its own buffer, whose final size the SDK
+   cannot know before encoding a struct or a map; they move with the
+   pool's drops: `*struct` g₆/g₉ 22/23 on (M) (the frozen row: 21/22) and
+   30/3 on (L) (30/32), flat map 21/3 (M) and 31/4 (L), with the pool
+   dropping the scratch after calls 11 and 22 on (M) and after call 22 on
+   (L) (W5.3-89, W5.3-90). The asserted rows (boxed string, RawJSON) are
+   unchanged. A W7 note, not a W5.3 candidate.
+3. **W5.2's margins** (charter deliverable 6): AC-P2's "≤ 0.5 × naive" on
+   `result.json` is 0.100 on (L) and 0.154 on (M) (a margin of 80 % and
+   69 %); AC-P8's allocation ratio is 7.61 against a bound of 12 (37 %),
+   identical on both hosts, and its time ratio 9.15 on (L) and 9.40 to 9.47
+   on (M) against 15 (37 to 39 %) (W5.3-89, W5.3-91). None is under 10 %,
+   so nothing is improved; they are recorded. AC-P8's linearity pin holds
+   on both hosts.
+
+### The lead's (M) windows
+
+Every (M) timing row of W5.3 was checked against the lead's three windows
+(10:01:13–10:02:30Z, 10:23–10:30Z and 11:02:46–11:06:50Z, that is
+19:01:13–19:02:30, 19:23–19:30 and 20:02:46–20:06:50 JST) and against its
+own recorded load. In the first, W5.3-29 (counts) is re-taken as W5.3-41;
+in the second, N2's first `BenchmarkCall` (W5.3-38) is `noisy` and
+re-taken as W5.3-39; in the third, P3's first (M) run ends two seconds in
+(W5.3-57, re-taken as W5.3-57b) and P4's runs in it (W5.3-61, re-taken as
+W5.3-62). Outside the windows, rows are `noisy` by their own load (above 16
+at the start or during the run, from external work) and re-taken or left
+as records: W5.3-57a, -66 (re-taken as -67), -81 (R54, reverted), -86 and
+-87 (K23; W5.3-06 stands), and W5.3-90's AC-P8 time (re-taken as -91). No
+other (M) timing row falls in a window or ran above load 16.
+
 | # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | W5.3-01 | 2026-09-26 08:36:53 UTC | W5.3 K36 `BenchmarkCall`, first run | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 2.49 → 9.10 | `BASE=67dcbb0 CAND=05264fe MAXLOAD=4 sh $A '(L)' $O /tmp/ts-spike/bench.lock k36-call-L internal/benchmark 5 <base tree> <cand tree> -test.run '^$' -test.bench '^BenchmarkCall$/^(sdk\|naive)(-q20)?$' -test.benchmem -test.count 2` | `call/sdk` 7.088 → 6.250 µs (−11.8 %), q20 29.89 → 26.49 µs (−11.4 %); naive unchanged; allocations 22 and 42 both sides | during W6.1's fuzz campaign on (L) (8 workers, load 2.5 → 9.1): absolute times about 15 % above W5.3-03; kept, not of record; `results/k36-call-L-{base,cand}.txt` |
@@ -4991,3 +5119,26 @@ On (M) the re-take (W5.3-57b) finds `c5` unchanged (p = 0.579) and the
 | W5.3-68 | 2026-09-26 19:34:27 JST | W5.3 P5 mutants | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | as W5.3-49, with `TestPrepareTablesOwnArrays` and `TestCutTables` | all 5 fail: a table not capped; the arena not advanced; the options or the levels not counted; the last table falling back | `results/p5-mutants-M.txt` |
 | W5.3-69 | 2026-09-26 19:53:01 JST | W5.3 gates of e178067 | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 5.67 → – | as W5.3-08, at e178067 | every gate ok | `results/gates-M-e178067.txt` |
 | W5.3-70 | 2026-09-26 10:58:07 UTC | W5.3 P2 to P5 `TestAllocPrepare` and `TestAllocFalsyJSON`, the wire and root tests, ci.yaml's allocation step | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 1.39 → 1.39 | under `flock /tmp/ts-spike/bench.lock`: `go test -count=5 -run '^(TestAllocPrepare\|TestAllocFalsyJSON)$' -v .` and `go test -count=1 ./internal/wire/ .` at each of 133b642, 0aa6730, 035934a, c8c26af, e178067; ci.yaml's allocation step at e178067 | the table's columns P1 to P5, 5 of 5 runs each; `TestAllocFalsyJSON` passes wherever it exists; every test run and the step exit 0 (their own statuses) | `results/p25-alloc-L.txt` |
+| W5.3-71 | 2026-09-26 20:52:52 JST | W5.3 allocation probes: isSecretHeader and redaction, a typed failure, the option costs, the policy setters | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.91 → – | the probes of `_spikes/w5.3/probes/` copied into detached worktrees at 9f23a43 and f6f91b9 (redaction, NIT F), at f6f91b9 and 1487d03 (R97-corr (c)), `go test -count=1 -run '^<probe>$' -v .` | the numbers of the section above, each before and after | counts (R17); W3.4's option probe with `measureCallItems` given its prefix; `results/alloc-probes-M.txt` |
+| W5.3-72 | 2026-09-26 20:19:41 JST | W5.3 isSecretHeader and NIT F mutants | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | each mutant planted in a copy of the working tree, then `go vet .` and the redaction, typed and allocation tests | all 6 fail: the words or the names matched with case; no fallback for a non-ASCII name; the lower-case copy kept; the decoder's form rendered first; the typed error given the decoder's form | `results/sec-mutants-M.txt` |
+| W5.3-73 | 2026-09-26 20:29:21 JST | W5.3 R97-corr (c) mutants | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | as W5.3-72, with the retry tests | all 4 fail: a setter writing the shared rules; a setter dropping the other rule; the predicate never asked; the statuses kept inline again | `results/c97-mutants-M.txt` |
+| W5.3-74 | 2026-09-26 20:20:28 JST | W5.3 gates of 5e91193 | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 9.95 → – | as W5.3-08, at 5e91193 | every gate ok | `results/gates-M-5e91193.txt` |
+| W5.3-75 | 2026-09-26 20:21:31 JST | W5.3 gates of 9972097 | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 10.87 → – | as W5.3-08, at 9972097 | every gate ok | `results/gates-M-9972097.txt` |
+| W5.3-76 | 2026-09-26 20:22:46 JST | W5.3 gates of f6f91b9 | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 9.56 → – | as W5.3-08, at f6f91b9 | every gate ok | `results/gates-M-f6f91b9.txt` |
+| W5.3-77 | 2026-09-26 20:50:51 JST | W5.3 gates of 1487d03 | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 13.52 → – | as W5.3-08, at 1487d03 (R97-corr (c) on f6f91b9, after R54 was moved out from under it) | every gate ok | `results/gates-M-1487d03.txt` |
+| W5.3-78 | 2026-09-26 11:25:35 UTC | W5.3 R54 as built, `BenchmarkEncodeState` | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.00 → 1.00 | `BASE=f6f91b9 CAND=6bb69bf MAXLOAD=2 sh $A '(L)' $O /tmp/ts-spike/bench.lock r54-encode-L internal/codec 5 <base tree> <cand tree> -test.run '^$' -test.bench '^BenchmarkEncodeState$' -test.benchmem -test.count 2` | check: CJK 806.3 ns → 95.1 ns (1 KiB), 51.22 → 5.46 µs (64 KiB), 4 922.7 → 524.8 µs (6 MiB); ASCII 36.88 → 106.3 ns, 1.908 → 6.901 µs, 236.5 → 662.1 µs; encode: CJK −79 to −85 %, ASCII +46 to +119 % | finding 1; `results/r54-encode-L-{base,cand}.txt`, `results/batch-r54-L.log` |
+| W5.3-79 | 2026-09-26 11:40:06 UTC | W5.3 R54 validator variants | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | – → – | under `flock /tmp/ts-spike/bench.lock`: the probe (`_spikes/w5.3/probes/r54-variants_test.go.txt`) in the 6bb69bf tree, `go test -run '^$' -bench '^BenchmarkR54Probe$' -count 3 ./internal/codec/` | B/s, 3 runs each: sonic on the whole input 53.6, 102.1 and 34.6 G (ASCII 1 KiB, 64 KiB, 6 MiB) and 11.0, 12.1, 12.1 G (CJK); `utf8.Valid` 26.4, 34.2, 27.0 G and 1.25, 1.28, 1.25 G; the Go-scan variants 9.3 to 23.7 G on ASCII | finding 2; `results/r54-variants-L.txt` |
+| W5.3-80 | 2026-09-26 20:53:05 JST | W5.3 R54 validator variants | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.16 → 4.14 | the same probe, its test binary built from the 6bb69bf tree, run under `$F $SP/bench.lock` after waiting for load < 10 | sonic on the whole input 3.1, 3.6 and 3.6 G (ASCII) and 4.5, 5.3, 5.4 G (CJK); `utf8.Valid` 53.9, 77.6, 77.3 G and 2.30, 2.38, 2.41 G; the best Go-scan variant 37.5 to 39.3 G on ASCII | finding 2: the (M) probe disagrees, so R54 is reverted; `results/r54-variants-M.txt` |
+| W5.3-81 | 2026-09-26 20:34:25 JST | W5.3 R54 as built, `BenchmarkEncodeState` | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 8.90 → 150.89 | as W5.3-78 on (M) | – | **noisy**, not used: an external burst during the run (spreads to ± 1 700 %); `results/r54-encode-M-noisy-{base,cand}.txt` |
+| W5.3-82 | 2026-09-26 11:32:58 UTC | W5.3 R54 as built, `-race` and `FuzzValidUTF8` | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 1.03 → 8.92 | under `flock /tmp/ts-spike/bench.lock` at 6bb69bf: `go test -race -count=1 ./...`; `go test -run '^$' -fuzz '^FuzzValidUTF8$' -fuzztime 300s -parallel 8 ./internal/codec/` | `-race` passes; the fuzz passes: 13 429 007 executions, 38 new corpus entries, no failure | `results/r54-race-fuzz-L.txt` |
+| W5.3-83 | 2026-09-26 20:24:06 JST | W5.3 R54 as built, mutants | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | as W5.3-72, with the validator's tests | all 4 fail: the rest not validated; the first non-ASCII byte skipped; a lane missing from the word mask; the ASCII scan stopping a byte late | `results/r54-mutants-M.txt` |
+| W5.3-84 | 2026-09-26 20:25:42 JST | W5.3 gates of 6bb69bf (R54 as built, reverted) | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 5.75 → – | as W5.3-08, at 6bb69bf | every gate ok | the commit was not pushed; `results/gates-M-6bb69bf.txt` |
+| W5.3-85 | 2026-09-26 11:30:23 UTC | W5.3 K23 decode against the naive sonic decode | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 1.00 → 1.03 | `BASE=f6f91b9 CAND=6bb69bf MAXLOAD=2 sh $A '(L)' $O /tmp/ts-spike/bench.lock k23-decode-L internal/codec 5 <base tree> <cand tree> -test.run '^$' -test.bench '^BenchmarkDecode(NaiveSonic)?$/^(result\|result-20\|structured-legend-flood-1k)$' -test.benchmem -test.count 2` (the decode is the same on both sides) | SDK over naive: `result.json` 2.829/2.767 µs = 1.02, `result-20` 18.00/16.57 = 1.09, flood-1k 543.1/593.6 = 0.91 | agrees with W5.3-04's after-K36 column; `results/k23-decode-L-{base,cand}.txt` |
+| W5.3-86 | 2026-09-26 20:45:49 JST | W5.3 K23 decode against the naive sonic decode | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 152.45 → 48.04 | as W5.3-85 on (M) | – | **noisy**, not used; `results/k23-decode-M-noisy-{base,cand}.txt` |
+| W5.3-87 | 2026-09-26 20:55:15 JST | W5.3 K23 decode against the naive sonic decode, re-taken | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 4.14 → 16.38 | as W5.3-85 on (M), after waiting for load < 10 | SDK over naive: `result.json` 2.989/1.593 µs = 1.88 (± 79 % on one side), `result-20` 18.71/8.27 = 2.26, flood-1k 628.5/211.2 = 2.98 | **noisy** (the load reached 16.38 at the end); agrees with W5.3-06's after-K36 column, the row of record; `results/k23-decode-M-noisy2-{base,cand}.txt` |
+| W5.3-88 | 2026-09-26 20:57:18 JST | W5.3 merge-tree against the live wave branches | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | `git merge-tree --write-tree --name-only HEAD origin/wave/<b>` for w5.4 (b4faf7c), w6.1 (2b9ecfa) and w6.3 (a5b5e53), at 46416b6 | each conflicts only in `docs/perf/ledger.md`, where each wave appends its section; ci.yaml, errors.go and decode_fuzz_test.go merge on their own | the final head adds only documentation to 46416b6; `results/merge-tree-M.txt` |
+| W5.3-89 | 2026-09-26 11:32:47 UTC | W5.3 records: AC-P2, AC-P8, K24 | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 1.03 → 1.03 | under `flock /tmp/ts-spike/bench.lock` at 6bb69bf (R54's check changes no count): `go test -count=1 -run '^(TestAllocDecodeFixtures\|TestLinearityFlood\|TestLinearityFloodTime\|TestAllocScratchSequence)$' -v .` | AC-P2 `result.json` 4/688 against naive 40/3 672, ratio 0.100; AC-P8 allocations 7.61 (bound 12), time 9.15 (bound 15); K24's SEQ rows of the section above | `results/r54-records-L.txt` |
+| W5.3-90 | 2026-09-26 20:48:23 JST | W5.3 records: AC-P2, AC-P8 allocations, K24, the new pins | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 48.04 → 44.36 | under `$F $SP/bench.lock` at d15781a (1487d03 plus R54 as built, which changes no count): the tests of W5.3-89 with `TestAllocSecretHeaderName`, `TestAllocTypedFailure`, `TestAllocAnswersInlineBound`, `TestAllocWholeCall`, `TestAllocPrepare` | AC-P2 `result.json` against naive 26/3 960, ratio 0.154; AC-P8 allocations 7.61; K24's SEQ rows; every pin passes; q3 own 12/2 008 | counts only (R17); its AC-P8 time (9.57) is noisy and re-taken as W5.3-91; `results/records-M.txt` |
+| W5.3-91 | 2026-09-26 20:59:44 JST | W5.3 AC-P8 time and allocations, re-taken | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 6.80 → 9.96 | under `$F $SP/bench.lock` after waiting for load < 10, at d15781a: `go test -count=3 -run '^(TestLinearityFloodTime\|TestLinearityFlood)$' -v .` | time ratio 9.43, 9.40, 9.47 (bound 15); allocations 7.61 in each run (bound 12) | `results/acp8-M.txt` |
+| W5.3-92 | 2026-09-26 12:11:43 UTC | W5.3 R111, each commit alone | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.07 → – | each commit of 67dcbb0..46416b6 (20) as its own `git archive` tree, `go build ./... && go vet ./... && go test -count=1 ./...` under `set -o pipefail`, two at a time at `nice -n 19` | every commit exits 0; 140 `ok` lines (7 packages × 20), 0 FAIL lines, 0 nonzero exits | the final head adds only documentation to 46416b6; each commit's (M) gates are rows W5.3-08 to -77; `results/r111-L.txt` |
+| W5.3-93 | 2026-09-26 21:14:39 JST | W5.3 public API after R97-corr (c) | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | `GOEXPERIMENT=nosimd,noruntimesecret go doc -all .` at 46416b6 against 67dcbb0's (W5.3-42) | byte-identical, the same SHA-256 | `results/godoc-M.txt` |
