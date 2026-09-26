@@ -101,7 +101,7 @@ Rows by status: 35 deviation, 0 planned, 94 ported.
 
 | ID | Upstream | Go test / deviation | status |
 | --- | --- | --- | --- |
-| I1 | `test_live_models` | `livetests.TestLiveModels` (`-tags live`, run by the owner-approved live pass, ledger W6.4-01) | ported |
+| I1 | `test_live_models` | `livetests.TestLiveModels` (`-tags live`, run by the owner-approved live pass, ledger W6.4-01); on the same endpoints `livetests.TestLiveUnauthenticated` pins AC-F11: a request carrying no credential → 403 and `IsAuthentication()`, and, added, a key the API did not issue → 401 and `IsAuthentication()` (ledger W6.4-02) | ported |
 | I2 | `test_live_questions` | `livetests.TestLiveQuestions` (raw, typed choice and typed score in one call; ledger W6.4-01) | ported |
 | I3 | `test_live_pydantic_response` | `livetests.TestLiveTypedResponse` (`Ask[T]`; the recorded body decoded again by `DecodeAs[T]` and `Answers()`, which agree; ledger W6.4-01) | ported |
 
