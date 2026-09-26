@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package typesafe
+package benchmark
 
 import "testing"
 
 // BenchmarkNoop measures an empty loop body. It gives the CodSpeed workflow
-// one benchmark before the SDK has any, so a runner refusal can be told apart
-// from a run that found nothing to measure.
+// one benchmark that measures nothing of the SDK, so a runner refusal can be
+// told apart from a run that found nothing to measure.
 func BenchmarkNoop(b *testing.B) {
 	var n int
 	for b.Loop() {

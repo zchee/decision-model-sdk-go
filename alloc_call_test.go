@@ -69,21 +69,6 @@ func measureRuns(setup, section func()) []testsupport.Allocs {
 	return runs
 }
 
-// floorCall is the floor of a call: the transport called with a request
-// built beforehand, its response drained into io.Discard and closed. No
-// client can cost less.
-func floorCall(rt http.RoundTripper, req *http.Request) error {
-	resp, err := rt.RoundTrip(req)
-	if err != nil {
-		return err
-	}
-	_, err = io.Copy(io.Discard, resp.Body)
-	if cerr := resp.Body.Close(); err == nil {
-		err = cerr
-	}
-	return err
-}
-
 // TestAllocWholeCall checks AC-P6 (NF3): one whole SystemOne call of the q3
 // shape (three questions, a 1 KiB boxed-string state, the discarding
 // Recorder answering result.json, one attempt, no call options, no logger)
@@ -136,7 +121,7 @@ func TestAllocWholeCall(t *testing.T) {
 		Method: http.MethodPost, URL: c.cfg.systemOneURL, Proto: "HTTP/1.1", ProtoMajor: 1, ProtoMinor: 1,
 		Header: c.cfg.systemOneHeader, Body: io.NopCloser(rd), ContentLength: int64(len(pre)), Host: c.cfg.systemOneURL.Host,
 	}
-	floorRT := series(t, "floor round trip", func() { rd.Reset(pre) }, func() { err = floorCall(rec, floorReq) })
+	floorRT := series(t, "floor round trip", func() { rd.Reset(pre) }, func() { err = testsupport.FloorCall(rec, floorReq) })
 	check("floor")
 	total := series(t, "call/sdk", nil, func() { sinkResponse, err = c.SystemOne(ctx, state, qs) })
 	check("call/sdk")

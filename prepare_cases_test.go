@@ -14,12 +14,13 @@
 
 package typesafe
 
+// The question sets whose Prepare cost the ledger records (section W1.3):
+// TestAllocPrepare pins their allocations and BenchmarkPrepare
+// (bench_internal_test.go) times them, so both read this one table.
+
 import (
-	"maps"
-	"slices"
 	"strconv"
 	"strings"
-	"testing"
 )
 
 // prepareSink keeps every prepared set reachable, so that the compiler cannot
@@ -176,42 +177,3 @@ const prettyScale = `{
   },
   "owner": {"team": "support", "escalation": ["on-call", "lead"], "reviewed": true, "version": 3}
 }`
-
-// BenchmarkPrepare measures Questions.Prepare on each set of prepareCases.
-// The set is built once, outside the loop: Prepare only reads it.
-func BenchmarkPrepare(b *testing.B) {
-	for _, name := range slices.Sorted(maps.Keys(prepareCases)) {
-		qs := prepareCases[name]()
-		b.Run(name, func(b *testing.B) {
-			b.ReportAllocs()
-			for b.Loop() {
-				p, err := qs.Prepare()
-				if err != nil {
-					b.Fatal(err)
-				}
-				prepareSink = p
-			}
-		})
-	}
-}
-
-// BenchmarkFalsyJSON measures the falsiness check of a raw score question's
-// JSON criteria alone: below 32 compact bytes, its copy stays on the stack.
-func BenchmarkFalsyJSON(b *testing.B) {
-	inputs := map[string][]byte{
-		"small-14B": []byte(`[ "low", "high" ]`),
-		"array":     prettyLevels(),
-		"map":       []byte(prettyScale),
-	}
-	for _, name := range slices.Sorted(maps.Keys(inputs)) {
-		raw := inputs[name]
-		b.Run(name, func(b *testing.B) {
-			b.ReportAllocs()
-			for b.Loop() {
-				if falsyJSON(raw) {
-					b.Fatalf("falsyJSON(%s) = true, want false", raw)
-				}
-			}
-		})
-	}
-}
