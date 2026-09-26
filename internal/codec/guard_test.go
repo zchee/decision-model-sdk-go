@@ -17,10 +17,13 @@
 package codec
 
 import (
+	"bytes"
 	"os"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
+	"unsafe"
 
 	"github.com/bytedance/sonic"
 	"github.com/bytedance/sonic/ast"
@@ -246,6 +249,59 @@ func TestCutPointMinimumLength(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if got := cutPoint([]byte(tt.body)); got != tt.want {
 				t.Errorf("cutPoint(%q) = %d, want %d", tt.body, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestPadShort pins padShort's contract (review of W6-secfix, MINOR 2): a
+// body sonic may read as it is, empty or at least minSonicInput bytes long,
+// comes back as it is, the same backing array; a body of 1 to 3 bytes comes
+// back as a copy in an array of its own whose room past the body holds at
+// least minSonicInput zero bytes, the room sonic's advance_dword reads. The
+// short inputs have readable non-zero bytes after them (the rest of a
+// literal, as []byte("true")[:1] has "rue"), which the copy must not carry.
+// TestGuardPage cannot see this room: padShort's copy is on the Go heap,
+// never next to its guard page.
+func TestPadShort(t *testing.T) {
+	fixture := testsupport.Fixture(t, "result.json")
+	tests := map[string]struct {
+		in   []byte
+		same bool // padShort returns in itself
+	}{
+		"success: nil stays nil":                     {in: nil, same: true},
+		"success: an empty body with room":           {in: make([]byte, 0, 8), same: true},
+		"success: 4 bytes, the shortest read as is":  {in: []byte("true"), same: true},
+		"success: a fixture":                         {in: fixture, same: true},
+		`error: 1 byte, "t" with "rue" after it`:     {in: []byte("true")[:1]},
+		`error: 2 bytes, "nu" with "ll" after it`:    {in: []byte("null")[:2]},
+		`error: 3 bytes, "fal" with "se" after it`:   {in: []byte("false")[:3]},
+		`error: 3 bytes at the end of their array`:   {in: []byte("[f]")},
+		`error: 1 byte with a whole page after it`:   {in: append(make([]byte, 0, 4096), 'f')},
+		`error: 2 bytes, "{}" with a brace after it`: {in: []byte("{}}")[:2]},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			before := slices.Clone(tt.in)
+			out := padShort(tt.in)
+			if !bytes.Equal(out, before) || (out == nil) != (tt.in == nil) {
+				t.Fatalf("padShort(%q) = %q, want the same bytes", before, out)
+			}
+			sameArray := unsafe.SliceData(out) == unsafe.SliceData(tt.in)
+			if tt.same {
+				if !sameArray || cap(out) != cap(tt.in) {
+					t.Errorf("padShort(%q) returned another array (cap %d, the input's %d), want the body itself", before, cap(out), cap(tt.in))
+				}
+				return
+			}
+			if sameArray {
+				t.Fatalf("padShort(%q) returned the input's own array, want a copy with zeroed room", before)
+			}
+			if cap(out) < len(out)+minSonicInput {
+				t.Fatalf("padShort(%q) has capacity %d, want at least %d: sonic reads %d bytes past a short body", before, cap(out), len(out)+minSonicInput, minSonicInput)
+			}
+			if room := out[len(out):cap(out)]; slices.ContainsFunc(room, func(b byte) bool { return b != 0 }) {
+				t.Errorf("padShort(%q)'s room past the body is %q, want zeros", before, room)
 			}
 		})
 	}
