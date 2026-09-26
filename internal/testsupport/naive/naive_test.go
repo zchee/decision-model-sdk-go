@@ -17,7 +17,6 @@ package naive
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
 	"testing"
@@ -214,10 +213,6 @@ func TestClientSystemOneErrors(t *testing.T) {
 	}
 }
 
-// jsonEscape returns the six-byte JSON escape of r, as encoding/json writes
-// an HTML-special character.
-func jsonEscape(r rune) string { return fmt.Sprintf("%cu%04x", 0x5c, r) }
-
 // TestCodecEncodeSpellings pins where the two codecs spell a body alike and
 // where they do not, which decides the states for which the naive body is
 // the SDK's (the package comment): both write members in Body's order and
@@ -236,7 +231,7 @@ func TestCodecEncodeSpellings(t *testing.T) {
 		"success: HTML-special characters differ": {
 			state:     "<a&b>",
 			wantSonic: `{"state":"<a&b>","model":"m","questions":{}}`,
-			wantStd:   `{"state":"` + jsonEscape('<') + "a" + jsonEscape('&') + "b" + jsonEscape('>') + `","model":"m","questions":{}}`,
+			wantStd:   `{"state":"\u003ca\u0026b\u003e","model":"m","questions":{}}`,
 		},
 	}
 	for name, tt := range tests {

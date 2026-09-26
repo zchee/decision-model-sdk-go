@@ -29,7 +29,10 @@ package typesafe
 // Client.attempt, so assembleRequest rebuilds them from the same parts;
 // TestAssemblyMatchesCall checks, before anything is timed, that its
 // request is the one a real call hands its transport: method, URL, Host,
-// every header, the body byte for byte, its length and a GetBody.
+// every header, the body byte for byte, its length and a GetBody. It
+// cannot see a change that alters only the cost (a copy of the header
+// template, say), so re-sync assembleRequest with Client.attempt and
+// SystemOne whenever they change.
 //
 // How this can mislead: the retry policy, the logging checks and the
 // transport are not in it; B5's whole call has all of them.

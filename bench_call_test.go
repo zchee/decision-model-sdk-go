@@ -22,9 +22,11 @@ package typesafe
 //     encode, header template, request, the transport, reading the body,
 //     decoding it. The plan's call/sdk.
 //   - floor: the transport called directly with a request built beforehand,
-//     its response drained, plus sonic's own encode of the state into a
-//     presized buffer (E_sonic): the NF3 floor as TestAllocWholeCall
-//     defines it. No client can cost less.
+//     its response drained, plus sonic's encode of the state through
+//     codec.EncodeState into a presized buffer, as TestAllocWholeCall
+//     measures E_sonic (its time includes EncodeState's shape and UTF-8
+//     checks): the NF3 floor as that test defines it. No client can cost
+//     less.
 //   - naive: internal/testsupport/naive with sonic, G3 (a)'s comparator of
 //     record; the plan's call/naive (AC-P6, AC-P7).
 //   - naive-json: the same client with encoding/json, reported only.
@@ -49,6 +51,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	gocmp "github.com/google/go-cmp/cmp"
 
@@ -162,9 +165,12 @@ func q20Questions(tb testing.TB) *Prepared {
 	return p
 }
 
-// roundTripFloor is the floor of a call (TestAllocWholeCall's floorCall,
-// which only the non-race build compiles): rt called with a request built
-// beforehand, its response drained into io.Discard and closed.
+// roundTripFloor is the floor of a call: rt called with a request built
+// beforehand, its response drained into io.Discard and closed. It is a copy
+// of alloc_call_test.go's floorCall, the source of truth, which only the
+// non-race build compiles; TestRoundTripFloorMatchesFloorCall keeps the two
+// alike until W5.2 moves floorCall to a file every build compiles and this
+// copy goes.
 func roundTripFloor(rt http.RoundTripper, req *http.Request) error {
 	resp, err := rt.RoundTrip(req)
 	if err != nil {
@@ -259,23 +265,45 @@ func BenchmarkCall(b *testing.B) {
 // TestNaiveRequestMatchesSDK checks that B5 compares like with like: for
 // each scenario, the naive client with either codec sends the request the
 // SDK's call sends (method, URL, Host, every header, the body byte for
-// byte, its declared length and a GetBody), and decodes the same number of
-// answers.
+// byte, its declared length and a GetBody) under the client's per-attempt
+// deadline, and decodes the same number of answers. It ranges over B5's
+// own scenarios and codecs rather than a map of cases, so that it checks
+// exactly what the benchmark runs.
 func TestNaiveRequestMatchesSDK(t *testing.T) {
 	for _, sc := range callScenarios {
 		for _, nc := range naiveCodecs {
 			t.Run("success: "+nc.name+" "+sc.name, func(t *testing.T) {
 				rec := replying(http.StatusOK, testsupport.Fixture(t, sc.fixture))
+				var remaining []time.Duration // each request's time left before its deadline; -1 for none
+				rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+					if dl, ok := req.Context().Deadline(); ok {
+						remaining = append(remaining, time.Until(dl))
+					} else {
+						remaining = append(remaining, -1)
+					}
+					return rec.RoundTrip(req)
+				})
 				qs := sc.questions(t)
-				c := newBenchClient(t, rec)
+				c := newBenchClient(t, rt)
 				state := newCallState()
 				resp, err := c.SystemOne(t.Context(), state, qs)
 				if err != nil {
 					t.Fatalf("SystemOne: %v", err)
 				}
-				out, err := newNaiveClient(c, rec, qs, nc.codec).SystemOne(t.Context(), state)
+				out, err := newNaiveClient(c, rt, qs, nc.codec).SystemOne(t.Context(), state)
 				if err != nil {
 					t.Fatalf("naive SystemOne: %v", err)
+				}
+				// Both deadlines are the client's DefaultTimeout from the
+				// moment each request was built; a second of slack covers a
+				// slow runner.
+				for i, d := range remaining {
+					switch {
+					case d < 0:
+						t.Errorf("request %d (0 SDK, 1 naive) has no deadline, want one %v away", i, DefaultTimeout)
+					case d <= DefaultTimeout-time.Second || d > DefaultTimeout:
+						t.Errorf("request %d (0 SDK, 1 naive): deadline %v away, want within a second of %v", i, d, DefaultTimeout)
+					}
 				}
 				if got, want := naiveAnswers(out), resp.Answers().Len(); got != want || got != sc.answers {
 					t.Errorf("answers: naive %d, SDK %d, want %d", got, want, sc.answers)
