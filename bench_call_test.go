@@ -14,39 +14,285 @@
 
 package typesafe
 
+// B5 (docs/perf/benchmarks.md): one whole SystemOne call through an
+// in-memory transport, against its floor and against the naive comparator
+// on the same transport.
+//
+//   - sdk: Client.SystemOne with the default deadline and retry policy:
+//     encode, header template, request, the transport, reading the body,
+//     decoding it. The plan's call/sdk.
+//   - floor: the transport called directly with a request built beforehand,
+//     its response drained, plus sonic's own encode of the state into a
+//     presized buffer (E_sonic): the NF3 floor as TestAllocWholeCall
+//     defines it. No client can cost less.
+//   - naive: internal/testsupport/naive with sonic, G3 (a)'s comparator of
+//     record; the plan's call/naive (AC-P6, AC-P7).
+//   - naive-json: the same client with encoding/json, reported only.
+//
+// The q3 rows are the NF3 shape: the three questions of the upstream
+// round-trip test, a 1 KiB boxed-string state and result.json. The -q20
+// rows ask the twenty questions result-20.json answers. The naive client is
+// handed the SDK client's own header template, URL, model, deadline and
+// prepared question bytes, so both send the same request byte for byte
+// (TestNaiveRequestMatchesSDK).
+//
+// How this can mislead: the Recorder answers at once and discards the
+// request body, so everything the network costs is absent by design (B6
+// has a loopback socket). B/op runs with the collector on and every P, so
+// a collection that empties a sync.Pool shows as a fraction of an
+// allocation; TestAllocWholeCall has the exact counts.
+
 import (
+	"bytes"
+	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
+	gocmp "github.com/google/go-cmp/cmp"
+
+	"github.com/zchee/typesafe-sdk-go/internal/codec"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
+	"github.com/zchee/typesafe-sdk-go/internal/testsupport/naive"
+	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
-// sinkCall keeps BenchmarkCall's result alive.
-var sinkCall *SystemOneResponse
+// Sinks keep the benchmarks' results alive.
+var (
+	sinkCall  *SystemOneResponse
+	sinkNaive map[string]any
+)
 
-// BenchmarkCall measures one whole SystemOne call of the NF3 shape (AC-P6):
-// the q3 questions, a 1 KiB boxed-string state, one attempt over the
-// discarding Recorder answering result.json, no call options and no logger.
-// "sdk" is the plan's call/sdk; call/naive, the comparator, is W5.1's.
-func BenchmarkCall(b *testing.B) {
-	b.Run("sdk", func(b *testing.B) {
-		rec := &testsupport.Recorder{Discard: true, Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, testsupport.Fixture(b, "result.json"))}}
-		// Every setting an option gives, so the environment cannot change
-		// the body.
-		c, err := NewClient(WithRoundTripper(rec), WithAPIKey(testKey), WithBaseURL(DefaultBaseURL), WithModel(DefaultModel))
-		if err != nil {
-			b.Fatal(err)
+// callScenario is one whole-call shape of B5.
+type callScenario struct {
+	name      string // "q3" or "q20"
+	suffix    string // appended to each row's name: "" for q3, the plan's call/sdk and call/naive
+	fixture   string // the response body
+	answers   int    // how many answers the fixture holds
+	questions func(tb testing.TB) *Prepared
+}
+
+// callScenarios are B5's shapes, in report order.
+var callScenarios = []callScenario{
+	{name: "q3", suffix: "", fixture: "result.json", answers: 3, questions: q3Questions},
+	{name: "q20", suffix: "-q20", fixture: "result-20.json", answers: 20, questions: q20Questions},
+}
+
+// naiveCodecs are the naive comparator's two codecs, by row name.
+var naiveCodecs = []struct {
+	name  string
+	codec naive.Codec
+}{
+	{name: "naive", codec: naive.Sonic},
+	{name: "naive-json", codec: naive.StdJSON},
+}
+
+// newCallState returns the NF3 state: 1 KiB of text once encoded, boxed in
+// an any before the call.
+func newCallState() any { return strings.Repeat("s", 1<<10-2) }
+
+// newBenchClient builds a client over rt with every setting an option
+// gives, so that the environment cannot change the request, and closes it
+// when tb ends.
+func newBenchClient(tb testing.TB, rt http.RoundTripper, opts ...ClientOption) *Client {
+	tb.Helper()
+	c, err := NewClient(append([]ClientOption{WithRoundTripper(rt), WithAPIKey(testKey), WithBaseURL(DefaultBaseURL), WithModel(DefaultModel)}, opts...)...)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	tb.Cleanup(func() { _ = c.Close() })
+	return c
+}
+
+// newNaiveClient returns the naive comparator of c's calls asking qs: the
+// same transport, URL, header template, model, deadline and question
+// bytes, encoding and decoding with cd.
+func newNaiveClient(c *Client, rt http.RoundTripper, qs *Prepared, cd naive.Codec) *naive.Client {
+	return &naive.Client{
+		Transport: rt,
+		URL:       c.cfg.systemOneURL.String(),
+		Header:    c.cfg.systemOneHeader,
+		Model:     c.cfg.model,
+		Questions: qs.w.Questions,
+		Timeout:   c.cfg.timeout,
+		Codec:     cd,
+	}
+}
+
+// q20Questions is the question set result-20.json answers, as S-C1 built
+// it (testdata/README.md): each question named after its answer, a choice's
+// options the keys of its probabilities in wire order, a score's levels its
+// legend's texts in level order.
+func q20Questions(tb testing.TB) *Prepared {
+	tb.Helper()
+	var res wire.SystemOneResult
+	if _, err := codec.DecodeSystemOne(testsupport.Fixture(tb, "result-20.json"), nil, "", &res); err != nil {
+		tb.Fatal(err)
+	}
+	qs := NewQuestions()
+	for _, e := range res.Answers.Entries() {
+		name := strings.Clone(e.Name)
+		instructions := Text("Question about " + name + "?")
+		switch e.Answer.Kind {
+		case wire.KindNoul:
+			qs.Noul(name, Noul{Instructions: instructions})
+		case wire.KindChoice:
+			var opts Options
+			for _, p := range e.Answer.Choice.Probabilities {
+				opts = append(opts, Option{Label: strings.Clone(p.Label)})
+			}
+			qs.Choice(name, Choice{Instructions: instructions, Options: opts})
+		case wire.KindScore:
+			legend := slices.Clone(e.Answer.Score.Legend)
+			slices.SortFunc(legend, func(a, b wire.LegendEntry) int { return int(a.Level) - int(b.Level) })
+			levels := make([]Content, 0, len(legend))
+			for _, l := range legend {
+				levels = append(levels, Text(strings.Clone(l.Description.Text)))
+			}
+			qs.Score(name, Score{Instructions: instructions, Levels: levels})
+		default:
+			tb.Fatalf("result-20.json: answer %q of kind %v", e.Name, e.Answer.Kind)
 		}
-		b.Cleanup(func() { _ = c.Close() })
-		qs := q3Questions(b)
-		var state any = strings.Repeat("s", 1<<10-2)
-		ctx := b.Context()
-		b.ReportAllocs()
-		for b.Loop() {
-			if sinkCall, err = c.SystemOne(ctx, state, qs); err != nil {
+	}
+	p := mustPrepared(tb, qs)
+	if p.Len() != 20 {
+		tb.Fatalf("result-20.json asks %d questions, want 20", p.Len())
+	}
+	return p
+}
+
+// roundTripFloor is the floor of a call (TestAllocWholeCall's floorCall,
+// which only the non-race build compiles): rt called with a request built
+// beforehand, its response drained into io.Discard and closed.
+func roundTripFloor(rt http.RoundTripper, req *http.Request) error {
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(io.Discard, resp.Body)
+	if cerr := resp.Body.Close(); err == nil {
+		err = cerr
+	}
+	return err
+}
+
+// naiveAnswers returns how many answers a naive call decoded.
+func naiveAnswers(out map[string]any) int {
+	answers, _ := out["answers"].(map[string]any)
+	return len(answers)
+}
+
+// BenchmarkCall is B5; see the comment at the top of this file.
+func BenchmarkCall(b *testing.B) {
+	for _, sc := range callScenarios {
+		qs := sc.questions(b)
+		rec := &testsupport.Recorder{Discard: true, Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, testsupport.Fixture(b, sc.fixture))}}
+		c := newBenchClient(b, rec)
+		state := newCallState()
+
+		b.Run("sdk"+sc.suffix, func(b *testing.B) {
+			ctx := b.Context()
+			resp, err := c.SystemOne(ctx, state, qs)
+			if err != nil {
 				b.Fatal(err)
 			}
+			if n := resp.Answers().Len(); n != sc.answers {
+				b.Fatalf("%d answers, want %d", n, sc.answers)
+			}
+			b.ReportAllocs()
+			for b.Loop() {
+				if sinkCall, err = c.SystemOne(ctx, state, qs); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+
+		b.Run("floor"+sc.suffix, func(b *testing.B) {
+			enc, err := encodeBody(state, c.cfg.model, qs, nil)
+			if err != nil {
+				b.Fatal(err)
+			}
+			sent := bytes.Clone(enc.Bytes())
+			enc.Release()
+			rd := bytes.NewReader(sent)
+			req := &http.Request{
+				Method: http.MethodPost, URL: c.cfg.systemOneURL, Proto: "HTTP/1.1", ProtoMajor: 1, ProtoMinor: 1,
+				Header: c.cfg.systemOneHeader, Body: io.NopCloser(rd), ContentLength: int64(len(sent)), Host: c.cfg.systemOneURL.Host,
+			}
+			buf := make([]byte, 0, 4<<10)
+			b.ReportAllocs()
+			for b.Loop() {
+				buf = buf[:0]
+				if err := codec.EncodeState(&buf, state); err != nil {
+					b.Fatal(err)
+				}
+				rd.Reset(sent)
+				if err := roundTripFloor(rec, req); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+
+		for _, nc := range naiveCodecs {
+			client := newNaiveClient(c, rec, qs, nc.codec)
+			b.Run(nc.name+sc.suffix, func(b *testing.B) {
+				ctx := b.Context()
+				out, err := client.SystemOne(ctx, state)
+				if err != nil {
+					b.Fatal(err)
+				}
+				if n := naiveAnswers(out); n != sc.answers {
+					b.Fatalf("%d answers, want %d", n, sc.answers)
+				}
+				b.ReportAllocs()
+				for b.Loop() {
+					if sinkNaive, err = client.SystemOne(ctx, state); err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
 		}
-	})
+	}
+}
+
+// TestNaiveRequestMatchesSDK checks that B5 compares like with like: for
+// each scenario, the naive client with either codec sends the request the
+// SDK's call sends (method, URL, Host, every header, the body byte for
+// byte, its declared length and a GetBody), and decodes the same number of
+// answers.
+func TestNaiveRequestMatchesSDK(t *testing.T) {
+	for _, sc := range callScenarios {
+		for _, nc := range naiveCodecs {
+			t.Run("success: "+nc.name+" "+sc.name, func(t *testing.T) {
+				rec := replying(http.StatusOK, testsupport.Fixture(t, sc.fixture))
+				qs := sc.questions(t)
+				c := newBenchClient(t, rec)
+				state := newCallState()
+				resp, err := c.SystemOne(t.Context(), state, qs)
+				if err != nil {
+					t.Fatalf("SystemOne: %v", err)
+				}
+				out, err := newNaiveClient(c, rec, qs, nc.codec).SystemOne(t.Context(), state)
+				if err != nil {
+					t.Fatalf("naive SystemOne: %v", err)
+				}
+				if got, want := naiveAnswers(out), resp.Answers().Len(); got != want || got != sc.answers {
+					t.Errorf("answers: naive %d, SDK %d, want %d", got, want, sc.answers)
+				}
+				reqs := rec.Requests()
+				if len(reqs) != 2 {
+					t.Fatalf("the transport saw %d requests, want 2", len(reqs))
+				}
+				sdk, nv := reqs[0], reqs[1]
+				sdk.Index, nv.Index = 0, 0
+				if diff := gocmp.Diff(sdk, nv); diff != "" {
+					t.Errorf("request (-sdk +naive):\n%s", diff)
+				}
+				if len(sdk.Header) != 6 || len(sdk.Body) == 0 {
+					t.Errorf("the SDK's request has %d headers and a %d-byte body, want 6 and a body", len(sdk.Header), len(sdk.Body))
+				}
+			})
+		}
+	}
 }
