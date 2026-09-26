@@ -116,7 +116,7 @@ func TestAllocWholeCall(t *testing.T) {
 	own := total.Mallocs - floor.Mallocs
 	t.Logf("CALL q3 E_sonic=%s floorRT=%s floor=%s total=%s own=%d/%d (N = 14, frozen at W3.4)", esonic, floorRT, floor, total, own, total.Bytes-floor.Bytes)
 
-	items := measureCallItems(t, c, state, qs)
+	items := measureCallItems(t, c, state, qs, "")
 	t.Logf("ITEM q3 %s", items)
 
 	// Exact pins (R70 (3)'s precedent), so a change of the floor fails
@@ -153,7 +153,7 @@ func TestAllocWholeCall(t *testing.T) {
 		t.Fatalf("the q20 call %s costs less than its floor %s", total20, floor20)
 	}
 	t.Logf("CALL q20 E_sonic=%s floorRT=%s floor=%s total=%s own=%d/%d (recorded, not in N)", esonic, floorRT20, floor20, total20, total20.Mallocs-floor20.Mallocs, total20.Bytes-floor20.Bytes)
-	t.Logf("ITEM q20 %s", measureCallItems(t, c20, state, qs20))
+	t.Logf("ITEM q20 %s", measureCallItems(t, c20, state, qs20, "q20 "))
 }
 
 // callItems is one call split into the allocations of its request side and
@@ -169,8 +169,8 @@ func (it callItems) String() string {
 }
 
 // measureCallItems measures the allocations a call makes, one at a time, in
-// the order SystemOne makes them.
-func measureCallItems(t *testing.T, c *Client, state any, qs *Prepared) callItems {
+// the order SystemOne makes them; prefix starts the label of every series.
+func measureCallItems(t *testing.T, c *Client, state any, qs *Prepared, prefix string) callItems {
 	t.Helper()
 	ctx := t.Context()
 	var hdr, u, to, rq, open, gb, res, rd, dec [testsupport.AllocRuns]testsupport.Allocs
@@ -228,15 +228,15 @@ func measureCallItems(t *testing.T, c *Client, state any, qs *Prepared) callItem
 		body.Release()
 	}
 	return callItems{
-		header:  testsupport.StableMin(t, "item header map", hdr[:]),
-		url:     testsupport.StableMin(t, "item URL copy", u[:]),
-		timeout: testsupport.StableMin(t, "item context.WithTimeout", to[:]),
-		request: testsupport.StableMin(t, "item Request (WithContext)", rq[:]),
-		open:    testsupport.StableMin(t, "item body.Open", open[:]),
-		getBody: testsupport.StableMin(t, "item GetBody method value", gb[:]),
-		result:  testsupport.StableMin(t, "item *SystemOneResponse", res[:]),
-		read:    testsupport.StableMin(t, "item readBody", rd[:]),
-		decode:  testsupport.StableMin(t, "item decode", dec[:]),
+		header:  testsupport.StableMin(t, prefix+"item header map", hdr[:]),
+		url:     testsupport.StableMin(t, prefix+"item URL copy", u[:]),
+		timeout: testsupport.StableMin(t, prefix+"item context.WithTimeout", to[:]),
+		request: testsupport.StableMin(t, prefix+"item Request (WithContext)", rq[:]),
+		open:    testsupport.StableMin(t, prefix+"item body.Open", open[:]),
+		getBody: testsupport.StableMin(t, prefix+"item GetBody method value", gb[:]),
+		result:  testsupport.StableMin(t, prefix+"item *SystemOneResponse", res[:]),
+		read:    testsupport.StableMin(t, prefix+"item readBody", rd[:]),
+		decode:  testsupport.StableMin(t, prefix+"item decode", dec[:]),
 	}
 }
 
