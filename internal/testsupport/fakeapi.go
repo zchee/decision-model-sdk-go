@@ -27,6 +27,12 @@ import (
 // FakeAPIModels is the body FakeAPI answers GET /v1/models with.
 const FakeAPIModels = `{"models":[{"name":"jev-latest","description":"a stand-in model","release_date":"2026-09-10T00:00:00+00:00"}]}`
 
+// FakeAPIUsageError is the body FakeAPI answers, with status 400, a System
+// One request whose top level holds a member other than state, model and
+// questions: the live API's answer to such a request, as W6.4's live pass
+// recorded it (ledger W6.4-07).
+const FakeAPIUsageError = `{"detail":{"error_type":"api_usage_error","message":"Invalid request."}}`
+
 // FakeAPI is an in-process stand-in for the TypeSafe API, for tests that run
 // programs written against the real one (the examples under examples/).
 // It answers:
@@ -42,6 +48,9 @@ const FakeAPIModels = `{"models":[{"name":"jev-latest","description":"a stand-in
 //     request sent it. A question of another type gets no answer. The
 //     response names the request's model and counts the request's bytes as
 //     its input tokens;
+//   - a System One body whose top level holds a member other than state,
+//     model and questions (an ExtraBody the API does not know): 400 with
+//     [FakeAPIUsageError], as the live API answers it;
 //   - a System One body that is not an object with state, model and
 //     questions: 422 with a detail list, as the API's validation does;
 //   - anything else: 404.
@@ -94,6 +103,14 @@ func fakeSystemOne(r *http.Request) ([]byte, int) {
 	var raw json.RawMessage
 	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
 		return fakeValidation("body", err.Error()), http.StatusUnprocessableEntity
+	}
+	var members map[string]json.RawMessage
+	if json.Unmarshal(raw, &members) == nil {
+		for name := range members {
+			if name != "state" && name != "model" && name != "questions" {
+				return []byte(FakeAPIUsageError), http.StatusBadRequest
+			}
+		}
 	}
 	if err := json.Unmarshal(raw, &req); err != nil || req.State == nil || req.Model == nil || req.Questions == nil {
 		return fakeValidation("body", "state, model and questions are required"), http.StatusUnprocessableEntity

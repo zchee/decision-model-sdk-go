@@ -63,6 +63,18 @@ func TestFakeAPI(t *testing.T) {
 			wantStatus: http.StatusUnprocessableEntity,
 			want:       `{"detail":[{"loc":["body"],"msg":"state, model and questions are required","type":"value_error"}]}`,
 		},
+		"error: a top-level member the API does not know": {
+			method: http.MethodPost, path: "/v1/systemone", auth: "Bearer k",
+			body:       `{"state":"s","model":"m","questions":{"n":{"type":"noul"}},"beam_width":4}`,
+			wantStatus: http.StatusBadRequest,
+			want:       FakeAPIUsageError,
+		},
+		"success: the fake does not check a question's own members (the live API's rule for them is unprobed)": {
+			method: http.MethodPost, path: "/v1/systemone", auth: "Bearer k",
+			body:       `{"state":"s","model":"m","questions":{"n":{"type":"noul","weight":2}}}`,
+			wantStatus: http.StatusOK,
+			want:       `{"model":"m","usage":{"input_tokens":BODYLEN,"output_tokens":1},"answers":{"n":{"type":"noul","noul":0.75}}}`,
+		},
 		"error: a choice without options": {
 			method: http.MethodPost, path: "/v1/systemone", auth: "Bearer k",
 			body:       `{"state":"s","model":"m","questions":{"c":{"type":"choice","criteria":{}}}}`,

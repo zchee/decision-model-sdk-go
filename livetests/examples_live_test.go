@@ -27,7 +27,9 @@ import (
 // The programs read TYPESAFE_API_KEY and TYPESAFE_BASE_URL from the
 // environment they inherit; the key is on no command line, and output that
 // held it would fail the test with the key shown as ***. The programs make
-// about 13 billed System One calls in all.
+// 14 billed System One calls (concurrency 3, logging 1, options 4,
+// quickstart 1, retries 2, transport 1, typed 2) and 3 unbilled model
+// lists (concurrency's WarmUp, options and transport).
 func TestExamples(t *testing.T) {
 	env := requireLive(t)
 	checkExamples(t, os.Environ(), []string{env.apiKey})

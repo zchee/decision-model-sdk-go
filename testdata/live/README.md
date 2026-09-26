@@ -15,8 +15,9 @@ from the environment. Before a body reaches the disk the recorder replaces
 every occurrence of the API key, and of the wrong key
 `TestLiveUnauthenticated` sends, with `***`, and it refuses, writing
 nothing, a body that still holds a credential shape: a token starting with
-`ts_`, an `Authorization`, `Proxy-Authorization` or `X-Api-Key` member, or a
-bearer credential. None of these bodies held a key; each is the exact body
+`ts_`, a member named like a credential header (`Authorization`,
+`Proxy-Authorization`, `X-Api-Key`, `Api-Key`, `Cookie`, `Set-Cookie`, or a
+header-style name holding `token` or `secret`), or a bearer credential. None of these bodies held a key; each is the exact body
 the SDK read, after the transport undid the API's gzip encoding (ledger
 W6.4-05).
 

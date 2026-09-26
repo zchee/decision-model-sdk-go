@@ -250,12 +250,27 @@ func TestScrubRefusesCredentials(t *testing.T) {
 		"error: an echoed Authorization member is refused": {
 			body:    `{"headers":{"Authorization":"***"}}`,
 			secrets: []string{syntheticKey},
-			wantErr: "an Authorization, Proxy-Authorization or X-Api-Key member",
+			wantErr: "a credential header as a member",
 		},
 		"error: an echoed x-api-key member is refused": {
 			body:    `{"headers":{"x-api-key":"abc"}}`,
 			secrets: []string{syntheticKey},
-			wantErr: "an Authorization, Proxy-Authorization or X-Api-Key member",
+			wantErr: "a credential header as a member",
+		},
+		"error: an echoed Cookie member is refused": {
+			body:    `{"headers":{"Cookie":"session=1"}}`,
+			secrets: []string{syntheticKey},
+			wantErr: "a credential header as a member",
+		},
+		"error: an echoed header whose name holds token is refused": {
+			body:    `{"headers":{"X-Auth-Token":"t"}}`,
+			secrets: []string{syntheticKey},
+			wantErr: "a credential header as a member",
+		},
+		"success: usage's token counts are not credential members": {
+			body:    `{"usage":{"input_tokens":420,"output_tokens":75}}`,
+			secrets: []string{syntheticKey},
+			want:    `{"usage":{"input_tokens":420,"output_tokens":75}}`,
 		},
 		"error: a bearer credential is refused": {
 			body:    `{"note":"Bearer abcdefgh12345678"}`,
@@ -372,10 +387,11 @@ var recordedBodies = []string{
 
 // TestRecordedBodiesHoldNoCredentials checks what reached testdata/live:
 // exactly the recorded bodies, each a JSON object as the API sent it (no
-// trailing newline added), with no credential shape in it: no ts_ token, no
-// Authorization or X-Api-Key member, no bearer credential. When the
-// environment holds TYPESAFE_API_KEY, as on the machine that recorded them,
-// the key's bytes must not occur either; the check prints nothing of it.
+// trailing newline added), with no credential shape in it (credentialShapes:
+// no ts_ token, no member named like a credential header, no bearer
+// credential). When the environment holds TYPESAFE_API_KEY, as on the
+// machine that recorded them, the key's bytes must not occur either; the
+// check prints nothing of it.
 // internal/codec's TestLiveBodiesOneScan decodes every one of them.
 func TestRecordedBodiesHoldNoCredentials(t *testing.T) {
 	dir := filepath.Join("..", "testdata", "live")

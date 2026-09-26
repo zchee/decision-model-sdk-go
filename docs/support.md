@@ -165,9 +165,18 @@ and the example programs against a local stand-in for the API.
 `-args -record` also writes the bodies the API returned to
 [`testdata/live`](../testdata/live/README.md), each scrubbed of
 credentials before it reaches the disk. The last pass, its results and
-the facts it recorded about the API (latency, `MAX_CONCURRENT_STREAMS`,
-framing) are ledger rows W6.4-01 to W6.4-06 in
-[`perf/ledger.md`](perf/ledger.md).
+the facts it recorded about the API are ledger rows W6.4-01 to W6.4-08
+in [`perf/ledger.md`](perf/ledger.md). Observed there, not asserted by
+any test:
+
+- The API's HTTP/2 SETTINGS advertise `MAX_CONCURRENT_STREAMS` 100
+  (W6.4-04), so the client, which keeps one connection and counts its
+  streams strictly, queues a 101st concurrent call on it.
+- Asked for gzip, as Go's transport asks by default, the API gzips its
+  successful responses; the transport undoes the encoding and reports
+  `ContentLength` −1, so the SDK reads the body with no declared length.
+  Asked for no encoding, it declares `Content-Length: 311` for the models
+  list (W6.4-05). W6.4-08 prices the difference per call.
 
 ## Measurement rule
 

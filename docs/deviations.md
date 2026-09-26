@@ -127,10 +127,20 @@ SDK's behaviour:
 
 ## Found by the live pass
 
-The live pass of W6.4 (ledger rows W6.4-01 to W6.4-05) recorded two facts
-about the API that are not deviations of the SDK: a request carrying no
-credential is answered with 403, and one with a key the API did not issue
-with 401, both with the error type `authentication_error`, which
-`APIError.IsAuthentication` reports for both; and the API gzips its
-successful responses when the client asks for gzip, as Go's transport does
-by default, so a response reaches the SDK with no declared length.
+The live pass of W6.4 (ledger rows W6.4-01 to W6.4-07) recorded three
+facts about the API that are not deviations of the SDK:
+
+- A request carrying no credential is answered with 403, and one with a
+  key the API did not issue with 401, both with the error type
+  `authentication_error`, which `APIError.IsAuthentication` reports for
+  both.
+- The API gzips its successful responses when the client asks for gzip,
+  as Go's transport does by default, so a response reaches the SDK with no
+  declared length.
+- The API refuses a System One request whose top level holds a member it
+  does not know with 400 `api_usage_error` ("Invalid request."). The
+  Python SDK's `tests/typing/valid.py` passes `extra_body={"beam_width":
+  4, ...}`, which pyrefly type-checks and never sends, so it is not a
+  request the live API accepts. `ExtraBody` keeps `extra_body`'s shape
+  and rules; the refusal is the server's, so this is parity, not a
+  deviation.
