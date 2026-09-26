@@ -1,0 +1,24 @@
+# client-options.txt: NewClient and its ClientOption constructors in github.com/zchee/typesafe-sdk-go.
+# Regenerate: go test -run '^TestClientOptionsSurface$' -update .
+func NewClient(...ClientOption) (*Client, error)
+func WithAPIKey(string) ClientOption
+func WithBaseURL(string) ClientOption
+func WithClientTrace(*net/http/httptrace.ClientTrace) ClientOption
+func WithConnectTimeout(time.Duration) ClientOption
+func WithHTTPTransport(*net/http.Transport) ClientOption
+func WithHTTPVersion(HTTPVersion) ClientOption
+func WithHeader(string, string) ClientOption
+func WithLogEndpointHost(bool) ClientOption
+func WithLogger(*log/slog.Logger) ClientOption
+func WithMaxResponseBytes(int64) ClientOption
+func WithModel(string) ClientOption
+func WithNoTimeout() ClientOption
+func WithPretouch(...reflect.Type) ClientOption
+func WithProxy(func(*net/http.Request) (*net/url.URL, error)) ClientOption
+func WithRetry(RetryPolicy) ClientOption
+func WithRootCAs(*crypto/x509.CertPool) ClientOption
+func WithRoundTripper(net/http.RoundTripper) ClientOption
+func WithRuntimeHeader(bool) ClientOption
+func WithTLSConfig(*crypto/tls.Config) ClientOption
+func WithTimeout(time.Duration) ClientOption
+func WithUserAgentProduct(string) ClientOption

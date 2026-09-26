@@ -1,0 +1,235 @@
+# public-api.txt: exported API of github.com/zchee/typesafe-sdk-go.
+# Regenerate: go test -run '^TestPublicAPISurface$' -update .
+type APIError struct, incomparable
+type APIError struct, Kind APIErrorKind
+type APIError struct, StatusCode int
+type APIError struct, Header net/http.Header
+type APIError struct, Body []byte
+type APIError struct, Endpoint string
+type APIError struct, Message string
+type APIError struct, ErrorType string
+method (*APIError) Error() string
+method (*APIError) IsAuthentication() bool
+method (*APIError) RequestID() (string, bool)
+method (*APIError) RetryAfter() (time.Duration, bool)
+const APIErrorAuthentication APIErrorKind = 2
+const APIErrorBadRequest APIErrorKind = 1
+const APIErrorInternalServer APIErrorKind = 7
+type APIErrorKind uint8, comparable
+method (APIErrorKind) String() string
+const APIErrorNotFound APIErrorKind = 4
+const APIErrorOther APIErrorKind = 0
+const APIErrorPermissionDenied APIErrorKind = 3
+const APIErrorRateLimit APIErrorKind = 6
+const APIErrorUnprocessableEntity APIErrorKind = 5
+const APIKeyEnv untyped string = "TYPESAFE_API_KEY"
+type Answer struct, incomparable
+method (Answer) Choice() (ChoiceAnswer, bool)
+method (Answer) Kind() AnswerKind
+method (Answer) MarshalJSON() ([]byte, error)
+method (Answer) Noul() (NoulAnswer, bool)
+method (Answer) Score() (ScoreAnswer, bool)
+type AnswerKind uint8, comparable
+method (AnswerKind) String() string
+type Answers struct, comparable
+method (Answers) All() iter.Seq2[string, Answer]
+method (Answers) Choice(string) (ChoiceAnswer, bool)
+method (Answers) Choices() iter.Seq2[string, ChoiceAnswer]
+method (Answers) Get(string) (Answer, bool)
+method (Answers) Len() int
+method (Answers) MarshalJSON() ([]byte, error)
+method (Answers) Noul(string) (NoulAnswer, bool)
+method (Answers) Nouls() iter.Seq2[string, NoulAnswer]
+method (Answers) Score(string) (ScoreAnswer, bool)
+method (Answers) Scores() iter.Seq2[string, ScoreAnswer]
+func Ask[T any](context.Context, *Client, any, ...CallOption) (T, error)
+const BaseURLEnv untyped string = "TYPESAFE_BASE_URL"
+type CallOption func(*callOptions), incomparable
+type Choice struct, incomparable
+type Choice struct, Instructions Content
+type Choice struct, Options Options
+type ChoiceAnswer struct, incomparable
+method (ChoiceAnswer) Choice() string
+method (ChoiceAnswer) Confidence() float64
+method (ChoiceAnswer) MarshalJSON() ([]byte, error)
+method (ChoiceAnswer) Present() bool
+method (ChoiceAnswer) Probabilities() iter.Seq2[string, float64]
+method (ChoiceAnswer) Probability(string) (float64, bool)
+type Client struct, incomparable
+method (*Client) Close() error
+method (*Client) Models() Models
+method (*Client) Stats() Stats
+method (*Client) SystemOne(context.Context, any, *Prepared, ...CallOption) (*SystemOneResponse, error)
+method (*Client) WarmUp(context.Context) error
+type ClientOption func(*options), incomparable
+type ConfigError struct, incomparable
+method (*ConfigError) Error() string
+method (*ConfigError) Unwrap() []error
+type ConnectionError struct, comparable
+method (*ConnectionError) Error() string
+method (*ConnectionError) Proxy() bool
+method (*ConnectionError) Unwrap() error
+type Content struct, incomparable
+method (Content) IsJSON() bool
+method (Content) IsZero() bool
+method (Content) JSON() RawJSON
+method (Content) MarshalJSON() ([]byte, error)
+method (Content) Text() string
+func DecodeAs[T any](*SystemOneResponse) (T, error)
+const DefaultBaseURL untyped string = "https://api.typesafe.ai"
+const DefaultConnectTimeout time.Duration = 10000000000
+const DefaultMaxResponseBytes untyped int = 16777216
+const DefaultModel untyped string = "jev-latest"
+const DefaultModelEnv untyped string = "TYPESAFE_DEFAULT_MODEL"
+func DefaultRetry() RetryPolicy
+const DefaultTimeout time.Duration = 10000000000
+var ErrClientClosed error
+var ErrHTTP2NotNegotiated error
+type Error interface, comparable
+type Error interface, embedded error
+type Error interface, Error() string
+type Error interface, unexported methods
+func ExtraBody(string, any) CallOption
+const HTTP2Only HTTPVersion = 1
+const HTTPAuto HTTPVersion = 2
+type HTTPVersion int, comparable
+method (HTTPVersion) String() string
+func Header(string, string) CallOption
+type InvalidRequestError struct, comparable
+method (*InvalidRequestError) Error() string
+method (*InvalidRequestError) Unwrap() error
+func JSON([]byte) Content
+const KindChoice AnswerKind = 2
+const KindNoul AnswerKind = 1
+const KindScore AnswerKind = 3
+const LevelTrace log/slog.Level = -8
+func Model(string) CallOption
+type ModelCard struct, comparable
+method (ModelCard) Description() string
+method (ModelCard) MarshalJSON() ([]byte, error)
+method (ModelCard) Name() string
+method (ModelCard) ReleaseDate() string
+type Models struct, comparable
+method (Models) List(context.Context, ...CallOption) (*ModelsResponse, error)
+type ModelsResponse struct, incomparable
+method (ModelsResponse) MarshalJSON() ([]byte, error)
+method (*ModelsResponse) Meta() ResponseMeta
+method (*ModelsResponse) Models() []ModelCard
+method (*ModelsResponse) UnmarshalJSON([]byte) error
+func NewClient(...ClientOption) (*Client, error)
+func NewQuestions() *Questions
+func NoRetry() RetryPolicy
+type Noul struct, incomparable
+type Noul struct, Instructions Content
+type Noul struct, Yes Content
+type Noul struct, No Content
+type NoulAnswer struct, comparable
+method (NoulAnswer) MarshalJSON() ([]byte, error)
+method (NoulAnswer) Noul() float64
+method (NoulAnswer) Present() bool
+type Option struct, incomparable
+type Option struct, Label string
+type Option struct, Description Content
+type Options []Option, incomparable
+type Prepared struct, incomparable
+method (*Prepared) Len() int
+method (*Prepared) Names() iter.Seq[string]
+func PreparedFor[T any]() (*Prepared, error)
+type Questions struct, incomparable
+method (*Questions) Choice(string, Choice) *Questions
+method (*Questions) Noul(string, Noul) *Questions
+method (*Questions) Prepare() (*Prepared, error)
+method (*Questions) Raw(string, RawQuestion) *Questions
+method (*Questions) Score(string, Score) *Questions
+type RawJSON []byte, incomparable
+method (RawJSON) MarshalJSON() ([]byte, error)
+type RawQuestion struct, incomparable
+type RawQuestion struct, Type string
+type RawQuestion struct, Fields map[string]any
+type ResponseMeta struct, incomparable
+method (ResponseMeta) Header() net/http.Header
+method (ResponseMeta) RawBody() []byte
+method (ResponseMeta) RequestID() (string, bool)
+method (ResponseMeta) StatusCode() int
+type ResponseTooLargeError struct, incomparable
+type ResponseTooLargeError struct, StatusCode int
+type ResponseTooLargeError struct, Header net/http.Header
+type ResponseTooLargeError struct, Endpoint string
+type ResponseTooLargeError struct, Limit int64
+method (*ResponseTooLargeError) Error() string
+method (*ResponseTooLargeError) RequestID() (string, bool)
+type ResponseValidationError struct, incomparable
+type ResponseValidationError struct, StatusCode int
+type ResponseValidationError struct, Header net/http.Header
+type ResponseValidationError struct, Body []byte
+type ResponseValidationError struct, Endpoint string
+type ResponseValidationError struct, FieldPath string
+method (*ResponseValidationError) Error() string
+method (*ResponseValidationError) RequestID() (string, bool)
+method (*ResponseValidationError) Unwrap() error
+func Retry(RetryPolicy) CallOption
+type RetryPolicy struct, incomparable
+method (RetryPolicy) Backoff(time.Duration, time.Duration, float64) RetryPolicy
+method (RetryPolicy) Budget(time.Duration) RetryPolicy
+method (RetryPolicy) ConnectionErrors(bool) RetryPolicy
+method (RetryPolicy) MaxRetries(int) RetryPolicy
+method (RetryPolicy) NoBudget() RetryPolicy
+method (RetryPolicy) Predicate(func(error) bool) RetryPolicy
+method (RetryPolicy) RespectRetryAfter(bool) RetryPolicy
+method (RetryPolicy) Statuses(...int) RetryPolicy
+method (RetryPolicy) TimeoutErrors(bool) RetryPolicy
+type Score struct, incomparable
+type Score struct, Instructions Content
+type Score struct, Levels []Content
+type ScoreAnswer struct, incomparable
+method (ScoreAnswer) Confidence() float64
+method (ScoreAnswer) Description(uint32) (Content, bool)
+method (ScoreAnswer) Legend() iter.Seq2[uint32, Content]
+method (ScoreAnswer) MarshalJSON() ([]byte, error)
+method (ScoreAnswer) Present() bool
+method (ScoreAnswer) Probabilities() iter.Seq2[uint32, float64]
+method (ScoreAnswer) Probability(uint32) (float64, bool)
+method (ScoreAnswer) Score() float64
+type Stats struct, comparable
+type Stats struct, Dials uint64
+type Stats struct, Attempts uint64
+type SystemOneResponse struct, incomparable
+method (*SystemOneResponse) Answers() Answers
+method (SystemOneResponse) MarshalJSON() ([]byte, error)
+method (*SystemOneResponse) Meta() ResponseMeta
+method (*SystemOneResponse) Model() string
+method (*SystemOneResponse) UnmarshalJSON([]byte) error
+method (*SystemOneResponse) Usage() Usage
+func Text(string) Content
+func Timeout(time.Duration) CallOption
+type TimeoutError struct, comparable
+type TimeoutError struct, Timeout time.Duration
+method (*TimeoutError) Error() string
+method (*TimeoutError) Proxy() bool
+method (*TimeoutError) Unwrap() error
+type Usage struct, comparable
+method (Usage) InputTokens() (uint64, bool)
+method (Usage) MarshalJSON() ([]byte, error)
+method (Usage) OutputTokens() (uint64, bool)
+const Version untyped string = "0.1.0-dev"
+func WithAPIKey(string) ClientOption
+func WithBaseURL(string) ClientOption
+func WithClientTrace(*net/http/httptrace.ClientTrace) ClientOption
+func WithConnectTimeout(time.Duration) ClientOption
+func WithHTTPTransport(*net/http.Transport) ClientOption
+func WithHTTPVersion(HTTPVersion) ClientOption
+func WithHeader(string, string) ClientOption
+func WithLogEndpointHost(bool) ClientOption
+func WithLogger(*log/slog.Logger) ClientOption
+func WithMaxResponseBytes(int64) ClientOption
+func WithModel(string) ClientOption
+func WithNoTimeout() ClientOption
+func WithPretouch(...reflect.Type) ClientOption
+func WithProxy(func(*net/http.Request) (*net/url.URL, error)) ClientOption
+func WithRetry(RetryPolicy) ClientOption
+func WithRootCAs(*crypto/x509.CertPool) ClientOption
+func WithRoundTripper(net/http.RoundTripper) ClientOption
+func WithRuntimeHeader(bool) ClientOption
+func WithTLSConfig(*crypto/tls.Config) ClientOption
+func WithTimeout(time.Duration) ClientOption
+func WithUserAgentProduct(string) ClientOption
