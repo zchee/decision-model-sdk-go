@@ -69,7 +69,9 @@ const (
 )
 
 // logSkipped logs the answers a decode dropped: one WARN line per named
-// answer, then one counting those past [codec.MaxSkipped].
+// answer, then one counting those past [codec.MaxSkipped]. An answer's name
+// is body text and is not redacted (ruling R103-rev): a name that echoes the
+// client's API key is logged with it, as the Python SDK logs it.
 func logSkipped(ctx context.Context, logger *slog.Logger, skipped *codec.Skipped) {
 	if logger == nil || !logger.Enabled(ctx, slog.LevelWarn) {
 		return

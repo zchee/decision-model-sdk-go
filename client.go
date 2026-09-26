@@ -586,13 +586,16 @@ func (c *Client) logRequest(ctx context.Context, rq *request, h http.Header, att
 // time since start and the request id, as the Python SDK's
 // "<method> <url> <- <status> in <ms>ms (request <id>)", then the redacted
 // headers and the body's length at debug level and the body at LevelTrace.
+// The request id is redacted as the error types' Header is, "***" when it
+// holds the client's API key (ruling R87; typesafe-sdk-python logs it as it
+// arrived); the body is as it arrived.
 func (c *Client) logResponse(ctx context.Context, rq *request, attempt int, start time.Time, meta *wire.ResponseMeta) {
 	logger := c.cfg.logger
 	if !logger.Enabled(ctx, slog.LevelInfo) {
 		return
 	}
 	id := "-"
-	if v, ok := meta.RequestID(); ok {
+	if v, ok := c.cfg.redactor().requestID(meta.Header); ok {
 		id = safeName(v)
 	}
 	logger.LogAttrs(ctx, slog.LevelInfo, "response", slog.String("method", rq.method), slog.String("endpoint", rq.logURL),

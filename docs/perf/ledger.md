@@ -3556,8 +3556,12 @@ main's own, and the raw headers keep the measured SHA. W3.3-03 and -04
 measure fc5164f, the last commit of the review's fix pass that changes
 code (rulings R103 and R103b: the key needle over an `*APIError`'s message
 and over a `*ResponseValidationError`'s two server-chosen path names, error
-path only), on ca226bb. The commits that write this section change documents
-and raw outputs only. Commands use `R=_spikes/s-c1/run.sh`,
+path only), on ca226bb. W3.3-05 and -06 measure 92a9fc6, the revert of R103
+and R103b (ruling R103-rev), on 3ffe77b. The commits that write this section
+change documents and raw outputs only, except the one that adds the previous
+sentence: it also has the INFO "response" record read the request id through
+the redactor (ruling R107), on the logging path after the level check.
+Commands use `R=_spikes/s-c1/run.sh`,
 `O=_spikes/w3.3/results`,
 `SP=/private/tmp/claude-501/-Users-zchee-go-src-github-com-zchee-typesafe-sdk-go/40cb0f1f-c8a9-422c-a3e8-b3afc329b5cb/scratchpad`
 and the row's `BASE`.

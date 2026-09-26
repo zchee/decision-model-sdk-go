@@ -235,10 +235,11 @@ type APIError struct {
 	// empty when it is not known.
 	Endpoint string
 	// Message is the message Error prints after the status; empty prints
-	// the status alone. A message the server composes is shown as the
-	// server sent it, as the Python SDK does, even when it echoes the
-	// client's API key; the SDK's own headers and records never carry the
-	// key.
+	// the status alone. A message the server composes is not redacted
+	// (ruling R103-rev): when it echoes the client's API key, Message,
+	// Error and %+v show the key, as the Python SDK's error does. Header and
+	// the request id show "***" for a value that holds the key, in the
+	// error and in the SDK's log records alike (R87).
 	Message string
 	// ErrorType is the server's machine-readable name for the failure, from
 	// the body's detail.error_type, or empty. It is the server's text as it
@@ -283,10 +284,10 @@ func (*APIError) typesafeError() {}
 // its message read from the body by the lenient reader
 // (codec.ReadErrorBody), escaped and cut at 200 characters, or "status code
 // (no body)" for an empty or null body, and the response header with its
-// credentials redacted by r ([headerRedactor], ruling R87). A message the
-// server composes is shown as the server sent it, as the Python SDK does,
-// even when it echoes the client's API key (ruling R103-rev); the SDK's own
-// headers and records never carry the key.
+// credentials redacted by r ([headerRedactor], ruling R87). The message is
+// not redacted (ruling R103-rev): a key the server echoes in it is shown, as
+// the Python SDK shows it. Header and the request id show "***" for a value
+// that holds the key, as the log records do (R87).
 func newAPIError(meta *wire.ResponseMeta, endpoint string, r headerRedactor) *APIError {
 	eb := codec.ReadErrorBody(meta.Body)
 	msg := "status code (no body)"
@@ -354,11 +355,11 @@ func (*ResponseValidationError) typesafeError() {}
 
 // newResponseValidationError returns the *ResponseValidationError for a
 // successful response whose body the decoder refused with err, with the
-// response header's credentials redacted by r ([headerRedactor]). A path
-// the server composes, from an answer's name or a probability or legend
-// key, is shown as the server sent it, as the Python SDK does, even when it
-// echoes the client's API key (ruling R103-rev); the SDK's own headers and
-// records never carry the key.
+// response header's credentials redacted by r ([headerRedactor]). The
+// path's names, an answer's name and a probability or legend key, are not
+// redacted (ruling R103-rev): a key the server echoes in them is shown, as
+// the Python SDK shows it. Header and the request id show "***" for a value
+// that holds the key, as the log records do (R87).
 func newResponseValidationError(meta *wire.ResponseMeta, endpoint string, r headerRedactor, err error) *ResponseValidationError {
 	var path codec.FieldPath
 	if de, ok := errors.AsType[*codec.DecodeError](err); ok {

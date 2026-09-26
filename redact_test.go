@@ -16,11 +16,13 @@ package typesafe
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -576,70 +578,140 @@ func TestErrorHeadersRedacted(t *testing.T) {
 	}
 }
 
-// TestServerEchoedKeyShownAsReceived pins owner decision G7 (8), ruling
-// R103-rev (upstream parity): a message or a field path the server composes
-// is shown as the server sent it, as typesafe-sdk-python shows it, even when
-// it echoes the client's API key. A 401 whose message echoes the key puts it
-// into the *APIError's Message, Error(), %v and %+v, escaped and cut at 200
-// characters as any message is; an answer name or a probability key that
-// echoes it puts it into the *ResponseValidationError's FieldPath and
-// Error(). Body, and the LevelTrace "response body" record whose level is
-// the opt-in for personal data, hold the body as it arrived. What the SDK
-// writes itself never carries the key: the stored Header shows "***" for a
-// header whose value echoes it (R87), and no record above LevelTrace holds
-// any 8 bytes of it.
+// TestHeaderRedactorRequestID pins the request id a log record shows
+// (ruling R87 as R107 applies it to the INFO "response" record): for every
+// header, redactor and key length, headerRedactor.requestID returns what
+// the error types' RequestID returns from the header the same redactor
+// stored, without copying the header.
+func TestHeaderRedactorRequestID(t *testing.T) {
+	const key = "ts_live_QzXjWvKpYbNmHgFd"
+	tests := map[string]struct {
+		r      headerRedactor
+		values []string // the x-typesafe-request-id values, nil for none
+		want   string
+		wantOK bool
+	}{
+		"success: no request id": {r: newHeaderRedactor(key)},
+		"success: an id without the key": {
+			r: newHeaderRedactor(key), values: []string{"req_123"}, want: "req_123", wantOK: true,
+		},
+		"success: a repeated id without the key, joined": {
+			r: newHeaderRedactor(key), values: []string{"req_1", "req_2"}, want: "req_1, req_2", wantOK: true,
+		},
+		"success: an id that holds the key": {
+			r: newHeaderRedactor(key), values: []string{"req " + key}, want: redacted, wantOK: true,
+		},
+		"success: one of two ids holds the key, so both are hidden": {
+			r: newHeaderRedactor(key), values: []string{"req_1", key}, want: redacted + ", " + redacted, wantOK: true,
+		},
+		"success: the zero redactor redacts by name alone": {
+			values: []string{"req " + key}, want: "req " + key, wantOK: true,
+		},
+		"success: a key of 7 bytes is not looked for (R68)": {
+			r: newHeaderRedactor("k123456"), values: []string{"req k123456"}, want: "req k123456", wantOK: true,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			h := http.Header{"Content-Type": {"application/json"}}
+			if tt.values != nil {
+				h["X-Typesafe-Request-Id"] = slices.Clone(tt.values)
+			}
+			id, ok := tt.r.requestID(h)
+			if id != tt.want || ok != tt.wantOK {
+				t.Errorf("requestID = %q, %t, want %q, %t", id, ok, tt.want, tt.wantOK)
+			}
+			if storedID, storedOK := requestID(tt.r.header(h)); id != storedID || ok != storedOK {
+				t.Errorf("requestID = %q, %t, but the stored header's is %q, %t", id, ok, storedID, storedOK)
+			}
+			if tt.values != nil && !slices.Equal(h["X-Typesafe-Request-Id"], tt.values) {
+				t.Errorf("the header's values changed to %q", h["X-Typesafe-Request-Id"])
+			}
+		})
+	}
+}
+
+// TestServerEchoedKeyShownAsReceived pins owner decision G7 (8), rulings
+// R103-rev and R107: text the server composed in the body is not redacted,
+// and a value the SDK takes from a header is. A message, a field path's
+// names and a skipped answer's name that echo the client's API key show
+// it: in Message or FieldPath, in Error(), %v and %+v (escaped and cut as
+// any message is), and in the WARN line naming the skipped answer. Body and
+// the LevelTrace "response body" record hold the body as it arrived. The
+// stored Header shows "***" for a header value that holds the key, and so
+// does the request id, in Error() and in the INFO "response" record alike
+// (R87). In these responses no other record above LevelTrace holds any 8
+// consecutive bytes of the key.
 func TestServerEchoedKeyShownAsReceived(t *testing.T) {
-	const key = "ts_live_0123456789abcdef"
+	const key = "ts_live_QzXjWvKpYbNmHgFd"
 	const models = "GET https://api.typesafe.ai/v1/models: "
 	const systemOne = "POST https://api.typesafe.ai/v1/systemone: 200 Invalid response data at '"
-	const requestID = " (request_id=req_123)"
-	sent := []string{"X-Echo", "echo " + key, "X-Typesafe-Request-Id", "req_123"}
-	wantHeader := http.Header{"Content-Type": {"application/json"}, "X-Echo": {redacted}, "X-Typesafe-Request-Id": {"req_123"}}
+	const plainID = "req_123"
 	pad := strings.Repeat("m", 190)
 	noul := func(name string) string { return `{"model":"m","usage":{},"answers":{"` + name + `":{"type":"noul"}}}` }
+	logged := []string{"request", "response", "response headers"} // the records above LevelTrace of every call
 	tests := map[string]struct {
 		status    int
 		body      string
+		id        string // the X-Typesafe-Request-Id sent; empty sends plainID
 		systemOne bool   // call SystemOne rather than list the models
 		message   string // the *APIError's Message
 		path      string // the *ResponseValidationError's FieldPath
+		shownID   string // the request id Error, RequestID and the INFO record show
+		warned    []string
 		want      string // Error(), %v and %+v
 	}{
-		"success: a 401 message that echoes the key": {
+		"error: a 401 message that echoes the key": {
 			status: http.StatusUnauthorized, body: `{"message":"invalid key ` + key + `"}`,
-			message: "invalid key " + key,
-			want:    models + "401 invalid key " + key + requestID,
+			message: "invalid key " + key, shownID: plainID,
+			want: models + "401 invalid key " + key + " (request_id=" + plainID + ")",
 		},
-		"success: a message with the key across the 200-character cut keeps the key's first bytes": {
+		"error: a message with the key across the 200-character cut keeps the key's first bytes": {
 			status: http.StatusBadRequest, body: `{"message":"` + pad + " " + key + ` and more"}`,
-			message: pad + " " + key[:9] + "…", // the message's 200 characters, then the cut
-			want:    models + "400 " + pad + " " + key[:9] + "…" + requestID,
+			message: pad + " " + key[:9] + "…", shownID: plainID, // the message's 200 characters, then the cut
+			want: models + "400 " + pad + " " + key[:9] + "… (request_id=" + plainID + ")",
 		},
-		"success: an answer named with the key": {
+		"error: an answer named with the key": {
 			status: http.StatusOK, body: noul(key), systemOne: true,
-			path: "answers." + key + ".noul",
-			want: systemOne + "answers." + key + ".noul'." + requestID,
+			path: "answers." + key + ".noul", shownID: plainID,
+			want: systemOne + "answers." + key + ".noul'. (request_id=" + plainID + ")",
 		},
-		"success: a probability key that echoes the key": {
+		"error: a probability key that echoes the key": {
 			status: http.StatusOK, systemOne: true,
 			body: `{"model":"m","usage":{},"answers":{"q":{"type":"choice","choice":"a","confidence":0.5,"probabilities":{"` + key + `":"x"}}}}`,
-			path: "answers.q.probabilities." + key,
-			want: systemOne + "answers.q.probabilities." + key + "'." + requestID,
+			path: "answers.q.probabilities." + key, shownID: plainID,
+			want: systemOne + "answers.q.probabilities." + key + "'. (request_id=" + plainID + ")",
+		},
+		"error: a request id that echoes the key is *** in Error and in the INFO record (R87)": {
+			status: http.StatusUnauthorized, body: `{"message":"no"}`, id: "req " + key,
+			message: "no", shownID: redacted,
+			want: models + "401 no (request_id=" + redacted + ")",
+		},
+		"error: an unrecognized answer named with the key is logged at WARN as received": {
+			status: http.StatusOK, systemOne: true,
+			body: `{"model":"m","usage":{},"answers":{"` + key + `":{"type":"aurora"},"q":{"type":"noul"}}}`,
+			path: "answers.q.noul", shownID: plainID, warned: []string{key},
+			want: systemOne + "answers.q.noul'. (request_id=" + plainID + ")",
 		},
 	}
-	// shown is what the error and the LevelTrace "response body" record show.
+	// shown is what the error and the SDK's records show of one response.
 	type shown struct {
 		Error, V, PlusV    string
 		Message, FieldPath string
+		RequestID, InfoID  string // the error's RequestID, the INFO "response" record's request_id
 		Body               string
 		Header             http.Header
+		Warned             []string // the answer of each WARN "Ignoring answer" record
+		Logged             []string // the messages of the records above LevelTrace
 		TraceBody          string
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
+			id := cmp.Or(tt.id, plainID)
 			logs := testsupport.NewLogRecorder(LevelTrace)
 			clearEnv(t)
-			c := newEnvClient(t, replying(tt.status, []byte(tt.body), sent...), WithAPIKey(key), WithLogger(logs.Logger()))
+			c := newEnvClient(t, replying(tt.status, []byte(tt.body), "X-Echo", "echo "+key, "X-Typesafe-Request-Id", id),
+				WithAPIKey(key), WithLogger(logs.Logger()))
 			var err error
 			if tt.systemOne {
 				_, err = c.SystemOne(t.Context(), "hi", noulQuestion(t), Retry(NoRetry()))
@@ -656,36 +728,55 @@ func TestServerEchoedKeyShownAsReceived(t *testing.T) {
 					t.Fatalf("error = %T %v, want a *ResponseValidationError", err, err)
 				}
 				got.FieldPath, got.Body, got.Header = e.FieldPath, string(e.Body), e.Header
+				got.RequestID, _ = e.RequestID()
 			} else {
 				e, ok := errors.AsType[*APIError](err)
 				if !ok {
 					t.Fatalf("error = %T %v, want an *APIError", err, err)
 				}
 				got.Message, got.Body, got.Header = e.Message, string(e.Body), e.Header
+				got.RequestID, _ = e.RequestID()
 			}
-			var above []string // the messages of the records above LevelTrace
 			for _, r := range logs.Records() {
 				switch {
 				case r.Level > LevelTrace:
-					above = append(above, r.Message)
-					if strings.Contains(r.String(), key[:minKeyNeedleBytes]) {
-						t.Errorf("a record above LevelTrace holds the key: %s", r)
+					got.Logged = append(got.Logged, r.Message)
+					if r.Message == msgSkippedAnswer {
+						a, _ := r.Attr("answer")
+						got.Warned = append(got.Warned, a.String())
+						continue // body text, shown as received (R103-rev)
+					}
+					if r.Message == "response" {
+						v, _ := r.Attr("request_id")
+						got.InfoID = v.String()
+					}
+					for i := range len(key) - minKeyNeedleBytes + 1 {
+						if w := key[i : i+minKeyNeedleBytes]; strings.Contains(r.String(), w) {
+							t.Errorf("a record above LevelTrace holds %q of the key: %s", w, r)
+						}
 					}
 				case r.Message == "response body":
 					b, _ := r.Attr("body")
 					got.TraceBody = b.String()
 				}
 			}
+			wantLogged := logged
+			if tt.warned != nil {
+				wantLogged = append(slices.Clone(logged), msgSkippedAnswer)
+			}
 			want := shown{
 				Error: tt.want, V: tt.want, PlusV: tt.want,
 				Message: tt.message, FieldPath: tt.path,
-				Body: tt.body, Header: wantHeader, TraceBody: tt.body,
+				RequestID: tt.shownID, InfoID: tt.shownID,
+				Body: tt.body,
+				Header: http.Header{
+					"Content-Type": {"application/json"}, "X-Echo": {redacted},
+					"X-Typesafe-Request-Id": {tt.shownID},
+				},
+				Warned: tt.warned, Logged: wantLogged, TraceBody: tt.body,
 			}
 			if diff := gocmp.Diff(want, got); diff != "" {
-				t.Errorf("what the error and the LevelTrace record show (-want +got):\n%s", diff)
-			}
-			if diff := gocmp.Diff([]string{"request", "response", "response headers"}, above); diff != "" {
-				t.Errorf("the records above LevelTrace (-want +got):\n%s\n%s", diff, recordsText(logs))
+				t.Errorf("what the error and the records show (-want +got):\n%s\n%s", diff, recordsText(logs))
 			}
 		})
 	}

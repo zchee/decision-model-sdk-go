@@ -21,6 +21,8 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+
+	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
 // redacted is what a credential is printed as.
@@ -112,6 +114,23 @@ func (r headerRedactor) header(h http.Header) http.Header {
 		out[name] = masked
 	}
 	return out
+}
+
+// requestID returns the request id in h as the error types show it from the
+// header r redacted ([headerRedactor.header]): the x-typesafe-request-id
+// values joined by ", ", each "***" when the header is a credential
+// ([isCredential]), and whether the header was present. The INFO
+// "response" record reads the id through it, so the record shows "***"
+// where Error does (ruling R87); h is not copied.
+func (r headerRedactor) requestID(h http.Header) (string, bool) {
+	values := h[wire.RequestIDHeader]
+	if len(values) == 0 {
+		return "", false
+	}
+	if isCredential(wire.RequestIDHeader, values, r.key) {
+		return strings.Repeat(redacted+", ", len(values)-1) + redacted, true
+	}
+	return strings.Join(values, ", "), true
 }
 
 // redactedHeaders is a header map as a log record shows it: a group with one
