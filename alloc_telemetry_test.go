@@ -44,13 +44,25 @@ func (h discardHandler) WithGroup(string) slog.Handler                    { retu
 // into a handler that keeps the records and discards them (the SDK's cost
 // of one INFO record per attempt, and of the DEBUG records with their
 // redacted headers), and at INFO into slog's text handler writing to
-// io.Discard (a handler's formatting added). The LOG line is the ledger's
-// row. The default must cost what AC-P6 measures, since no record is built.
+// io.Discard (a handler's formatting added). The "LOG q3" line is the
+// ledger's row (W3.3-01). The "LOG q3+id" line measures the same call whose
+// reply carries an x-typesafe-request-id header, as a real response does,
+// so the INFO record's request id is read and redacted (ruling R107; ledger
+// row W3.3-07); its default is not pinned, since the extra header costs
+// bytes before any record is built. The default of q3 must cost what AC-P6
+// measures, since no record is built.
 func TestAllocLoggedCall(t *testing.T) {
 	testsupport.QuietRuntime(t)
 	ctx := t.Context()
 	qs := q3Questions(t)
 	body := testsupport.Fixture(t, "result.json")
+	replies := []struct {
+		name string
+		kv   []string // the reply's headers past Content-Type, name then value
+	}{
+		{name: "q3"},
+		{name: "q3+id", kv: []string{"X-Typesafe-Request-Id", "req_7f3c9a2e5b1d"}},
+	}
 	loggers := []struct {
 		name   string
 		logger *slog.Logger // nil: the default
@@ -60,37 +72,78 @@ func TestAllocLoggedCall(t *testing.T) {
 		{name: "debug-discard", logger: slog.New(discardHandler{min: slog.LevelDebug})},
 		{name: "info-text", logger: slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelInfo}))},
 	}
-	var line strings.Builder
-	line.WriteString("LOG q3")
-	var def testsupport.Allocs
-	for _, l := range loggers {
-		rec := &testsupport.Recorder{Discard: true, Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, body)}}
-		opts := []ClientOption{WithRetry(DefaultRetry())}
-		if l.logger != nil {
-			opts = append(opts, WithLogger(l.logger))
-		}
-		c := newTestClient(t, rec, opts...)
-		state := newAllocState()
-		for range 2 { // warm the pools, the encoder and the decoder
-			if _, err := c.SystemOne(ctx, state, qs); err != nil {
-				t.Fatal(err)
+	for _, rp := range replies {
+		var line strings.Builder
+		line.WriteString("LOG " + rp.name)
+		var def testsupport.Allocs
+		for _, l := range loggers {
+			reply := testsupport.JSON(http.StatusOK, body)
+			for i := 0; i+1 < len(rp.kv); i += 2 {
+				reply.Header.Add(rp.kv[i], rp.kv[i+1])
+			}
+			rec := &testsupport.Recorder{Discard: true, Replies: []testsupport.Reply{reply}}
+			opts := []ClientOption{WithRetry(DefaultRetry())}
+			if l.logger != nil {
+				opts = append(opts, WithLogger(l.logger))
+			}
+			c := newTestClient(t, rec, opts...)
+			state := newAllocState()
+			for range 2 { // warm the pools, the encoder and the decoder
+				if _, err := c.SystemOne(ctx, state, qs); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var err error
+			total := series(t, "call/"+rp.name+"/"+l.name, nil, func() { sinkResponse, err = c.SystemOne(ctx, state, qs) })
+			if err != nil {
+				t.Fatalf("%s %s: %v", rp.name, l.name, err)
+			}
+			if l.logger == nil {
+				def = total
+			}
+			line.WriteString(" " + l.name + "=" + total.String())
+			if l.logger != nil {
+				line.WriteString(" (+" + testsupport.Allocs{Mallocs: total.Mallocs - def.Mallocs, Bytes: total.Bytes - def.Bytes}.String() + ")")
 			}
 		}
-		var err error
-		total := series(t, "call/"+l.name, nil, func() { sinkResponse, err = c.SystemOne(ctx, state, qs) })
-		if err != nil {
-			t.Fatalf("%s: %v", l.name, err)
-		}
-		if l.logger == nil {
-			def = total
-		}
-		line.WriteString(" " + l.name + "=" + total.String())
-		if l.logger != nil {
-			line.WriteString(" (+" + testsupport.Allocs{Mallocs: total.Mallocs - def.Mallocs, Bytes: total.Bytes - def.Bytes}.String() + ")")
+		t.Log(line.String())
+		if rp.name == "q3" && def != (testsupport.Allocs{Mallocs: 22, Bytes: 2648}) {
+			t.Errorf("the call with the default logger = %s, want TestAllocWholeCall's 22/2648: a record is built that no handler keeps", def)
 		}
 	}
-	t.Log(line.String())
-	if def != (testsupport.Allocs{Mallocs: 22, Bytes: 2648}) {
-		t.Errorf("the call with the default logger = %s, want TestAllocWholeCall's 22/2648: a record is built that no handler keeps", def)
+}
+
+// sinkID keeps TestAllocRequestID's results alive.
+var sinkID string
+
+// TestAllocRequestID pins what reading a request id for the INFO
+// "response" record costs (ruling R107, review R103REVERT MINOR 3): no
+// allocation for one value, with or without the client's API key in it,
+// and for no header; one for several values, the string they are joined
+// into, "***" ones included. The header's name is not lower-cased, as
+// isCredential's would be.
+func TestAllocRequestID(t *testing.T) {
+	const key = "ts_live_QzXjWvKpYbNmHgFd"
+	r := newHeaderRedactor(key)
+	tests := map[string]struct {
+		values []string // the x-typesafe-request-id values, nil for none
+		want   float64
+	}{
+		"success: no request id":                      {want: 0},
+		"success: an id without the key":              {values: []string{"req_123"}, want: 0},
+		"success: an id that holds the key":           {values: []string{"req " + key}, want: 0},
+		"success: a repeated id without the key":      {values: []string{"req_1", "req_2"}, want: 1},
+		"success: a repeated id, one holding the key": {values: []string{"req_1", key, "req_3"}, want: 1},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			h := http.Header{"Content-Type": {"application/json"}, "Set-Cookie": {"a=1"}}
+			if tt.values != nil {
+				h["X-Typesafe-Request-Id"] = tt.values
+			}
+			if got := testing.AllocsPerRun(100, func() { sinkID, _ = r.requestID(h) }); got != tt.want {
+				t.Errorf("requestID allocates %v times, want %v (id %q)", got, tt.want, sinkID)
+			}
+		})
 	}
 }

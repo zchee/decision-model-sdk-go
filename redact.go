@@ -118,17 +118,20 @@ func (r headerRedactor) header(h http.Header) http.Header {
 
 // requestID returns the request id in h as the error types show it from the
 // header r redacted ([headerRedactor.header]): the x-typesafe-request-id
-// values joined by ", ", each "***" when the header is a credential
-// ([isCredential]), and whether the header was present. The INFO
-// "response" record reads the id through it, so the record shows "***"
-// where Error does (ruling R87); h is not copied.
+// values joined by ", ", each "***" when one of them holds the client's API
+// key, and whether the header was present. The INFO "response" record reads
+// the id through it, so the record shows "***" where Error does (ruling
+// R87). The header's name is not a credential's ([isSecretHeader]), so only
+// the key is looked for, and the name is not lower-cased as [isCredential]
+// would. h is not copied: one value costs no allocation, and several cost
+// the one string they are joined into.
 func (r headerRedactor) requestID(h http.Header) (string, bool) {
 	values := h[wire.RequestIDHeader]
 	if len(values) == 0 {
 		return "", false
 	}
-	if isCredential(wire.RequestIDHeader, values, r.key) {
-		return strings.Repeat(redacted+", ", len(values)-1) + redacted, true
+	if r.key != "" && slices.ContainsFunc(values, func(v string) bool { return strings.Contains(v, r.key) }) {
+		return strings.Repeat(", "+redacted, len(values))[len(", "):], true
 	}
 	return strings.Join(values, ", "), true
 }
