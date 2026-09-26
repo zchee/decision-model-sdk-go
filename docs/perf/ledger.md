@@ -3525,3 +3525,13 @@ Each kept benchmark could move only through an exported hook that exists
 for the benchmark alone, or, for `BenchmarkPrepare`, through a duplicated
 case table. The owner rules on each. `go test -bench . ./...` still gives
 all 125 rows (W5.1-17, -18), and CodSpeed's runner finds all three packages.
+The owner kept all six in root as built (G5b).
+
+Review W5.1 G1 at de17087 found that `NewFixtureServer` wrote each response
+from a string through `io.WriteString`, which the loopback server's writer
+turns into a fresh `[]byte`, one allocation per response more than B6's old
+handler. b002bd5 writes bytes again. In one session under the (M) lock at
+12:39–12:40 JST, with minima of three runs, B6's allocations at b002bd5
+match ddec26a's: `Loopback/call` 111 and 111, and `cold-fanout-64` 8597
+and 8595, whose runs spread by 43 and 6. So W5.1-09/-10's allocation rows
+still hold (`results/b6allocs-M-{b002bd5,ddec26a}.txt`).
