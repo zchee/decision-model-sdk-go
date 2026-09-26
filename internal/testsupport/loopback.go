@@ -70,11 +70,13 @@ const (
 	ActionRefuse
 	// ActionGoAway sends GOAWAY with a LastStreamID below this stream (its ID
 	// minus 2), so this stream and any later one are unprocessed; streams
-	// already being served finish, then the connection closes.
+	// already being served finish, then the connection closes gracefully
+	// ([H2Conn.GoAway]).
 	ActionGoAway
-	// ActionClose closes the connection at once, without GOAWAY
-	// ([H2Conn.Close]): TLS close_notify, then TCP FIN, so the client reads
-	// io.EOF.
+	// ActionClose closes the connection without GOAWAY, gracefully, as
+	// [LoopbackServer.CloseConns] does: TLS close_notify, then TCP FIN, so
+	// the client reads io.EOF, and the socket closes once the client has
+	// closed its side. [H2Conn.Close] is the immediate close.
 	ActionClose
 	// ActionHold never answers: the stream stays open until the client resets
 	// it or the connection closes. It counts against MAX_CONCURRENT_STREAMS.
@@ -205,16 +207,21 @@ type ConnInfo struct {
 	// GoAwaySeq, CloseWriteSeq, PeerClosedSeq and ClosedSeq record how an
 	// HTTP/2 connection ended, as numbers of one sequence the server shares
 	// across its connections, so they order events without a clock (K29); 0
-	// means the event did not happen. GoAwaySeq is the last GOAWAY frame
-	// written; CloseWriteSeq is [LoopbackServer.CloseConns] beginning to
-	// close, taken before its close_notify and FIN leave; PeerClosedSeq is
-	// the reader reading the end of the client's side after that; ClosedSeq
-	// is the socket's close. CloseWriteSeq < PeerClosedSeq < ClosedSeq shows
-	// that the socket closed with nothing the client sent left unread
-	// (ruling K33).
+	// means the event did not happen. GoAwaySeq is the last GOAWAY frame,
+	// taken before it is written; CloseWriteSeq is the server beginning its
+	// graceful close ([LoopbackServer.CloseConns], ActionClose, or the end
+	// of a connection after GOAWAY once no stream at or below its
+	// LastStreamID is left), taken before its close_notify and FIN leave;
+	// PeerClosedSeq is the reader reading the end of the client's side;
+	// ClosedSeq is the socket's close. 0 < PeerClosedSeq < ClosedSeq shows
+	// that the socket closed with nothing the client sent left unread, and
+	// CloseWriteSeq < PeerClosedSeq that the server's close came first
+	// (rulings K33, K34). The client may close first: net/http closes a
+	// connection that GOAWAY ended as soon as its last stream is done, and
+	// then PeerClosedSeq precedes CloseWriteSeq, or CloseWriteSeq is 0.
 	GoAwaySeq, CloseWriteSeq, PeerClosedSeq, ClosedSeq int64
-	// Drained lists the types of the frames the reader read and discarded
-	// once CloseConns had begun to close the connection: what the client
+	// Drained lists the types of the frames the reader read and discarded,
+	// answering none, once the graceful close had begun: what the client
 	// was still sending when the server's close_notify reached it.
 	Drained []string
 }
@@ -351,11 +358,12 @@ func (s *LoopbackServer) LiveH2Conns() []*H2Conn {
 }
 
 // CloseConns ends every open connection without GOAWAY; the listener stays
-// open. An HTTP/2 connection ends as a server that is done with it should:
-// its streams are dropped, TLS close_notify and a TCP FIN follow the frames
-// already written, and the server keeps reading, discarding whatever the
-// client still sends, until the client closes its side or [drainBound]
-// passes; only then does it close the socket. It returns once close_notify
+// open. An HTTP/2 connection ends as a server that is done with it should
+// (as ActionClose and the end after GOAWAY do too): its streams are
+// dropped, TLS close_notify and a TCP FIN follow the frames already
+// written, nothing is written after them, and the server keeps reading,
+// discarding whatever the client still sends, until the client closes its
+// side or [drainBound] passes; only then does it close the socket. It returns once close_notify
 // and FIN are sent, without waiting for the client, and
 // [ConnInfo.CloseWriteSeq] and the records after it tell how the close
 // went. Any other connection (HTTP/1.1, or one still in its handshake) is

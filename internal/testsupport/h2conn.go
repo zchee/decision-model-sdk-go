@@ -45,9 +45,10 @@ const maxFrameSize = 16384
 // defaultWindow is the initial flow-control window of RFC 9113.
 const defaultWindow = 65535
 
-// drainBound is how long a connection [LoopbackServer.CloseConns] is ending
-// waits for the client to close its side before the server closes the
-// socket anyway.
+// drainBound is how long a connection whose graceful close has begun
+// ([LoopbackServer.CloseConns], ActionClose, or the end after GOAWAY) waits
+// for the client to close its side before the server closes the socket
+// anyway.
 const drainBound = 5 * time.Second
 
 // Errors a handler sees from its ResponseWriter.
@@ -92,9 +93,10 @@ type H2Conn struct {
 	goAwayLast uint32
 	closed     bool
 
-	// draining is set once CloseConns has begun to end the connection:
-	// nothing can be written after close_notify, so the reader only reads
-	// and discards until the client closes its side.
+	// draining is set, under wmu, once the graceful close has begun
+	// (closeWrite): nothing is written after close_notify, so every writer
+	// drops its frame, and the reader only reads and discards until the
+	// client closes its side.
 	draining atomic.Bool
 }
 
@@ -186,9 +188,13 @@ func (c *H2Conn) ActiveStreams() []uint32 {
 // processed, but its handler may already have run, in part or up to its last
 // write: a test that counts side effects must not assume otherwise. A dropped
 // stream's [SeenRequest] shows Dropped. Once every stream at or below
-// lastStreamID has finished, the server closes the connection; the GOAWAY
-// frame always reaches the wire before that close. A second call can only
-// lower lastStreamID.
+// lastStreamID has finished, the server ends the connection gracefully, as
+// [LoopbackServer.CloseConns] does: close_notify and a TCP FIN, then it
+// reads and discards what the client still sends until the client closes
+// its side, and only then closes the socket (ruling K34). The GOAWAY frame
+// always reaches the wire before close_notify. A second call can only lower
+// lastStreamID. On a connection whose graceful close has begun nothing is
+// written, and GoAway returns an error.
 func (c *H2Conn) GoAway(lastStreamID uint32, code ErrCode) error {
 	// Once c.mu is released, the goroutine that finishes the last stream at or
 	// below lastStreamID may run maybeFinish at once. Holding the write lock
@@ -196,6 +202,10 @@ func (c *H2Conn) GoAway(lastStreamID uint32, code ErrCode) error {
 	// close_notify wait for GOAWAY; without it, the frame write failed with
 	// "tls: protocol is shutdown" and the client read EOF with no GOAWAY.
 	c.wmu.Lock()
+	if c.draining.Load() {
+		c.wmu.Unlock()
+		return fmt.Errorf("%w: GOAWAY after close_notify", errConnClosed)
+	}
 	c.mu.Lock()
 	if c.goAway {
 		lastStreamID = min(lastStreamID, c.goAwayLast)
@@ -208,14 +218,14 @@ func (c *H2Conn) GoAway(lastStreamID uint32, code ErrCode) error {
 		}
 	}
 	c.mu.Unlock()
+	// Numbered before the frame leaves, as CloseWriteSeq is: a client may
+	// close the connection as soon as it reads the GOAWAY, and the reader
+	// can record that close before this goroutine runs again.
+	c.srv.noteConn(c.index, func(ci *ConnInfo) { ci.GoAwaySeq = c.srv.seq.Add(1) })
 	err := c.fr.WriteGoAway(lastStreamID, http2.ErrCode(code), nil)
-	if err == nil {
-		c.srv.noteConn(c.index, func(ci *ConnInfo) { ci.GoAwaySeq = c.srv.seq.Add(1) })
-	}
 	c.wmu.Unlock()
 	if err != nil {
-		c.Close()
-		return fmt.Errorf("%w: %w", errConnClosed, err)
+		return c.writeFailed(err)
 	}
 	c.maybeFinish()
 	return nil
@@ -258,19 +268,23 @@ func (c *H2Conn) SetMaxConcurrentStreams(n uint32) error {
 		c.mu.Lock()
 		closing := c.closed
 		c.mu.Unlock()
-		c.Close()
+		werr := c.writeFailed(err)
 		if closing {
 			return fmt.Errorf("%w: %w", ErrConnClosing, err)
 		}
-		return fmt.Errorf("%w: %w", errConnClosed, err)
+		return werr
 	}
 	return nil
 }
 
 // Close closes the connection at once, without GOAWAY. Closing the TLS
 // connection sends a close_notify alert (unless a frame write is in flight)
-// before the TCP FIN, so the client reads io.EOF. [H2Conn.Reset] ends the
-// connection with a TCP reset instead.
+// before the TCP FIN, so the client reads io.EOF, provided the server has
+// read everything the client sent and nothing more arrives: otherwise the
+// kernel answers with a TCP reset, and on Windows the reset destroys what
+// the client has not read yet (ruling K33). [LoopbackServer.CloseConns] and
+// ActionClose close gracefully instead; [H2Conn.Reset] ends the connection
+// with a TCP reset.
 func (c *H2Conn) Close() {
 	c.shutdown()
 	_ = c.nc.Close()
@@ -291,17 +305,26 @@ func (c *H2Conn) Reset() {
 	c.noteClosed()
 }
 
-// closeGracefully ends the connection for [LoopbackServer.CloseConns]: it
-// drops every stream, sends close_notify and FIN after the frames already
-// written (under the write lock, so a frame in flight, a GOAWAY among them,
-// leaves first) and leaves the socket to the reader, which discards what
-// the client still sends until it reads the end of the client's side or
-// drainBound passes, and then closes it (serve). A connection whose close
-// had begun is left alone.
+// closeGracefully ends the connection for [LoopbackServer.CloseConns] and
+// ActionClose: it drops every stream and begins the graceful close
+// (closeWrite). A connection whose close had begun is left alone.
 func (c *H2Conn) closeGracefully() {
-	if !c.shutdown() {
-		return
+	if c.shutdown() {
+		c.closeWrite()
 	}
+}
+
+// closeWrite begins the graceful close of a connection that shutdown or
+// maybeFinish has just marked closed. Under the write lock, so a frame in
+// flight (a GOAWAY among them) leaves first, it sets draining, which stops
+// every later write, and sends close_notify and a TCP FIN; the reader then
+// discards what the client still sends until it reads the end of the
+// client's side or drainBound passes, and only then does serve close the
+// socket. A socket closed earlier, with the client's frames unread or still
+// on their way, is ended by the kernel with a TCP reset (RFC 1122 section
+// 4.2.2.13), which on Windows destroys what the client has not read yet
+// (rulings K33, K34).
+func (c *H2Conn) closeWrite() {
 	c.wmu.Lock()
 	// The record precedes close_notify, and so anything the client does once
 	// it reads it; the reader records the client's close only from here on.
@@ -311,8 +334,9 @@ func (c *H2Conn) closeGracefully() {
 	if cw, ok := c.nc.NetConn().(interface{ CloseWrite() error }); ok {
 		_ = cw.CloseWrite() // FIN
 	}
-	c.wmu.Unlock()
+	// Under the write lock, so serve cannot clear it after its preface.
 	_ = c.nc.SetReadDeadline(time.Now().Add(drainBound))
+	c.wmu.Unlock()
 }
 
 // noteClosed records the socket's first close.
@@ -361,17 +385,38 @@ func (c *H2Conn) dropLocked(st *h2stream) {
 	c.cond.Broadcast()
 }
 
-// write runs one frame write under the write lock and turns a failure into
-// a closed connection.
+// write runs one of the reader's frame writes (its SETTINGS and their
+// acknowledgement, PING acknowledgements, WINDOW_UPDATE refunds and
+// RST_STREAM) under the write lock. Once the graceful close has begun the
+// frame is dropped and write reports success: nothing may follow
+// close_notify, and the reader goes on to drain. A failed write ends the
+// connection (writeFailed).
 func (c *H2Conn) write(fn func() error) error {
 	c.wmu.Lock()
+	if c.draining.Load() {
+		c.wmu.Unlock()
+		return nil
+	}
 	err := fn()
 	c.wmu.Unlock()
 	if err != nil {
-		c.Close()
-		return fmt.Errorf("%w: %w", errConnClosed, err)
+		return c.writeFailed(err)
 	}
 	return nil
+}
+
+// writeFailed ends the connection after a frame write failed and returns
+// the error for the writer. Every writer checks draining under the write
+// lock first, so the write did not follow close_notify: the socket is
+// broken (the client reset it, or Close or Reset closed it during the
+// write). A connection whose graceful close has begun since is left to its
+// draining reader, which closes the socket once the client has closed its
+// side or drainBound has passed, as closeWrite requires.
+func (c *H2Conn) writeFailed(err error) error {
+	if !c.draining.Load() {
+		c.Close()
+	}
+	return fmt.Errorf("%w: %w", errConnClosed, err)
 }
 
 // serve reads the client preface and then frames until the connection ends.
@@ -382,7 +427,13 @@ func (c *H2Conn) serve() {
 	if _, err := io.ReadFull(c.br, preface); err != nil || string(preface) != http2.ClientPreface {
 		return
 	}
-	_ = c.nc.SetReadDeadline(time.Time{})
+	// A graceful close that began during the preface has set the drain's
+	// deadline (closeWrite, under the write lock); it stays.
+	c.wmu.Lock()
+	if !c.draining.Load() {
+		_ = c.nc.SetReadDeadline(time.Time{})
+	}
+	c.wmu.Unlock()
 
 	var settings []http2.Setting
 	if n := c.srv.cfg.MaxConcurrentStreams; n > 0 {
@@ -404,6 +455,7 @@ func (c *H2Conn) serve() {
 				_ = c.write(func() error { return c.fr.WriteRSTStream(se.StreamID, se.Code) })
 				continue
 			}
+			c.peerClosed(err)
 			return
 		}
 		if !c.handleFrame(f) {
@@ -412,21 +464,35 @@ func (c *H2Conn) serve() {
 	}
 }
 
-// drain takes one read of a connection CloseConns is ending: it records a
-// frame as drained and reports true to read on, or records the end of the
-// client's side (io.EOF) and reports false. Any other error (the drain's
-// deadline, a reset) ends the read too, unrecorded.
+// drain takes one read of a connection whose graceful close has begun: it
+// records a frame as drained, answering nothing, and reports true to read
+// on, or records the end of the client's side (peerClosed) and reports
+// false. Any other error (the drain's deadline, a reset) ends the read too,
+// unrecorded.
 func (c *H2Conn) drain(f http2.Frame, err error) bool {
 	switch {
 	case err == nil:
 		c.srv.noteConn(c.index, func(ci *ConnInfo) { ci.Drained = append(ci.Drained, f.Header().Type.String()) })
 		return true
-	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
-		c.srv.noteConn(c.index, func(ci *ConnInfo) { ci.PeerClosedSeq = c.srv.seq.Add(1) })
+	case c.peerClosed(err):
 		return false
 	}
 	_, streamErr := errors.AsType[http2.StreamError](err)
 	return streamErr
+}
+
+// peerClosed records PeerClosedSeq when err is the end of the client's side
+// (io.EOF after its close_notify or FIN; io.ErrUnexpectedEOF inside a
+// frame) and reports whether it was. The client may close first, before
+// the server's graceful close begins: net/http closes a connection that
+// GOAWAY ended as soon as its last stream is done, which can precede
+// maybeFinish on the goroutine that finished that stream or called GoAway.
+func (c *H2Conn) peerClosed(err error) bool {
+	if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return false
+	}
+	c.srv.noteConn(c.index, func(ci *ConnInfo) { ci.PeerClosedSeq = c.srv.seq.Add(1) })
+	return true
 }
 
 // handleFrame processes one frame; it reports false when the connection
@@ -551,7 +617,7 @@ func (c *H2Conn) onHeaders(f *http2.MetaHeadersFrame) {
 	case ActionGoAway:
 		_ = c.GoAway(max(id, 2)-2, CodeNoError)
 	case ActionClose:
-		c.Close()
+		c.closeGracefully()
 	case ActionReset:
 		c.Reset()
 	case ActionHold:
@@ -637,11 +703,14 @@ func (c *H2Conn) onWindowUpdate(f *http2.WindowUpdateFrame) {
 	c.cond.Broadcast()
 }
 
-// maybeFinish closes the connection gracefully once GOAWAY was sent and no
-// stream at or below its LastStreamID is left: the server stops writing
-// (close_notify) and lets the reader drain what the client still sends, so
-// the kernel does not answer unread data with a TCP reset that could destroy
-// the last response in flight.
+// maybeFinish ends the connection gracefully (closeWrite) once GOAWAY was
+// sent and no stream at or below its LastStreamID is left. The streams above
+// it were dropped by GoAway, so none is left at all. Before ruling K34 it
+// sent close_notify alone and let the reader handle frames as before: a
+// DATA frame of a stream GOAWAY had refused made the reader write a
+// WINDOW_UPDATE refund after close_notify, the write failed and closed the
+// socket with the client's frames unread, and on Windows the reset
+// destroyed the GOAWAY before net/http could replay the request.
 func (c *H2Conn) maybeFinish() {
 	c.mu.Lock()
 	if !c.goAway || c.closed {
@@ -657,10 +726,7 @@ func (c *H2Conn) maybeFinish() {
 	c.closed = true
 	c.cond.Broadcast()
 	c.mu.Unlock()
-	c.wmu.Lock()
-	_ = c.nc.CloseWrite()
-	c.wmu.Unlock()
-	_ = c.nc.SetReadDeadline(time.Now().Add(time.Second))
+	c.closeWrite()
 }
 
 // retireLocked takes st out of the count of open streams, once: the stream
@@ -807,32 +873,41 @@ func (c *H2Conn) claim(st *h2stream, end bool) bool {
 	return true
 }
 
-// writeStream runs a frame write for st unless the stream is already over;
-// end says what the frame does to the server's side of the stream. A frame
-// that closes the stream retires it under the write lock, before the write.
+// writeStream runs a frame write for st unless the stream is already over
+// or the graceful close has begun since claim (nothing follows
+// close_notify); end says what the frame does to the server's side of the
+// stream. A frame that closes the stream retires it under the write lock,
+// before the write.
 func (c *H2Conn) writeStream(st *h2stream, end frameEnd, fn func() error) error {
 	if !c.claim(st, end != frameMid) {
 		return errStreamReset
 	}
 	c.wmu.Lock()
+	if c.draining.Load() {
+		c.wmu.Unlock()
+		return errConnClosed
+	}
 	c.retireIfClosing(st, end)
 	err := fn()
 	c.wmu.Unlock()
 	if err != nil {
-		c.Close()
-		return fmt.Errorf("%w: %w", errConnClosed, err)
+		return c.writeFailed(err)
 	}
 	return nil
 }
 
 // writeHeaders encodes and writes a response header block, split into
-// CONTINUATION frames when it exceeds maxFrameSize.
+// CONTINUATION frames when it exceeds maxFrameSize, unless the stream is
+// already over or the graceful close has begun since claim.
 func (c *H2Conn) writeHeaders(st *h2stream, status int, h http.Header, endStream bool) error {
 	if !c.claim(st, endStream) {
 		return errStreamReset
 	}
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
+	if c.draining.Load() {
+		return errConnClosed
+	}
 	if endStream {
 		c.retireIfClosing(st, frameEndStream)
 	}
@@ -865,8 +940,7 @@ func (c *H2Conn) writeHeaders(st *h2stream, status int, h http.Header, endStream
 		err = c.fr.WriteContinuation(st.id, len(rest) == 0, chunk)
 	}
 	if err != nil {
-		c.Close()
-		return fmt.Errorf("%w: %w", errConnClosed, err)
+		return c.writeFailed(err)
 	}
 	return nil
 }
