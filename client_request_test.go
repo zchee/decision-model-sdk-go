@@ -54,9 +54,10 @@ func (c *capture) RoundTrip(req *http.Request) (*http.Response, error) {
 
 // newEnvClient builds a client over rt (WithRoundTripper) from opts alone,
 // reading the environment the test set, and closes it when the test ends.
+// Its calls make one attempt each, as newTestClient's do.
 func newEnvClient(t *testing.T, rt http.RoundTripper, opts ...ClientOption) *Client {
 	t.Helper()
-	c, err := NewClient(append([]ClientOption{WithRoundTripper(rt)}, opts...)...)
+	c, err := NewClient(append([]ClientOption{WithRoundTripper(rt), WithRetry(NoRetry())}, opts...)...)
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}

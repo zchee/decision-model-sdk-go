@@ -104,8 +104,8 @@ func ExtraBody(key string, v any) CallOption {
 	return func(o *callOptions) { o.extra = append(o.extra, bodyMember{key: key, value: v}) }
 }
 
-// Retry sets the retry policy of this call, in place of the client's.
-// [NoRetry] makes the call a single attempt.
+// Retry sets the retry policy of this call, in place of the client's
+// ([WithRetry]). [NoRetry] makes the call a single attempt.
 func Retry(policy RetryPolicy) CallOption {
 	return func(o *callOptions) { o.retry = &policy }
 }
@@ -143,7 +143,7 @@ type callSettings struct {
 // A failure is a *ConfigError, before anything is encoded or sent; the
 // order is timeout, then headers.
 func (o *callOptions) settings(ctx context.Context, cfg *config, base http.Header) (callSettings, error) {
-	s := callSettings{header: base, timeout: cfg.timeout}
+	s := callSettings{header: base, timeout: cfg.timeout, retry: cfg.retry}
 	if o.timeout != nil {
 		if *o.timeout <= 0 {
 			return callSettings{}, newConfigError("The timeout passed to Timeout must be positive.")

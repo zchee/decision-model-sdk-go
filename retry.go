@@ -21,15 +21,21 @@ import (
 )
 
 // RetryPolicy decides whether a call tries a failed attempt again, as the
-// Python SDK's RetryPolicy does. [NoRetry] is the policy of one attempt per
-// call; the [Retry] call option passes a policy to one call.
+// Python SDK's RetryPolicy does. [DefaultRetry] is the policy a client uses
+// unless [WithRetry] sets another, and [NoRetry] the policy of one attempt
+// per call; the [Retry] call option passes a policy to one call.
 //
 // In this version of the SDK every call makes one attempt, whatever its
-// policy: a policy is accepted and kept with the call, and the settings that
-// make a call retry are not there yet.
+// policy: a policy is accepted and kept with the client or the call, and the
+// settings that make a call retry are not there yet.
 type RetryPolicy struct {
 	_ struct{}
 }
+
+// DefaultRetry returns the policy a client uses unless [WithRetry] sets
+// another, as the Python SDK uses RetryPolicy() when its retry argument is
+// None. It is the zero RetryPolicy.
+func DefaultRetry() RetryPolicy { return RetryPolicy{} }
 
 // NoRetry returns the policy that never tries a call again: every call makes
 // exactly one attempt, as the Python SDK's RetryPolicy(max_retries=0) does.

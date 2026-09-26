@@ -475,7 +475,10 @@ func TestCancelInFlightRequest(t *testing.T) {
 // the context (W3 adds one).
 func TestCancelledContextMakesOneAttempt(t *testing.T) {
 	rec := replying(http.StatusOK, []byte(`{"models":[]}`))
-	c := newTestClient(t, rec)
+	// The production policy, which retries, and not newTestClient's single
+	// attempt: the one attempt must come from the cancellation (ruling R82
+	// NIT 6, R88b).
+	c := newTestClient(t, rec, WithRetry(DefaultRetry()))
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	_, err := c.Models().List(ctx)
@@ -745,7 +748,9 @@ func TestAttemptDeadlineEndsTheCall(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			clearEnv(t)
-			c, err := NewClient(append([]ClientOption{WithAPIKey(testKey), WithBaseURL(srv.URL)}, tt.client...)...)
+			// One attempt: a retry of the timed-out attempt would outlast
+			// the bound below.
+			c, err := NewClient(append([]ClientOption{WithAPIKey(testKey), WithBaseURL(srv.URL), WithRetry(NoRetry())}, tt.client...)...)
 			if err != nil {
 				t.Fatalf("NewClient: %v", err)
 			}

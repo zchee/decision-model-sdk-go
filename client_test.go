@@ -31,10 +31,15 @@ import (
 // R68) and opts, after clearing the variables a client reads, so a
 // developer's TYPESAFE_API_KEY never reaches a test. The client is closed
 // when the test ends.
+//
+// Its calls make one attempt each (NoRetry), as the upstream tests' clients
+// do unless a test asks for retries (tests/conftest.py:34-35, ruling R88b);
+// a test that wants the production policy passes WithRetry(DefaultRetry())
+// in opts, which comes later and wins.
 func newTestClient(t *testing.T, rt http.RoundTripper, opts ...ClientOption) *Client {
 	t.Helper()
 	clearEnv(t)
-	c, err := NewClient(append([]ClientOption{WithAPIKey(testKey), WithRoundTripper(rt)}, opts...)...)
+	c, err := NewClient(append([]ClientOption{WithAPIKey(testKey), WithRoundTripper(rt), WithRetry(NoRetry())}, opts...)...)
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}

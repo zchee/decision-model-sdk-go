@@ -65,6 +65,8 @@ type options struct {
 	transport transportOptions
 	// pretouch is every type WithPretouch gave, in order.
 	pretouch []reflect.Type
+	// retry is the policy WithRetry gave.
+	retry *RetryPolicy
 }
 
 // headerOption is one [WithHeader] call.
@@ -204,6 +206,12 @@ func WithLogEndpointHost(log bool) ClientOption {
 	return func(o *options) { o.hideEndpointHost = !log }
 }
 
+// WithRetry sets the retry policy of every call the client makes, unless a
+// call passes its own with [Retry]; [DefaultRetry] unless set.
+func WithRetry(policy RetryPolicy) ClientOption {
+	return func(o *options) { o.retry = &policy }
+}
+
 // collectOptions applies opts in order, skipping nil ones, and returns what
 // they recorded.
 func collectOptions(opts []ClientOption) options {
@@ -258,6 +266,9 @@ type config struct {
 
 	// transport carries every request of the client.
 	transport *transport
+
+	// retry is the policy of a call that passes none ([Retry]).
+	retry RetryPolicy
 }
 
 // resolve checks what o recorded, fills every setting o left unset from the
@@ -337,6 +348,9 @@ func (o *options) resolve(getenv func(string) string) (*config, error) {
 		systemOneHeader:  systemOneHeader,
 		modelsHeader:     modelsHeader,
 		transport:        tr,
+	}
+	if o.retry != nil {
+		c.retry = *o.retry
 	}
 	if o.hideEndpointHost {
 		c.systemOneLog, c.modelsLog = systemOnePath, modelsPath
