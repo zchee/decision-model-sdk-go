@@ -91,6 +91,11 @@ status is 0 only when every check passes.
      ``go test -list`` knows packages by import path, not by directory; write
      ``codec.TestX`` or ``TestX``.
 
+6. Status counts. The matrix states its rows by status on exactly one line
+   ``Rows by status: <counts>.``, where <counts> is the text the summary
+   line prints (``32 deviation, 6 planned, 91 ported``), so the document
+   cannot show counts its rows do not have.
+
 ``go test -list`` runs even when no row needs it, so a module that stops
 compiling under ``-tags live`` fails this check from the first wave on.
 
@@ -146,6 +151,7 @@ _PATH_TEST = re.compile(r"(?:[\w.-]*/)+(?:[A-Za-z_]\w*\.)?Test\w*")
 _GO_IDENT = re.compile(r"(?:Test|Benchmark|Fuzz|Example)\w*")
 _QUOTED_DEVIATION = re.compile(r'\bdeviation\s+"([^"]*)"')
 _SAME_DEVIATION = re.compile(r"\bsame deviation\b")
+_STATUS_LINE = re.compile(r"Rows by status: (?P<counts>.+)\.")
 
 
 @dataclass(frozen=True)
@@ -727,6 +733,31 @@ def check_rows(
     return failures
 
 
+def status_summary(rows: list[Row]) -> str:
+    """Return the rows' counts by status, as the summary line prints them."""
+    counts = dict.fromkeys(sorted(STATUSES), 0)
+    for row in rows:
+        counts[row.status] += 1
+    return ", ".join(f"{n} {status}" for status, n in counts.items())
+
+
+def check_status_line(text: str, summary: str, source: str) -> list[str]:
+    """Return the failures of check 6 (status counts) of the module docstring."""
+    found = [
+        (lineno, m.group("counts"))
+        for lineno, line in enumerate(text.splitlines(), start=1)
+        if (m := _STATUS_LINE.fullmatch(line.strip()))
+    ]
+    if len(found) != 1:
+        return [
+            f"{source}: want one line 'Rows by status: {summary}.', found {len(found)}"
+        ]
+    lineno, counts = found[0]
+    if counts != summary:
+        return [f"{source}:{lineno}: the rows are {summary}; the line says {counts}"]
+    return []
+
+
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     """Parse the command line; ``--upstream`` is required."""
     repo = Path(__file__).resolve().parents[2]
@@ -832,16 +863,15 @@ def main(argv: list[str] | None = None) -> int:
     listed, go_failures = list_go_tests(args.repo)
     failures += go_failures
     failures += check_rows(matrix.rows, upstream, listed, no_planned=args.no_planned)
+    summary = status_summary(matrix.rows)
+    if text:
+        failures += check_status_line(text, summary, str(args.matrix))
 
     if failures:
         for failure in failures:
             _LOG.error("%s", failure)
         _LOG.error("port-test-matrix: %d failure(s)", len(failures))
         return 1
-    counts = dict.fromkeys(sorted(STATUSES), 0)
-    for row in matrix.rows:
-        counts[row.status] += 1
-    summary = ", ".join(f"{n} {status}" for status, n in counts.items())
     print(f"port-test-matrix: OK, {len(upstream)} upstream tests ({summary})")
     return 0
 

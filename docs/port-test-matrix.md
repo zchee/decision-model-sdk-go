@@ -7,13 +7,16 @@ pytest collects under `tests/` (111 SDK behaviour + 18 tooling). The derived
 name list is [`upstream-tests.txt`](upstream-tests.txt).
 `.github/scripts/port-test-matrix.py` checks this file on every CI run; the
 rows were seeded from Appendix D of the port plan, which also defines the row
-IDs that the plan's waves cite.
+IDs that the plan's waves cite. The checker also holds the next line to the
+rows:
+
+Rows by status: 32 deviation, 6 planned, 91 ported.
 
 ## Status values
 
 | Status | Meaning | Checker rule |
 | --- | --- | --- |
-| `planned` | not ported yet | passes; with `--no-planned` (CI from W6.3) it fails |
+| `planned` | not ported yet | passes; with `--no-planned` it fails (CI adds the flag when W6.4 flips the last planned rows) |
 | `ported` | the Go test exists | the Go cell names at least one backtick-quoted `Test…` identifier, and every one of them is listed by `go test -list '.*' -tags live ./...`; `pkg.TestName` must be listed by a package whose import path ends in `/pkg`, so tests of the root package are written unqualified (`TestX`, never `typesafe.TestX`: the root import path ends in `/typesafe-sdk-go`) |
 | `deviation` | replaced by a documented behaviour difference | the Go cell cites an Appendix B row as the word `deviation` followed by a double-quoted, non-blank reference (`deviation "one deadline per attempt"`); Appendix B rows are unnumbered and `B<n>` would read as a benchmark ID, so there is no numeric form; `same deviation` takes the citation of the nearest row above it in the same group that carries one (rows without a citation in between are skipped); any backtick-quoted `Test…` identifier in the cell must exist, as for `ported` |
 
@@ -221,23 +224,23 @@ IDs that the plan's waves cite.
 
 | ID | Upstream | Go test / deviation | status |
 | --- | --- | --- | --- |
-| XS1 | `test_sign_snapshot_and_push` | deviation "dev→public sync tooling not ported" | planned |
-| XS2 | `test_signing_failure_keeps_refs` | same deviation | planned |
-| XS3 | `test_dry_run_skips_github` | same deviation | planned |
-| XS4 | `test_snapshot_and_push_retries` | same deviation | planned |
-| XS5 | `test_existing_history_deletions_and_immutable_tags` | same deviation | planned |
-| XS6 | `test_invalid_includes` | same deviation | planned |
-| XS7 | `test_unsafe_snapshots` | same deviation | planned |
-| XS8 | `test_version_mismatch` | same deviation | planned |
-| XS9 | `test_atomic_push_rejects_concurrent_update` | same deviation | planned |
-| XS10 | `test_release_contributors` | same deviation | planned |
+| XS1 | `test_sign_snapshot_and_push` | deviation "dev→public sync tooling not ported": upstream's `sync_public.py` signs a snapshot of its private dev repository and pushes it to the public one, and skips this file elsewhere; this port is developed in its public repository and has no such script | deviation |
+| XS2 | `test_signing_failure_keeps_refs` | same deviation: a failed signing step of the sync keeps the snapshot's refs | deviation |
+| XS3 | `test_dry_run_skips_github` | same deviation: a dry run of the sync calls no GitHub API | deviation |
+| XS4 | `test_snapshot_and_push_retries` | same deviation: the sync exports only committed files and retries its push | deviation |
+| XS5 | `test_existing_history_deletions_and_immutable_tags` | same deviation: the sync deletes files from, and keeps tags immutable in, the public history | deviation |
+| XS6 | `test_invalid_includes` | same deviation: the sync refuses an invalid `.releaseinclude` | deviation |
+| XS7 | `test_unsafe_snapshots` | same deviation: the sync refuses a snapshot holding a symlink | deviation |
+| XS8 | `test_version_mismatch` | same deviation: the sync refuses a tag that differs from the package version | deviation |
+| XS9 | `test_atomic_push_rejects_concurrent_update` | same deviation: the sync's atomic push refuses a concurrent update | deviation |
+| XS10 | `test_release_contributors` | same deviation: the sync credits a release's contributors in its commit message | deviation |
 
 ### `tests/test_release_notes.py` (2)
 
 | ID | Upstream | Go test / deviation | status |
 | --- | --- | --- | --- |
-| XR1 | `test_release_notes` | deviation "no release-notes script" | planned |
-| XR2 | `test_invalid_release_notes` | same deviation | planned |
+| XR1 | `test_release_notes` | deviation "no release-notes script": upstream's `.github/scripts/release_notes.py` cuts a release's title and notes from its changelog; this port has no such script (release tooling, not SDK behaviour) | deviation |
+| XR2 | `test_invalid_release_notes` | same deviation: the release-notes script refuses a bad changelog, tag or version | deviation |
 
 ### `tests/test_typing.py` (1)
 

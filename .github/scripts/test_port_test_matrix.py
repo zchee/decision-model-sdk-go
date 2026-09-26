@@ -939,6 +939,7 @@ def _fake_go(
 
 
 GO_LIST_OK = "TestOne\nTestTwo\nTestThree\nok  \texample.com/m\t0.1s\n"
+STATUS_LINE = "\nRows by status: 0 deviation, 3 planned, 0 ported.\n"
 
 
 class TestMain:
@@ -958,7 +959,9 @@ class TestMain:
         names = tmp_path / "names.txt"
         names.write_text("\n".join(UPSTREAM) + "\n")
         path = tmp_path / "matrix.md"
-        path.write_text(_full(PLANNED_A, PLANNED_B) if matrix is None else matrix)
+        path.write_text(
+            _full(PLANNED_A, PLANNED_B) + STATUS_LINE if matrix is None else matrix
+        )
         return ["--names", str(names), "--matrix", str(path), "--repo", str(tmp_path)]
 
     def test_unpinned_checkout_stops_before_any_other_check(
@@ -1100,6 +1103,48 @@ class TestMain:
         assert len([m for m in caplog.messages if m.endswith("(--no-planned)")]) == 3
         # Two lines for the go failure, three for the planned rows.
         assert caplog.messages[-1] == "port-test-matrix: 5 failure(s)"
+
+    @pytest.mark.parametrize(
+        ("line", "want"),
+        [
+            pytest.param(
+                "",
+                "{m}: want one line 'Rows by status: 0 deviation, 3 planned, "
+                "0 ported.', found 0",
+                id="no status line",
+            ),
+            pytest.param(
+                STATUS_LINE + STATUS_LINE,
+                "{m}: want one line 'Rows by status: 0 deviation, 3 planned, "
+                "0 ported.', found 2",
+                id="two status lines",
+            ),
+            pytest.param(
+                "\nRows by status: 1 deviation, 2 planned, 0 ported.\n",
+                "{m}:14: the rows are 0 deviation, 3 planned, 0 ported; the line "
+                "says 1 deviation, 2 planned, 0 ported",
+                id="counts that differ from the rows",
+            ),
+        ],
+    )
+    @pytest.mark.usefixtures("pinned")
+    def test_status_line_must_state_the_counts(
+        self,
+        upstream: Path,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+        line: str,
+        want: str,
+    ) -> None:
+        args = self._files(tmp_path, matrix=_full(PLANNED_A, PLANNED_B) + line)
+
+        code = ptm.main(["--upstream", str(upstream), *args])
+
+        assert code == 1
+        assert caplog.messages == [
+            want.replace("{m}", str(tmp_path / "matrix.md")),
+            "port-test-matrix: 1 failure(s)",
+        ]
 
     def test_script_logs_failures_to_stderr_only(self, tmp_path: Path) -> None:
         proc = subprocess.run(

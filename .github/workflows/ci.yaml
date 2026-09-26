@@ -76,7 +76,8 @@ jobs:
 
       - name: Check the port test matrix against the upstream tests
         run: uv run --script .github/scripts/port-test-matrix.py --upstream upstream
-      # W6.3 adds: --no-planned on the step above.
+      # W6.4 adds --no-planned on the step above when it flips the last
+      # planned rows (I1-I3, XD1, XD2, XT1).
       # uncovered-lines.py runs in the test job, which has the coverage profile.
 
       # XD1: every Go block of README.md and docs/**/*.md sits under an
