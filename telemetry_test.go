@@ -17,6 +17,7 @@ package typesafe
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"errors"
 	"io"
 	"log/slog"
@@ -88,6 +89,48 @@ func newRefusingProxy(t *testing.T, reason, body string) *refusingProxy {
 // URL returns the proxy's URL.
 func (p *refusingProxy) URL() *url.URL { return &url.URL{Scheme: "http", Host: p.ln.Addr().String()} }
 
+// newEchoingProxy starts an HTTP/1.1 proxy on 127.0.0.1 that refuses every
+// CONNECT with "407 denied <password> (Proxy-Authorization: <value>)",
+// repeating the credential the CONNECT carried: the Proxy-Authorization
+// value net/http sent for the proxy URL's userinfo and the password it
+// decodes to (review W6.2 MIN-4). It stops when the test ends.
+func newEchoingProxy(t *testing.T) *refusingProxy {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	p := &refusingProxy{ln: ln}
+	p.wg.Go(func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			p.wg.Go(func() {
+				defer conn.Close()
+				req, err := http.ReadRequest(bufio.NewReader(conn))
+				if err != nil {
+					return
+				}
+				auth := req.Header.Get("Proxy-Authorization")
+				var password string
+				if b64, ok := strings.CutPrefix(auth, "Basic "); ok {
+					if raw, err := base64.StdEncoding.DecodeString(b64); err == nil {
+						_, password, _ = strings.Cut(string(raw), ":")
+					}
+				}
+				_, _ = io.WriteString(conn, "HTTP/1.1 407 denied "+password+" (Proxy-Authorization: "+auth+")\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+			})
+		}
+	})
+	t.Cleanup(func() {
+		_ = ln.Close()
+		p.wg.Wait()
+	})
+	return p
+}
+
 // TestTransportDebugRecordsHoldNoCredential pins ruling R84 (verifier
 // finding F-1) through the client: the transport's DEBUG records that print
 // an error, "h2: gate error" for a cold dial that failed and "h2: redial
@@ -106,6 +149,8 @@ func TestTransportDebugRecordsHoldNoCredential(t *testing.T) {
 	// proxyBody marks the refusing proxy's response body, which must reach
 	// neither the error nor a record.
 	const proxyBody = "PROXYBODYMARKER"
+	// The echoing proxy's credential, in its URL's userinfo.
+	const proxyUser, proxyPassword = "proxy-user", "hunter2-proxy-password"
 	errDial := errors.New(failure)
 	type scenario struct {
 		// client builds the client with its logger.
@@ -118,6 +163,9 @@ func TestTransportDebugRecordsHoldNoCredential(t *testing.T) {
 		record, error string
 		// proxy is the SDK error's Proxy().
 		proxy bool
+		// secrets are the scenario's own credentials, which no record and no
+		// rendering of the error may hold.
+		secrets []string
 	}
 	scenarios := map[string]scenario{
 		"a caller dialer's cold dial": {
@@ -152,6 +200,20 @@ func TestTransportDebugRecordsHoldNoCredential(t *testing.T) {
 			record: "DEBUG h2: gate error reason=proxy waiters=0 error=proxyconnect tcp: 502 " + scrubbed,
 			error:  "Connection error: proxyconnect tcp: 502 " + scrubbed,
 			proxy:  true,
+		},
+		// A proxy that repeats the credential its CONNECT carried, which the
+		// request's own credentials do not name (review W6.2 MIN-4): the
+		// SDK's transport replaces it where the refusal becomes an error.
+		"a proxy's 407 that repeats its own credential": {
+			client: func(t *testing.T, logger *slog.Logger) *Client {
+				proxy := newEchoingProxy(t).URL()
+				proxy.User = url.UserPassword(proxyUser, proxyPassword)
+				return newCredentialClient(t, logger, WithBaseURL("https://example.com"), WithProxy(http.ProxyURL(proxy)))
+			},
+			record:  "DEBUG h2: gate error reason=proxy waiters=0 error=proxyconnect tcp: 407 denied *** (Proxy-Authorization: Basic ***)",
+			error:   "Connection error: proxyconnect tcp: 407 denied *** (Proxy-Authorization: Basic ***)",
+			proxy:   true,
+			secrets: []string{proxyPassword, base64.StdEncoding.EncodeToString([]byte(proxyUser + ":" + proxyPassword))},
 		},
 	}
 	tests := map[string]struct {
@@ -195,7 +257,10 @@ func TestTransportDebugRecordsHoldNoCredential(t *testing.T) {
 				t.Errorf("the transport's records that print an error (-want +got):\n%s", diff)
 			}
 			records := recordsText(logs)
-			for _, s := range []string{quirkyKey, quotedForm(strconv.Quote(quirkyKey)), jsonForm(quirkyKey), secret, proxyBody} {
+			if !strings.Contains(records, "INFO request failed") {
+				t.Errorf("no INFO record of the failure:\n%s", records)
+			}
+			for _, s := range append([]string{quirkyKey, quotedForm(strconv.Quote(quirkyKey)), jsonForm(quirkyKey), secret, proxyBody}, tt.secrets...) {
 				if strings.Contains(records, s) {
 					t.Errorf("the records hold %q:\n%s", s, records)
 				}

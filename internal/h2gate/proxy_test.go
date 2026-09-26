@@ -17,6 +17,7 @@ package h2gate
 import (
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"errors"
 	"io"
 	"log/slog"
@@ -451,4 +452,74 @@ func TestProxyTLS(t *testing.T) {
 		}
 		record(t, "case", "tls-silent-proxy", "chain", chain(r.Err))
 	})
+}
+
+// TestRefusedConnectScrubsProxyCredential pins review W6.2 MIN-4 at its
+// source: a proxy's refusal whose status line repeats the credential the
+// CONNECT carried becomes an error that holds "***" in its place, the
+// Basic token net/http sends for the proxy URL's userinfo as well as the
+// password, raw and as the URL escapes it. The token is replaced before the
+// password, which a password that is part of its own token shows; a URL
+// without userinfo, and a 200, change nothing.
+func TestRefusedConnectScrubsProxyCredential(t *testing.T) {
+	token := func(user, password string) string {
+		return base64.StdEncoding.EncodeToString([]byte(user + ":" + password))
+	}
+	tests := map[string]struct {
+		proxy  *url.URL
+		status int
+		reason string
+		want   string // the error's text; empty for no error
+	}{
+		"success: a 200 opens the tunnel": {
+			proxy: &url.URL{Scheme: "http", User: url.UserPassword("proxy-user", "hunter2-proxy"), Host: "127.0.0.1:1"}, status: http.StatusOK, reason: "Connection established",
+		},
+		"success: no userinfo, nothing to replace": {
+			proxy: &url.URL{Scheme: "http", Host: "127.0.0.1:1"}, status: http.StatusProxyAuthRequired, reason: "denied hunter2-proxy",
+			want: "proxyconnect tcp: 407 denied hunter2-proxy",
+		},
+		"error: the password repeated": {
+			proxy: &url.URL{Scheme: "http", User: url.UserPassword("proxy-user", "hunter2-proxy"), Host: "127.0.0.1:1"}, status: http.StatusProxyAuthRequired, reason: "denied hunter2-proxy for proxy-user",
+			want: "proxyconnect tcp: 407 denied *** for proxy-user",
+		},
+		"error: the Basic token repeated": {
+			proxy: &url.URL{Scheme: "http", User: url.UserPassword("proxy-user", "hunter2-proxy"), Host: "127.0.0.1:1"}, status: http.StatusForbidden,
+			reason: "bad Proxy-Authorization: Basic " + token("proxy-user", "hunter2-proxy"),
+			want:   "proxyconnect tcp: 403 bad Proxy-Authorization: Basic ***",
+		},
+		"error: a password that is part of its own token": {
+			proxy: &url.URL{Scheme: "http", User: url.UserPassword("user", "dXNl"), Host: "127.0.0.1:1"}, status: http.StatusProxyAuthRequired,
+			reason: "denied dXNl, token " + token("user", "dXNl"), // dXNlcjpkWE5s
+			want:   "proxyconnect tcp: 407 denied ***, token ***",
+		},
+		"error: the password as the URL escapes it": {
+			proxy: &url.URL{Scheme: "http", User: url.UserPassword("proxy-user", "p@ss w/rd:x"), Host: "127.0.0.1:1"}, status: http.StatusProxyAuthRequired,
+			reason: "denied p%40ss%20w%2Frd%3Ax, sent p@ss w/rd:x",
+			want:   "proxyconnect tcp: 407 denied ***, sent ***",
+		},
+		"error: the token of a user without a password": {
+			proxy: &url.URL{Scheme: "http", User: url.User("only-user"), Host: "127.0.0.1:1"}, status: http.StatusProxyAuthRequired,
+			reason: "denied only-user, token " + token("only-user", ""),
+			want:   "proxyconnect tcp: 407 denied only-user, token ***",
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			resp := &http.Response{StatusCode: tt.status, Status: strconv.Itoa(tt.status) + " " + tt.reason}
+			err := refusedConnect(t.Context(), tt.proxy, nil, resp)
+			if tt.want == "" {
+				if err != nil {
+					t.Fatalf("refusedConnect = %v, want nil", err)
+				}
+				return
+			}
+			oe, ok := errors.AsType[*net.OpError](err)
+			if !ok || oe.Op != "proxyconnect" {
+				t.Fatalf("refusedConnect = %T %v, want a proxyconnect *net.OpError", err, err)
+			}
+			if got := err.Error(); got != tt.want {
+				t.Errorf("refusedConnect(%q) = %q, want %q", resp.Status, got, tt.want)
+			}
+		})
+	}
 }

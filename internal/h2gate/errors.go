@@ -16,10 +16,12 @@ package h2gate
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 // ErrNotNegotiated reports that the API hop did not speak HTTP/2 under
@@ -104,12 +106,48 @@ func (e *DialError) clone() *DialError {
 // (GOROOT/src/net/http/transport.go:2036-2043), which cannot be told from a
 // failure past the proxy (K16). Wrap leaves a caller's transport its own
 // hook.
-func refusedConnect(_ context.Context, _ *url.URL, _ *http.Request, resp *http.Response) error {
+//
+// The status line is the proxy's text, and a proxy may repeat in it the
+// credential the CONNECT carried, which the request's own credentials do
+// not name: the error holds it with that credential replaced by "***"
+// (scrubProxyCredential; review W6.2 MIN-4), so neither the SDK's error nor
+// a record that prints it shows the proxy's password.
+func refusedConnect(_ context.Context, proxyURL *url.URL, _ *http.Request, resp *http.Response) error {
 	if resp.StatusCode == http.StatusOK {
 		return nil
 	}
-	return &net.OpError{Op: "proxyconnect", Net: "tcp", Err: errors.New(resp.Status)}
+	return &net.OpError{Op: "proxyconnect", Net: "tcp", Err: errors.New(scrubProxyCredential(resp.Status, proxyURL))}
 }
+
+// scrubProxyCredential returns s with the credential that a CONNECT to
+// proxyURL carries replaced by "***": the token of the Basic
+// Proxy-Authorization value net/http sends for a proxy URL with userinfo
+// (base64 of "user:password", connectMethod.proxyAuth in
+// GOROOT/src/net/http/transport.go), then the URL's password as it is and as
+// the URL escapes it. The token goes first because it may hold the
+// password's bytes, which replacing the password first would cut it at,
+// leaving the rest of the token. A password of any length is replaced, even
+// one that ordinary text may hold: the proxy's text is short, and a password
+// it repeats would otherwise be shown whole.
+func scrubProxyCredential(s string, proxyURL *url.URL) string {
+	if proxyURL == nil || proxyURL.User == nil {
+		return s
+	}
+	user := proxyURL.User.Username()
+	password, _ := proxyURL.User.Password()
+	s = strings.ReplaceAll(s, base64.StdEncoding.EncodeToString([]byte(user+":"+password)), redacted)
+	if password == "" {
+		return s
+	}
+	s = strings.ReplaceAll(s, password, redacted)
+	if escaped := strings.TrimPrefix(url.UserPassword("", password).String(), ":"); escaped != password {
+		s = strings.ReplaceAll(s, escaped, redacted)
+	}
+	return s
+}
+
+// redacted stands for a credential in text, as the root package writes it.
+const redacted = "***"
 
 // classify builds the DialError for err. It walks the whole chain, because
 // errors.As stops at the first match and a proxyconnect *net.OpError wraps
