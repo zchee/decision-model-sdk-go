@@ -227,6 +227,18 @@ func TestSettleHold(t *testing.T) {
 		}
 	})
 
+	t.Run("success: a bound that fires after RoundTrip's end gave the token back counts nothing", func(t *testing.T) {
+		// giveBack's swap comes before its count, so the timer that loses
+		// the swap to RoundTrip's end counts no expiry.
+		tr := settleTransport(t, true, time.Minute)
+		c := take(t, tr)
+		c.giveBack(false) // RoundTrip's end
+		c.giveBack(true)  // the hold bound, firing late
+		if st := tr.Stats(); st.HoldExpiries != 0 || len(tr.token) != 0 {
+			t.Errorf("stats %+v, token %d; want no hold expiry and the token free", st, len(tr.token))
+		}
+	})
+
 	t.Run("success: a replay onto an HTTP/1.1 connection marks nothing", func(t *testing.T) {
 		tr := settleTransport(t, false, time.Minute)
 		cs := fakeConns(t, 2)
