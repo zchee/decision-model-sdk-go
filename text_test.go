@@ -591,6 +591,47 @@ func TestScrubbedErrorFormat(t *testing.T) {
 			t.Errorf("%%+v is %d characters, want at most %d and the ellipsis", n, maxDetailChars)
 		}
 	})
+	// The key across the cut (review W3.3 MINOR 1, the class of R82 MINOR 1
+	// at 1024 characters): the credentials are replaced before the rendering
+	// is cut, so no piece of the key that is long enough to be one of its
+	// needles is left at the edge, at the scrub and through the client. The
+	// key starts between character 990 and 1040 of the rendering.
+	const longKey = "ts_live_0123456789abcdefghij"
+	prefixes := func(t *testing.T, what, out string) {
+		t.Helper()
+		for k := minKeyNeedleBytes; k <= len(longKey); k++ {
+			if strings.Contains(out, longKey[:k]) {
+				t.Errorf("%s holds %q, %d bytes of the key: %.60q…", what, longKey[:k], k, out[max(len(out)-80, 0):])
+				return
+			}
+		}
+	}
+	longCreds := requestCredentials(http.Header{"Authorization": {"Bearer " + longKey}})
+	for pad := 980; pad <= 1030; pad++ {
+		t.Run("success: the key after "+strconv.Itoa(pad)+" characters, at the scrub", func(t *testing.T) {
+			got := longCreds.cause(unwrapOnly{msg: "x", cause: errors.New(strings.Repeat("p", pad) + " Bearer " + longKey + " rejected")})
+			prefixes(t, "%+v", fmt.Sprintf("%+v", got))
+			prefixes(t, "%#v", fmt.Sprintf("%#v", got))
+		})
+	}
+	// Through the client the rendering starts with "Illegal header value: "
+	// and the key after one space, at character pad+23: these pads cut the key
+	// after 8 to 27 of its bytes.
+	for _, pad := range []int{975, 985, 993} {
+		t.Run("success: the key after "+strconv.Itoa(pad)+" characters, through the client", func(t *testing.T) {
+			rt := roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return nil, unwrapOnly{msg: "Illegal header value", cause: errors.New(strings.Repeat("p", pad) + " " + longKey)}
+			})
+			clearEnv(t)
+			c := newEnvClient(t, rt, WithAPIKey(longKey))
+			_, err := c.Models().List(t.Context(), Retry(NoRetry()))
+			if err == nil {
+				t.Fatal("List succeeded, want a transport failure")
+			}
+			prefixes(t, "%+v of the cause", fmt.Sprintf("%+v", errors.Unwrap(err)))
+			prefixes(t, "%#v of the cause", fmt.Sprintf("%#v", errors.Unwrap(err)))
+		})
+	}
 }
 
 // TestJSONFormMatchesEncodingJSON checks jsonForm against the encoder a
