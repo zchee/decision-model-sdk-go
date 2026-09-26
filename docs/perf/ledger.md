@@ -4563,15 +4563,21 @@ K36 findings:
    (`result` ≤ 1.5 × sonic-map, q3 `call/sdk` ≤ `call/naive`) are closer
    and not met. (L): `result` 1.235 → 1.000 ×, `result-20` 1.293 → 1.072 ×, flood-1k
    1.030 → 0.910 ×, `escaped-names` 1.237 → 1.051 ×.
-3. **Which bodies take the one scan** (`k36-paths.txt`, W5.3-12): every
-   fixture that decodes, the four with escapes included (`duplicates`,
-   `escaped-names`, `escaped-member-names`, `deviation-lone-surrogate`),
-   and `models.json`: 21 of the 41 fixtures, all 14 benchmark bodies
-   among them. The other 20, malformed or deviation bodies that fail,
-   take the whole-body path: 7 because `cutPoint` refuses them (they do
-   not end in `}`, or end with no value before it), 13 because the cut
-   traversal declines (it fails, or the root closes before the cut).
-   A failing body can cost two traversals; a body that decodes, one.
+3. **Which bodies take the one scan** (`k36-paths.txt`, W5.3-12): 21 of
+   the 41 fixtures, all 14 benchmark bodies among them. Of these, 15
+   decode, the four with escapes (`duplicates`, `escaped-names`,
+   `escaped-member-names`, `deviation-lone-surrogate`) and `models.json`
+   included, and 6 fail validation only after a complete parse
+   (`deviation-big-exp-noul`, `malformed-answers-not-object`,
+   `malformed-big-exp`, `malformed-missing-model`,
+   `malformed-missing-usage`, `malformed-usage-type`). The other 20,
+   malformed or deviation bodies that fail, take the whole-body path: 7
+   because `cutPoint` refuses them (they do not end in `}`, or end with
+   no value before it), 13 because the cut traversal declines (it fails,
+   or the root closes before the cut). Only a failing body that falls
+   back after the cut traversal pays two traversals; a body `cutPoint`
+   refuses outright pays one, as does every body that takes the one
+   scan.
 4. **FuzzDecodeResponse's new differential, the one-scan decode against
    the whole-body one, found three ways sonic stops at the cut with the
    root's error in the state the check reads as the root's end** (W5.3-13
@@ -5519,8 +5525,8 @@ the per-run table in `coverage-runs.md`.
 
 The timing row (`stateWarm`) was covered in 3 of the 6 runs. The checker
 passes on all six profiles: 78 rows, 88 blocks at most (37 Defensive, 44
-Gap, 5 Race, 2 Other package). The rebase changed six rows of
-`docs/uncovered-lines.md`:
+Gap, 5 Race, 2 Other package). The rebase changed five rows of
+`docs/uncovered-lines.md`, six blocks (the `falsyJSON` row holds two):
 
 - Removed, covered now by W5.3's codec tests:
   `internal/codec/commit.go` `(*visitor).commitAnswer` (an answer
@@ -5599,3 +5605,4 @@ R85 token-wait bound. Raw outputs are in `_spikes/w6.1/results/`;
 | W6.1-02 | 2026-09-26 08:46:34 UTC | W6.1 A: `FuzzTagGrammar`, 10 min | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 10.14 → 18.03 | `sh /tmp/ts-spike/w6.1-fuzz-l.sh 600s FuzzTagGrammar:.` (`go test -run '^$' -fuzz '^FuzzTagGrammar$' -fuzztime 600s -parallel 8 .`; fuzz cache cleared before the first target) | PASS, no failing input; 21 277 926 execs, 467 new inputs; seeds `tagGrammarSeeds` (no Rust corpus: the Rust SDK has no tag grammar) | `results/l-fuzz-campaigns.txt` |
 | W6.1-03 | 2026-09-26 08:56:35 UTC | W6.1 A: `FuzzDecodeResponse` (System One and models decoders), 10 min | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 18.03 → 8.48 | `sh /tmp/ts-spike/w6.1-fuzz-l.sh 600s FuzzDecodeResponse:./internal/codec/` (`go test -run '^$' -fuzz '^FuzzDecodeResponse$' -fuzztime 600s -parallel 8 ./internal/codec/`; fuzz cache cleared before the first target) | PASS, no failing input; 22 340 113 execs, 245 new inputs; seeds every fixture but the 10k flood, 7 rows, 22 Rust files | `results/l-fuzz-campaigns.txt` |
 | W6.1-04 | 2026-09-26 09:06:38 UTC | W6.1 A: `FuzzErrorBody`, 10 min | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 8.48 → 8.28 | `sh /tmp/ts-spike/w6.1-fuzz-l.sh 600s FuzzErrorBody:./internal/codec/` (`go test -run '^$' -fuzz '^FuzzErrorBody$' -fuzztime 600s -parallel 8 ./internal/codec/`; fuzz cache cleared before the first target) | PASS, no failing input; 32 422 578 execs, 324 new inputs; seeds 25 rows + 22 Rust files | `results/l-fuzz-campaigns.txt`; `mutants.sh` A: a watchdog that never fires fails `TestBoundFuzzInput` |
+| W6.1-05 | 2026-09-26 09:16:40 UTC | W6.1 B: `FuzzDecodePaths`, the visitor vs the lazy pass, 10 min; its mutants | (L); mutants (M) | `go1.27.1 linux/amd64`; `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]`; `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 8.28 → 9.33 | `sh /tmp/ts-spike/w6.1-fuzz-l.sh 600s FuzzDecodePaths:./internal/codec/` (`go test -run '^$' -fuzz '^FuzzDecodePaths$' -fuzztime 600s -parallel 8 ./internal/codec/`; fuzz cache cleared before the first target); `GOEXPERIMENT=nosimd,noruntimesecret bash _spikes/w6.1/mutants.sh <tree>` | PASS, no failing input; 3 087 170 execs (the generator writes ~2 KiB per program), 162 new inputs; seeds 66 programs. Mutants on the 66 seed programs alone: B-M1 lazy "answers" first-wins, M2 lazy answer name first-wins, M3 lazy "legend" first-wins, M4 lazy level first-wins, M5 visitor level keeps its first value, M6 visitor answer keeps its first value, M7 skipped answers reduced to the last, M8 a structured level cut by a byte: all killed (25, 18, 32, 23, 25, 33, 16, 51 `--- FAIL` lines) | `results/l-fuzz-campaigns.txt`; the generator's reading on 20 000 programs of 256–2 047 bytes: 80.1 % hold a structured level, 61.7 % repeat `answers`; it generates valid bodies only, so it backs the three `docs/uncovered-lines.md` rows that cite it (`(*DecodeError).Error`'s syntax error, `(*decoder).finish`'s `return skipped, err`, `(*decoder).lazy`'s `return jsonErr(err)`) for valid JSON; for a malformed body they rest on `traverse` deciding alone: it refuses the body before the lazy pass could read it, and `FuzzDecodeResponse` holds its one-scan verdict to the whole-body one on any input (K36; review V67 NIT 2) |
