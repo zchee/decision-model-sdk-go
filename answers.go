@@ -40,9 +40,20 @@ func (k AnswerKind) String() string { return wire.Kind(k).String() }
 
 // NoulAnswer is the answer to a yes/no question. See the noul primitive
 // (https://docs.typesafe.ai/primitives/noul).
+//
+// The zero NoulAnswer is not an answer a response carried: its Present is
+// false. [DecodeAs] leaves one in an optional field whose answer is absent.
 type NoulAnswer struct {
-	w wire.NoulAnswer
+	w       wire.NoulAnswer
+	present bool
 }
+
+// Present reports whether the answer is one a response carried: true for
+// an answer read from a response, through [Answers] or [DecodeAs], and
+// false for the zero NoulAnswer, which is what DecodeAs leaves in a field
+// tagged optional when the response has no answer for it. The Python SDK
+// holds None there.
+func (a NoulAnswer) Present() bool { return a.present }
 
 // Noul returns the probability, from 0 to 1, that the answer is yes or the
 // statement is true.
@@ -51,15 +62,24 @@ func (a NoulAnswer) Noul() float64 { return a.w.Noul }
 // MarshalJSON returns the answer as the Python SDK's model_dump_json writes
 // it, such as {"type":"noul","noul":0.98}. A noul that arrived as -0.0 is
 // written 0.0, where Python writes -0.0: the response reads every zero as
-// 0.
+// 0. Present plays no part: the zero NoulAnswer is written
+// {"type":"noul","noul":0.0}, not null.
 func (a NoulAnswer) MarshalJSON() ([]byte, error) { return wire.AppendNoulAnswer(nil, &a.w) }
 
 // ChoiceAnswer is the answer to a choice question: the option picked and the
 // probability of every option. See the choice primitive
 // (https://docs.typesafe.ai/primitives/choice).
+//
+// The zero ChoiceAnswer is not an answer a response carried: its Present is
+// false. [DecodeAs] leaves one in an optional field whose answer is absent.
 type ChoiceAnswer struct {
-	w wire.ChoiceAnswer
+	w       wire.ChoiceAnswer
+	present bool
 }
+
+// Present reports whether the answer is one a response carried, as
+// [NoulAnswer.Present] does.
+func (a ChoiceAnswer) Present() bool { return a.present }
 
 // Choice returns the label of the option with the highest probability.
 func (a ChoiceAnswer) Choice() string { return a.w.Choice }
@@ -90,16 +110,24 @@ func (a ChoiceAnswer) Probabilities() iter.Seq2[string, float64] {
 // {"type":"choice","choice":"billing","confidence":0.9,"probabilities":{"billing":0.9,"support":0.1}},
 // the probabilities in the order of Probabilities. A float that arrived as
 // -0.0 is written 0.0, where Python writes -0.0: the response reads every
-// zero as 0.
+// zero as 0. Present plays no part, as for [NoulAnswer.MarshalJSON].
 func (a ChoiceAnswer) MarshalJSON() ([]byte, error) { return wire.AppendChoiceAnswer(nil, &a.w) }
 
 // ScoreAnswer is the answer to a score question: the expected score, the
 // question's rubric as the response echoes it, and the probability of every
 // level. Levels count from zero. See the score primitive
 // (https://docs.typesafe.ai/primitives/score).
+//
+// The zero ScoreAnswer is not an answer a response carried: its Present is
+// false. [DecodeAs] leaves one in an optional field whose answer is absent.
 type ScoreAnswer struct {
-	w wire.ScoreAnswer
+	w       wire.ScoreAnswer
+	present bool
 }
+
+// Present reports whether the answer is one a response carried, as
+// [NoulAnswer.Present] does.
+func (a ScoreAnswer) Present() bool { return a.present }
 
 // Score returns the expected score: the probability-weighted average of the
 // levels, which may fall between two of them.
@@ -159,7 +187,8 @@ func (a ScoreAnswer) Probabilities() iter.Seq2[uint32, float64] {
 // bytes hold an escape, whitespace, a repeated member name (Python keeps
 // the last) or a number spelled otherwise than Python spells it. A float
 // that arrived as -0.0 is written 0.0, where Python writes -0.0: the
-// response reads every zero as 0.
+// response reads every zero as 0. Present plays no part, as for
+// [NoulAnswer.MarshalJSON].
 func (a ScoreAnswer) MarshalJSON() ([]byte, error) { return wire.AppendScoreAnswer(nil, &a.w) }
 
 // Answer is one answer of any kind: Kind says which of Noul, Choice and
@@ -171,19 +200,25 @@ type Answer struct {
 // Kind returns the kind of the answer.
 func (a Answer) Kind() AnswerKind { return AnswerKind(a.w.Kind) }
 
-// Noul returns the answer as a yes/no answer, and whether it is one.
+// Noul returns the answer as a yes/no answer, and whether it is one. The
+// yes/no answer's Present reports the same as the bool.
 func (a Answer) Noul() (NoulAnswer, bool) {
-	return NoulAnswer{a.w.Noul}, a.w.Kind == wire.KindNoul
+	ok := a.w.Kind == wire.KindNoul
+	return NoulAnswer{w: a.w.Noul, present: ok}, ok
 }
 
-// Choice returns the answer as a choice answer, and whether it is one.
+// Choice returns the answer as a choice answer, and whether it is one. The
+// choice answer's Present reports the same as the bool.
 func (a Answer) Choice() (ChoiceAnswer, bool) {
-	return ChoiceAnswer{a.w.Choice}, a.w.Kind == wire.KindChoice
+	ok := a.w.Kind == wire.KindChoice
+	return ChoiceAnswer{w: a.w.Choice, present: ok}, ok
 }
 
-// Score returns the answer as a score answer, and whether it is one.
+// Score returns the answer as a score answer, and whether it is one. The
+// score answer's Present reports the same as the bool.
 func (a Answer) Score() (ScoreAnswer, bool) {
-	return ScoreAnswer{a.w.Score}, a.w.Kind == wire.KindScore
+	ok := a.w.Kind == wire.KindScore
+	return ScoreAnswer{w: a.w.Score, present: ok}, ok
 }
 
 // MarshalJSON returns the answer as the MarshalJSON of its kind writes it.
@@ -268,7 +303,7 @@ func (a Answers) All() iter.Seq2[string, Answer] {
 func (a Answers) Nouls() iter.Seq2[string, NoulAnswer] {
 	return func(yield func(string, NoulAnswer) bool) {
 		for _, e := range a.entries() {
-			if e.Answer.Kind == wire.KindNoul && !yield(e.Name, NoulAnswer{e.Answer.Noul}) {
+			if e.Answer.Kind == wire.KindNoul && !yield(e.Name, NoulAnswer{w: e.Answer.Noul, present: true}) {
 				return
 			}
 		}
@@ -280,7 +315,7 @@ func (a Answers) Nouls() iter.Seq2[string, NoulAnswer] {
 func (a Answers) Choices() iter.Seq2[string, ChoiceAnswer] {
 	return func(yield func(string, ChoiceAnswer) bool) {
 		for _, e := range a.entries() {
-			if e.Answer.Kind == wire.KindChoice && !yield(e.Name, ChoiceAnswer{e.Answer.Choice}) {
+			if e.Answer.Kind == wire.KindChoice && !yield(e.Name, ChoiceAnswer{w: e.Answer.Choice, present: true}) {
 				return
 			}
 		}
@@ -292,7 +327,7 @@ func (a Answers) Choices() iter.Seq2[string, ChoiceAnswer] {
 func (a Answers) Scores() iter.Seq2[string, ScoreAnswer] {
 	return func(yield func(string, ScoreAnswer) bool) {
 		for _, e := range a.entries() {
-			if e.Answer.Kind == wire.KindScore && !yield(e.Name, ScoreAnswer{e.Answer.Score}) {
+			if e.Answer.Kind == wire.KindScore && !yield(e.Name, ScoreAnswer{w: e.Answer.Score, present: true}) {
 				return
 			}
 		}

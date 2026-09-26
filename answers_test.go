@@ -17,11 +17,13 @@ package typesafe
 import (
 	"iter"
 	"net/http"
+	"reflect"
 	"testing"
 
 	gocmp "github.com/google/go-cmp/cmp"
 
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
+	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
 // upstreamResponse returns the upstream RESULT as the client decodes it.
@@ -176,4 +178,95 @@ func TestAttemptHeader(t *testing.T) {
 	if diff := gocmp.Diff(before, tmpl); diff != "" {
 		t.Errorf("the template changed (-want +got):\n%s", diff)
 	}
+}
+
+// TestAnswerPresent checks Present on the three answer types: every
+// accessor that reads an answer from a response gives one that is present
+// (Answers' Get and its kind's accessor, Noul, Choice and Score, and the
+// Nouls, Choices and Scores iterators), an accessor of another kind and the
+// zero value give one that is not, and the bit changes nothing that
+// MarshalJSON writes. The sizes pin what the bit costs: §4's "same size as
+// the wire value" holds for none of the three any more (W7 note).
+func TestAnswerPresent(t *testing.T) {
+	answers := upstreamResponse(t).Answers()
+	spam, _ := answers.Get("spam")
+	tone, _ := answers.Get("tone")
+	quality, _ := answers.Get("quality")
+	fromGetNoul, okNoul := spam.Noul()
+	fromGetChoice, okChoice := tone.Choice()
+	fromGetScore, okScore := quality.Score()
+	wrongNoul, wrongNoulOK := tone.Noul()
+	wrongChoice, wrongChoiceOK := quality.Choice()
+	wrongScore, wrongScoreOK := spam.Score()
+	byNameNoul, _ := answers.Noul("spam")
+	byNameChoice, _ := answers.Choice("tone")
+	byNameScore, _ := answers.Score("quality")
+	missingNoul, _ := answers.Noul("nobody")
+	_, iterNoul, _ := firstOf(answers.Nouls())
+	_, iterChoice, _ := firstOf(answers.Choices())
+	_, iterScore, _ := firstOf(answers.Scores())
+
+	tests := map[string]struct {
+		present, want bool
+	}{
+		"success: Answer.Noul of a noul":            {present: fromGetNoul.Present() && okNoul, want: true},
+		"success: Answer.Choice of a choice":        {present: fromGetChoice.Present() && okChoice, want: true},
+		"success: Answer.Score of a score":          {present: fromGetScore.Present() && okScore, want: true},
+		"success: Answers.Noul":                     {present: byNameNoul.Present(), want: true},
+		"success: Answers.Choice":                   {present: byNameChoice.Present(), want: true},
+		"success: Answers.Score":                    {present: byNameScore.Present(), want: true},
+		"success: Answers.Nouls":                    {present: iterNoul.Present(), want: true},
+		"success: Answers.Choices":                  {present: iterChoice.Present(), want: true},
+		"success: Answers.Scores":                   {present: iterScore.Present(), want: true},
+		"error: Answer.Noul of a choice":            {present: wrongNoul.Present() || wrongNoulOK},
+		"error: Answer.Choice of a score":           {present: wrongChoice.Present() || wrongChoiceOK},
+		"error: Answer.Score of a noul":             {present: wrongScore.Present() || wrongScoreOK},
+		"error: Answers.Noul of an absent name":     {present: missingNoul.Present()},
+		"error: the zero NoulAnswer":                {present: NoulAnswer{}.Present()},
+		"error: the zero ChoiceAnswer":              {present: ChoiceAnswer{}.Present()},
+		"error: the zero ScoreAnswer":               {present: ScoreAnswer{}.Present()},
+		"error: Answer{}.Noul, none of the kinds":   {present: func() bool { a, ok := Answer{}.Noul(); return a.Present() || ok }()},
+		"error: Answer{}.Choice, none of the kinds": {present: func() bool { a, ok := Answer{}.Choice(); return a.Present() || ok }()},
+		"error: Answer{}.Score, none of the kinds":  {present: func() bool { a, ok := Answer{}.Score(); return a.Present() || ok }()},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if tt.present != tt.want {
+				t.Errorf("Present() = %v, want %v", tt.present, tt.want)
+			}
+		})
+	}
+
+	t.Run("success: MarshalJSON writes the same bytes with the bit set or clear", func(t *testing.T) {
+		pairs := map[string][2]interface{ MarshalJSON() ([]byte, error) }{
+			"noul":   {byNameNoul, NoulAnswer{w: byNameNoul.w}},
+			"choice": {byNameChoice, ChoiceAnswer{w: byNameChoice.w}},
+			"score":  {byNameScore, ScoreAnswer{w: byNameScore.w}},
+		}
+		for kind, p := range pairs {
+			set, err := p[0].MarshalJSON()
+			if err != nil {
+				t.Fatalf("%s: %v", kind, err)
+			}
+			unset, err := p[1].MarshalJSON()
+			if err != nil {
+				t.Fatalf("%s: %v", kind, err)
+			}
+			if diff := gocmp.Diff(string(unset), string(set)); diff != "" {
+				t.Errorf("%s: MarshalJSON depends on Present (-unset +set):\n%s", kind, diff)
+			}
+		}
+	})
+
+	t.Run("success: the sizes with the bit, on 64-bit platforms", func(t *testing.T) {
+		type sizes struct{ Noul, Choice, Score, WireNoul, WireChoice, WireScore uintptr }
+		want := sizes{Noul: 16, Choice: 56, Score: 72, WireNoul: 8, WireChoice: 48, WireScore: 64}
+		got := sizes{
+			Noul: reflect.TypeFor[NoulAnswer]().Size(), Choice: reflect.TypeFor[ChoiceAnswer]().Size(), Score: reflect.TypeFor[ScoreAnswer]().Size(),
+			WireNoul: reflect.TypeFor[wire.NoulAnswer]().Size(), WireChoice: reflect.TypeFor[wire.ChoiceAnswer]().Size(), WireScore: reflect.TypeFor[wire.ScoreAnswer]().Size(),
+		}
+		if diff := gocmp.Diff(want, got); diff != "" {
+			t.Errorf("sizes in bytes (-want +got):\n%s", diff)
+		}
+	})
 }
