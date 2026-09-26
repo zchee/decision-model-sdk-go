@@ -162,6 +162,7 @@ jobs:
         run: |
           root=(
             TestAllocPrepare         # Prepare's pinned counts (ruling R50)
+            TestAllocFalsyJSON       # Prepare P2: truthy criteria not copied (W5.3)
             TestAllocEncode          # AC-P1 single size, every state kind (W5.2)
             TestAllocScratchSequence # AC-P1 mixed-size sequence (W5.2)
             TestAllocDecodeFixtures  # AC-P2 (W2.0)

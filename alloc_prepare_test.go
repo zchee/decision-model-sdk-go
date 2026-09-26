@@ -19,6 +19,7 @@ package typesafe
 import (
 	"maps"
 	"slices"
+	"strings"
 	"testing"
 
 	gocmp "github.com/google/go-cmp/cmp"
@@ -31,8 +32,10 @@ import (
 // the count of the first three cases of the performance ledger's W1.3
 // section (c1-sketch 9 → 6 with W5.3's P1, which sorts map keys on the
 // Builder's key stack) and of c5-raw-100x3, P1's case (1 710 → 14; 1 700 of
-// the 1 710 sorted the keys). The other sets are measured and logged, with
-// the bytes of every run and the prepared length, for the ledger.
+// the 1 710 sorted the keys), and of the two NIT 8 score sets, P2's cases,
+// whose criteria the falsiness check no longer copies (with P1, 252 → 15
+// and 1 215 → 18). The other sets are measured and logged, with the bytes of
+// every run and the prepared length, for the ledger.
 func TestAllocPrepare(t *testing.T) {
 	testsupport.QuietRuntime(t)
 
@@ -48,9 +51,9 @@ func TestAllocPrepare(t *testing.T) {
 		"c4b-score-20x8-json": {mallocs: -1},
 		"c5-raw-100x3":        {mallocs: 14},
 		"c6-escapes":          {mallocs: -1},
-		"n8a-array-score":     {mallocs: -1},
+		"n8a-array-score":     {mallocs: 15},
 		"n8a-array-control":   {mallocs: -1},
-		"n8b-map-score":       {mallocs: -1},
+		"n8b-map-score":       {mallocs: 18},
 		"n8b-map-control":     {mallocs: -1},
 	}
 	if diff := gocmp.Diff(slices.Sorted(maps.Keys(prepareCases)), slices.Sorted(maps.Keys(tests))); diff != "" {
@@ -77,3 +80,34 @@ func TestAllocPrepare(t *testing.T) {
 		})
 	}
 }
+
+// TestAllocFalsyJSON checks the falsiness check's success path (W5.3's P2):
+// a raw score question's criteria that is not falsy is neither copied nor
+// checked whole, so values that compact to more than the check's 32-byte
+// stack buffer, which each cost one or more allocations when the check
+// compacted every value, cost none. A falsy value is still checked whole.
+func TestAllocFalsyJSON(t *testing.T) {
+	tests := map[string]struct {
+		raw   []byte
+		falsy bool
+	}{
+		"success: a long string":           {raw: []byte(`"` + strings.Repeat("a", 64) + `"`)},
+		"success: the pretty array":        {raw: prettyLevels()},
+		"success: the pretty object":       {raw: []byte(prettyScale)},
+		"success: a long nonzero number":   {raw: []byte(strings.Repeat("0", 40) + "1")},
+		"success: a zero, checked whole":   {raw: []byte("-0.0e5"), falsy: true},
+		"success: an empty array, checked": {raw: []byte("[\n  ]"), falsy: true},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := falsyJSON(tt.raw); got != tt.falsy {
+				t.Fatalf("falsyJSON = %t, want %t", got, tt.falsy)
+			}
+			if n := testing.AllocsPerRun(100, func() { falsySink = falsyJSON(tt.raw) }); n != 0 {
+				t.Errorf("falsyJSON allocates %v times, want 0", n)
+			}
+		})
+	}
+}
+
+var falsySink bool
