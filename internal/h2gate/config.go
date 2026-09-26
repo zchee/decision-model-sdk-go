@@ -418,6 +418,8 @@ func NewTransport(cfg Config) (*Transport, error) {
 		Proxy:               cfg.Proxy,
 		TLSClientConfig:     tlsConfig,
 		DialContext:         boundedDial(dial, connect),
+		// A proxy's refusal of the CONNECT is a proxy failure (K16).
+		OnProxyConnectResponse: refusedConnect,
 	}
 	if cfg.Mode == HTTPAuto {
 		tr.MaxConnsPerHost = 0

@@ -464,7 +464,10 @@ func (e *ConnectionError) Error() string { return e.msg }
 func (e *ConnectionError) Unwrap() error { return e.err }
 
 // Proxy reports whether the failure was on the hop to the proxy rather than
-// to the API.
+// to the API: the connection to the proxy, its TLS handshake, or, on the
+// transport the SDK builds, its answer other than 200 to the CONNECT. With
+// [WithHTTPTransport], that answer is reported as net/http returns it, the
+// status text alone, and Proxy is false.
 func (e *ConnectionError) Proxy() bool { return e.proxy }
 
 func (*ConnectionError) typesafeError() {}

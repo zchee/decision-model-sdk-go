@@ -46,7 +46,8 @@ func newModelsServer(t *testing.T) *testsupport.LoopbackServer {
 
 // refusingProxy is an HTTP/1.1 proxy on 127.0.0.1 that answers every
 // CONNECT with "502 <reason>", a status line whose text net/http returns as
-// the dial's error without its proxyconnect wrap (K16).
+// the dial's error without its proxyconnect wrap; the SDK's transport adds
+// it (K16).
 type refusingProxy struct {
 	ln net.Listener
 	wg sync.WaitGroup
@@ -111,6 +112,8 @@ func TestTransportDebugRecordsHoldNoCredential(t *testing.T) {
 		// record is the DEBUG record that prints the error, error is the SDK
 		// error's text.
 		record, error string
+		// proxy is the SDK error's Proxy().
+		proxy bool
 	}
 	scenarios := map[string]scenario{
 		"a caller dialer's cold dial": {
@@ -142,8 +145,9 @@ func TestTransportDebugRecordsHoldNoCredential(t *testing.T) {
 				proxy := newRefusingProxy(t, failure)
 				return newCredentialClient(t, logger, WithBaseURL("https://example.com"), WithProxy(http.ProxyURL(proxy.URL())))
 			},
-			record: "DEBUG h2: gate error reason=dial waiters=0 error=" + scrubbed,
-			error:  "Connection error: " + scrubbed,
+			record: "DEBUG h2: gate error reason=proxy waiters=0 error=proxyconnect tcp: 502 " + scrubbed,
+			error:  "Connection error: proxyconnect tcp: 502 " + scrubbed,
+			proxy:  true,
 		},
 	}
 	tests := map[string]struct {
@@ -174,8 +178,8 @@ func TestTransportDebugRecordsHoldNoCredential(t *testing.T) {
 				_, err := c.Models().List(ctx, Retry(NoRetry()))
 				return err
 			})
-			if ce, ok := errors.AsType[*ConnectionError](err); !ok || ce.Proxy() || ce.Error() != tt.error {
-				t.Fatalf("List error = %T %v, want the *ConnectionError %q", err, err, tt.error)
+			if ce, ok := errors.AsType[*ConnectionError](err); !ok || ce.Proxy() != tt.proxy || ce.Error() != tt.error {
+				t.Fatalf("List error = %T %v, want the *ConnectionError %q with Proxy() %t", err, err, tt.error, tt.proxy)
 			}
 			var got []string
 			for _, r := range logs.Records() {

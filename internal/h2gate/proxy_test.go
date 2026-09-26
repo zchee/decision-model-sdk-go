@@ -15,6 +15,7 @@
 package h2gate
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"io"
@@ -24,6 +25,7 @@ import (
 	"net/url"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -154,23 +156,55 @@ func TestProxy(t *testing.T) {
 		}
 	})
 
-	t.Run("error: a CONNECT the proxy refuses is a plain dial failure", func(t *testing.T) {
+	t.Run("error: a CONNECT the proxy refuses is a proxy failure (K16)", func(t *testing.T) {
 		// The stock transport returns the status text of a failed CONNECT
-		// without the proxyconnect wrapper (transport.go:2036-2043), so the
-		// classification cannot tell it from a failure past the proxy. The
-		// same holds for a caller TLS dialer's unfinished handshake with an
-		// https proxy, which customDialTLS completes and returns unwrapped
-		// (:1905-1910); W7 records both under K16.
+		// without the proxyconnect wrapper (transport.go:2036-2043), which
+		// cannot be told from a failure past the proxy; NewTransport's
+		// OnProxyConnectResponse (refusedConnect) wraps the whole status
+		// line. A caller TLS dialer's unfinished handshake with an https
+		// proxy, which customDialTLS completes and returns unwrapped
+		// (:1905-1910), stays an API-hop failure; W7 records it under K16.
 		p := testsupport.NewProxy(t, testsupport.ProxyPlain, testsupport.Routes{})
 		var h hops
 		tr := proxiedTransport(t, exampleURL, p, &h, nil)
+		r := get(t.Context(), tr, exampleURL+"/")
+		want := map[string]bool{"proxy": true, "timeout": false, "not_negotiated": false}
+		if diff := gocmp.Diff(want, dialFlags(r.Err)); diff != "" {
+			t.Errorf("classification of %s (-want +got):\n%s", chain(r.Err), diff)
+		}
+		if oe, ok := errors.AsType[*net.OpError](r.Err); !ok || oe.Op != "proxyconnect" || oe.Err.Error() != "502 Bad Gateway" {
+			t.Errorf("chain %s, want a proxyconnect *net.OpError around the status line", chain(r.Err))
+		}
+		if diff := gocmp.Diff([]testsupport.ProxyConnect{{Conn: 0, Target: "example.com:443", Status: http.StatusBadGateway}}, p.Connects()); diff != "" {
+			t.Errorf("CONNECTs (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("error: a caller transport's refused CONNECT stays as the stock transport returns it (K16)", func(t *testing.T) {
+		// Wrap never installs refusedConnect: a caller's transport keeps its
+		// own OnProxyConnectResponse, or none (ruling R81).
+		p := testsupport.NewProxy(t, testsupport.ProxyPlain, testsupport.Routes{})
+		var called atomic.Int64
+		base := &http.Transport{
+			Proxy:       http.ProxyURL(p.URL()),
+			DialContext: testsupport.Routes{}.DialContext,
+			OnProxyConnectResponse: func(context.Context, *url.URL, *http.Request, *http.Response) error {
+				called.Add(1)
+				return nil
+			},
+		}
+		tr, err := Wrap(base, Config{APIURL: mustURL(t, exampleURL), Mode: HTTPAuto})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(tr.CloseIdleConnections)
 		r := get(t.Context(), tr, exampleURL+"/")
 		want := map[string]bool{"proxy": false, "timeout": false, "not_negotiated": false}
 		if diff := gocmp.Diff(want, dialFlags(r.Err)); diff != "" {
 			t.Errorf("classification of %s (-want +got):\n%s", chain(r.Err), diff)
 		}
-		if diff := gocmp.Diff([]testsupport.ProxyConnect{{Conn: 0, Target: "example.com:443", Status: http.StatusBadGateway}}, p.Connects()); diff != "" {
-			t.Errorf("CONNECTs (-want +got):\n%s", diff)
+		if n := called.Load(); n != 1 {
+			t.Errorf("the caller's OnProxyConnectResponse ran %d times, want 1", n)
 		}
 	})
 

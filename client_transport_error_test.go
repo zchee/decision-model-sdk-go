@@ -92,10 +92,10 @@ func writePartial(w http.ResponseWriter) {
 // or the network reported a timeout (httpx's ConnectTimeout and ReadTimeout
 // rows), and a *ConnectionError otherwise (LocalProtocolError, ConnectError,
 // ReadError, RemoteProtocolError; py:_core/transport.py:79-86). A proxy
-// that refuses the connection is a proxy *ConnectionError; a proxy that
-// answers the CONNECT with 502 reaches the SDK without net/http's
-// proxyconnect wrap (K16), so it is an API-hop one. Each makes one attempt,
-// and each error is an SDK error.
+// that refuses the connection is a proxy *ConnectionError, and so is a
+// proxy that answers the CONNECT with 502: net/http returns that answer
+// without its proxyconnect wrap, and the SDK's transport adds it (K16).
+// Each makes one attempt, and each error is an SDK error.
 func TestTransportErrorsBecomeConnectionOrTimeout(t *testing.T) {
 	type target struct {
 		base string
@@ -272,7 +272,7 @@ func TestTransportErrorsBecomeConnectionOrTimeout(t *testing.T) {
 				}
 			},
 		},
-		"error: a proxy that answers the CONNECT with 502 is a *ConnectionError (K16)": {
+		"error: a proxy that answers the CONNECT with 502 is a proxy *ConnectionError (K16)": {
 			target: func(t *testing.T) target {
 				proxy := testsupport.NewProxy(t, testsupport.ProxyPlain, nil) // no route: 502
 				return target{
@@ -286,8 +286,8 @@ func TestTransportErrorsBecomeConnectionOrTimeout(t *testing.T) {
 			},
 			check: func(t *testing.T, err error) {
 				ce, ok := errors.AsType[*ConnectionError](err)
-				if !ok || ce.Proxy() || ce.Error() != "Connection error: Bad Gateway" {
-					t.Errorf("error = %T %v, want the *ConnectionError of an unwrapped CONNECT refusal", err, err)
+				if !ok || !ce.Proxy() || ce.Error() != "Connection error: proxyconnect tcp: 502 Bad Gateway" {
+					t.Errorf("error = %T %v, want the proxy *ConnectionError of a refused CONNECT", err, err)
 				}
 			},
 		},

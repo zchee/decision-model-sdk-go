@@ -15,8 +15,11 @@
 package h2gate
 
 import (
+	"context"
 	"errors"
 	"net"
+	"net/http"
+	"net/url"
 )
 
 // ErrNotNegotiated reports that the API hop did not speak HTTP/2 under
@@ -47,7 +50,11 @@ const alertNoApplicationProtocol = "tls: no application protocol"
 type DialError struct {
 	// Proxy is set when a *net.OpError with Op "proxyconnect" is in the
 	// chain: the dial to the proxy or its TLS handshake failed
-	// (GOROOT/src/net/http/transport.go:1871-1874).
+	// (GOROOT/src/net/http/transport.go:1871-1874), or, on a transport
+	// NewTransport built, the proxy answered the CONNECT with a status other
+	// than 200 (refusedConnect). A transport Wrap built reports that refusal
+	// as the stock transport returns it, the status text alone, which is
+	// not a proxy failure here.
 	Proxy bool
 	// Timeout is set when a net.Error in the chain reports Timeout(): the
 	// dial timeout, the TLS handshake timeout or a context deadline.
@@ -87,6 +94,21 @@ func (e *DialError) Unwrap() []error {
 func (e *DialError) clone() *DialError {
 	c := *e
 	return &c
+}
+
+// refusedConnect is the OnProxyConnectResponse of a transport NewTransport
+// builds: a proxy's answer other than 200 to the CONNECT fails the dial as a
+// proxyconnect *net.OpError around the whole status line, the form a failed
+// dial to the proxy takes, so that classify reports a proxy failure. The
+// stock transport returns the status text alone, unwrapped
+// (GOROOT/src/net/http/transport.go:2036-2043), which cannot be told from a
+// failure past the proxy (K16). Wrap leaves a caller's transport its own
+// hook.
+func refusedConnect(_ context.Context, _ *url.URL, _ *http.Request, resp *http.Response) error {
+	if resp.StatusCode == http.StatusOK {
+		return nil
+	}
+	return &net.OpError{Op: "proxyconnect", Net: "tcp", Err: errors.New(resp.Status)}
 }
 
 // classify builds the DialError for err. It walks the whole chain, because
