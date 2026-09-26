@@ -317,7 +317,8 @@ func earlierField(fields []typedField, seen map[string]int, name string) int {
 }
 
 // typeLabel names t in a message: its qualified name, or "struct {...}" for
-// an unnamed struct, whose full spelling would repeat every tag.
+// an unnamed struct, whose full spelling would repeat every tag of its
+// fields.
 func typeLabel(t reflect.Type) string {
 	if t.Name() == "" && t.Kind() == reflect.Struct {
 		return "struct {...}"
@@ -374,9 +375,9 @@ func planField(outer string, f *reflect.StructField) (q typedQuestion, asks bool
 	case pointer:
 		return q, false, pointerField(at, f.Type)
 	case kind == wire.KindUnknown && spec.optional:
-		return q, false, newConfigError(at + "optional applies only to NoulAnswer, ChoiceAnswer and ScoreAnswer fields, and the field is a " + f.Type.String() + ".")
+		return q, false, newConfigError(at + "optional applies only to NoulAnswer, ChoiceAnswer and ScoreAnswer fields, and the field is a " + typeLabel(f.Type) + ".")
 	case kind == wire.KindUnknown:
-		return q, false, newConfigError(at + "a typesafe tag needs a NoulAnswer, ChoiceAnswer or ScoreAnswer field, and the field is a " + f.Type.String() + ".")
+		return q, false, newConfigError(at + "a typesafe tag needs a NoulAnswer, ChoiceAnswer or ScoreAnswer field, and the field is a " + typeLabel(f.Type) + ".")
 	case spec.kind == "":
 		return q, false, newConfigError(at + "the typesafe tag has no kind; add kind=" + kind.String() + ".")
 	}
@@ -466,7 +467,7 @@ func taggedPath(t reflect.Type, seen map[reflect.Type]struct{}) string {
 // type.
 func pointerField(at string, t reflect.Type) *ConfigError {
 	elem := derefAll(t)
-	return newConfigError(at + "the field is a pointer, " + t.String() + "; answer fields are values: make it a " + answerTypeName(answerKind(elem)) + ", with optional in its tag if the answer may be absent.")
+	return newConfigError(at + "the field is a pointer, " + typeLabel(t) + "; answer fields are values: make it a " + answerTypeName(answerKind(elem)) + ", with optional in its tag if the answer may be absent.")
 }
 
 // maxDeref is how many pointers derefAll follows. A pointer type can point

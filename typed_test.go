@@ -445,6 +445,13 @@ type (
 	rejTaggedString struct {
 		Note string `typesafe:"kind=noul"`
 	}
+	// (7) kind/field-type mismatch: a tag on a field of an unnamed struct
+	// type, which the message names without its fields and their tags.
+	rejTaggedUnnamedStruct struct {
+		Meta struct {
+			Secret string `json:"secret"`
+		} `typesafe:"kind=noul"`
+	}
 	// (7) kind/field-type mismatch: a pointer type that points to itself,
 	// which the pointer walk must not follow forever.
 	rejSelfPointer struct {
@@ -560,7 +567,7 @@ type (
 	}
 )
 
-// Test TestPreparedForRejections covers upstream's pyrefly negative
+// TestPreparedForRejections covers upstream's pyrefly negative
 // expectations (XT1, tests/typing/negative/*.py at 0ffd094). Each maps to a
 // rejection of PreparedFor, to a compile error in Go (the mistake cannot be
 // written in a Go program that builds), or to a runtime check outside
@@ -568,9 +575,9 @@ type (
 //
 //	file            expectation                                           Go analogue
 //	async_client.py system_one(None, ...)                                 runtime *InvalidRequestError (nil state, W1.2), not PreparedFor
-//	async_client.py AsyncTypeSafeClient(retry=Retrying())                 compile error: WithRetry takes a RetryPolicy
-//	async_client.py AsyncTypeSafeClient(http_client=httpx2.Client())      not representable: one client, no sync/async split (WithHTTPTransport takes *http.Transport)
-//	async_client.py system_one(..., retry=Retrying())                     compile error: Retry takes a RetryPolicy
+//	async_client.py AsyncTypeSafeClient(retry=Retrying())                 compile error: the client's retry option takes a RetryPolicy (W3.2)
+//	async_client.py AsyncTypeSafeClient(http_client=httpx2.Client())      not representable: one client, no sync/async split (WithHTTPTransport takes an *http.Transport)
+//	async_client.py system_one(..., retry=Retrying())                     compile error: the Retry call option takes a RetryPolicy
 //	async_client.py system_one(..., response_model=int)                   case 10: PreparedFor[int] / Ask[int] → *ConfigError
 //	async_client.py system_one(..., response_model=object())              compile error: a type argument is a type, never a value
 //	sync_client.py  the six expectations above, sync client               same six analogues
@@ -585,7 +592,7 @@ type (
 //	questions.py    ScoreModel with dict criteria                         compile error: Levels is []Content
 //	questions.py    Question {"unrelated": "value"}                       compile error for Noul/Choice/Score; RawQuestion{} (empty Type) → Prepare *ConfigError
 //	questions.py    Question {"type": 123}                                compile error: RawQuestion.Type is a string
-//	transport.py    send(...) of a models request as SystemOneResponse    compile error: ListModels and SystemOne return distinct types
+//	transport.py    send(...) of a models request as SystemOneResponse    compile error: Models().List returns *ModelsResponse, SystemOne *SystemOneResponse
 //	transport.py    send_async(...) likewise                              compile error, as above (no async variant)
 //	transport.py    client._request(models) as SystemOneResponse          compile error, as above
 //	transport.py    async client._request(models) likewise                compile error, as above
@@ -642,6 +649,10 @@ func TestPreparedForRejections(t *testing.T) {
 		"error: (7) kind/field-type mismatch: tag on a string field": {
 			prepare: PreparedFor[rejTaggedString],
 			wantMsg: `PreparedFor[typesafe.rejTaggedString]: field Note: a typesafe tag needs a NoulAnswer, ChoiceAnswer or ScoreAnswer field, and the field is a string.`,
+		},
+		"error: (7) kind/field-type mismatch: tag on a field of an unnamed struct type": {
+			prepare: PreparedFor[rejTaggedUnnamedStruct],
+			wantMsg: `PreparedFor[typesafe.rejTaggedUnnamedStruct]: field Meta: a typesafe tag needs a NoulAnswer, ChoiceAnswer or ScoreAnswer field, and the field is a struct {...}.`,
 		},
 		"error: (7) kind/field-type mismatch: self-referential pointer": {
 			prepare: PreparedFor[rejSelfPointer],
@@ -1159,7 +1170,11 @@ func TestPreparedForCache(t *testing.T) {
 }
 
 // TestPreparedForConcurrentFirstUse checks that goroutines racing to make
-// the first call all get the one set that was kept.
+// the first call all get the one set that was kept. It is probabilistic:
+// with no hook between planFor's Load and LoadOrStore it cannot force two
+// builds to overlap, so a Store in place of LoadOrStore fails it only on the
+// runs where they do (6 of 10 in the W4.1 review). Reading planFor is the
+// real check; -race and -count raise the odds.
 func TestPreparedForConcurrentFirstUse(t *testing.T) {
 	const goroutines = 16
 	var (
