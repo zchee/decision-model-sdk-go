@@ -131,7 +131,7 @@ func EncodeState(buf *[]byte, state any) error {
 		err = fmt.Errorf("%s encodes as nothing, %w", typeName(state), ErrStateShape)
 	case enc[i] != '{' && enc[i] != '[' && enc[i] != '"':
 		err = fmt.Errorf("%s encodes as %s, %w", typeName(state), describe(enc[i]), ErrStateShape)
-	case !utf8.Valid(enc):
+	case !validUTF8(enc):
 		err = wire.ErrInvalidUTF8
 	}
 	if err != nil {
@@ -165,7 +165,7 @@ func EncodeValue(buf *[]byte, v any) error {
 		*buf = (*buf)[:start]
 		return &EncodeError{Err: err}
 	}
-	if !utf8.Valid((*buf)[start:]) {
+	if !validUTF8((*buf)[start:]) {
 		*buf = (*buf)[:start]
 		return wire.ErrInvalidUTF8
 	}

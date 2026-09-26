@@ -67,3 +67,14 @@ Notes:
    - W0.3-06 and W0.3-14 were re-measured at cc1524a with baseline ToolTags, and the rows note the original runs of record.
    - `_spikes/.gitignore`'s `!bench*.txt` beats the global `bench*.txt` rule: `git check-ignore -v` names `_spikes/.gitignore:5` for new bench files, while `bench.txt` stays ignored.
    - Every (M) and (L) timing cell of the W0.3 tables reproduces from these files.
+3. **R54, the time of the request body's UTF-8 check (ruling R48): close,
+   not met.** R54 set the check a target of at most one sonic encode of the
+   same CJK state (W1.2-01: `utf8.Valid` took 7.6 times it). The owner chose
+   per-architecture validation instead (ruling G8-b on critic-p5 Q4 (b),
+   W6-fixes): sonic's SIMD validator on amd64, `utf8.Valid` on arm64. On
+   (L), `BenchmarkEncodeState/cjk/6MiB`: the check 4 923.6 → 519.0 µs
+   against sonic's own encode (the encode row less the check row) 457.7 →
+   443.8 µs, 10.8 → 1.17 times it, near the target and not under it
+   (ledger W6-fixes-11). On (M) the check is `utf8.Valid` as before,
+   2.66 ms against sonic's 0.32 ms, 8.3 times (W6-fixes-12). No pin holds
+   the time; this note records the target's state (D-W6-fixes-status-2).

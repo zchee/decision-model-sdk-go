@@ -19,14 +19,15 @@ package codec
 import (
 	"strings"
 	"testing"
-	"unicode/utf8"
 )
 
 // BenchmarkEncodeState measures a text state's encode into a pooled scratch
 // (encode: sonic plus the checks of EncodeState) next to the UTF-8 pass of
-// ruling R48 alone (check: utf8.Valid over the same encoded bytes), for
-// ASCII text and for CJK text, whose three-byte runes take utf8.Valid's slow
-// path, at 1 KiB, 64 KiB and 6 MiB.
+// ruling R48 alone (check: validUTF8, EncodeState's own check, over the same
+// encoded bytes: sonic's SIMD validator on amd64, utf8.Valid on arm64, per
+// owner ruling G8-b on R54; utf8.Valid on both before W6-fixes), for ASCII
+// text and for CJK text, whose three-byte runes take utf8.Valid's slow path,
+// at 1 KiB, 64 KiB and 6 MiB.
 func BenchmarkEncodeState(b *testing.B) {
 	texts := map[string]string{
 		"ascii": "The quick brown fox jumps over the lazy dog. ",
@@ -59,7 +60,7 @@ func BenchmarkEncodeState(b *testing.B) {
 			b.Run(text+"/"+size.name+"/check", func(b *testing.B) {
 				b.SetBytes(int64(len(encoded)))
 				for b.Loop() {
-					if !utf8.Valid(encoded) {
+					if !validUTF8(encoded) {
 						b.Fatal("invalid UTF-8")
 					}
 				}

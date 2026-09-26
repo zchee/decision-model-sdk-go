@@ -331,6 +331,7 @@ jobs:
             ". FuzzTagGrammar"                    # the struct tag grammar
             ". FuzzFalsyJSON"                     # the falsy-value check (W5.3)
             ". FuzzIsSecretHeader"                # the secret header names (W5.3)
+            "./internal/codec FuzzValidUTF8"      # sonic's UTF-8 check vs utf8.Valid (G8-b, R54)
           )
           seeded=(
             "./internal/codec FuzzAppendJSON"  # compaction vs encoding/json (R44)

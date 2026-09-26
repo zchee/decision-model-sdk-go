@@ -49,3 +49,10 @@ func ValidString(s string) bool {
 	}
 	return true
 }
+
+// validUTF8Portable reports whether b is valid UTF-8 with Go's own
+// validator, utf8.Valid: the check of ruling R48 on every architecture but
+// amd64 (validate_arm64.go). It lives in a file of every architecture so
+// that amd64's tests hold sonic's validator to it (TestValidUTF8Parity,
+// FuzzValidUTF8).
+func validUTF8Portable(b []byte) bool { return utf8.Valid(b) }

@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -31,6 +32,7 @@ import (
 	gocmp "github.com/google/go-cmp/cmp"
 
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
+	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
 // noulBody is the question set {"q": {"type": "noul", "instructions": "?"}}
@@ -116,6 +118,65 @@ func TestClientUnencodableBodyFailsBeforeNetwork(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tt.want) {
 				t.Errorf("error %q does not contain %q", err, tt.want)
+			}
+			if rec.Count() != 0 {
+				t.Errorf("the transport saw %d requests, want 0", rec.Count())
+			}
+		})
+	}
+}
+
+// TestClientInvalidUTF8StateFailsBeforeNetwork re-asserts ruling R48
+// through the client on each architecture's validator (owner ruling G8-b on
+// R54: sonic's on amd64, utf8.Valid on arm64): a state holding invalid
+// UTF-8, R48's lone surrogate (Python's only analogue, a TypeSafeError) and
+// a cut multi-byte rune among the forms, anywhere in the state and on
+// either side of sonic's 32-byte blocks, fails with *InvalidRequestError
+// wrapping wire.ErrInvalidUTF8 and the transport sees nothing; valid text
+// of every rune width is sent. It runs in CI's -race test step on
+// ubuntu-26.04 and windows-2025 (amd64) and xcode-27 (arm64).
+func TestClientInvalidUTF8StateFailsBeforeNetwork(t *testing.T) {
+	t.Logf("GOARCH %s", runtime.GOARCH)
+	cjk := strings.Repeat("請求", 1024)
+	tests := map[string]struct {
+		state   any
+		invalid bool
+	}{
+		"error: a lone surrogate (R48)":                                     {state: "a\xed\xa0\x80b", invalid: true},
+		"error: a cut three-byte rune at the end":                           {state: "請\xe8\xab", invalid: true},
+		"error: a cut four-byte rune":                                       {state: "a\xf0\x9f\x98", invalid: true},
+		"error: a stray continuation byte":                                  {state: "\x80", invalid: true},
+		"error: an invalid lead byte":                                       {state: "caf\xff", invalid: true},
+		"error: an overlong encoding":                                       {state: "\xc0\xaf", invalid: true},
+		"error: a code point past U+10FFFF":                                 {state: "\xf4\x90\x80\x80", invalid: true},
+		"error: a lone surrogate across bytes 31 to 33 of the body's state": {state: strings.Repeat("a", 30) + "\xed\xa0\x80", invalid: true},
+		"error: a lone surrogate from byte 32 of the body's state":          {state: strings.Repeat("a", 31) + "\xed\xa0\x80", invalid: true},
+		"error: a cut rune after 6 KiB of CJK":                              {state: cjk + "\xe8\xab", invalid: true},
+		"error: invalid UTF-8 in a map state's key":                         {state: map[string]any{"k\xff": 1}, invalid: true},
+		"error: invalid UTF-8 in a struct state's field":                    {state: struct{ Text string }{"\xc3"}, invalid: true},
+		"success: 6 KiB of CJK":                                             {state: cjk},
+		"success: a four-byte rune across bytes 31 to 34":                   {state: strings.Repeat("a", 30) + "😀"},
+		"success: two-byte runes":                                           {state: "café au lait"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			rec := replying(http.StatusOK, testsupport.Fixture(t, "result.json"))
+			c := newTestClient(t, rec)
+			_, err := c.SystemOne(t.Context(), tt.state, noulQuestion(t))
+			if !tt.invalid {
+				if err != nil {
+					t.Fatalf("SystemOne: %v", err)
+				}
+				if s, ok := tt.state.(string); ok && !strings.Contains(string(onlyRequest(t, rec).Body), s) {
+					t.Errorf("the request body does not hold the state's text as it is")
+				}
+				return
+			}
+			if _, ok := errors.AsType[*InvalidRequestError](err); !ok {
+				t.Fatalf("SystemOne error = %v (%T), want an *InvalidRequestError", err, err)
+			}
+			if !errors.Is(err, wire.ErrInvalidUTF8) || !strings.Contains(err.Error(), "string is not valid UTF-8") {
+				t.Errorf("error %q, want one wrapping wire.ErrInvalidUTF8 (\"string is not valid UTF-8\")", err)
 			}
 			if rec.Count() != 0 {
 				t.Errorf("the transport saw %d requests, want 0", rec.Count())
