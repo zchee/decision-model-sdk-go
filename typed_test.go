@@ -17,8 +17,11 @@ package typesafe
 import (
 	"errors"
 	"reflect"
+	"runtime"
 	"slices"
+	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	gocmp "github.com/google/go-cmp/cmp"
@@ -1177,38 +1180,88 @@ func TestPreparedForCache(t *testing.T) {
 	}
 }
 
+// concurrentRuns numbers the runs of TestPreparedForConcurrentFirstUse in
+// this process, so that with -count every run builds types no earlier run
+// has cached.
+var concurrentRuns atomic.Int64
+
 // TestPreparedForConcurrentFirstUse checks that goroutines racing to make
-// the first call all get the one set that was kept. It is probabilistic:
-// with no hook between planFor's Load and LoadOrStore it cannot force two
-// builds to overlap, so a Store in place of LoadOrStore fails it only on the
-// runs where they do (6 of 10 in the W4.1 review). Reading planFor is the
-// real check; -race and -count raise the odds.
+// the first call for a type all get the one plan that was kept, and fails a
+// Store in place of planFor's LoadOrStore. Each of 200 rounds builds a
+// struct type nothing has asked about yet, with 64 answer fields so that
+// building its plan takes long enough for a second goroutine to miss the
+// cache meanwhile, and releases 8 goroutines onto planFor at once; two
+// overlapping first builds then keep two plans under the Store. Overlap
+// needs two goroutines running at once, so the test raises GOMAXPROCS to 2
+// for its duration when it is lower (go test -cpu 1, a one-CPU container).
+// Measured on (M) with the Store in place, 20 runs each: the first round to
+// fail was round 0 in 15, 12 and 20 runs at GOMAXPROCS 1, 2 and 16, and
+// never later than round 33; a one-field type failed only 19 runs in 20.
+// PreparedFor itself is checked once more on a named type.
 func TestPreparedForConcurrentFirstUse(t *testing.T) {
-	const goroutines = 16
+	const goroutines, rounds, width = 8, 200, 64
+	if runtime.GOMAXPROCS(0) < 2 {
+		prev := runtime.GOMAXPROCS(2)
+		t.Cleanup(func() { runtime.GOMAXPROCS(prev) })
+	}
+	run := strconv.FormatInt(concurrentRuns.Add(1), 10)
+	for round := range rounds {
+		fields := make([]reflect.StructField, width)
+		for i := range fields {
+			fields[i] = reflect.StructField{
+				Name: "Q" + strconv.Itoa(i),
+				Type: noulAnswerType,
+				Tag:  reflect.StructTag(`typesafe:"kind=noul;instructions=run ` + run + ` round ` + strconv.Itoa(round) + `"`),
+			}
+		}
+		typ := reflect.StructOf(fields)
+		if _, ok := typedPlans.Load(typ); ok {
+			t.Fatalf("round %d: the type is cached before its first call", round)
+		}
+		var (
+			wg    sync.WaitGroup
+			start = make(chan struct{})
+			got   [goroutines]*typedPlan
+		)
+		for i := range goroutines {
+			wg.Go(func() {
+				<-start
+				got[i] = planFor(typ)
+			})
+		}
+		close(start)
+		wg.Wait()
+		for i := range goroutines {
+			if got[i].err != nil {
+				t.Fatalf("round %d, goroutine %d: %v", round, i, got[i].err)
+			}
+			if got[i] != got[0] {
+				t.Fatalf("round %d: goroutine %d got plan %p, goroutine 0 got %p; racing first calls must share the plan that was kept", round, i, got[i], got[0])
+			}
+		}
+		if kept := planFor(typ); kept != got[0] {
+			t.Fatalf("round %d: a later call got plan %p, the racers got %p", round, kept, got[0])
+		}
+	}
+
 	var (
 		wg    sync.WaitGroup
 		start = make(chan struct{})
-		got   [goroutines]*Prepared
+		sets  [goroutines]*Prepared
 		errs  [goroutines]error
 	)
 	for i := range goroutines {
 		wg.Go(func() {
 			<-start
-			got[i], errs[i] = PreparedFor[concurrentOnly]()
+			sets[i], errs[i] = PreparedFor[concurrentOnly]()
 		})
 	}
 	close(start)
 	wg.Wait()
 	for i := range goroutines {
-		if errs[i] != nil {
-			t.Fatalf("goroutine %d: %v", i, errs[i])
+		if errs[i] != nil || sets[i] != sets[0] {
+			t.Errorf("PreparedFor[concurrentOnly] in goroutine %d = {%p, %v}, goroutine 0 got %p", i, sets[i], errs[i], sets[0])
 		}
-		if got[i] != got[0] {
-			t.Errorf("goroutine %d got set %p, goroutine 0 got %p", i, got[i], got[0])
-		}
-	}
-	if kept, _ := PreparedFor[concurrentOnly](); kept != got[0] {
-		t.Errorf("later call got set %p, the racers got %p", kept, got[0])
 	}
 }
 
