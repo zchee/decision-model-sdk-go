@@ -5310,14 +5310,20 @@ Every run above, K7 or not, for comparison:
    went from 6.68 to 3.30 µs. One model name covers VMs with and without
    AVX-512: the 9V74 of W5.4-18 lists `avx512f` and a dozen related flags
    that W5.4-11's 9V74 does not, and ran 123 of 125 rows 15 to 50 % faster
-   (`BenchmarkCall/sdk` mean 6.204 → 4.809 µs). Over these twelve runs the
+   (`BenchmarkCall/sdk` mean 6.204 → 4.809 µs). Hosts do not even rank rows
+   alike. `compare_runs` of the 7763 run of dispatch 36227580459 (5a4a4d9)
+   with the Intel Xeon 6973P-C run of dispatch 36223193685 (419d12e) marks
+   115 rows faster, 8 unchanged, and `EncodeState/ascii/6MiB/encode` and
+   `/check` 34.6 and 32.6 % slower (408.7 → 624.6 µs, 131.9 → 195.8 µs).
+   So no single cross-host baseline can exist. Over these twelve runs the
    mean's spread is 112 %, and 4.9 % on the 7763 alone. The sdk/naive
    ratio moves less but is not independent of the host: by mean it is
    0.872 to 0.983 on the 7763, 0.909 on the 9V45 and 0.970 on the 9V74
    with AVX-512. Taken across hosts, K7 (20 main runs within 5 %) would
    measure which machine each run got. So ruling R109 (ratified by the
-   owner as R115) counts K7 per CPU model and never mixes models, and records beside it the sdk/naive mean
-   ratio's spread over the counted runs of any host, with no threshold set.
+   owner as R115) counts K7 per CPU model and never mixes models, and
+   records beside it the sdk/naive mean ratio's spread over the counted
+   runs of any host, with no threshold set.
    Under R109 as first written the 9V74 already spreads 29 % over two
    runs, so ruling R109b keys K7 on model and AVX-512 exposure, which the
    report step now prints (W5.4-20). W5.4-19 gives the count both ways:

@@ -34,9 +34,10 @@ Two steps follow the CodSpeed step:
 2. **Report AC-P7 (report-only)** writes a table to the job summary. The
    table gives the `BenchmarkCall` rows' minimum, median and mean, and the
    sdk/naive ratios, together with `go version`, the ToolTags, the CPU
-   model, whether the host exposes AVX-512, and a digest of its CPU flags. The step's log lists every uploaded row by its full name. The
-   step compares no value, so no timing fails the job. It fails only when
-   it has nothing to report: when there is no results file, jq cannot read
+   model, whether the host exposes AVX-512, and a digest of its CPU flags.
+   The step's log lists every uploaded row by its full name. The step
+   compares no value, so no timing fails the job. It fails only when it
+   has nothing to report: when there is no results file, jq cannot read
    one, or the results hold no `BenchmarkCall/sdk` or `BenchmarkCall/naive`
    row. A green job with an empty report is how K35 hid lost rows.
 
@@ -136,7 +137,11 @@ R115, refined by R109b).** Hosted runners rotate CPU models, and the
 host sets the level of every row. On identical code, every row ran 1.4 to
 2.7 times faster on an EPYC 9V45 than on an EPYC 7763 (see "Noise"
 above). A spread taken across hosts would measure which machine each run
-got, not noise.
+got, not noise. Hosts do not even rank rows alike. Against an EPYC 7763
+run, an Intel Xeon 6973P-C run was faster on 115 rows but 33 to 35 %
+slower on `EncodeState/ascii/6MiB/{encode,check}`. So no single baseline
+can serve every host, and a row's history only means something within
+one host group.
 
 One model name does not always name one kind of host. Two runs on an
 "AMD EPYC 9V74" differed only in the CPU flags the VM exposed, AVX-512
