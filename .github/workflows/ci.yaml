@@ -153,13 +153,14 @@ jobs:
 
       # The root package's pinned Prepare counts (ruling R50), the request
       # body's NF1 counts (W1.2), the decode budgets of AC-P2 and AC-P8
-      # (W2.0), the whole call's AC-P6 and AC-P5 budgets (W2.3), and the
-      # response payloads' counts (W2.4); W5.2 folds the names into the
-      # ALLOC list above and this step into its own.
+      # (W2.0), the whole call's AC-P6 and AC-P5 budgets (W2.3), the
+      # response payloads' counts (W2.4), and the typed decode's AC-P3
+      # count (W4.2); W5.2 folds the names into the ALLOC list above and
+      # this step into its own.
       - name: go test without -race (root allocation tests)
         run: |
-          test "$(go test -list '^(TestAllocPrepare|TestAllocBodyKinds|TestAllocDecodeFixtures|TestLinearityFlood|TestAllocWholeCall|TestMemStatsCap|TestAllocResponseJSON)$' . | grep -c '^Test')" -eq 7
-          go test -count=1 -run '^(TestAllocPrepare|TestAllocBodyKinds|TestAllocDecodeFixtures|TestLinearityFlood|TestAllocWholeCall|TestMemStatsCap|TestAllocResponseJSON)$' -v .
+          test "$(go test -list '^(TestAllocPrepare|TestAllocBodyKinds|TestAllocDecodeFixtures|TestLinearityFlood|TestAllocWholeCall|TestMemStatsCap|TestAllocResponseJSON|TestAllocTypedDecode)$' . | grep -c '^Test')" -eq 8
+          go test -count=1 -run '^(TestAllocPrepare|TestAllocBodyKinds|TestAllocDecodeFixtures|TestLinearityFlood|TestAllocWholeCall|TestMemStatsCap|TestAllocResponseJSON|TestAllocTypedDecode)$' -v .
 
       # OIDC authentication: the action exchanges the job's id-token (hence
       # `id-token: write` above) and ignores any token input. It needs the Codecov
