@@ -108,12 +108,12 @@ IDs that the plan's waves cite.
 | --- | --- | --- | --- |
 | L1 | `test_secret_headers_redacted` | `TestSecretHeadersRedacted` (9 × 3) | planned |
 | L2 | `test_transport_errors_do_not_expose_credentials` | `TestTransportErrorsNeverExposeCredentials` | planned |
-| L3 | `test_exception_redaction_escaped_values` | `TestRedactionCoversGoEscapeForms` | planned |
-| L4 | `test_exception_redaction_shared_causes_cycles_and_notes` | deviation "Go errors have no notes or cycles" | planned |
-| L5 | `test_exception_redaction_structured_constructor` | deviation "Go errors are not rebuilt from messages" | planned |
-| L6 | `test_exception_redaction_preserves_network_diagnostics` | `TestRedactionKeepsCleanChains` | planned |
+| L3 | `test_exception_redaction_escaped_values` | `TestRedactionCoversGoEscapeForms` (4 headers × 3 credentials; raw, `%q`, `%+q` and JSON forms, the Go analogue of raw, bytes repr and `json.dumps`) | ported |
+| L4 | `test_exception_redaction_shared_causes_cycles_and_notes` | deviation "cause via `errors.Unwrap` unless it printed a credential" (Go errors have no notes or cycles: the chain is walked, never copied, and a cause that printed a credential is replaced whole by `*scrubbedError`, R81 (3)) + `TestCredentialsCause` | deviation |
+| L5 | `test_exception_redaction_structured_constructor` | deviation "cause via `errors.Unwrap` unless it printed a credential" (Go errors are not rebuilt from messages: the stand-in keeps the redacted text and the standard sentinels it matched; a caller error type holding the request in a pointer field stays reachable by `errors.As`, R82 (a)) + `TestCredentialsCause` | deviation |
+| L6 | `test_exception_redaction_preserves_network_diagnostics` | `TestRedactionKeepsCleanChains` (the scrub, a RoundTripper, a caller dialer) | ported |
 | L7 | `test_logger_level_controls_output` | `TestLogLevelsPerAttempt` | planned |
-| L8 | `test_setup_logging_from_env` | deviation "`TYPESAFE_LOG_LEVEL` not read" | planned |
+| L8 | `test_setup_logging_from_env` | deviation "`TYPESAFE_LOG_LEVEL` not read" + `TestLogLevelEnvNotRead` (5 upstream values × INFO, DEBUG, no `WithLogger`) | deviation |
 
 ### `tests/test_pydantic_response_models.py` (5)
 

@@ -210,3 +210,64 @@ func newCredentialClient(t *testing.T, logger *slog.Logger, opts ...ClientOption
 	t.Cleanup(func() { _ = c.Close() })
 	return c
 }
+
+// TestLogLevelEnvNotRead pins the deviation "`TYPESAFE_LOG_LEVEL` not read"
+// (L8, test_setup_logging_from_env, tests/test_logging.py:213-231): the SDK
+// never configures a logger, so each value the upstream test sets, "debug",
+// "info", "off", "bogus" and "", leaves a call's records as they are without
+// the variable: at INFO the one "response" record, at DEBUG the DEBUG
+// records too, and without WithLogger nothing, not even in slog's default
+// logger. typesafe-sdk-python applies the variable to its logger at import.
+func TestLogLevelEnvNotRead(t *testing.T) {
+	const env = "TYPESAFE_LOG_LEVEL"
+	// records returns "LEVEL message" of every record one Models().List
+	// logs, with the logger at level, or with no WithLogger when level is
+	// nil, in which case it listens on slog's default logger.
+	records := func(t *testing.T, level slog.Leveler) []string {
+		t.Helper()
+		logs := testsupport.NewLogRecorder(level)
+		opts := []ClientOption{WithAPIKey(testKey)}
+		if level != nil {
+			opts = append(opts, WithLogger(logs.Logger()))
+		} else {
+			prev := slog.Default()
+			slog.SetDefault(logs.Logger())
+			t.Cleanup(func() { slog.SetDefault(prev) })
+		}
+		c := newEnvClient(t, replying(http.StatusOK, []byte(`{"models":[]}`)), opts...)
+		if _, err := c.Models().List(t.Context()); err != nil {
+			t.Fatalf("List: %v", err)
+		}
+		var out []string
+		for _, r := range logs.Records() {
+			out = append(out, r.Level.String()+" "+r.Message)
+		}
+		return out
+	}
+	levels := map[string]slog.Leveler{"INFO": slog.LevelInfo, "DEBUG": slog.LevelDebug, "no WithLogger": nil}
+	for levelName, level := range levels {
+		clearEnv(t)
+		want := records(t, level)
+		for _, value := range []string{"debug", "info", "off", "bogus", ""} {
+			t.Run("success: "+levelName+" with "+env+"="+strconv.Quote(value), func(t *testing.T) {
+				clearEnv(t)
+				t.Setenv(env, value)
+				if diff := gocmp.Diff(want, records(t, level)); diff != "" {
+					t.Errorf("records (-without the variable +with it):\n%s", diff)
+				}
+			})
+		}
+	}
+	t.Run("success: the baselines", func(t *testing.T) {
+		clearEnv(t)
+		for levelName, want := range map[string][]string{
+			"INFO":          {"INFO response"},
+			"DEBUG":         {"DEBUG request", "INFO response", "DEBUG response headers"},
+			"no WithLogger": nil,
+		} {
+			if diff := gocmp.Diff(want, records(t, levels[levelName])); diff != "" {
+				t.Errorf("%s records (-want +got):\n%s", levelName, diff)
+			}
+		}
+	})
+}

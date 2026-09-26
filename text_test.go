@@ -285,6 +285,130 @@ func TestLogErrorText(t *testing.T) {
 	}
 }
 
+// TestRedactionCoversGoEscapeForms ports test_exception_redaction_escaped_values
+// (L3, tests/test_logging.py:135-142): a credential holding a quote, a
+// double quote and a backslash, sent after "Bearer " under Authorization and
+// Proxy-Authorization and as the whole value under X-API-Key and
+// X-MiXeD-ToKeN, is replaced by "***" in an error's text in each form Go
+// prints a string in: raw, %q, %+q and JSON-escaped, the Go analogue of the
+// Python SDK's raw, bytes repr and json.dumps forms ("raw=***;
+// bytes=b'***'; json=\"***\""). The stand-in the SDK error unwraps to, and
+// the transport's DEBUG record, carry that text; the original error keeps
+// its own. Two more credentials make the forms differ: non-ASCII letters,
+// which %+q escapes and %q and JSON keep, and with them '<' and '>', which
+// JSON escapes and %q keeps, so that only the %q form matches %q.
+func TestRedactionCoversGoEscapeForms(t *testing.T) {
+	const want = `raw=***; quoted="***"; ascii="***"; json="***"`
+	type test struct {
+		header, credential string
+	}
+	tests := map[string]test{}
+	for _, header := range []string{"Authorization", "Proxy-Authorization", "X-API-Key", "X-MiXeD-ToKeN"} {
+		for name, credential := range map[string]string{"ASCII": `private'quoted"value\tail`, "non-ASCII": `privé'quoted"välue\tail`, "non-ASCII and HTML": `priv<é>'quoted"välue\tail`} {
+			tests["success: "+header+"/"+name] = test{header: header, credential: credential}
+		}
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			value := tt.credential
+			if strings.Contains(strings.ToLower(tt.header), "authorization") {
+				value = "Bearer " + tt.credential
+			}
+			h := http.Header{tt.header: {value}}
+			j, err := testsupport.StdlibMarshal(tt.credential)
+			if err != nil {
+				t.Fatalf("StdlibMarshal: %v", err)
+			}
+			original := fmt.Errorf("raw=%s; quoted=%q; ascii=%+q; json=%s", tt.credential, tt.credential, tt.credential, j)
+			creds := requestCredentials(h)
+			if got, found := creds.redact(original.Error()); got != want || !found {
+				t.Errorf("redact = %q, %t, want %q, true", got, found, want)
+			}
+			cause := creds.cause(original)
+			if _, ok := cause.(*scrubbedError); !ok || cause.Error() != want { //nolint:errorlint // the stand-in itself, not a link of its chain
+				t.Errorf("cause = %T %q, want a *scrubbedError %q", cause, cause, want)
+			}
+			if got := logErrorText(&http.Request{Header: h}, original); got != want {
+				t.Errorf("logErrorText = %q, want %q", got, want)
+			}
+			if !strings.HasPrefix(original.Error(), "raw="+tt.credential+";") {
+				t.Errorf("the original error's text changed: %q", original.Error())
+			}
+		})
+	}
+}
+
+// TestRedactionKeepsCleanChains ports
+// test_exception_redaction_preserves_network_diagnostics (L6,
+// tests/test_logging.py:176-184): a transport error that shows no credential
+// passes the scrub unchanged, so its diagnostics survive: the cause an SDK
+// error unwraps to is the transport's error itself, with its type, text and
+// chain, and errors.As reaches the *net.OpError and errors.Is the errno, as
+// the Python SDK keeps a ConnectError of the same type and text with its
+// OSError cause. The request carries a credential, which the error does not
+// show. It holds at the scrub, through a RoundTripper, and through the SDK's
+// own transport, where the error arrives inside h2gate's DialError.
+func TestRedactionKeepsCleanChains(t *testing.T) {
+	const key = "ts_live_0123456789abcdef"
+	unreachable := func() *net.OpError {
+		return &net.OpError{Op: "dial", Net: "tcp", Addr: &net.TCPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 443}, Err: &os.SyscallError{Syscall: "connect", Err: syscall.ENETUNREACH}}
+	}
+	// check asserts that err unwraps, through its chain, to want itself.
+	check := func(t *testing.T, err error, want *net.OpError) {
+		t.Helper()
+		oe, ok := errors.AsType[*net.OpError](err)
+		if !ok || oe != want {
+			t.Errorf("errors.As(*net.OpError) = %v, %t, want the transport's own %p", oe, ok, want)
+		}
+		if !errors.Is(err, syscall.ENETUNREACH) {
+			t.Errorf("errors.Is(err, ENETUNREACH) = false for %v", err)
+		}
+		if se, ok := errors.AsType[*os.SyscallError](err); !ok || se.Syscall != "connect" {
+			t.Errorf("errors.As(*os.SyscallError) = %v, %t", se, ok)
+		}
+		if _, ok := errors.AsType[*scrubbedError](err); ok {
+			t.Errorf("the chain of %v holds a stand-in, want none", err)
+		}
+	}
+	t.Run("success: the scrub keeps the error", func(t *testing.T) {
+		creds := requestCredentials(http.Header{"Authorization": {"Bearer " + key}, "X-Client-Secret": {"provider-credential"}})
+		for _, err := range []error{unreachable(), fmt.Errorf("proxy hop: %w", unreachable())} {
+			if got := creds.cause(err); got != err { //nolint:errorlint // identity is the assertion
+				t.Errorf("cause(%v) = %T %v, want the error itself", err, got, got)
+			}
+			if got, found := creds.redact(err.Error()); got != err.Error() || found {
+				t.Errorf("redact(%q) = %q, %t, want it unchanged", err.Error(), got, found)
+			}
+		}
+	})
+	t.Run("success: through a RoundTripper", func(t *testing.T) {
+		want := unreachable()
+		clearEnv(t)
+		c := newEnvClient(t, roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, want }), WithAPIKey(key))
+		_, err := c.Models().List(t.Context(), Retry(NoRetry()))
+		ce, ok := errors.AsType[*ConnectionError](err)
+		if !ok || ce.Error() != "Connection error: "+want.Error() || errors.Unwrap(err) != want { //nolint:errorlint // identity is the assertion
+			t.Fatalf("error = %T %v unwrapping to %v, want a *ConnectionError with the error's text around it", err, err, errors.Unwrap(err))
+		}
+		check(t, err, want)
+	})
+	t.Run("success: through the SDK's transport and a caller dialer", func(t *testing.T) {
+		want := unreachable()
+		clearEnv(t)
+		tr := &http.Transport{DialContext: func(context.Context, string, string) (net.Conn, error) { return nil, want }}
+		c, err := NewClient(WithAPIKey(key), WithBaseURL("https://example.com"), WithHTTPTransport(tr))
+		if err != nil {
+			t.Fatalf("NewClient: %v", err)
+		}
+		t.Cleanup(func() { _ = c.Close() })
+		_, err = c.Models().List(t.Context(), Retry(NoRetry()))
+		if ce, ok := errors.AsType[*ConnectionError](err); !ok || ce.Error() != "Connection error: "+want.Error() {
+			t.Fatalf("error = %T %v, want a *ConnectionError with the dialer's text", err, err)
+		}
+		check(t, err, want)
+	})
+}
+
 // opaqueError prints a fixed text and wraps an error whose text it does not
 // print.
 type opaqueError struct{ inner error }
