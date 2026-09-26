@@ -380,9 +380,12 @@ func newLoopbackClient(t *testing.T, srv *testsupport.LoopbackServer, logger *sl
 // TestLogTransportRecords pins the section 9 rows that need the SDK's own
 // transport: a cold call logs "h2: dial" at DEBUG, with h2=true, and the
 // gate's release, and Stats().Dials counts the one connection; a warm call
-// dials nothing; and WithLogEndpointHost(false) keeps the host out of every
-// record down to LevelTrace, the transport's included, where the default
-// names the full URL.
+// dials nothing; and, for a call that succeeds, WithLogEndpointHost(false)
+// keeps the host out of every record down to LevelTrace, the transport's
+// included, where the default names the full URL. A call that fails can
+// still name the host: the text of a dial or DNS error, which the network
+// stack writes, goes into the error and its records as it is (review W3.3
+// MINOR 2; the option names only the endpoint attribute).
 func TestLogTransportRecords(t *testing.T) {
 	t.Run("success: a cold call dials once and logs it", func(t *testing.T) {
 		srv := newModelsServer(t)

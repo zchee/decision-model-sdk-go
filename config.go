@@ -202,6 +202,8 @@ func WithLogger(logger *slog.Logger) ClientOption {
 // WithLogEndpointHost sets whether log records name the full endpoint URL.
 // The default is true; with false they name only the API path, /v1/systemone
 // or /v1/models, without the scheme, the host or the base URL's path prefix.
+// An error's text, written by the network stack (a dial or DNS error), still
+// names the host, in the error and in the record that logs it.
 func WithLogEndpointHost(log bool) ClientOption {
 	return func(o *options) { o.hideEndpointHost = !log }
 }
