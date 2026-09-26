@@ -20,10 +20,12 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	gocmp "github.com/google/go-cmp/cmp"
@@ -817,5 +819,81 @@ func TestRequestURLIsCopied(t *testing.T) {
 	}
 	if got := []string{c.cfg.modelsURL.String(), c.cfg.systemOneURL.String()}; !slices.Equal(got, []string{"https://api.typesafe.ai/v1/models", "https://api.typesafe.ai/v1/systemone"}) {
 		t.Errorf("the client's endpoints changed: %v", got)
+	}
+}
+
+// TestRetryURLIsCopied pins ruling R66 NIT 5 within one call (W5.3): the
+// first attempt's copy of the endpoint URL lives in the call's own
+// allocation, and a retry gets a fresh one, so a RoundTripper that rewrites
+// the first request's URL changes neither the retry's nor the next call's,
+// and no request's URL is rewritten by a later attempt, which a transport
+// may still be reading: every request has a URL of its own. Both endpoints
+// are checked, each over two calls of two attempts.
+func TestRetryURLIsCopied(t *testing.T) {
+	tests := map[string]struct {
+		call func(t *testing.T, c *Client) error
+		want string
+	}{
+		"success: SystemOne": {
+			call: func(t *testing.T, c *Client) error {
+				qs, err := PreparedFor[reviewAnswers]()
+				if err != nil {
+					return err
+				}
+				_, err = c.SystemOne(t.Context(), "x", qs)
+				return err
+			},
+			want: "https://api.typesafe.ai/v1/systemone",
+		},
+		"success: Models.List": {
+			call: func(t *testing.T, c *Client) error {
+				_, err := c.Models().List(t.Context())
+				return err
+			},
+			want: "https://api.typesafe.ai/v1/models",
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				result := testsupport.FixtureString(t, "result.json")
+				var (
+					sent []string
+					urls []*url.URL
+				)
+				rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+					sent = append(sent, req.URL.String())
+					urls = append(urls, req.URL)
+					first := len(sent)%2 == 1
+					req.URL.Path = "/evil"
+					req.URL.Host = "evil.test"
+					if first {
+						return &http.Response{StatusCode: http.StatusServiceUnavailable, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("")), Request: req}, nil
+					}
+					body := result
+					if strings.HasSuffix(tt.want, "/models") {
+						body = `{"models":[]}`
+					}
+					return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(body)), ContentLength: int64(len(body)), Request: req}, nil
+				})
+				c := newTestClient(t, rt, WithRetry(DefaultRetry().MaxRetries(1)))
+				for range 2 {
+					if err := tt.call(t, c); err != nil {
+						t.Fatalf("call: %v", err)
+					}
+				}
+				want := []string{tt.want, tt.want, tt.want, tt.want}
+				if diff := gocmp.Diff(want, sent); diff != "" {
+					t.Errorf("URLs the transport got, two calls of two attempts (-want +got):\n%s", diff)
+				}
+				for i := range urls {
+					for j := range i {
+						if urls[i] == urls[j] {
+							t.Errorf("requests %d and %d share one *url.URL: a later attempt rewrites an earlier request's URL", j, i)
+						}
+					}
+				}
+			})
+		})
 	}
 }

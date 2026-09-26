@@ -21,7 +21,6 @@ import (
 	"io"
 	"maps"
 	"net/http"
-	"net/url"
 	"runtime"
 	"slices"
 	"strconv"
@@ -65,8 +64,8 @@ func measureRuns(setup, section func()) []testsupport.Allocs {
 // attempt succeeding, no call options, the default logger) makes at most N
 // allocations of its own above the floor, where the floor is the
 // Recorder's round trip of a request built beforehand plus E_sonic, sonic's
-// own allocation for the state (frozen-budgets.md: N = 14, frozen at W3.4;
-// the floor is 8/640, as in W0.5). Counts are runtime.ReadMemStats deltas
+// own allocation for the state (frozen-budgets.md: N = 13, frozen at W5.3
+// after W3.4's 14; the floor is 8/640, as in W0.5). Counts are runtime.ReadMemStats deltas
 // with a warm pool, the collector off and GOMAXPROCS 1, the minimum that
 // three of five runs share (section 6.1.6). The CALL and ITEM lines are the
 // ledger's rows; the ITEM line splits the call into the allocations
@@ -114,21 +113,21 @@ func TestAllocWholeCall(t *testing.T) {
 		t.Fatalf("the call %s costs less than its floor %s", total, floor)
 	}
 	own := total.Mallocs - floor.Mallocs
-	t.Logf("CALL q3 E_sonic=%s floorRT=%s floor=%s total=%s own=%d/%d (N = 14, frozen at W3.4)", esonic, floorRT, floor, total, own, total.Bytes-floor.Bytes)
+	t.Logf("CALL q3 E_sonic=%s floorRT=%s floor=%s total=%s own=%d/%d (N = 13, frozen at W5.3)", esonic, floorRT, floor, total, own, total.Bytes-floor.Bytes)
 
 	items := measureCallItems(t, c, state, qs, "")
 	t.Logf("ITEM q3 %s", items)
 
 	// Exact pins (R70 (3)'s precedent), so a change of the floor fails
-	// loudly. The frozen ceiling is N = 14 (W3.4, frozen-budgets.md), and
-	// the pin is the ceiling itself: an allocation added to the call fails
-	// here, and one removed (W5.3's candidates) moves the pin and the frozen
+	// loudly. The frozen ceiling is N = 13 (W5.3, frozen-budgets.md; 14 at
+	// W3.4), and the pin is the ceiling itself (R104): an allocation added
+	// to the call fails here, and one removed moves the pin and the frozen
 	// row together.
 	if floor != (testsupport.Allocs{Mallocs: 8, Bytes: 640}) {
 		t.Errorf("the floor of one call = %s, want 8/640 (the Recorder's round trip 7/624 and E_sonic 1/16)", floor)
 	}
-	if own != 14 {
-		t.Errorf("SDK-own allocations of one call = %d, want exactly 14 (AC-P6: N = 14, frozen at W3.4)", own)
+	if own != 13 {
+		t.Errorf("SDK-own allocations of one call = %d, want exactly 13 (AC-P6: N = 13, frozen at W5.3)", own)
 	}
 
 	// q20, recorded (frozen-budgets.md AC-P6, "Recorded, not in N"; W3.4
@@ -159,13 +158,13 @@ func TestAllocWholeCall(t *testing.T) {
 // callItems is one call split into the allocations of its request side and
 // its response side.
 type callItems struct {
-	header, url, timeout, request, open, getBody, result, read, decode testsupport.Allocs
+	header, call, timeout, request, open, getBody, read, decode testsupport.Allocs
 }
 
 func (it callItems) String() string {
-	return "header=" + it.header.String() + " url=" + it.url.String() + " WithTimeout=" + it.timeout.String() +
+	return "header=" + it.header.String() + " systemOneAlloc=" + it.call.String() + " WithTimeout=" + it.timeout.String() +
 		" Request=" + it.request.String() + " body.Open=" + it.open.String() + " GetBody=" + it.getBody.String() +
-		" *SystemOneResponse=" + it.result.String() + " readBody=" + it.read.String() + " decode=" + it.decode.String()
+		" readBody=" + it.read.String() + " decode=" + it.decode.String()
 }
 
 // measureCallItems measures the allocations a call makes, one at a time, in
@@ -173,7 +172,7 @@ func (it callItems) String() string {
 func measureCallItems(t *testing.T, c *Client, state any, qs *Prepared, prefix string) callItems {
 	t.Helper()
 	ctx := t.Context()
-	var hdr, u, to, rq, open, gb, res, rd, dec [testsupport.AllocRuns]testsupport.Allocs
+	var hdr, ca, to, rq, open, gb, rd, dec [testsupport.AllocRuns]testsupport.Allocs
 	for i := range testsupport.AllocRuns {
 		body, err := encodeBody(state, c.cfg.model, qs, nil)
 		if err != nil {
@@ -183,7 +182,7 @@ func measureCallItems(t *testing.T, c *Client, state any, qs *Prepared, prefix s
 		rqs := request{method: http.MethodPost, url: c.cfg.systemOneURL, header: s.header, timeout: s.timeout, body: body}
 		var (
 			h       http.Header
-			uc      *requestURL
+			call    *systemOneAlloc
 			actx    context.Context
 			cancel  context.CancelFunc
 			reader  *codec.BodyReader
@@ -192,17 +191,18 @@ func measureCallItems(t *testing.T, c *Client, state any, qs *Prepared, prefix s
 			resp    *SystemOneResponse
 			raw     []byte
 		)
+		ca[i] = testsupport.Measure(func() { call = new(systemOneAlloc) })
 		gb[i] = testsupport.Measure(func() { getBody = body.GetBody })
 		rqs.getBody = getBody
 		hdr[i] = testsupport.Measure(func() { h = rqs.attemptHeader(0) })
-		u[i] = testsupport.Measure(func() { uc = &requestURL{u: *rqs.url} })
+		call.url = *rqs.url                                                                        // the first attempt's copy, in the call's allocation
 		to[i] = testsupport.Measure(func() { actx, cancel = context.WithTimeout(ctx, s.timeout) }) //nolint:gosec // G118: cancel runs at the end of the iteration.
 		open[i] = testsupport.Measure(func() { reader, err = body.Open() })
 		if err != nil {
 			t.Fatal(err)
 		}
 		rq[i] = testsupport.Measure(func() {
-			r := http.Request{Method: http.MethodPost, URL: &uc.u, Header: h, Body: reader, GetBody: getBody, ContentLength: int64(body.Len()), Host: uc.u.Host}
+			r := http.Request{Method: http.MethodPost, URL: &call.url, Header: h, Body: reader, GetBody: getBody, ContentLength: int64(body.Len()), Host: call.url.Host}
 			req = r.WithContext(actx)
 		})
 		sinkRequest = req
@@ -215,7 +215,7 @@ func measureCallItems(t *testing.T, c *Client, state any, qs *Prepared, prefix s
 			t.Fatal(err)
 		}
 		_ = hresp.Body.Close()
-		res[i] = testsupport.Measure(func() { resp = new(SystemOneResponse) })
+		resp = &call.resp
 		resp.meta = wire.ResponseMeta{Status: hresp.StatusCode, Header: hresp.Header, Body: raw}
 		dec[i] = testsupport.Measure(func() {
 			err = decodeSystemOne(ctx, c.cfg.logger, &resp.meta, c.systemOneEndpoint, c.cfg.redactor(), qs, c.cfg.model, &resp.res)
@@ -229,19 +229,15 @@ func measureCallItems(t *testing.T, c *Client, state any, qs *Prepared, prefix s
 	}
 	return callItems{
 		header:  testsupport.StableMin(t, prefix+"item header map", hdr[:]),
-		url:     testsupport.StableMin(t, prefix+"item URL copy", u[:]),
+		call:    testsupport.StableMin(t, prefix+"item systemOneAlloc (the response and the first URL copy)", ca[:]),
 		timeout: testsupport.StableMin(t, prefix+"item context.WithTimeout", to[:]),
 		request: testsupport.StableMin(t, prefix+"item Request (WithContext)", rq[:]),
 		open:    testsupport.StableMin(t, prefix+"item body.Open", open[:]),
 		getBody: testsupport.StableMin(t, prefix+"item GetBody method value", gb[:]),
-		result:  testsupport.StableMin(t, prefix+"item *SystemOneResponse", res[:]),
 		read:    testsupport.StableMin(t, prefix+"item readBody", rd[:]),
 		decode:  testsupport.StableMin(t, prefix+"item decode", dec[:]),
 	}
 }
-
-// requestURL holds a URL copy on the heap, as a request's URL is.
-type requestURL struct{ u url.URL }
 
 // TestMemStatsCap checks AC-P5 per attempt (frozen-budgets.md; rulings R26,
 // R26b, R27): the TotalAlloc delta of one whole SystemOne call with

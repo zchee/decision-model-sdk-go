@@ -232,9 +232,11 @@ func (c *Client) SystemOne(ctx context.Context, state any, qs *Prepared, opts ..
 		return nil, err
 	}
 	defer body.Release()
+	call := new(systemOneAlloc)
 	rq := request{
 		method:   http.MethodPost,
 		url:      c.cfg.systemOneURL,
+		firstURL: &call.url,
 		logURL:   c.cfg.systemOneLog,
 		endpoint: c.systemOneEndpoint,
 		header:   s.header,
@@ -242,7 +244,7 @@ func (c *Client) SystemOne(ctx context.Context, state any, qs *Prepared, opts ..
 		body:     body,
 		getBody:  body.GetBody,
 	}
-	resp := new(SystemOneResponse)
+	resp := &call.resp
 	err = c.send(ctx, &rq, s.retry, &resp.meta, func() error {
 		return decodeSystemOne(ctx, c.cfg.logger, &resp.meta, c.systemOneEndpoint, c.cfg.redactor(), qs, model, &resp.res)
 	})
@@ -250,6 +252,21 @@ func (c *Client) SystemOne(ctx context.Context, state any, qs *Prepared, opts ..
 		return nil, err
 	}
 	return resp, nil
+}
+
+// systemOneAlloc is what a SystemOne call keeps on the heap, in one piece:
+// the response it returns and its first attempt's copy of the endpoint URL
+// (request.firstURL), which that attempt's request points to. The copy
+// lives as long as the response, and nothing reads it but the transport.
+type systemOneAlloc struct {
+	resp SystemOneResponse
+	url  url.URL
+}
+
+// modelsAlloc is systemOneAlloc for a list-models call.
+type modelsAlloc struct {
+	resp ModelsResponse
+	url  url.URL
 }
 
 // Models is the list-models endpoint of a client, from [Client.Models].
@@ -280,15 +297,17 @@ func (m Models) List(ctx context.Context, opts ...CallOption) (*ModelsResponse, 
 	if err != nil {
 		return nil, err
 	}
+	call := new(modelsAlloc)
 	rq := request{
 		method:   http.MethodGet,
 		url:      c.cfg.modelsURL,
+		firstURL: &call.url,
 		logURL:   c.cfg.modelsLog,
 		endpoint: c.modelsEndpoint,
 		header:   s.header,
 		timeout:  s.timeout,
 	}
-	resp := new(ModelsResponse)
+	resp := &call.resp
 	err = c.send(ctx, &rq, s.retry, &resp.meta, func() error {
 		return decodeModels(&resp.meta, c.modelsEndpoint, c.cfg.redactor(), &resp.list)
 	})
@@ -325,8 +344,12 @@ func (c *Client) send(ctx context.Context, rq *request, policy RetryPolicy, meta
 
 // request is what every attempt of one call sends.
 type request struct {
-	method   string
-	url      *url.URL
+	method string
+	url    *url.URL
+	// firstURL is where the first attempt copies url: storage allocated
+	// with the call's response, so that the copy costs no allocation of
+	// its own. A retry copies url to a fresh URL.
+	firstURL *url.URL
 	logURL   string // how log records name the endpoint
 	endpoint string // how errors name the endpoint
 	// header is the call's header template, which every attempt's header
@@ -366,8 +389,13 @@ func (c *Client) attempt(ctx context.Context, rq *request, attempt int) (wire.Re
 	h := rq.attemptHeader(attempt)
 	// Each request carries its own copy of the endpoint URL, so a
 	// RoundTripper that rewrites req.URL, which the RoundTripper contract
-	// forbids, cannot change the next request's.
-	u := *rq.url
+	// forbids, cannot change the next request's: the first attempt's in the
+	// call's own allocation, a retry's in a fresh one.
+	u := rq.firstURL
+	if attempt > 0 || u == nil {
+		u = new(url.URL)
+	}
+	*u = *rq.url
 	actx := ctx
 	if timeout := rq.timeout; timeout > 0 {
 		var cancel context.CancelFunc
@@ -376,7 +404,7 @@ func (c *Client) attempt(ctx context.Context, rq *request, attempt int) (wire.Re
 	}
 	r := http.Request{
 		Method:     rq.method,
-		URL:        &u,
+		URL:        u,
 		Proto:      "HTTP/1.1",
 		ProtoMajor: 1,
 		ProtoMinor: 1,

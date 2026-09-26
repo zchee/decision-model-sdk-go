@@ -167,7 +167,7 @@ jobs:
             TestAllocDecodeFixtures  # AC-P2 (W2.0)
             TestLinearityFlood       # AC-P8 allocation ratio and members visited (W2.0)
             TestLinearityFloodTime   # AC-P8 time, every build (W5.2)
-            TestAllocWholeCall       # AC-P6, N = 14 (W3.4)
+            TestAllocWholeCall       # AC-P6, N = 13 (W5.3; 14 at W3.4)
             TestMemStatsCap          # AC-P5 (W2.3)
             TestAllocResponseJSON    # response payloads (W2.4)
             TestAllocTypedDecode     # AC-P3 (W4.2)
