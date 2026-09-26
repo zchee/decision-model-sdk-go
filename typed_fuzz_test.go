@@ -179,7 +179,7 @@ func FuzzTagGrammar(f *testing.F) {
 
 		for _, typ := range fieldTypes {
 			field := reflect.StructField{Name: "F", Type: typ, Tag: reflect.StructTag("typesafe:" + strconv.Quote(tag))}
-			q, asks, err := planField("PreparedFor[T]: ", &field)
+			q, asks, err := planField("T", &field)
 			if err != nil {
 				ce, ok := errors.AsType[*ConfigError](err)
 				if !ok {

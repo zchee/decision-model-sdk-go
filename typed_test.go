@@ -359,6 +359,28 @@ func TestParseTag(t *testing.T) {
 // selfPointer is a pointer type that points to itself.
 type selfPointer *selfPointer
 
+// TaggedBase is a struct with a tagged answer field, to be embedded.
+type TaggedBase struct {
+	Spam NoulAnswer `typesafe:"kind=noul"`
+}
+
+// OuterBase embeds TaggedBase, one level further down.
+type OuterBase struct {
+	Note string
+	TaggedBase
+}
+
+// taggedBase is TaggedBase under an unexported name.
+type taggedBase struct {
+	Spam NoulAnswer `typesafe:"kind=noul"`
+}
+
+// CyclicTagged embeds a pointer to itself and has a tagged field.
+type CyclicTagged struct {
+	*CyclicTagged
+	Spam NoulAnswer `typesafe:"kind=noul"`
+}
+
 // The struct types of TestPreparedForRejections: Go generics need a named
 // type per case.
 type (
@@ -412,6 +434,29 @@ type (
 	// (8) pointer field: untagged, an answer field all the same.
 	rejUntaggedPointer struct {
 		Spam **NoulAnswer
+	}
+	// (9) a tagged field inside an embedded struct, which is not promoted.
+	rejEmbeddedTagged struct {
+		TaggedBase
+		Tone ChoiceAnswer `typesafe:"kind=choice;options=calm"`
+	}
+	// (9) a tagged field inside an embedded pointer to a struct.
+	rejEmbeddedPointer struct {
+		Tone ChoiceAnswer `typesafe:"kind=choice;options=calm"`
+		*TaggedBase
+	}
+	// (9) a tagged field two embeddings deep.
+	rejEmbeddedDeep struct {
+		OuterBase
+	}
+	// (9) a tagged field inside an unexported embedded struct: its exported
+	// fields would be promoted all the same.
+	rejEmbeddedUnexported struct {
+		taggedBase
+	}
+	// (9) a tagged field inside a struct that embeds a pointer to itself.
+	rejEmbeddedCyclic struct {
+		CyclicTagged
 	}
 	// (9) unexported field with a tag.
 	rejUnexported struct {
@@ -537,6 +582,26 @@ func TestPreparedForRejections(t *testing.T) {
 		"error: (8) pointer field: untagged": {
 			prepare: PreparedFor[rejUntaggedPointer],
 			wantMsg: `PreparedFor[typesafe.rejUntaggedPointer]: field Spam: the field is a pointer, **typesafe.NoulAnswer; answer fields are values: make it a NoulAnswer, with optional in its tag if the answer may be absent.`,
+		},
+		"error: (9) tagged field inside an embedded struct": {
+			prepare: PreparedFor[rejEmbeddedTagged],
+			wantMsg: `PreparedFor[typesafe.rejEmbeddedTagged]: field TaggedBase: fields of an embedded struct are not promoted, and TaggedBase.Spam has a typesafe tag; declare Spam in typesafe.rejEmbeddedTagged itself, since PreparedFor reads only the struct's own fields.`,
+		},
+		"error: (9) tagged field inside an embedded pointer to a struct": {
+			prepare: PreparedFor[rejEmbeddedPointer],
+			wantMsg: `PreparedFor[typesafe.rejEmbeddedPointer]: field TaggedBase: fields of an embedded struct are not promoted, and TaggedBase.Spam has a typesafe tag; declare Spam in typesafe.rejEmbeddedPointer itself, since PreparedFor reads only the struct's own fields.`,
+		},
+		"error: (9) tagged field two embeddings deep": {
+			prepare: PreparedFor[rejEmbeddedDeep],
+			wantMsg: `PreparedFor[typesafe.rejEmbeddedDeep]: field OuterBase: fields of an embedded struct are not promoted, and OuterBase.TaggedBase.Spam has a typesafe tag; declare Spam in typesafe.rejEmbeddedDeep itself, since PreparedFor reads only the struct's own fields.`,
+		},
+		"error: (9) tagged field inside an unexported embedded struct": {
+			prepare: PreparedFor[rejEmbeddedUnexported],
+			wantMsg: `PreparedFor[typesafe.rejEmbeddedUnexported]: field taggedBase: fields of an embedded struct are not promoted, and taggedBase.Spam has a typesafe tag; declare Spam in typesafe.rejEmbeddedUnexported itself, since PreparedFor reads only the struct's own fields.`,
+		},
+		"error: (9) tagged field inside a self-embedding struct": {
+			prepare: PreparedFor[rejEmbeddedCyclic],
+			wantMsg: `PreparedFor[typesafe.rejEmbeddedCyclic]: field CyclicTagged: fields of an embedded struct are not promoted, and CyclicTagged.Spam has a typesafe tag; declare Spam in typesafe.rejEmbeddedCyclic itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) unexported field with a tag": {
 			prepare: PreparedFor[rejUnexported],
@@ -750,15 +815,23 @@ type ignoredFields struct {
 	note     string
 	Count    int
 	internal NoulAnswer
-	embedded
+	plainBase
 	First  NoulAnswer  `typesafe:"kind=noul;name=first"`
 	Label  string      `json:"label"`
 	Second ScoreAnswer // refused: an answer field without a tag
 }
 
-// embedded carries a tagged field that is not promoted.
-type embedded struct {
-	Hidden NoulAnswer `typesafe:"kind=noul"`
+// plainBase is an embedded struct without typesafe tags: ignored, answer
+// fields included, since its fields are not promoted.
+type plainBase struct {
+	Hidden NoulAnswer
+	Note   string
+}
+
+// Cyclic embeds a pointer to itself; searching it for tags must end.
+type Cyclic struct {
+	*Cyclic
+	Note string
 }
 
 // ignoredOnly is ignoredFields without its refused field.
@@ -766,16 +839,17 @@ type ignoredOnly struct {
 	note     string
 	Count    int
 	internal NoulAnswer
-	embedded
+	plainBase
 	First NoulAnswer  `typesafe:"kind=noul;name=first"`
 	Label string      `json:"label"`
 	Last  ScoreAnswer `typesafe:"kind=score;levels=1|2"`
+	*Cyclic
 }
 
 // TestPreparedForIgnoredFields checks which fields ask nothing: untagged
 // fields of other types, untagged unexported fields (answer types
-// included), and the fields of an embedded struct; and that the plan's
-// indexes skip them.
+// included), and an embedded struct without typesafe tags, even one that
+// embeds a pointer to itself; and that the plan's indexes skip them.
 func TestPreparedForIgnoredFields(t *testing.T) {
 	_ = ignoredFields{}.note
 	_ = ignoredFields{}.internal

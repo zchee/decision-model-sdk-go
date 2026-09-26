@@ -109,6 +109,8 @@ import (
 //     an answer field has a typesafe tag;
 //   - a field is a pointer to an answer type (write optional instead);
 //   - an unexported field has a typesafe tag;
+//   - an embedded struct, or pointer to one, has a field with a typesafe tag,
+//     directly or in a struct embedded in it: its fields are not promoted;
 //   - T is not a struct type (a pointer to a struct included);
 //   - a question name is reserved;
 //   - optional is given on a field that is not an answer field;
@@ -118,8 +120,11 @@ import (
 //
 // Fields that are neither answer fields nor tagged, and unexported fields
 // without a typesafe tag, are ignored. Fields of an embedded struct are not
-// promoted: only T's own fields are read. A type alias of an answer type is
-// that answer type; a type defined from one is not an answer type.
+// promoted: only T's own fields are read, so an embedded struct whose fields
+// carry typesafe tags is refused rather than silently skipped, and one
+// without such tags is ignored like any other untagged field. A type alias of
+// an answer type is that answer type; a type defined from one is not an
+// answer type.
 //
 // # Caching
 //
@@ -243,7 +248,7 @@ func buildPlan(t reflect.Type) *typedPlan {
 	)
 	for i := range t.NumField() {
 		f := t.Field(i)
-		q, asks, err := planField(owner, &f)
+		q, asks, err := planField(typeLabel(t), &f)
 		if err != nil {
 			return &typedPlan{err: err}
 		}
@@ -314,11 +319,18 @@ func typeLabel(t reflect.Type) string {
 // response carries beside its answers, and the discriminator of an answer.
 var reservedNames = [...]string{"type", "model", "usage", "answers"}
 
-// planField reads the struct field f of the type owner names and returns the
-// question it asks. asks is false for a field that asks none and is ignored.
-func planField(owner string, f *reflect.StructField) (q typedQuestion, asks bool, err error) {
-	at := owner + "field " + f.Name + ": "
+// planField reads the struct field f of the struct type that outer names,
+// and returns the question it asks. asks is false for a field that asks none
+// and is ignored.
+func planField(outer string, f *reflect.StructField) (q typedQuestion, asks bool, err error) {
+	at := "PreparedFor[" + outer + "]: field " + f.Name + ": "
 	tag, tagged, malformed := lookupTag(f.Tag)
+	if !tagged && !malformed && f.Anonymous {
+		if path := promotedTag(f.Name, f.Type, nil); path != "" {
+			name := path[strings.LastIndexByte(path, '.')+1:]
+			return q, false, newConfigError(at + "fields of an embedded struct are not promoted, and " + path + " has a typesafe tag; declare " + name + " in " + outer + " itself, since PreparedFor reads only the struct's own fields.")
+		}
+	}
 	if !f.IsExported() {
 		if tagged || malformed {
 			return q, false, newConfigError(at + "the field is unexported and has a typesafe tag; only exported fields are answered: export the field or remove the tag.")
@@ -403,6 +415,31 @@ func planField(owner string, f *reflect.StructField) (q typedQuestion, asks bool
 		q.entry.score = Score{Instructions: optionalText(spec.instructions), Levels: levels}
 	}
 	return q, true, nil
+}
+
+// promotedTag returns the path, starting at path, of the first field with a
+// typesafe key that embedding a field of type t would promote: a field of the
+// struct t (or points to), or of a struct embedded in it at any depth. It
+// returns "" when there is none, or when t is not a struct or a pointer to
+// one. seen holds the struct types on the path so far, so that a struct
+// that embeds a pointer to itself ends the walk.
+func promotedTag(path string, t reflect.Type, seen []reflect.Type) string {
+	t = derefAll(t)
+	if t.Kind() != reflect.Struct || slices.Contains(seen, t) {
+		return ""
+	}
+	seen = append(seen, t)
+	for f := range t.Fields() {
+		if _, tagged, malformed := lookupTag(f.Tag); tagged || malformed {
+			return path + "." + f.Name
+		}
+		if f.Anonymous {
+			if found := promotedTag(path+"."+f.Name, f.Type, seen); found != "" {
+				return found
+			}
+		}
+	}
+	return ""
 }
 
 // pointerField is the refusal of a field whose type is a pointer to an answer
