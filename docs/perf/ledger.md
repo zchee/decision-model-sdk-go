@@ -5245,7 +5245,7 @@ and `_spikes/w5.4/render.py` prints the tables below from
 | W5.4-16 | 2026-09-26 16:20:22 JST | W5.4 K7 count | – | – | – | – | the W5.4-10 command again, per CPU model (R109) | **EPYC 7763: 3 of 20** (36221839206, 36224817149, 36225881915), `BenchmarkCall/sdk` mean 6.684, 6.771 and 6.739 µs, spread 1.29 %; **EPYC 9V74: 1 of 20** (36223111400). Beside it, the sdk/naive mean ratio over the four counted runs, any model: 0.877, 0.885, 0.872, 0.897, spread 2.83 % (no threshold set, R109) | `results/k7-count.txt` (fourth snapshot); not a timing row |
 | W5.4-17 | 2026-09-26 16:41:07 JST | W5.4 report step fails on missing data (Phase 4 critic m-8) | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | the report step's script (`yq e '.jobs.codspeed.steps[-1].run' .github/workflows/bench.yaml`) run by bash 5.3 with `RUNNER_TEMP` set to one directory per case and `GOEXPERIMENT=nosimd,noruntimesecret`; no `/tmp/profile.*.out` existed | no results file: `::error title=AC-P7 report::no CodSpeed results file …`, **exit 1**; a real go-runner results file (the local `codspeed run --skip-upload -m walltime` of `BenchmarkCall` at 14:55 JST): the table and the URI list, **exit 0**; the same file with the `BenchmarkCall::naive` row deleted: the table shows `–`, then `::error title=AC-P7 report::no BenchmarkCall row in the results for: naive`, **exit 1**; a truncated JSON file: `jq: parse error`, **exit 5** | `results/report-step-check-M.txt`; the step compares no value (report-only under K7) and fails only on missing or unreadable data; the numbers of the (M) file are a 100 ms throwaway run, not a measurement; not a timing row |
 | W5.4-18 | 2026-09-26 08:02:25 UTC | W5.4 K7 data point | `ubuntu-26.04` (AMD EPYC 9V74 with AVX-512) | `go1.27.1 linux/amd64` | not printed by the job | – | `bench.yaml` at 67dcbb0 (main's push run, W5.2's landing; the K35 job without W5.4's report step) | `BenchmarkCall/sdk` min / median / mean 3.945 / 4.266 / 4.809 µs; `/naive` 3.465 / 4.086 / 4.955 µs; **sdk/naive 1.139 / 1.044 / 0.970** (min / median / mean) | GitHub run 36228091342 (push, `main`), CodSpeed run 6ab77c112eddcdb9847b5b7a, K35 guard `125 rows; CodSpeed results: 125 rows in 3 files`; `compare_runs` against W5.4-11 (the same model name, AMD EPYC 9V74 80-Core Processor) lists no model change, only **CPU flags added: `avx512f`, `avx512bw`, `avx512cd`, `avx512dq`, `avx512vl`, `avx512ifma`, `avx512vbmi`, `avx512_vbmi2`, `avx512_vnni`, `avx512_bitalg`, `avx512_vpopcntdq`, `avx512_bf16`, `gfni`, `xtopology`**, and 123 of 125 rows 15 to 50 % faster, the naive rows as much as the SDK's (`BenchmarkCall/sdk` mean 6.204 → 4.809 µs); stdev sdk 3.913 / naive 5.548 µs; IQR outliers sdk 8.7 % / naive 11.3 % of 664293 / 723963 rounds; the mean ratio 0.970 is the smallest margin so far; K7: see W5.4-19 |
-| W5.4-19 | 2026-09-26 17:06:21 JST | W5.4 K7 count | – | – | – | – | the W5.4-10 command again | **Per CPU model (R109 as written): EPYC 7763 3 of 20**, spread 1.29 %; **EPYC 9V74 2 of 20, spread 29.01 %** (6.204 and 4.809 µs: one VM without and one with AVX-512). **Per model and AVX-512 exposure (proposed amendment, sent to the lead 2026-09-26): EPYC 7763 3 of 20** (1.29 %); **9V74 1**; **9V74 + AVX-512 1**. Beside it, the sdk/naive mean ratio over the five counted runs, any host: 0.877, 0.885, 0.872, 0.897, 0.970, spread 11.22 % (no threshold set, R109) | `results/k7-count.txt` (fifth snapshot), `render.py` prints both groupings; not a timing row |
+| W5.4-19 | 2026-09-26 17:06:21 JST | W5.4 K7 count | – | – | – | – | the W5.4-10 command again | **Per CPU model (R109 as written): EPYC 7763 3 of 20**, spread 1.29 %; **EPYC 9V74 2 of 20, spread 29.01 %** (6.204 and 4.809 µs: one VM without and one with AVX-512). **Per model and AVX-512 exposure (ruling R109b): EPYC 7763 3 of 20** (1.29 %); **9V74 1**; **9V74 + AVX-512 1**; the 9V45 and the Intel Xeon 6973P-C, both with AVX-512 (`compare_runs` against 7763 runs), have appeared on wave-branch dispatches only. Beside it, the sdk/naive mean ratio over the five counted runs, any host: 0.877, 0.885, 0.872, 0.897, 0.970, spread 11.22 % (no threshold set, R109) | `results/k7-count.txt` (fifth snapshot), `render.py` prints both groupings; not a timing row |
 | W5.4-20 | 2026-09-26 17:06:07 JST | W5.4 report step names AVX-512 exposure | (M), and (L) for the host line | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | W5.4-17's four cases against the step with its new line (`AVX-512 yes/no` from `avx512f` in the first `flags` line of `/proc/cpuinfo`, and a 12-hex SHA-256 digest of the sorted flags); the line's commands alone by `bash -s` over ssh on (L) | (M): no results file exit 1, real file exit 0, no naive row exit 1, truncated JSON exit 5, as before; darwin has no `/proc/cpuinfo`, so the line reads `AVX-512 no` without failing. (L): `- CPU: Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz, 44 CPUs, AVX-512 yes, flags digest e8bd8076a11e` from 112 flags, exit 0 | `results/report-step-check-M.txt` (second run); the host key W5.4-18 needs from every run on; not a timing row |
 
 ### Tables
@@ -5270,7 +5270,7 @@ with BenchmarkCall/sdk's mean within 5 %.
 Per CPU model (ruling R109 as written):
 - AMD EPYC 7763: 3 of 20 runs; BenchmarkCall/sdk mean spread 1.29 % over 3 runs
 - AMD EPYC 9V74: 2 of 20 runs; BenchmarkCall/sdk mean spread 29.01 % over 2 runs
-Per CPU model and AVX-512 exposure (proposed amendment):
+Per CPU model and AVX-512 exposure (ruling R109b):
 - AMD EPYC 7763: 3 of 20 runs; BenchmarkCall/sdk mean spread 1.29 % over 3 runs
 - AMD EPYC 9V74: 1 of 20 runs; BenchmarkCall/sdk mean spread n/a (1 run)
 - AMD EPYC 9V74 + AVX-512: 1 of 20 runs; BenchmarkCall/sdk mean spread n/a (1 run)
@@ -5315,13 +5315,14 @@ Every run above, K7 or not, for comparison:
    ratio moves less but is not independent of the host: by mean it is
    0.872 to 0.983 on the 7763, 0.909 on the 9V45 and 0.970 on the 9V74
    with AVX-512. Taken across hosts, K7 (20 main runs within 5 %) would
-   measure which machine each run got. So ruling R109 counts K7 per CPU
-   model and never mixes models, and records beside it the sdk/naive mean
+   measure which machine each run got. So ruling R109 (ratified by the
+   owner as R115) counts K7 per CPU model and never mixes models, and records beside it the sdk/naive mean
    ratio's spread over the counted runs of any host, with no threshold set.
-   Under R109 as written the 9V74 already spreads 29 % over two runs, so
-   W5.4 proposes keying K7 on model and AVX-512 exposure, which the report
-   step now prints (W5.4-20). W5.4-19 gives the count both ways: EPYC 7763
-   3 of 20 (1.29 %), and the 9V74 without and with AVX-512 1 each.
+   Under R109 as first written the 9V74 already spreads 29 % over two
+   runs, so ruling R109b keys K7 on model and AVX-512 exposure, which the
+   report step now prints (W5.4-20). W5.4-19 gives the count both ways:
+   EPYC 7763 3 of 20 (1.29 %), and the 9V74 without and with AVX-512 1
+   each.
 3. **Noise on one CPU model exceeds CodSpeed's 10 % threshold.** On the
    7763, the `EncodeBody/rawjson/{64KiB,1MiB}/naive-json` rows moved 13 to
    14 % faster between runs and then 11 % slower again (W5.4-13), with no

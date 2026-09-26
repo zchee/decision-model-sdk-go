@@ -118,7 +118,8 @@ The GitHub job log does not print the run id.
 
 Risk K7: walltime on hosted runners is noisy, so CodSpeed results gate
 nothing until 20 runs on `main` show a spread below 5 % for
-`BenchmarkCall/sdk`. After that, the plan makes them blocking. Until then:
+`BenchmarkCall/sdk`. The plan then made them blocking; rulings R109,
+R115 and R109b amend that (below). Until then:
 
 - No step fails on a timing, and nothing requires CodSpeed's check run.
 - The spread is (largest − smallest) / smallest of `BenchmarkCall/sdk`'s
@@ -130,28 +131,33 @@ nothing until 20 runs on `main` show a spread below 5 % for
 - Only successful push runs on `main` count; dispatched runs on branches
   do not. `BenchmarkLoopback` never counts (R101).
 
-**K7 is counted per CPU model (ruling R109).** Hosted runners rotate CPU
-models, and the model sets the level of every row. On identical code,
-every row ran 1.4 to 2.7 times faster on an EPYC 9V45 than on an EPYC 7763
-(see "Noise" above). A spread taken across models would measure which
-machine each run got, not noise. So the 20 runs and the spread below 5 %
-of `BenchmarkCall/sdk`'s mean apply to `main` runs on one CPU model. Runs
-on another model start their own count, and models are never mixed.
-Gating stays off until one model reaches 20 runs within 5 %. Beside that
-count, the ledger records the spread of the sdk/naive mean ratio over all
-counted runs, whatever their model, because the ratio is what AC-P7
-compares. No threshold is set on that ratio spread yet. Every row of the
-ledger's section W5.4 carries the run's CPU model and its GitHub and
-CodSpeed run ids, and the report step prints the model on every run.
+**K7 is counted per CPU host (ruling R109, which the owner ratified as
+R115, refined by R109b).** Hosted runners rotate CPU models, and the
+host sets the level of every row. On identical code, every row ran 1.4 to
+2.7 times faster on an EPYC 9V45 than on an EPYC 7763 (see "Noise"
+above). A spread taken across hosts would measure which machine each run
+got, not noise.
 
 One model name does not always name one kind of host. Two runs on an
 "AMD EPYC 9V74" differed only in the CPU flags the VM exposed, AVX-512
 among them, and the one with AVX-512 ran 123 of 125 rows 15 to 50 %
 faster. Counted per model name, that one pair already spreads 29 %. So
-the report step also prints the host's AVX-512 exposure and a digest of
-its flags. The ledger counts K7 both ways: per model (R109), and per
-model and AVX-512 exposure, the key W5.4 has proposed to the lead as an
-amendment.
+R109b keys K7's groups on the CPU model name plus AVX-512 exposure
+(`avx512f` among the flags). The report step prints that key
+(`AVX-512 yes` or `no`) with a 12-hex digest of the sorted flags, so
+finer splits stay visible.
+
+The 20 runs and the spread below 5 % of `BenchmarkCall/sdk`'s mean apply
+to `main` runs in one such group. Runs in another group start their own
+count, and groups are never mixed. Gating stays off. When one group
+reaches 20 runs within 5 %, the owner reconsiders blocking and looks at
+the cross-host comparison again (R115). Beside the count, the ledger
+records the spread of the sdk/naive mean ratio over all counted runs,
+whatever their host, because the ratio is what AC-P7 compares. No
+threshold is set on that ratio spread yet. Every row of the ledger's
+section W5.4 carries the run's CPU model, its AVX-512 exposure and its
+GitHub and CodSpeed run ids. The ledger also gives the count per model
+name alone, as R109 was first written.
 
 To list the candidate runs, then keep the successful ones from 36221839206
 on:
