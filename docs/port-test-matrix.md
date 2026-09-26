@@ -10,13 +10,13 @@ rows were seeded from Appendix D of the port plan, which also defines the row
 IDs that the plan's waves cite. The checker also holds the next line to the
 rows:
 
-Rows by status: 32 deviation, 3 planned, 94 ported.
+Rows by status: 35 deviation, 0 planned, 94 ported.
 
 ## Status values
 
 | Status | Meaning | Checker rule |
 | --- | --- | --- |
-| `planned` | not ported yet | passes; with `--no-planned` it fails (CI adds the flag when W6.4 flips the last planned rows) |
+| `planned` | not ported yet | passes; with `--no-planned`, which CI passes since W6.4 flipped the last planned rows, it fails |
 | `ported` | the Go test exists | the Go cell names at least one backtick-quoted `Test…` identifier, and every one of them is listed by `go test -list '.*' -tags live ./...`; `pkg.TestName` must be listed by a package whose import path ends in `/pkg`, so tests of the root package are written unqualified (`TestX`, never `typesafe.TestX`: the root import path ends in `/typesafe-sdk-go`) |
 | `deviation` | replaced by a documented behaviour difference | the Go cell cites an Appendix B row as the word `deviation` followed by a double-quoted, non-blank reference (`deviation "one deadline per attempt"`); Appendix B rows are unnumbered and `B<n>` would read as a benchmark ID, so there is no numeric form; `same deviation` takes the citation of the nearest row above it in the same group that carries one (rows without a citation in between are skipped); any backtick-quoted `Test…` identifier in the cell must exist, as for `ported` |
 
@@ -209,8 +209,8 @@ Rows by status: 32 deviation, 3 planned, 94 ported.
 
 | ID | Upstream | Go test / deviation | status |
 | --- | --- | --- | --- |
-| XD1 | `test_markdown` | README and `docs/*.md` Go snippets are `examples/` packages compiled by `go vet ./examples/...` in CI and proven identical to the Markdown blocks by `docs-snippets.py`; the ones that call the API run as `livetests.TestExamples` (deviation "no sybil") | planned |
-| XD2 | `test_python_doctests` | `Example*` functions in root run by `go test`; live ones behind `//go:build live` | planned |
+| XD1 | `test_markdown` | README and `docs/*.md` Go snippets are the seven `examples/` programs, compiled by `go vet ./examples/...` in CI and proven identical to the Markdown blocks by `docs-snippets.py`; `livetests.TestExamplesOffline` runs each against a local stand-in for the API on every `go test`, and `livetests.TestExamples` runs them against the API (`-tags live`) (deviation "no sybil") | deviation |
+| XD2 | `test_python_doctests` | the root package's twelve `Example*` functions (`example_test.go`), each with an `// Output:` that `go test` checks; none calls the API (a canned RoundTripper answers), so none needs `//go:build live`: the programs that call the API are XD1's (deviation "no sybil") | deviation |
 
 ### `tests/test_public_api_surface.py` (3)
 
@@ -246,4 +246,4 @@ Rows by status: 32 deviation, 3 planned, 94 ported.
 
 | ID | Upstream | Go test / deviation | status |
 | --- | --- | --- | --- |
-| XT1 | `test_public_typing` | negative expectations → the 13 + 3 runtime `*ConfigError` rejections of AC-F8 (upstream `tests/typing/negative/*` reviewed for Go analogues in W4.1: the 27 expectations are mapped line by line in the comment above `TestPreparedForRejections`; 2 → rejection 10 (`response_model=int`), 2 → rejection 4 (a score without levels; a choice without options, refused on the typed path while the builder accepts `Choice{}` as Python's runtime does, R96), 5 → a Go compile error whose tag analogue is rejection 5, 7 (three) or 13, 16 → a Go compile error or not representable (retry types, the sync/async client split, a value as a type argument, list/dict criteria, a non-string type, transport return types), 2 → `*InvalidRequestError` for a nil state (W1.2)); the three positive fixtures (`valid.py`, `transport.py`, `pydantic_response_models.py`) → `go vet ./examples/...` (W6.4) | planned |
+| XT1 | `test_public_typing` | negative expectations → the 13 + 3 runtime `*ConfigError` rejections of AC-F8 (upstream `tests/typing/negative/*` reviewed for Go analogues in W4.1: the 27 expectations are mapped line by line in the comment above `TestPreparedForRejections`; 2 → rejection 10 (`response_model=int`), 2 → rejection 4 (a score without levels; a choice without options, refused on the typed path while the builder accepts `Choice{}` as Python's runtime does, R96), 5 → a Go compile error whose tag analogue is rejection 5, 7 (three) or 13, 16 → a Go compile error or not representable (retry types, the sync/async client split, a value as a type argument, list/dict criteria, a non-string type, transport return types), 2 → `*InvalidRequestError` for a nil state (W1.2)); the three positive fixtures → `go vet ./examples/...` in CI, a type error failing the build as `assert_type` fails pyrefly: `valid.py` → `examples/options` and `examples/retries` (state forms, raw questions, per-call model, deadline, retry, headers, extra body, the models endpoint's options), `transport.py` → `examples/transport` (the two transport options and the typed results of both endpoints), `pydantic_response_models.py` → `examples/typed` (`Ask[T]`, `PreparedFor[T]`, `DecodeAs[T]`, an `optional` field) (deviation "pyrefly fixtures") | deviation |

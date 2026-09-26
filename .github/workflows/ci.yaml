@@ -74,10 +74,9 @@ jobs:
       - name: Test the checker scripts
         run: uvx --with pyyaml pytest -q -p no:cacheprovider .github/scripts
 
+      # --no-planned: since W6.4 no row is planned, and a new one fails.
       - name: Check the port test matrix against the upstream tests
-        run: uv run --script .github/scripts/port-test-matrix.py --upstream upstream
-      # W6.4 adds --no-planned on the step above when it flips the last
-      # planned rows (I1-I3, XD1, XD2, XT1).
+        run: uv run --script .github/scripts/port-test-matrix.py --upstream upstream --no-planned
       # uncovered-lines.py runs in the test job, which has the coverage profile.
 
       # XD1: every Go block of README.md and docs/**/*.md sits under an
@@ -87,6 +86,31 @@ jobs:
       # them.
       - name: Every Go block in README.md and docs/ equals its examples/ source (XD1)
         run: uv run --script .github/scripts/docs-snippets.py --readme README.md --docs docs --examples examples
+
+      # XT1: the examples are the Go counterpart of the Python SDK's positive
+      # typing fixtures, so they must compile. go vet ./... above covers
+      # them too; this step names them, and fails when examples/ holds no
+      # program or one that go list does not report as a package, so it
+      # cannot pass with nothing to check. The live tests compile only with
+      # -tags live, so they are vetted here as well. Like every other step,
+      # it sets no GOEXPERIMENT: the runner's default is the baseline.
+      - name: go vet the examples (XT1) and the live tests
+        run: |
+          mapfile -t dirs < <(git ls-files -- 'examples/*.go' | grep -v '_test\.go$' | xargs -r -n1 dirname | sort -u)
+          if [ "${#dirs[@]}" -eq 0 ]; then
+            echo "::error::examples/ holds no Go program"
+            exit 1
+          fi
+          module="$(go list -m)"
+          listed="$(go list ./examples/... | sed "s#^$module/##" | sort -u)"
+          want="$(printf '%s\n' "${dirs[@]}")"
+          if [ "$listed" != "$want" ]; then
+            printf '::error::go list ./examples/... reports [%s] where examples/ holds [%s]\n' "${listed//$'\n'/ }" "${want//$'\n'/ }"
+            exit 1
+          fi
+          echo "go vet: ${#dirs[@]} example programs: ${dirs[*]}"
+          go vet ./examples/...
+          go vet -tags live ./livetests/
 
       - name: Report available dependency updates
         run: go list -m -u all

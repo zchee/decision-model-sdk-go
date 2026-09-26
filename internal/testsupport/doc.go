@@ -47,6 +47,9 @@
 //     loopback benchmarks.
 //   - [SumGetBody]: the SHA-256 digest of the bytes a request's GetBody
 //     reads, so a test can assert that every attempt sends the same body.
+//   - [FakeAPI]: an in-process stand-in for the TypeSafe API that answers
+//     every question by its type, for running the example programs
+//     without the network.
 //   - [ReadPeerSettings]: the settings of the first SETTINGS frame an
 //     HTTP/2 server sends (its MAX_CONCURRENT_STREAMS among them), read
 //     without a request; the live tests record the API's (risk K22).

@@ -30,5 +30,7 @@
 // testdata/live, after removing every credential from them; a body that
 // still holds anything shaped like a credential is refused, not written.
 // The untagged tests of this package check that guard and that scrubber on
-// every go test run.
+// every go test run, and run the programs under examples/ against a local
+// stand-in for the API (TestExamplesOffline); TestExamples, tagged, runs
+// them against the API.
 package livetests
