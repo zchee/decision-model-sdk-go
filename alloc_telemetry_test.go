@@ -25,6 +25,7 @@ import (
 	"testing"
 
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
+	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
 // discardHandler is a slog.Handler that keeps every record at or above min
@@ -117,23 +118,25 @@ func TestAllocLoggedCall(t *testing.T) {
 var sinkID string
 
 // TestAllocRequestID pins what reading a request id for the INFO
-// "response" record costs (ruling R107, review R103REVERT MINOR 3): no
-// allocation for one value, with or without the client's API key in it,
-// and for no header; one for several values, the string they are joined
-// into, "***" ones included. The header's name is not lower-cased, as
-// isCredential's would be.
+// "response" record costs (ruling R107, review R103REVERT MINOR 3). One
+// value, with or without the client's API key in it, and no header cost
+// no allocation. Several values cost what wire.ResponseMeta.RequestID
+// costs, the reading the record made before R107: that joins them into one
+// string, and requestID builds one string too, of "***" ones when a value
+// holds the key. The header's name is not lower-cased, as isCredential's
+// would be.
 func TestAllocRequestID(t *testing.T) {
 	const key = "ts_live_QzXjWvKpYbNmHgFd"
 	r := newHeaderRedactor(key)
 	tests := map[string]struct {
 		values []string // the x-typesafe-request-id values, nil for none
-		want   float64
+		asMeta bool     // the count is wire.ResponseMeta.RequestID's, not 0
 	}{
-		"success: no request id":                      {want: 0},
-		"success: an id without the key":              {values: []string{"req_123"}, want: 0},
-		"success: an id that holds the key":           {values: []string{"req " + key}, want: 0},
-		"success: a repeated id without the key":      {values: []string{"req_1", "req_2"}, want: 1},
-		"success: a repeated id, one holding the key": {values: []string{"req_1", key, "req_3"}, want: 1},
+		"success: no request id":                      {},
+		"success: an id without the key":              {values: []string{"req_123"}},
+		"success: an id that holds the key":           {values: []string{"req " + key}},
+		"success: a repeated id without the key":      {values: []string{"req_1", "req_2"}, asMeta: true},
+		"success: a repeated id, one holding the key": {values: []string{"req_1", key, "req_3"}, asMeta: true},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -141,8 +144,15 @@ func TestAllocRequestID(t *testing.T) {
 			if tt.values != nil {
 				h["X-Typesafe-Request-Id"] = tt.values
 			}
-			if got := testing.AllocsPerRun(100, func() { sinkID, _ = r.requestID(h) }); got != tt.want {
-				t.Errorf("requestID allocates %v times, want %v (id %q)", got, tt.want, sinkID)
+			var want float64
+			if tt.asMeta {
+				meta := wire.ResponseMeta{Header: h}
+				want = testing.AllocsPerRun(100, func() { sinkID, _ = meta.RequestID() })
+			}
+			got := testing.AllocsPerRun(100, func() { sinkID, _ = r.requestID(h) })
+			t.Logf("requestID allocates %v times, want %v (id %q)", got, want, sinkID)
+			if got != want {
+				t.Errorf("requestID allocates %v times, want %v", got, want)
 			}
 		})
 	}
