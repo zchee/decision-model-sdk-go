@@ -4509,6 +4509,7 @@ benchstat compares medians.
 | --- | --- | --- | --- | --- | --- |
 | K36 | the traversal runs over the body cut before the root's closing brace; decoder.Skip's second scan only when the cut cannot decide | `call/sdk` 6.180 → 5.610 µs (−9.2 %); `Decode/result` 3.428 → 2.779 µs (−18.9 %); allocations unchanged | `call/sdk` 4.846 → 4.365 µs (−9.9 %); `Decode/result` 3.478 → 2.950 µs (−15.2 %); allocations unchanged | keep | 05264fe |
 | R116 store | `DecodeAs` writes each answer at the field's offset (`decodeas_store.go`), so the `T` stays on the stack | `DecodeAs` on `result.json` 184.3 → 98.3 ns (−46.6 %); 1 → 0 allocations | `DecodeAs` on `result.json` 136.2 → 82.7 ns (−39.3 %); 1 → 0 allocations | keep (owner ruling R116) | 7df5a6b |
+| N1 | the first attempt's copy of the endpoint URL and the `*SystemOneResponse` (the models page for `Models.List`) in one allocation, `systemOneAlloc` | `call/sdk` 5.621 → 5.588 µs (−0.6 %, the host's drift: `call/naive` −0.5 % in the same run); 22 → 21 allocations, bytes unchanged | `call/sdk` ~ (p = 0.579; noisy, load up to 20.83); 22 → 21 allocations | keep: N 14 → 13 | 0422123 |
 
 ### K36: one scan of the body (05264fe)
 
@@ -4681,6 +4682,44 @@ Typed store findings:
 4. **The sync.Pool route** (a pool of `*T` per type, the lead's refinement
    before R116) was considered and not built: R116 made it unnecessary.
 
+### N1: the first URL copy in the call's allocation (0422123)
+
+W3.4's N = 14 counted two allocations that live exactly as long as each
+other on a call whose first attempt succeeds: the first attempt's copy of
+the endpoint URL (144 B; every request carries its own `*url.URL`, R66
+NIT 5) and the `*SystemOneResponse` (112 B). `SystemOne` now allocates
+both in one `systemOneAlloc` and returns a pointer to the response inside
+it, and `Models.List` does the same with `modelsAlloc`; a retry still
+copies the URL into a fresh allocation, so no attempt rewrites an earlier
+request's URL, which a transport may still be reading. The commit was
+measured as 6ad7cf8 and amended to 0422123 before it was pushed, to
+correct AC-P3's `Ask` figure in frozen-budgets.md (22/2 648 → 21/2 648);
+the code is the same.
+
+N1 findings:
+
+1. **AC-P6: N 14 → 13 at the same bytes on both hosts** (W5.3-28,
+   W5.3-29): SDK-own 14/2 008 → 13/2 008, the call 22/2 648 → 21/2 648
+   (144 + 112 = 256, one size class, so no byte is added), q20 34 → 33
+   (recorded). Five runs of `TestAllocWholeCall` a side agree on each
+   host. `TestAllocWholeCall`'s pin, `TestAllocLoggedCall`'s 21/2 648,
+   the frozen AC-P6 row, AC-P3's `Ask` figure and ci.yaml's comment moved
+   in the same commit (R104); ci.yaml's allocation-budget step and
+   `-race` pass on (L).
+2. **No time moves.** (L): `call/sdk` 5.621 → 5.588 µs (−0.6 %, p =
+   0.011) with `call/naive` −0.5 % (p = 0.035) in the same interleaved
+   run, so the difference is the host's, not the candidate's (W5.3-27).
+   (M): `call/sdk` 4.637 → 4.644 µs (~, p = 0.579), a noisy run: the load
+   rose from 8.74 to 20.83 during it, above the 16 cores, and the spread
+   of one side reached ± 693 % (W5.3-30). N1 is kept for the count, which
+   is AC-P6's frozen clause; its time is within noise.
+3. **The per-attempt copy is pinned** (W5.3-32): `TestRetryURLIsCopied`
+   (new, `synctest`, `MaxRetries(1)`, a 503 then a 200) checks that each
+   request of one call has its own `*url.URL`, for `SystemOne` and for
+   `Models.List`. Two mutants fail: the retry reusing the call's URL
+   storage fails it, and no copy at all (the request pointing at the
+   client's URL) fails it and `TestRequestURLIsCopied`.
+
 | # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | W5.3-01 | 2026-09-26 08:36:53 UTC | W5.3 K36 `BenchmarkCall`, first run | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 2.49 → 9.10 | `BASE=67dcbb0 CAND=05264fe MAXLOAD=4 sh $A '(L)' $O /tmp/ts-spike/bench.lock k36-call-L internal/benchmark 5 <base tree> <cand tree> -test.run '^$' -test.bench '^BenchmarkCall$/^(sdk\|naive)(-q20)?$' -test.benchmem -test.count 2` | `call/sdk` 7.088 → 6.250 µs (−11.8 %), q20 29.89 → 26.49 µs (−11.4 %); naive unchanged; allocations 22 and 42 both sides | during W6.1's fuzz campaign on (L) (8 workers, load 2.5 → 9.1): absolute times about 15 % above W5.3-03; kept, not of record; `results/k36-call-L-{base,cand}.txt` |
@@ -4709,3 +4748,9 @@ Typed store findings:
 | W5.3-24 | 2026-09-26 18:13:14 JST | W5.3 typed store gates | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 37.23 → – | as W5.3-08, at 7df5a6b | every gate ok | load 37.2 at the start from other lanes (counts do not depend on it, R17); `results/gates-M-7df5a6b.txt` |
 | W5.3-25 | 2026-09-26 18:10:17 JST | W5.3 typed store mutants | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | each mutant planted in a copy of 7df5a6b's tree, then the store, AC-P3, AC-F12 and seam tests | all 6 fail: offset off by one, the next field's offset, a wider write (the two corrupt the stack: a fatal error in the AC-F12 differential; `TestStoreKeepsNeighbours` fails alone), the answer copied as bytes, the store in another file, `UnsafePointer()` in `decodeas.go` | unit tests; `results/store-mutants-M.txt` |
 | W5.3-26 | 2026-09-26 18:11:16 JST | W5.3 typed store vet, escape analysis, `-race` | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | `go vet ./...`; `go build -gcflags=-m=2 .`; `go test -c -gcflags=-m .`; `go test -race -count=1 -run 'TestStore\|TestDecodeTypedPlanMismatch\|TestDecodeAs\|Ask\|Typed\|PreparedFor' .` | vet ok; `b does not escape` in `decode`; no `moved to heap: t`; `-race` (checkptr) PASS | `results/store-escape-M.txt` |
+| W5.3-27 | 2026-09-26 09:59:35 UTC | W5.3 N1 `BenchmarkCall` | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.00 → 0.45 | `BASE=6f9a3af CAND=6ad7cf8 MAXLOAD=2 sh $A '(L)' $O /tmp/ts-spike/bench.lock n1-call-L internal/benchmark 5 <base tree> <cand tree> -test.run '^$' -test.bench '^BenchmarkCall$/^(sdk\|naive)(-q20)?$' -test.benchmem -test.count 2` | `call/sdk` 5.621 → 5.588 µs (−0.59 %, p = 0.011), `call/naive` 6.872 → 6.836 µs (−0.52 %, p = 0.035), q20 ~; allocations `call/sdk` 22 → 21, `call/sdk-q20` 42 → 41, bytes unchanged | the host's drift, alike on both sides (finding 2); `results/n1-call-L-{base,cand}.txt`, `results/batch-n1-L.log` |
+| W5.3-28 | 2026-09-26 10:01:11 UTC | W5.3 N1 AC-P6 counts, ci.yaml's allocation-budget step, `-race` | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.45 → 0.96 | under `flock /tmp/ts-spike/bench.lock`: `go test -count=5 -run '^TestAllocWholeCall$' -v .` at 6f9a3af and at 6ad7cf8; ci.yaml's allocation-budget step (extracted from the tree's ci.yaml with sed, run under `bash -eo pipefail`) and `go test -race -count=1 ./...` at 6ad7cf8 | q3 own 14/2 008 → 13/2 008 in 5 of 5 runs a side, call 22/2 648 → 21/2 648; q20 own 34 → 33; the step exits 0; `-race` passes | `results/n1-alloc-L.txt` |
+| W5.3-29 | 2026-09-26 19:02:06 JST | W5.3 N1 AC-P6 counts | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 37.48 → 37.48 | `GOEXPERIMENT=nosimd,noruntimesecret go test -count=5 -run '^TestAllocWholeCall$' -v .` at 6f9a3af and at 6ad7cf8 | as W5.3-28: own 14/2 008 → 13/2 008 in 5 of 5 runs a side; q20 34 → 33 | counts do not depend on the load (R17); `results/n1-alloc-M.txt` |
+| W5.3-30 | 2026-09-26 19:06:44 JST | W5.3 N1 `BenchmarkCall` | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 8.74 → 20.83 | `BASE=6f9a3af CAND=6ad7cf8 GOEXPERIMENT=nosimd,noruntimesecret FLOCK=$F MAXLOAD=10 sh $A '(M)' $O $SP/bench.lock n1-call-M internal/benchmark 5 <base tree> <cand tree> -test.run '^$' -test.bench '^BenchmarkCall$/^(sdk\|naive)(-q20)?$' -test.benchmem -test.count 2` | `call/sdk` 4.637 → 4.644 µs (~, p = 0.579), `call/naive` ~, q20 ~; allocations 22 → 21 and 42 → 41 | **noisy**: the load rose above 16 during the run (± 693 % on one side); waited 4 × 60 s for load ≤ 10; `results/n1-call-M-{base,cand}.txt` |
+| W5.3-31 | 2026-09-26 18:59:17 JST | W5.3 N1 gates | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 89.65 → – | as W5.3-08, at 6ad7cf8 | every gate ok | load 89.7 at the start from other lanes (counts do not depend on it, R17); the modernize trace lines are left out of the copy; `results/gates-M-6ad7cf8.txt` |
+| W5.3-32 | 2026-09-26 18:19:08 JST | W5.3 N1 mutants | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | each mutant planted in the working tree, then `go vet .` and the root package's unit tests | both fail: the retry reusing the call's URL storage (`TestRetryURLIsCopied`); no copy, the request pointing at the client's URL (`TestRequestURLIsCopied`, `TestRetryURLIsCopied`) | `results/n1-mutants-M.txt` |
