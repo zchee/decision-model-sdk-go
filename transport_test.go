@@ -77,18 +77,12 @@ func loopbackConfig(t *testing.T, srv *testsupport.LoopbackServer, opts ...Clien
 	return mustResolve(t, noEnv, append(base, opts...)...)
 }
 
-// closedAddr returns a loopback address nothing listens on.
+// closedAddr returns a loopback address nothing listens on until the test
+// ends ([testsupport.RefusedAddr]: the address of a closed listener could be
+// taken by another listener before the dial, ruling K39).
 func closedAddr(t *testing.T) string {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	addr := ln.Addr().String()
-	if err := ln.Close(); err != nil {
-		t.Fatalf("close: %v", err)
-	}
-	return addr
+	return testsupport.RefusedAddr(t)
 }
 
 // TestHTTPVersionString pins the names of the policies.

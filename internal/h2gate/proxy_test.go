@@ -142,12 +142,7 @@ func TestProxy(t *testing.T) {
 	})
 
 	t.Run("error: an unreachable proxy is a proxy failure", func(t *testing.T) {
-		ln, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatal(err)
-		}
-		dead := &url.URL{Scheme: "http", Host: ln.Addr().String()}
-		_ = ln.Close()
+		dead := &url.URL{Scheme: "http", Host: testsupport.RefusedAddr(t)}
 		tr := newTestTransport(t, Config{APIURL: mustURL(t, exampleURL), Proxy: http.ProxyURL(dead), DialContext: testsupport.Routes{}.DialContext})
 		r := get(t.Context(), tr, exampleURL+"/")
 		want := map[string]bool{"proxy": true, "timeout": false, "not_negotiated": false}

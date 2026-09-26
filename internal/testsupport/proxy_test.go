@@ -120,13 +120,7 @@ func TestProxyRefusals(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			closed, err := net.Listen("tcp", "127.0.0.1:0")
-			if err != nil {
-				t.Fatal(err)
-			}
-			closedAddr := closed.Addr().String()
-			_ = closed.Close()
-			proxy := NewProxy(t, ProxyPlain, Routes{"closed.test:443": closedAddr})
+			proxy := NewProxy(t, ProxyPlain, Routes{"closed.test:443": RefusedAddr(t)})
 			conn, err := net.DialTimeout("tcp", proxy.Addr(), 5*time.Second)
 			if err != nil {
 				t.Fatal(err)

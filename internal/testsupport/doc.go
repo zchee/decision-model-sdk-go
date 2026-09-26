@@ -26,6 +26,10 @@
 //     that offers http/1.1 only.
 //   - [SilentListener]: a TCP listener that accepts and never answers, for a
 //     peer that never finishes the TLS handshake.
+//   - [RefusedAddr]: a loopback address that refuses every dial until the
+//     test ends: the port of a connection the test holds open, which a
+//     listener asking for any port was not given on darwin or Linux
+//     (Windows is unmeasured).
 //   - [GatedDialer]: a client DialContext that holds each dial until the test
 //     closes a channel. The LoopbackServer has no knob that delays its
 //     handshake; a test that needs a dial to complete late gates the
