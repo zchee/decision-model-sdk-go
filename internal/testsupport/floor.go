@@ -47,8 +47,10 @@ func FloorCall(rt http.RoundTripper, req *http.Request) error {
 // body as a real server would. Close runs from tb.Cleanup.
 func NewFixtureServer(tb testing.TB) *LoopbackServer {
 	tb.Helper()
-	result := FixtureString(tb, "result.json")
-	models := FixtureString(tb, "models.json")
+	// Bytes, written with Write: the loopback server's response writer has
+	// no WriteString, so a string would cost a conversion per response.
+	result := Fixture(tb, "result.json")
+	models := Fixture(tb, "models.json")
 	return NewLoopbackServer(tb, ServerConfig{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_, _ = io.Copy(io.Discard, r.Body)
@@ -58,7 +60,7 @@ func NewFixtureServer(tb testing.TB) *LoopbackServer {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Content-Length", strconv.Itoa(len(body)))
-			_, _ = io.WriteString(w, body)
+			_, _ = w.Write(body)
 		}),
 	})
 }
