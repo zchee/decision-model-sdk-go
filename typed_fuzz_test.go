@@ -135,6 +135,13 @@ var tagGrammarSeeds = []string{
 	`instructions=a\\;kind=noul`,
 	"instructions=\xff",
 	"name=請求;instructions=請求の件ですか？",
+	// Whole struct tags, for the lookupTag half.
+	`typesafe:"kind=noul"`,
+	`typesafe: "kind=noul"`,
+	`typesafe :"kind=noul"`,
+	`typesafe:"kind=noul" typesafe:"kind=choice"`,
+	`json:spam typesafe:"kind=noul"`,
+	`json:"spam" typesafe:"kind=noul;optional" xml:x`,
 }
 
 // FuzzTagGrammar checks the tag grammar on any input: parseTag never
@@ -143,7 +150,8 @@ var tagGrammarSeeds = []string{
 // a *tagError, the same one each time. The same tag on a field of each
 // answer type and of a string type either asks a question that
 // Questions.Prepare accepts or is refused with a *ConfigError that names the
-// field.
+// field. Read as a whole struct tag instead, the input gives lookupTag the
+// result reflect.StructTag.Lookup gives, unless lookupTag reports a problem.
 func FuzzTagGrammar(f *testing.F) {
 	for _, seed := range tagGrammarSeeds {
 		f.Add(seed)
@@ -174,6 +182,12 @@ func FuzzTagGrammar(f *testing.F) {
 			}
 			if diff := gocmp.Diff(spec, back, planOptions); diff != "" {
 				t.Fatalf("round trip of %q through %q (-first +second):\n%s", tag, canonical, diff)
+			}
+		}
+
+		if value, ok, problem := lookupTag(reflect.StructTag(tag)); problem == "" {
+			if rv, rok := reflect.StructTag(tag).Lookup("typesafe"); rv != value || rok != ok {
+				t.Fatalf("lookupTag(%q) = (%q, %v), reflect's Lookup = (%q, %v)", tag, value, ok, rv, rok)
 			}
 		}
 

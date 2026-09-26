@@ -688,27 +688,65 @@ func TestPreparedForRejections(t *testing.T) {
 	}
 }
 
-// TestPreparedForMalformedTag covers a tag that is not a valid Go string
-// literal, such as `typesafe:"instructions=a\;b"` written with one
-// backslash: reflect.StructTag.Lookup reports it as absent, and PreparedFor
-// refuses the field (13) instead of ignoring the tag. go vet refuses such a
-// literal in source, so the types are made with reflect.StructOf.
+// TestPreparedForMalformedTag covers the struct tags that name a typesafe
+// key reflect.StructTag.Lookup would not return, or would return while
+// ignoring a second one: a value that is not a valid Go string literal
+// (such as `typesafe:"instructions=a\;b"` written with one backslash), a
+// space around the colon, the key given twice, and a malformed pair before
+// the key. PreparedFor refuses the field (13) instead of ignoring the tag,
+// on answer fields and on other fields alike. go vet refuses most of these
+// literals in source, so the types are made with reflect.StructOf.
 func TestPreparedForMalformedTag(t *testing.T) {
+	const (
+		notLiteral = `the typesafe tag is not a valid Go string literal; write each backslash of an escape twice in the struct tag, as in typesafe:"instructions=a\\;b".`
+		notForm    = `the typesafe key is not written as typesafe:"...", with no space around the colon and the value in double quotes, so reflect does not see it; write it that way.`
+		twice      = `the struct tag gives the typesafe key more than once; give it once.`
+		hidden     = `the struct tag is not in the key:"value" form before its typesafe key, so reflect does not see that key; separate the key:"value" pairs with single spaces.`
+	)
+	answer, text := reflect.TypeFor[NoulAnswer](), reflect.TypeFor[string]()
 	tests := map[string]struct {
 		field   reflect.StructField
 		wantMsg string
 	}{
 		"error: (13) single backslash before ;": {
-			field:   reflect.StructField{Name: "Spam", Type: reflect.TypeFor[NoulAnswer](), Tag: `typesafe:"kind=noul;instructions=a\;b"`},
-			wantMsg: `field Spam: the typesafe tag is not a valid Go string literal; write each backslash of an escape twice in the struct tag, as in typesafe:"instructions=a\\;b".`,
+			field:   reflect.StructField{Name: "Spam", Type: answer, Tag: `typesafe:"kind=noul;instructions=a\;b"`},
+			wantMsg: `field Spam: ` + notLiteral,
 		},
 		"error: (13) unterminated Go literal": {
-			field:   reflect.StructField{Name: "Spam", Type: reflect.TypeFor[NoulAnswer](), Tag: `json:"spam" typesafe:"kind=noul`},
-			wantMsg: `field Spam: the typesafe tag is not a valid Go string literal; write each backslash of an escape twice in the struct tag, as in typesafe:"instructions=a\\;b".`,
+			field:   reflect.StructField{Name: "Spam", Type: answer, Tag: `json:"spam" typesafe:"kind=noul`},
+			wantMsg: `field Spam: ` + notLiteral,
 		},
-		"error: (13) malformed tag on a string field": {
-			field:   reflect.StructField{Name: "Note", Type: reflect.TypeFor[string](), Tag: `typesafe:"optional\;"`},
-			wantMsg: `field Note: the typesafe tag is not a valid Go string literal; write each backslash of an escape twice in the struct tag, as in typesafe:"instructions=a\\;b".`,
+		"error: (13) malformed literal on a string field": {
+			field:   reflect.StructField{Name: "Note", Type: text, Tag: `typesafe:"optional\;"`},
+			wantMsg: `field Note: ` + notLiteral,
+		},
+		"error: (13) space after the colon": {
+			field:   reflect.StructField{Name: "Spam", Type: answer, Tag: `typesafe: "kind=noul"`},
+			wantMsg: `field Spam: ` + notForm,
+		},
+		"error: (13) space after the colon on a string field": {
+			field:   reflect.StructField{Name: "Note", Type: text, Tag: `typesafe: "optional"`},
+			wantMsg: `field Note: ` + notForm,
+		},
+		"error: (13) space before the colon": {
+			field:   reflect.StructField{Name: "Spam", Type: answer, Tag: `typesafe :"kind=noul"`},
+			wantMsg: `field Spam: ` + notForm,
+		},
+		"error: (13) typesafe key given twice": {
+			field:   reflect.StructField{Name: "Spam", Type: answer, Tag: `typesafe:"kind=noul" typesafe:"kind=choice"`},
+			wantMsg: `field Spam: ` + twice,
+		},
+		"error: (13) typesafe key given twice on a string field": {
+			field:   reflect.StructField{Name: "Note", Type: text, Tag: `typesafe:"optional" json:"note" typesafe:"optional"`},
+			wantMsg: `field Note: ` + twice,
+		},
+		"error: (13) malformed pair before the typesafe key": {
+			field:   reflect.StructField{Name: "Spam", Type: answer, Tag: `json:spam typesafe:"kind=noul"`},
+			wantMsg: `field Spam: ` + hidden,
+		},
+		"error: (13) malformed pair before the typesafe key on a string field": {
+			field:   reflect.StructField{Name: "Note", Type: text, Tag: `json:note typesafe:"optional"`},
+			wantMsg: `field Note: ` + hidden,
 		},
 	}
 	for name, tt := range tests {
@@ -724,16 +762,27 @@ func TestPreparedForMalformedTag(t *testing.T) {
 			}
 		})
 	}
+	// reflect.StructOf cannot make an unexported field; planField reads one
+	// as reflection describes it, with a package path.
+	t.Run("error: (9) malformed tag on an unexported field", func(t *testing.T) {
+		field := reflect.StructField{Name: "spam", PkgPath: "github.com/zchee/typesafe-sdk-go", Type: answer, Tag: `typesafe: "kind=noul"`}
+		_, asks, err := planField("T", &field)
+		want := `PreparedFor[T]: field spam: the field is unexported and has a typesafe tag; only exported fields are answered: export the field or remove the tag.`
+		if asks || err == nil || err.Error() != want {
+			t.Errorf("planField = (asks %v, %v), want the error %q", asks, err, want)
+		}
+	})
 }
 
-// TestLookupTag checks the struct tag lookup against reflect's for
-// well-formed tags, and its report of a malformed typesafe value.
+// TestLookupTag checks the struct tag lookup against reflect's for the tags
+// reflect reads, and its report of every tag that names a typesafe key
+// reflect would miss, or would read only the first of.
 func TestLookupTag(t *testing.T) {
 	tests := map[string]struct {
-		tag           reflect.StructTag
-		wantValue     string
-		wantOK        bool
-		wantMalformed bool
+		tag         reflect.StructTag
+		wantValue   string
+		wantOK      bool
+		wantProblem string
 	}{
 		"success: no tag":               {tag: ``},
 		"success: other keys only":      {tag: `json:"spam,omitzero" xml:"spam"`},
@@ -742,19 +791,36 @@ func TestLookupTag(t *testing.T) {
 		"success: Go escapes unquoted":  {tag: `typesafe:"instructions=a\\;b \"quoted\""`, wantValue: `instructions=a\;b "quoted"`, wantOK: true},
 		"success: empty value":          {tag: `typesafe:""`, wantOK: true},
 		"success: key as a prefix only": {tag: `typesafe2:"kind=noul"`},
-		"error: invalid Go escape":      {tag: `typesafe:"a\;b"`, wantMalformed: true},
-		"error: unterminated literal":   {tag: `typesafe:"kind=noul`, wantMalformed: true},
-		"error: bad literal of another key is not ours": {
+		"success: key as a suffix only": {tag: `nottypesafe:"kind=noul"`},
+		"success: bad literal of another key is not ours": {
 			tag: `json:"a\;b" typesafe:"kind=noul"`, wantValue: "kind=noul", wantOK: true,
 		},
+		"success: malformed pair after the key": {
+			tag: `typesafe:"kind=noul" json:spam`, wantValue: "kind=noul", wantOK: true,
+		},
+		"success: malformed pair that only mentions typesafe": {
+			tag: `json:spam doc:"see typesafe"`,
+		},
+		"success: the word typesafe inside a malformed pair": {
+			tag: `json:about-typesafe:x`,
+		},
+		"error: invalid Go escape":           {tag: `typesafe:"a\;b"`, wantProblem: tagNotLiteral},
+		"error: unterminated literal":        {tag: `typesafe:"kind=noul`, wantProblem: tagNotLiteral},
+		"error: space after the colon":       {tag: `typesafe: "kind=noul"`, wantProblem: tagNotForm},
+		"error: space before the colon":      {tag: `typesafe :"kind=noul"`, wantProblem: tagNotForm},
+		"error: value without quotes":        {tag: `typesafe:kind=noul`, wantProblem: tagNotForm},
+		"error: key given twice":             {tag: `typesafe:"kind=noul" typesafe:"kind=choice"`, wantProblem: tagTwice},
+		"error: second key unterminated":     {tag: `typesafe:"kind=noul" typesafe:"kind=choice`, wantProblem: tagTwice},
+		"error: second key with a space":     {tag: `typesafe:"kind=noul" typesafe: "kind=choice"`, wantProblem: tagTwice},
+		"error: malformed pair before a key": {tag: `json:spam typesafe:"kind=noul"`, wantProblem: tagHidden},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			value, ok, malformed := lookupTag(tt.tag)
-			if diff := gocmp.Diff([]any{tt.wantValue, tt.wantOK, tt.wantMalformed}, []any{value, ok, malformed}); diff != "" {
-				t.Errorf("lookupTag(%q) = (value, ok, malformed) (-want +got):\n%s", tt.tag, diff)
+			value, ok, problem := lookupTag(tt.tag)
+			if diff := gocmp.Diff([]any{tt.wantValue, tt.wantOK, tt.wantProblem}, []any{value, ok, problem}); diff != "" {
+				t.Errorf("lookupTag(%q) = (value, ok, problem) (-want +got):\n%s", tt.tag, diff)
 			}
-			if !tt.wantMalformed {
+			if tt.wantProblem == "" {
 				rv, rok := tt.tag.Lookup("typesafe")
 				if rv != value || rok != ok {
 					t.Errorf("reflect's Lookup(%q) = (%q, %v), lookupTag = (%q, %v)", tt.tag, rv, rok, value, ok)

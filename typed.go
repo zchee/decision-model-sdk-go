@@ -95,7 +95,10 @@ import (
 // A struct tag is itself a Go string literal, so in source each of these
 // backslashes is written twice: `typesafe:"kind=noul;instructions=a\\;b"`
 // asks "a;b". A single backslash makes the tag malformed (go vet reports it),
-// and PreparedFor refuses the field instead of ignoring the tag.
+// and PreparedFor refuses the field instead of ignoring the tag, as it does
+// when the key is written with a space around its colon, is given twice, or
+// follows a malformed pair: every tag that reflect would read as having no
+// typesafe key, or only the first of two, while it names one.
 //
 // # Rejections
 //
@@ -329,23 +332,23 @@ var reservedNames = [...]string{"type", "model", "usage", "answers"}
 // and is ignored.
 func planField(outer string, f *reflect.StructField) (q typedQuestion, asks bool, err error) {
 	at := "PreparedFor[" + outer + "]: field " + f.Name + ": "
-	tag, tagged, malformed := lookupTag(f.Tag)
-	if !tagged && !malformed && f.Anonymous {
+	tag, tagged, problem := lookupTag(f.Tag)
+	if !tagged && problem == "" && f.Anonymous {
 		if path := promotedTag(f.Name, f.Type, nil); path != "" {
 			name := path[strings.LastIndexByte(path, '.')+1:]
 			return q, false, newConfigError(at + "fields of an embedded struct are not promoted, and " + path + " has a typesafe tag; declare " + name + " in " + outer + " itself, since PreparedFor reads only the struct's own fields.")
 		}
 	}
 	if !f.IsExported() {
-		if tagged || malformed {
+		if tagged || problem != "" {
 			return q, false, newConfigError(at + "the field is unexported and has a typesafe tag; only exported fields are answered: export the field or remove the tag.")
 		}
 		return q, false, nil
 	}
 	kind := answerKind(f.Type)
 	pointer := f.Type.Kind() == reflect.Pointer && answerKind(derefAll(f.Type)) != wire.KindUnknown
-	if malformed {
-		return q, false, newConfigError(at + `the typesafe tag is not a valid Go string literal; write each backslash of an escape twice in the struct tag, as in typesafe:"instructions=a\\;b".`)
+	if problem != "" {
+		return q, false, newConfigError(at + problem)
 	}
 	if !tagged {
 		switch {
@@ -438,7 +441,7 @@ func promotedTag(path string, t reflect.Type, seen []reflect.Type) string {
 	}
 	seen = append(seen, t)
 	for f := range t.Fields() {
-		if _, tagged, malformed := lookupTag(f.Tag); tagged || malformed {
+		if _, tagged, problem := lookupTag(f.Tag); tagged || problem != "" {
 			return path + "." + f.Name
 		}
 		if f.Anonymous {
@@ -496,15 +499,27 @@ func kindKeys(k wire.Kind) string {
 	}
 }
 
+// The problems lookupTag reports: each is a typesafe key that
+// [reflect.StructTag.Lookup] would not return, or would return while
+// ignoring a second one.
+const (
+	tagNotLiteral = `the typesafe tag is not a valid Go string literal; write each backslash of an escape twice in the struct tag, as in typesafe:"instructions=a\\;b".`
+	tagNotForm    = `the typesafe key is not written as typesafe:"...", with no space around the colon and the value in double quotes, so reflect does not see it; write it that way.`
+	tagTwice      = `the struct tag gives the typesafe key more than once; give it once.`
+	tagHidden     = `the struct tag is not in the key:"value" form before its typesafe key, so reflect does not see that key; separate the key:"value" pairs with single spaces.`
+)
+
 // lookupTag returns the value of the "typesafe" key of the struct tag tag,
-// as [reflect.StructTag.Lookup] does, and whether the key is there. Unlike
-// Lookup it also reports malformed when the key is there but its value is
-// not a valid Go string literal, such as a value with a single backslash
-// before ";": Lookup would report such a tag as absent, and the field would
-// be taken for an untagged one.
-func lookupTag(tag reflect.StructTag) (value string, ok, malformed bool) {
+// as [reflect.StructTag.Lookup] does, and whether the key is there. Where
+// Lookup would report the key as absent although the tag names it, or would
+// return the first of two, lookupTag returns a problem instead, one of the
+// tag* messages, so that the field is refused rather than taken for an
+// untagged one: a value that is not a valid Go string literal (a single
+// backslash before ";"), a space around the colon, the key given twice, or
+// a malformed pair before the key, which stops Lookup's scan.
+func lookupTag(tag reflect.StructTag) (value string, ok bool, problem string) {
 	// The loop is reflect.StructTag.Lookup's, which follows the
-	// conventional key:"value" format.
+	// conventional key:"value" format, but it reads the whole tag.
 	for tag != "" {
 		i := 0
 		for i < len(tag) && tag[i] == ' ' {
@@ -519,7 +534,9 @@ func lookupTag(tag reflect.StructTag) (value string, ok, malformed bool) {
 			i++
 		}
 		if i == 0 || i+1 >= len(tag) || tag[i] != ':' || tag[i+1] != '"' {
-			break
+			// Lookup's scan stops here: a typesafe key in the rest is one
+			// it would not see.
+			return hiddenKey(string(tag), value, ok)
 		}
 		name := string(tag[:i])
 		tag = tag[i+1:]
@@ -531,19 +548,56 @@ func lookupTag(tag reflect.StructTag) (value string, ok, malformed bool) {
 			i++
 		}
 		if i >= len(tag) {
-			return "", false, name == "typesafe"
+			if name != "typesafe" {
+				break
+			}
+			if ok {
+				return "", false, tagTwice
+			}
+			return "", false, tagNotLiteral
 		}
 		qvalue := string(tag[:i+1])
 		tag = tag[i+1:]
 		if name == "typesafe" {
+			if ok {
+				return "", false, tagTwice
+			}
 			v, err := strconv.Unquote(qvalue)
 			if err != nil {
-				return "", false, true
+				return "", false, tagNotLiteral
 			}
-			return v, true, false
+			value, ok = v, true
 		}
 	}
-	return "", false, false
+	return value, ok, ""
+}
+
+// hiddenKey is lookupTag's result when the conventional scan stops at rest,
+// having found value (when ok) before it: a problem when rest names a
+// typesafe key, and value itself otherwise.
+func hiddenKey(rest, value string, ok bool) (string, bool, string) {
+	for i := 0; ; {
+		j := strings.Index(rest[i:], "typesafe")
+		if j < 0 {
+			return value, ok, ""
+		}
+		at := i + j
+		i = at + len("typesafe")
+		if at > 0 && rest[at-1] != ' ' {
+			continue
+		}
+		if !strings.HasPrefix(strings.TrimLeft(rest[i:], " "), ":") {
+			continue
+		}
+		switch {
+		case ok:
+			return "", false, tagTwice
+		case at == 0:
+			return "", false, tagNotForm
+		default:
+			return "", false, tagHidden
+		}
+	}
 }
 
 // tagKey is one key of the tag grammar, as a bit of a key set.
