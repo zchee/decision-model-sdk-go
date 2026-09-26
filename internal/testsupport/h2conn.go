@@ -318,6 +318,9 @@ type h2Hooks struct {
 	goAwayPublished func(*H2Conn)
 	// closeWriteEnter runs in closeWrite before it takes the write lock.
 	closeWriteEnter func(*H2Conn)
+	// drainBound, when positive, replaces drainBound as the time the
+	// draining reader waits for the client to close its side.
+	drainBound time.Duration
 }
 
 // closeGracefully ends the connection for [LoopbackServer.CloseConns] and
@@ -340,8 +343,14 @@ func (c *H2Conn) closeGracefully() {
 // 4.2.2.13), which on Windows destroys what the client has not read yet
 // (rulings K33, K34).
 func (c *H2Conn) closeWrite() {
-	if h := c.srv.hooks.Load(); h != nil && h.closeWriteEnter != nil {
-		h.closeWriteEnter(c)
+	bound := drainBound
+	if h := c.srv.hooks.Load(); h != nil {
+		if h.closeWriteEnter != nil {
+			h.closeWriteEnter(c)
+		}
+		if h.drainBound > 0 {
+			bound = h.drainBound
+		}
 	}
 	c.wmu.Lock()
 	// The record precedes close_notify, and so anything the client does once
@@ -353,7 +362,7 @@ func (c *H2Conn) closeWrite() {
 		_ = cw.CloseWrite() // FIN
 	}
 	// Under the write lock, so serve cannot clear it after its preface.
-	_ = c.nc.SetReadDeadline(time.Now().Add(drainBound))
+	_ = c.nc.SetReadDeadline(time.Now().Add(bound))
 	c.wmu.Unlock()
 }
 
