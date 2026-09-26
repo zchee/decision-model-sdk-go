@@ -89,11 +89,12 @@ func newHeaderRedactor(apiKey string) headerRedactor {
 // redactor returns the redactor for the client c configures.
 func (c *config) redactor() headerRedactor { return newHeaderRedactor(c.apiKey) }
 
-// header returns a copy of h in which every value of each header that is a
-// credential is replaced by "***", one "***" per value, and every other
-// header shares its value slice with h; nil stays nil. The error types that
-// keep a response's header store this copy, so no rendering of them, and no
-// caller that dumps their Header, shows a credential the server sent.
+// header returns h's headers in a new map in which every value of each
+// header that is a credential is replaced by "***", one "***" per value, and
+// every other header shares its value slice with h; nil stays nil. The error
+// types that keep a response's header store this map, so no rendering of
+// them, and no caller that dumps their Header, shows a credential the server
+// sent.
 func (r headerRedactor) header(h http.Header) http.Header {
 	if h == nil {
 		return nil

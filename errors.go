@@ -214,7 +214,7 @@ type APIError struct {
 	Kind APIErrorKind
 	// StatusCode is the HTTP status code.
 	StatusCode int
-	// Header is a copy of the response header in which each value of a
+	// Header is the response header as a new map in which each value of a
 	// header that carries a credential is "***": a header named
 	// Authorization, Proxy-Authorization, X-Api-Key, Api-Key, Cookie or
 	// Set-Cookie, or whose name contains "token" or "secret" (compared
@@ -222,8 +222,9 @@ type APIError struct {
 	// client's API key when the key is at least 8 bytes long. Every other
 	// header, Retry-After, Retry-After-Ms and X-Typesafe-Request-Id
 	// included, is as the server sent it, so [APIError.RetryAfter] and
-	// [APIError.RequestID] read it. typesafe-sdk-python keeps the headers
-	// as they arrived and redacts them only in its logs.
+	// [APIError.RequestID] read it. The values of those other headers are
+	// the response's own and must not be modified. typesafe-sdk-python
+	// keeps the headers as they arrived and redacts them only in its logs.
 	Header http.Header
 	// Body is the response body as it arrived, or nil when it was empty or
 	// over the size limit. It is shared, not copied, and must not be
@@ -310,8 +311,9 @@ func newAPIError(meta *wire.ResponseMeta, endpoint string, r headerRedactor) *AP
 type ResponseValidationError struct {
 	// StatusCode is the HTTP status code.
 	StatusCode int
-	// Header is a copy of the response header with each credential's value
-	// "***", as [APIError.Header] describes.
+	// Header is the response header as a new map with each credential's
+	// value "***", as [APIError.Header] describes; the values of the other
+	// headers are the response's own and must not be modified.
 	Header http.Header
 	// Body is the response body as it arrived. It is shared, not copied,
 	// and must not be modified.
@@ -371,8 +373,9 @@ func newResponseValidationError(meta *wire.ResponseMeta, endpoint string, r head
 type ResponseTooLargeError struct {
 	// StatusCode is the HTTP status code.
 	StatusCode int
-	// Header is a copy of the response header with each credential's value
-	// "***", as [APIError.Header] describes.
+	// Header is the response header as a new map with each credential's
+	// value "***", as [APIError.Header] describes; the values of the other
+	// headers are the response's own and must not be modified.
 	Header http.Header
 	// Endpoint is the request's method and URL without credentials, query
 	// or fragment, or empty when it is not known.
