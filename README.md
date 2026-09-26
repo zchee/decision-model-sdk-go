@@ -403,7 +403,9 @@ made during the port, says otherwise. The main differences:
 naming the Python behaviour, the Go behaviour and why, and the upstream
 tests it replaces; [`docs/port-test-matrix.md`](docs/port-test-matrix.md)
 maps every one of the Python SDK's 129 tests to a Go test or to a row of
-that table.
+that table. [`docs/as-built.md`](docs/as-built.md) records how the port's
+plan changed while the SDK was built: each ruling that amended it, the
+test that pins the result, and the owner's answers.
 
 ## Tests
 
