@@ -1,0 +1,252 @@
+//go:build !go1.28 && (amd64 || arm64)
+
+// Copyright 2026 The typesafe-sdk-go Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package codec
+
+import (
+	"os"
+	"runtime"
+	"strings"
+	"testing"
+
+	"github.com/bytedance/sonic"
+	"github.com/bytedance/sonic/ast"
+	sonicdecoder "github.com/bytedance/sonic/decoder"
+
+	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
+	"github.com/zchee/typesafe-sdk-go/internal/wire"
+)
+
+// sonicOverReads are the 31 inputs on which review W6.2 MIN-1 saw sonic
+// v1.15.4's advance_dword read past the input's end, on darwin/arm64 and on
+// linux/amd64 alike: every one shorter than 4 bytes, with a t, n or f where
+// sonic reads a literal.
+var sonicOverReads = []string{
+	"[f", "[fa", "[n", "[t", "f f", "f", "f+", "f0", "f2:", "f:", "fC3", "fE", "fF5", "fFA", "fa", "fal",
+	"fc2", "fcn", "fee", "fr", "n", "nB", "nE", "nl", "nt", "nu", "t", "t1", `t\`, "tf", "tr",
+}
+
+// cutOverReads are bodies of 4 bytes or more whose cut (cutPoint) was
+// shorter than 4 bytes, so that the one-scan traversal handed sonic a short
+// input inside the body and sonic read past the body's end (found while
+// fixing MIN-1): " f]}" cuts to " f]", whose false is read 2 bytes past.
+var cutOverReads = []string{" f]}", "\tf]}", "f]} ", "fa]}", " fa]}"}
+
+// guardEntries are the SDK's ways of handing sonic bytes that a server or a
+// caller chose, each as the SDK makes it: the four exported decoders, and
+// the three sonic steps inside them on the bytes their callers give them
+// (the error body's compact JSON, which ReadErrorBody builds, is placed at
+// the guard in its own right).
+var guardEntries = []struct {
+	name string
+	run  func(b []byte)
+}{
+	{"DecodeSystemOne", func(b []byte) { var d wire.SystemOneResult; _, _ = DecodeSystemOne(b, nil, "m", &d) }},
+	{"DecodeSystemOneInto", func(b []byte) {
+		var d wire.SystemOneResult
+		_, _ = DecodeSystemOneInto(b, nil, "m", &d, make([]wire.AnswerEntry, 0, 4))
+	}},
+	{"DecodeModels", func(b []byte) { var d wire.ModelList; _ = DecodeModels(b, &d) }},
+	{"ReadErrorBody", func(b []byte) { _ = ReadErrorBody(b) }},
+	{"trailing, as traverseWhole calls it", func(b []byte) { _ = trailing(padShort(b)) }},
+	{"the lazy pass's parser, as lazy calls it", func(b []byte) {
+		root, err := sonic.GetFromString(NoCopyString(padShort(b)))
+		if err == nil {
+			walkNode(&root, 0)
+		}
+	}},
+}
+
+// walkNode reads every node under n as the lazy pass reads a legend: the
+// members, their raw bytes and their scalars.
+func walkNode(n *ast.Node, depth int) {
+	if depth > 64 {
+		return
+	}
+	_, _ = n.Raw()
+	switch n.TypeSafe() {
+	case ast.V_OBJECT:
+		it, err := n.Properties()
+		if err != nil {
+			return
+		}
+		var p ast.Pair
+		for it.Next(&p) {
+			walkNode(&p.Value, depth+1)
+		}
+	case ast.V_ARRAY:
+		it, err := n.Values()
+		if err != nil {
+			return
+		}
+		var v ast.Node
+		for it.Next(&v) {
+			walkNode(&v, depth+1)
+		}
+	case ast.V_STRING:
+		_, _ = n.String()
+	case ast.V_NUMBER:
+		_, _ = n.Number()
+	}
+}
+
+// guardCorpus returns the inputs of TestGuardPage: MIN-1's 31 and the cut
+// shapes; every string of 1 to 4 bytes over an alphabet of JSON's
+// structure, whitespace, the literals' first letters and a digit (30 940
+// inputs, the shapes that reach advance_dword with less than 4 bytes); every
+// prefix of four fixtures, the one that runs the lazy pass included; and the
+// K41 shapes around the 32-byte boundary.
+func guardCorpus(t *testing.T) [][]byte {
+	var corpus [][]byte
+	add := func(s string) { corpus = append(corpus, []byte(s)) }
+	for _, s := range sonicOverReads {
+		add(s)
+	}
+	for _, s := range cutOverReads {
+		add(s)
+	}
+	const alphabet = "{}[]\":, tfnr0"
+	var build func(prefix []byte, n int)
+	build = func(prefix []byte, n int) {
+		if n == 0 {
+			corpus = append(corpus, append([]byte(nil), prefix...))
+			return
+		}
+		for i := range len(alphabet) {
+			build(append(prefix, alphabet[i]), n-1)
+		}
+	}
+	for n := 1; n <= 4; n++ {
+		build(nil, n)
+	}
+	for _, name := range []string{"result.json", "structured-legend.json", "models.json", "duplicates.json"} {
+		b := testsupport.Fixture(t, name)
+		for n := 1; n <= len(b); n++ {
+			corpus = append(corpus, b[:n])
+		}
+	}
+	for n := 28; n <= 40; n++ {
+		zeros := strings.Repeat("0", n)
+		add(`{"":"` + zeros)
+		add(`{"":"` + zeros + `}`)
+		add(`{"a":"` + zeros + `}}`)
+	}
+	return corpus
+}
+
+// TestGuardPage is review W6.2 MIN-1's regression test: every way the SDK
+// hands sonic bytes (guardEntries) runs over every input of guardCorpus
+// placed to end at a page no access may touch, and to start right after
+// one, and must not fault: sonic reads no byte of memory the SDK does not
+// own. padShort gives a body shorter than 4 bytes zeroed room and cutPoint
+// refuses a cut shorter than 4 bytes; without them MIN-1's inputs and the
+// cut shapes fault here.
+//
+// Two controls keep the test from passing on a guard that is not there,
+// neither of them run by the SDK (STANDING 9): a one-byte read past each
+// edge of the guarded memory must fault, and sonic's own decoder.Skip, on
+// MIN-1's inputs placed at the end, must fault on every one of them: the
+// over-read the SDK guards against, as sonic v1.15.4 has it. Should a sonic
+// release fix advance_dword, that control fails first, and MIN-1's guard can
+// be reviewed.
+//
+// The guard pages need mmap and mprotect, which the syscall package offers
+// on Linux and Darwin only; elsewhere (windows-2025 among the CI images)
+// the test skips, saying so.
+func TestGuardPage(t *testing.T) {
+	corpus := guardCorpus(t)
+	longest := 0
+	for _, in := range corpus {
+		longest = max(longest, len(in))
+	}
+	g := testsupport.NewGuard(t, longest)
+
+	if _, ok := testsupport.CatchFault(g.ReadPastEnd); !ok {
+		t.Fatal("control: a read one byte past the guarded memory did not fault")
+	}
+	if _, ok := testsupport.CatchFault(g.ReadPastStart); !ok {
+		t.Fatal("control: a read one byte before the guarded memory did not fault")
+	}
+	for _, in := range sonicOverReads {
+		b := g.AtEnd([]byte(in))
+		if _, ok := testsupport.CatchFault(func() { sonicdecoder.Skip(b) }); !ok {
+			t.Errorf("control: sonic's decoder.Skip read %q at the end of the guarded memory without a fault; review W6.2 MIN-1 saw it read past every one of these inputs (sonic v1.15.4): has sonic changed?", in)
+		}
+	}
+
+	calls, faults := 0, 0
+	places := []struct {
+		name  string
+		place func([]byte) []byte
+	}{{"ending at the guard", g.AtEnd}, {"starting after the guard", g.AtStart}}
+	for _, e := range guardEntries {
+		for _, in := range corpus {
+			for _, p := range places {
+				b := p.place(in)
+				calls++
+				if msg, ok := testsupport.CatchFault(func() { e.run(b) }); ok {
+					faults++
+					t.Errorf("%s read past the input %q (%d bytes) %s: %s", e.name, in, len(in), p.name, msg)
+				}
+			}
+		}
+	}
+	// The error body's compact JSON, as ReadErrorBody hands it to sonic.
+	for _, in := range corpus {
+		compact, err := wire.AppendJSON(nil, in)
+		if err != nil {
+			continue // ReadErrorBody gives sonic only what AppendJSON takes
+		}
+		for _, p := range places {
+			b := p.place(compact)
+			calls++
+			if msg, ok := testsupport.CatchFault(func() { _, _ = decodeErrorJSON(b) }); ok {
+				faults++
+				t.Errorf("decodeErrorJSON read past the compact JSON %q (%d bytes) %s: %s", compact, len(compact), p.name, msg)
+			}
+		}
+	}
+	t.Logf("GUARD %s/%s: page %d bytes, %d inputs, %d calls, %d faults", runtime.GOOS, runtime.GOARCH, os.Getpagesize(), len(corpus), calls, faults)
+}
+
+// TestCutPointMinimumLength pins cutPoint's refusal of a cut shorter than
+// minSonicInput, the rule that keeps K36's one-scan traversal from handing
+// sonic a short prefix of a longer body (review W6.2 MIN-1): a 4-byte body
+// whose cut is 3 bytes goes to the whole-body path, a cut of exactly 4
+// bytes is taken, and a cut of 4 bytes of whitespace is refused. It runs on
+// every system, TestGuardPage's guard pages or not.
+func TestCutPointMinimumLength(t *testing.T) {
+	tests := map[string]struct {
+		body string
+		want int
+	}{
+		`error: " f]}" cuts to 3 bytes`:            {body: " f]}", want: -1},
+		`error: "fa]}" cuts to 3 bytes`:            {body: "fa]}", want: -1},
+		`error: "{f]}" cuts to 3 bytes`:            {body: "{f]}", want: -1},
+		`error: "{}" cuts to 1 byte`:               {body: "{}", want: -1},
+		`error: "f]} " cuts to 2 bytes`:            {body: "f]} ", want: -1},
+		`error: "    }" cuts to 4 spaces`:          {body: "    }", want: -1},
+		`success: "{   }" cuts to exactly 4 bytes`: {body: "{   }", want: 4},
+		`success: "{\"\":{}}" cuts before its end`: {body: `{"":{}}`, want: 6},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := cutPoint([]byte(tt.body)); got != tt.want {
+				t.Errorf("cutPoint(%q) = %d, want %d", tt.body, got, tt.want)
+			}
+		})
+	}
+}

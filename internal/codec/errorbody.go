@@ -67,8 +67,8 @@ func ReadErrorBody(body []byte) ErrorBody {
 	if err != nil {
 		return ErrorBody{Message: replaceInvalidUTF8(body)}
 	}
-	var v any
-	if err := errorBodyAPI.UnmarshalFromString(NoCopyString(compact), &v); err != nil {
+	v, err := decodeErrorJSON(compact)
+	if err != nil {
 		// wire's scanner has no depth limit and sonic has one; a body past
 		// it is reported as the text it is.
 		return ErrorBody{Message: replaceInvalidUTF8(body)}
@@ -87,6 +87,16 @@ func ReadErrorBody(body []byte) ErrorBody {
 	}
 	eb.Message = string(compact)
 	return eb
+}
+
+// decodeErrorJSON decodes compact, the valid JSON of an error body, into
+// generic values with errorBodyAPI. A literal of valid JSON has all of its 4
+// or 5 bytes, so sonic's advance_dword check holds on compact; padShort
+// keeps sonic's reads inside the SDK's own memory for a 1-to-3-byte body
+// all the same (review W6.2 MIN-1).
+func decodeErrorJSON(compact []byte) (v any, err error) {
+	err = errorBodyAPI.UnmarshalFromString(NoCopyString(padShort(compact)), &v)
+	return v, err
 }
 
 // extractMessage is the Python SDK's extract_message over a decoded JSON

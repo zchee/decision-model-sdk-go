@@ -35,7 +35,8 @@ import (
 //
 // It leaves each marked answer's level bytes in d.raws, from d.rawBase[i]
 // on for answer i and indexed like its legend. The bytes are substrings of
-// src; intern copies or replaces them.
+// src; intern copies or replaces them. src is the body systemOne took
+// through padShort, so sonic reads none of the caller's memory past it.
 func (d *decoder) lazy(src string) error {
 	v := &d.v
 	d.stats.lazyPasses++

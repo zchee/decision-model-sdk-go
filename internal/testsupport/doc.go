@@ -61,6 +61,11 @@
 //     directory, read once and cached.
 //   - [BoundFuzzInput]: the per-input bound every fuzz target arms,
 //     [FuzzInputBound].
+//   - [StructuredLegendFlood] and [UnknownAnswerFlood]: generated response
+//     bodies, the floods AC-P8 and AC-P5 (viii) decode.
+//   - [NewGuard] and [CatchFault]: memory between two pages no access may
+//     touch (Linux and Darwin), so that a read past an input faults, and the
+//     fault as a test result.
 //
 // The package imports neither the SDK's root package nor internal/codec, so
 // the packages that test the transport can use it without sonic. It is the

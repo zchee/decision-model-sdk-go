@@ -356,8 +356,35 @@ func DecodeModels(body []byte, dst *wire.ModelList) error {
 	return err
 }
 
+// minSonicInput is the length from which sonic's native scanner reads an
+// input without reading past its end. advance_dword (sonic v1.15.4,
+// native/scanning.h), which reads the literals true, null and false,
+// checks a literal's room as src->len + dec - 4 in unsigned arithmetic:
+// for an input shorter than 4 bytes the check wraps, and it loads 4 bytes
+// from the literal's first byte ('t', 'n') or the one after it ('f'), up
+// to 4 bytes past the input's end, into whatever memory follows (review
+// W6.2 MIN-1). From 4 bytes on the check holds.
+const minSonicInput = 4
+
+// padShort returns body when sonic may read it as it is, empty or at least
+// minSonicInput bytes long, and otherwise a copy with 5 or more zeroed bytes
+// after it in its own allocation: advance_dword's read then stays inside
+// the copy and meets zeros, so sonic decides as if the input ended there,
+// whatever the caller's memory holds past body. Every entry point that
+// hands sonic a caller's bytes passes them through it. Only a body of 1 to
+// 3 bytes, which no decoder accepts, pays the copy.
+func padShort(body []byte) []byte {
+	if len(body) == 0 || len(body) >= minSonicInput {
+		return body
+	}
+	b := make([]byte, len(body), 2*minSonicInput)
+	copy(b, body)
+	return b
+}
+
 // systemOne is DecodeSystemOneInto on d.
 func (d *decoder) systemOne(body []byte, q *wire.Prepared, model string, dst *wire.SystemOneResult, spare []wire.AnswerEntry) (Skipped, error) {
+	body = padShort(body)
 	s := NoCopyString(body)
 	d.stats = stats{}
 	if err := d.traverse(s, body, modeSystemOne); err != nil {
@@ -368,6 +395,7 @@ func (d *decoder) systemOne(body []byte, q *wire.Prepared, model string, dst *wi
 
 // models is DecodeModels on d.
 func (d *decoder) models(body []byte, dst *wire.ModelList) error {
+	body = padShort(body)
 	s := NoCopyString(body)
 	d.stats = stats{}
 	if err := d.traverse(s, body, modeModels); err != nil {
@@ -480,9 +508,14 @@ func (d *decoder) traverseWhole(s string, body []byte, m mode) error {
 //     string, which the cut body may not hold, and a string ending in an
 //     unpaired backslash, which cannot be once every string before the cut
 //     ends at a quote no backslash escapes.
+//
+// The cut body is also at least minSonicInput bytes long: padShort gives a
+// short body room, but the cut is a prefix of the body, and sonic reads up
+// to 4 bytes past a shorter input (" f]}" cuts to " f]", whose read ran 2
+// bytes past the 4-byte body).
 func cutPoint(body []byte) int {
 	n := lastNonSpace(body)
-	if n <= 0 || body[n] != '}' {
+	if n < minSonicInput || body[n] != '}' {
 		return -1
 	}
 	cut := body[:n]
@@ -570,7 +603,10 @@ func lastNonSpace(b []byte) int {
 // trailing is the trailing-data check over the whole body: sonic's
 // decoder.Skip finds the end of the root value, and only JSON whitespace may
 // follow it. Skip returns a negative start for a body that holds no value at
-// all.
+// all. body is padShort's output, as systemOne and models pass it: on a
+// shorter body Skip may read past it and, reading the bytes that follow,
+// return an end past it too (review W6.2 MIN-1 and MIN-2), which the check
+// refuses rather than slicing past the body.
 func trailing(body []byte) error {
 	start, end := sonicdecoder.Skip(body)
 	if start < 0 || end > len(body) {
