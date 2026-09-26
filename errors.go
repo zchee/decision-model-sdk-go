@@ -39,12 +39,13 @@ import (
 //
 // An SDK error is a value: where the Python SDK copies, pickles and rebuilds
 // its exceptions (to send one to another process, say), a Go caller copies
-// the struct an error points to (c := *e), which renders, reads and unwraps
-// as the original does and shares its Header and Body, or hands the pointer
-// to another goroutine, since no read of an error changes it. [errors.As]
-// with a pointer to one of the seven types, or with a *Error, finds the
-// error through any wrapping and returns the very pointer. Nothing is
-// serialised.
+// the struct an error points to (c := *e) and uses &c, which renders, reads
+// and unwraps as the original does and shares its Header and Body. The
+// struct value c is not itself an error, and fmt prints its fields, so print
+// &c, never c. A caller may also hand the pointer to another goroutine,
+// since no read of an error changes it. [errors.As] with a pointer to one of
+// the seven types, or with a *Error, finds the error through any wrapping and
+// returns the very pointer. Nothing is serialised.
 //
 // No error's text holds the API key, a request's state or a response body
 // unescaped: text the SDK did not write is escaped and cut (the server's
