@@ -248,8 +248,8 @@ func TestSeamImports(t *testing.T) {
 			applies: confined,
 			forbids: func(_ goFile, p string) bool { return under(p, sonicPath) },
 		},
-		"unsafe only under internal/codec and internal/testsupport/naive (NF6)": {
-			applies: confined,
+		"unsafe only under internal/codec and internal/testsupport/naive, and in the root package's typed store (NF6, R116)": {
+			applies: func(f goFile) bool { return confined(f) && (f.test || f.rel != rootStoreFile) },
 			forbids: func(_ goFile, p string) bool { return p == "unsafe" },
 		},
 		"golang.org/x/net only under internal/testsupport (D2)": {
