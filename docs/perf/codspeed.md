@@ -181,7 +181,10 @@ report (G8-a).
   15 to 50 % faster. So a group is the CPU model name plus AVX-512
   exposure (`avx512f` among the flags); the gate step prints that key
   (`AVX-512 yes` or `no`) with a 12-hex digest of the sorted flags, so
-  finer splits stay visible. Groups are never mixed.
+  finer splits stay visible. The digest names a set of flags, not a host,
+  and is never a group key: `f1915a4aa377` came with an EPYC 7763
+  (36264174677, 36267404102) and with an EPYC 9V74 without AVX-512
+  (36271714594). Groups are never mixed.
 - **Per segment (R109c, R109c-corr, R109c-corr-2).** A landing opens a new
   segment of a group only when it changes a non-test `.go` file on the
   call path (the root package, `internal/codec`, `internal/wire` or

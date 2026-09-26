@@ -190,7 +190,7 @@ conditions (G8-a, G8-b).
 | R98, R101, G5, G5b | 2026-09-26 01:17Z | §7 W5.1; §8 AC-P6 (time clause) | The benchmarks live in `internal/benchmark`, except six that time the root package's unexported steps; `BenchmarkLoopback` runs in CodSpeed but decides nothing; AC-P6's time clause reads the q3 rows (q20 is recorded). W5.1, benchmarks only, landed before W3.4 so that the freeze could measure the time clause. | `docs/perf/benchmarks.md`; the frozen AC-P6 time row | G5: move the benchmarks; G5b: six stay in root |
 | K35, R105, R105-corr | 2026-09-26 04:57Z | §7 W5.1 ("CodSpeed discovers all") | CodSpeed's raw samples filled the runner's `/tmp` quota and 11 rows were lost; `bench.yaml` points `TMPDIR` at the runner's temp directory and fails on a "failed to write raw results" line or when the uploaded results differ from the `-list` expansion (125 rows). The fix ran green in run 36220344551, the guard failed a run built to lose rows (36220346065), and `main`'s run at aaa9698 (36221839206) was the first complete one. | `bench.yaml` guard; ledger W5.1-22..26 | — |
 | K36, R108 | 2026-09-26 05:55Z | §8 AC-P7 (the statistic) | AC-P7 reads the mean, total time over rounds, which is `go test`'s ns/op: not CodSpeed's displayed minimum, nor the median. The section "Which number AC-P7 reads" below explains why. | `bench.yaml` AC-P7 gate step | R108: the mean |
-| R109, R115, R109b, R109c, R109c-corr, R109c-corr-2 | 2026-09-26 06:12Z | K7 | Report bookkeeping, deciding nothing since G8-a: `main` runs are grouped by CPU model and AVX-512 exposure, and a group's segment starts at a landing that changes a call-path `.go` file and moves `BenchmarkCall/sdk`'s mean by 5 % or more, by K7's formula (larger − smaller) / smaller between the group's last run before and first run after. | `docs/perf/codspeed.md`; ledger W5.4 rows | R115: per model RATIFIED; G8-a: not a gate |
+| R109, R115, R109b, R109c, R109c-corr, R109c-corr-2 | 2026-09-26 06:12Z | K7 | Report bookkeeping, deciding nothing since G8-a: `main` runs are grouped by CPU model and AVX-512 exposure, and a group's segment starts at a landing that changes a call-path `.go` file and moves `BenchmarkCall/sdk`'s mean by 5 % or more, by K7's formula (larger − smaller) / smaller between the group's last run before and first run after. The flags digest the gate step prints names a set of flags, not a host group: `f1915a4aa377` came with an EPYC 7763 and with an EPYC 9V74 (verify-p6 OBS-2). | `docs/perf/codspeed.md`; ledger W5.4 rows | R115: per model RATIFIED; G8-a: not a gate |
 | K37 | 2026-09-26 06:12Z | K7 | CodSpeed's own "Performance Analysis" check turns red on noise (the cold fan-out row, rotating hosts); nothing requires it, and its remedies are CodSpeed settings on the owner's side. | — | owner-side; G11 (11): ignore the host-side failure |
 | R110 | 2026-09-26 06:16Z | §8 AC-P1, AC-P5, AC-P8 | AC-P1's arm64 exception narrowed to the 6 MiB `*struct` state (the flat map is asserted); AC-P5 gained cases (vi) and (vii) with bounds of 65 901 B and 69 632 B, each derivation written in its frozen row; AC-P8's per-member clause is pinned in `internal/codec`. | `TestAllocEncode`, `TestMemStatsCap`, `TestLazyPassAllocations`, `TestLinearityFlood` | — |
 | R118 | 2026-09-26 08:34Z | process (commit trailers; refines R6) | A commit carries the attribution lines its author's harness gives at commit time; after 2026-09-26 08:30Z a lane's `Claude-Session:` line is optional. | process | — |
@@ -350,9 +350,16 @@ the AC-P7 gate in `bench.yaml` (G8-a), but only once it loses its margin
 over the naive client, a slowdown of about 15–32 % by the recorded ratios
 (critic-p6); a decoder-only slowdown that `BenchmarkCall` does not exercise
 (its body has no structured legend, so the lazy pass never runs) has no
-gate. `TestLinearityFloodTime` has no load guard: it held up to a load
-of 128 on (M) and failed twice in five runs under the tenfold overload of
-2026-09-26 10:23Z; hosted runners are not loaded that way.
+gate. `TestLinearityFloodTime`'s godoc states how it handles noise (the
+minimum over five spans, the two floods' spans alternating) but it has no
+load guard, the K29/K30 posture "none": on (M) it held up to a load of
+128, failed twice in five runs under the tenfold overload of 2026-09-26
+10:23Z, and once at a load of 22 on 16 cores, 1.4 times the cores (ratio
+16.67 against the bound 15), inside a plain `go test ./...` of
+verify-p6's, where the amd64 host passed the same commit five times out of
+five at 9.17–9.19. Hosted runners are not loaded that way. A gate run on a
+loaded (M) that fails in this test alone re-runs it alone with the load
+recorded (D-R111-load); a failure alone below a load of 12 is real.
 
 **Known coverage gaps.** Every Gap row of
 [`uncovered-lines.md`](uncovered-lines.md), 40 at 1ed4c1d, is an input the
