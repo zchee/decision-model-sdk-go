@@ -278,14 +278,16 @@ func (*APIError) typesafeError() {}
 
 // newAPIError returns the *APIError for an unsuccessful response: its kind,
 // its message read from the body by the lenient reader
-// (codec.ReadErrorBody), escaped and cut at 200 characters, or "status code
-// (no body)" for an empty or null body, and the response header with its
-// credentials redacted by r ([headerRedactor], ruling R87).
+// (codec.ReadErrorBody), with every form of the client's API key replaced
+// by "***" (a server may echo the key it rejected; ruling R103), then
+// escaped and cut at 200 characters, or "status code (no body)" for an empty
+// or null body, and the response header with its credentials redacted by r
+// ([headerRedactor], ruling R87). Body keeps the body as it arrived.
 func newAPIError(meta *wire.ResponseMeta, endpoint string, r headerRedactor) *APIError {
 	eb := codec.ReadErrorBody(meta.Body)
 	msg := "status code (no body)"
 	if !eb.NoBody {
-		msg = safeMessage(eb.Message)
+		msg = safeMessage(r.text(eb.Message))
 	}
 	return &APIError{
 		Kind:       apiErrorKind(meta.Status),

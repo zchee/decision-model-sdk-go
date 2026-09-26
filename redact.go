@@ -89,6 +89,19 @@ func newHeaderRedactor(apiKey string) headerRedactor {
 // redactor returns the redactor for the client c configures.
 func (c *config) redactor() headerRedactor { return newHeaderRedactor(c.apiKey) }
 
+// text returns s, text the server wrote into an error response, with each
+// form of the client's API key replaced by "***" (ruling R103): as it is,
+// Go-quoted and JSON-escaped ([credentials.add]). The zero redactor, and a
+// client's whose key is shorter than [minKeyNeedleBytes] (R68), return s as
+// it is.
+func (r headerRedactor) text(s string) string {
+	if r.key == "" {
+		return s
+	}
+	out, _ := credentials(nil).add(r.key).longestFirst().replace(s)
+	return out
+}
+
 // header returns h's headers in a new map in which every value of each
 // header that is a credential is replaced by "***", one "***" per value, and
 // every other header shares its value slice with h; nil stays nil. The error

@@ -575,3 +575,100 @@ func TestErrorHeadersRedacted(t *testing.T) {
 		})
 	}
 }
+
+// TestAPIErrorMessageHidesEchoedKey pins ruling R103 (review W3.3 MINOR 3):
+// a server that echoes the API key it rejected in an error body's message
+// no longer puts the key into the *APIError's Message, Error(), %v or %+v:
+// every form of a key of at least 8 bytes (raw, Go-quoted, JSON-escaped) is
+// "***", replaced before the message is escaped and cut at 200 characters.
+// Body keeps the body as it arrived, and so does the LevelTrace "response
+// body" record, whose level is the opt-in for personal data; no record
+// above it holds the key. A key shorter than 8 bytes is not looked for
+// (R68). typesafe-sdk-python shows the message as the server wrote it.
+func TestAPIErrorMessageHidesEchoedKey(t *testing.T) {
+	const key = "ts_live_0123456789abcdef"
+	const endpoint = "GET https://api.typesafe.ai/v1/models: "
+	pad := strings.Repeat("m", 190)
+	message := func(t *testing.T, m string) string {
+		t.Helper()
+		b, err := testsupport.StdlibMarshal(map[string]string{"message": m})
+		if err != nil {
+			t.Fatalf("StdlibMarshal: %v", err)
+		}
+		return string(b)
+	}
+	tests := map[string]struct {
+		key    string
+		status int
+		body   func(t *testing.T) string
+		want   string // Error()
+	}{
+		"error: a 401 that echoes the key": {
+			key: key, status: http.StatusUnauthorized,
+			body: func(t *testing.T) string { return message(t, "invalid key "+key) },
+			want: endpoint + "401 invalid key ***",
+		},
+		"error: the key Go-quoted, with quotes and a backslash": {
+			key: quirkyKey, status: http.StatusForbidden,
+			body: func(t *testing.T) string { return message(t, fmt.Sprintf("invalid key %q", quirkyKey)) },
+			want: endpoint + `403 invalid key "***"`,
+		},
+		"error: the key across the 200-character cut, replaced before it": {
+			key: key, status: http.StatusBadRequest,
+			body: func(t *testing.T) string { return message(t, pad+" "+key+" and more") },
+			want: endpoint + "400 " + pad + " *** and m\u2026", // the message's 200 characters, then the cut
+		},
+		"error: a key of 7 bytes is not looked for (R68)": {
+			key: "k123456", status: http.StatusUnauthorized,
+			body: func(t *testing.T) string { return message(t, "invalid key k123456") },
+			want: endpoint + "401 invalid key k123456",
+		},
+		"error: a message without the key is as the server wrote it": {
+			key: key, status: http.StatusTooManyRequests,
+			body: func(t *testing.T) string { return message(t, "slow down") },
+			want: endpoint + "429 slow down",
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			body := tt.body(t)
+			logs := testsupport.NewLogRecorder(LevelTrace)
+			clearEnv(t)
+			c := newEnvClient(t, replying(tt.status, []byte(body)), WithAPIKey(tt.key), WithLogger(logs.Logger()))
+			_, err := c.Models().List(t.Context(), Retry(NoRetry()))
+			e, ok := errors.AsType[*APIError](err)
+			if !ok {
+				t.Fatalf("error = %T %v, want an *APIError", err, err)
+			}
+			for _, verb := range []string{"%v", "%+v", "%s"} {
+				if got := fmt.Sprintf(verb, err); got != tt.want {
+					t.Errorf("%s = %q, want %q", verb, got, tt.want)
+				}
+			}
+			if string(e.Body) != body {
+				t.Errorf("Body = %q, want the body as it arrived, %q", e.Body, body)
+			}
+			var traced bool
+			for _, r := range logs.Records() {
+				if r.Message == "response body" {
+					b, _ := r.Attr("body")
+					traced = b.String() == body
+				}
+				if r.Level > LevelTrace && tt.key != "k123456" && strings.Contains(r.String(), tt.key[:minKeyNeedleBytes]) {
+					t.Errorf("a record above LevelTrace holds the key: %s", r)
+				}
+			}
+			if !traced {
+				t.Errorf("the LevelTrace response body record is not the body as it arrived:\n%s", recordsText(logs))
+			}
+			if tt.key != "k123456" {
+				for k := minKeyNeedleBytes; k <= len(tt.key); k++ {
+					if strings.Contains(err.Error(), tt.key[:k]) {
+						t.Errorf("Error() holds %d bytes of the key: %q", k, err.Error())
+						break
+					}
+				}
+			}
+		})
+	}
+}
