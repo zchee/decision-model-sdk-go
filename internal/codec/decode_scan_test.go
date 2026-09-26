@@ -22,6 +22,7 @@ import (
 	"strings"
 	"testing"
 
+	sonicdecoder "github.com/bytedance/sonic/decoder"
 	gocmp "github.com/google/go-cmp/cmp"
 
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
@@ -324,6 +325,53 @@ func TestK41ScannerBoundary(t *testing.T) {
 			}
 			if diff := gocmp.Diff(whole, one); diff != "" {
 				t.Errorf("the decode differs from the whole-body decode (-whole +one):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestTrailingEndPastInput pins the end-past-input guard of trailing
+// (review W6.2 MIN-2; mutant M13 drops it). sonic's decoder.Skip, handed a
+// body shorter than 4 bytes with readable memory after it, reads that
+// memory (MIN-1) and can report a value that ends past the body: the 1-byte
+// body []byte("true")[:1] is "t" followed in its array by "rue", which Skip
+// reads as true, ending at 4. trailing must refuse such a body as not JSON;
+// without the guard it slices body[4:] of a 1-byte body and panics. The
+// decoders never hand trailing such a body (systemOne and models pad a
+// short one first, padShort), so through them the guard is unreachable;
+// this test calls trailing directly, and first checks its premise, that
+// Skip still reads past the body. The last case is the control: the whole
+// literal ends inside its body and passes.
+func TestTrailingEndPastInput(t *testing.T) {
+	tests := map[string]struct {
+		body    []byte
+		wantErr error
+	}{
+		`error: "t" with "rue" after it`:    {body: []byte("true")[:1], wantErr: errNotJSON},
+		`error: "tr" with "ue" after it`:    {body: []byte("true")[:2], wantErr: errNotJSON},
+		`error: "n" with "ull" after it`:    {body: []byte("null")[:1], wantErr: errNotJSON},
+		`error: "f" with the rest of false`: {body: []byte("false")[:1], wantErr: errNotJSON},
+		`error: "fal" with "se" after it`:   {body: []byte("false")[:3], wantErr: errNotJSON},
+		`success: "true" ends in its body`:  {body: []byte("true")},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			start, end := sonicdecoder.Skip(tt.body)
+			if tt.wantErr != nil && (start < 0 || end <= len(tt.body)) {
+				t.Fatalf("premise: decoder.Skip(%q, with %q after it) = (%d, %d), want a value ending past %d: sonic no longer reads past a short input (MIN-1), so this pin needs another shape",
+					tt.body, tt.body[len(tt.body):cap(tt.body)], start, end, len(tt.body))
+			}
+			var err error
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						t.Errorf("trailing(%q) panicked: %v; want the end past the body refused", tt.body, r)
+					}
+				}()
+				err = trailing(tt.body)
+			}()
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("trailing(%q) = %v, want %v (Skip ended at %d of %d bytes)", tt.body, err, tt.wantErr, end, len(tt.body))
 			}
 		})
 	}
