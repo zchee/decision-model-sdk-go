@@ -49,10 +49,13 @@ var sonicOverReads = []string{
 var cutOverReads = []string{" f]}", "\tf]}", "f]} ", "fa]}", " fa]}"}
 
 // guardEntries are the SDK's ways of handing sonic bytes that a server or a
-// caller chose, each as the SDK makes it: the four exported decoders, and
-// the three sonic steps inside them on the bytes their callers give them
-// (the error body's compact JSON, which ReadErrorBody builds, is placed at
-// the guard in its own right).
+// caller chose, each as the SDK makes it: the four exported decoders; the
+// three sonic steps inside them on the bytes their callers give them (the
+// error body's compact JSON, which ReadErrorBody builds, is placed at the
+// guard in its own right); and the request side's UTF-8 check, validUTF8,
+// which EncodeState and EncodeValue run over the bytes of a caller's state:
+// sonic's native validator (utf8.Validate) on amd64 and utf8.Valid on
+// arm64 (validate_amd64.go, validate_arm64.go; review of W6-fixes, MINOR 2).
 var guardEntries = []struct {
 	name string
 	run  func(b []byte)
@@ -65,6 +68,7 @@ var guardEntries = []struct {
 	{"DecodeModels", func(b []byte) { var d wire.ModelList; _ = DecodeModels(b, &d) }},
 	{"ReadErrorBody", func(b []byte) { _ = ReadErrorBody(b) }},
 	{"trailing, as traverseWhole calls it", func(b []byte) { _ = trailing(padShort(b)) }},
+	{"validUTF8, the request's UTF-8 check (sonic's on amd64)", func(b []byte) { _ = validUTF8(b) }},
 	{"the lazy pass's parser, as lazy calls it", func(b []byte) {
 		root, err := sonic.GetFromString(NoCopyString(padShort(b)))
 		if err == nil {
