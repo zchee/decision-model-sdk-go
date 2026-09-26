@@ -499,12 +499,12 @@ func (c *Client) attempt(ctx context.Context, rq *request, attempt int) (wire.Re
 	red := c.cfg.transport.responseRedactor(c.cfg.redactor(), resp)
 	meta := wire.ResponseMeta{Status: resp.StatusCode, Header: resp.Header}
 	success := resp.StatusCode >= 200 && resp.StatusCode <= 299
-	raw, err := readBody(resp.Body, resp.ContentLength, c.cfg.maxResponseBytes)
+	raw, err := engine.ReadBody(resp.Body, resp.ContentLength, c.cfg.maxResponseBytes)
 	// A body read to its end has nothing left to report on Close; one cut
 	// short is abandoned, which Close tells the transport.
 	_ = resp.Body.Close()
 	switch {
-	case errors.Is(err, errTooLarge):
+	case errors.Is(err, engine.ErrTooLarge):
 		c.logResponse(ctx, rq, attempt, start, &meta, red)
 		if success {
 			return meta, red, newResponseTooLargeError(&meta, rq.endpoint, red, c.cfg.maxResponseBytes)
@@ -566,92 +566,6 @@ func (c *Client) attemptError(ctx, actx context.Context, timeout time.Duration, 
 	}
 	text, _ := creds.Redact(err.Error())
 	return newConnectionError(text, creds.Cause(err), false)
-}
-
-// errTooLarge ends a body read that passed the size limit.
-var errTooLarge = errors.New("typesafe: response body over the size limit")
-
-// The first buffer of a response body read (NF5, ruling R27).
-const (
-	// initialDeclared bounds the first buffer of a body whose length is
-	// declared: the buffer holds min(Content-Length, initialDeclared).
-	initialDeclared = 256 << 10
-	// initialUndeclared is the first buffer of a body that declares no
-	// length (a chunked body); it doubles as the body grows.
-	initialUndeclared = 4 << 10
-	// minGrow is the smallest room a growth step makes, so a body that
-	// declared zero bytes and sent some does not grow a byte at a time.
-	minGrow = 512
-)
-
-// readBody reads a response body of at most limit bytes (section 6.2.1,
-// rulings R26b and R27). declared is its Content-Length, or -1 when it
-// declares none.
-//
-//   - A declared length above limit is refused before anything is read.
-//   - The first buffer holds min(declared, initialDeclared) bytes for a
-//     declared body and initialUndeclared for an undeclared one.
-//   - A full buffer grows by doubling, up to the end the body may reach: its
-//     declared length while it is within it, else the limit. Growth that
-//     would pass half that end goes to the end at once.
-//   - The buffer that can reach the end has one byte of room beyond it, so
-//     the read that finds the end of the body, or the byte after the limit,
-//     needs no other buffer; the buffers before it are exact powers of two,
-//     so none costs the allocator a page for one byte.
-//   - The read stops at limit + 1 bytes: that byte makes the body too large.
-//
-// It returns errTooLarge for a body over the limit, and a read's own error
-// other than io.EOF as it is.
-func readBody(r io.Reader, declared, limit int64) ([]byte, error) {
-	if declared > limit {
-		return nil, errTooLarge
-	}
-	var size int64
-	switch {
-	case declared > initialDeclared:
-		size = initialDeclared
-	case declared >= 0:
-		size = declared + 1
-	default:
-		size = min(initialUndeclared, limit+1)
-	}
-	buf := make([]byte, 0, size)
-	for {
-		if len(buf) == cap(buf) {
-			if int64(len(buf)) > limit {
-				return nil, errTooLarge
-			}
-			buf = grow(buf, declared, limit)
-		}
-		n, err := r.Read(buf[len(buf):cap(buf)])
-		buf = buf[:len(buf)+n]
-		if err != nil {
-			if int64(len(buf)) > limit {
-				return nil, errTooLarge
-			}
-			if errors.Is(err, io.EOF) {
-				return buf, nil
-			}
-			return nil, err
-		}
-	}
-}
-
-// grow returns buf, which is full and within limit, with room for more: see
-// readBody.
-func grow(buf []byte, declared, limit int64) []byte {
-	held := int64(len(buf))
-	end := limit
-	if declared > held {
-		end = declared // within limit: readBody refused a larger one
-	}
-	next := max(2*held, minGrow)
-	if 2*next > end {
-		next = end + 1
-	}
-	nb := make([]byte, held, next)
-	copy(nb, buf)
-	return nb
 }
 
 // logRequest logs attempt's request at debug level, its body at LevelTrace.

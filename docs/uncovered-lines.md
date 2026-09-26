@@ -38,7 +38,6 @@ Each reason starts with its class:
 | File | Function | Code | Blocks | Reason |
 | --- | --- | --- | --- | --- |
 | `client.go` | `(*Client).attempt` | `return wire.ResponseMeta{}, headerRedactor{}, newConnectionError(err.Error(), err, false)` | 1 | Defensive: `Body.Open` fails only after the body's last reference is dropped, and the call holds one until it returns. |
-| `client.go` | `readBody` | `return nil, errTooLarge` | 1 | Gap: a body reader that returns the byte past the limit together with an error (`iotest.DataErrReader`); the readers in tests return `io.EOF` on a later call, so the full-buffer check refuses the body first. |
 | `config.go` | `resolveEndpoints` | `return nil, nil, newConfigError(source + " is not a valid URL.")` | 2 | Defensive: `baseURLRule` has parsed the base, and a valid base followed by a fixed path always parses. |
 | `config.go` | `dropDefaultPort` | `return raw` | 2 | Defensive: `baseURLRule` admits only http and https URLs with a host, so the text always holds `://` and one of the two schemes. |
 | `errors.go` | `(*ConfigError).typesafeError` | `{}` | 1 | Defensive: the unexported marker method that seals the `Error` interface; nothing calls it. |
@@ -94,6 +93,7 @@ Each reason starts with its class:
 | `internal/codec/visitor.go` | `(*visitor).OnInt64` | `return v.scalar(false, "", n)` | 1 | Defensive: with `OnlyNumber` set, sonic v1.15.4's parser skips number conversion and reports every number, integers included, through `OnFloat64`. |
 | `internal/codec/visitor.go` | `(*visitor).OnObjectKey` | `v.slot = slotIgnore` | 1 | Defensive: keys occur only inside objects, and every object container has its own case; the models array, the one other container, gets no key. |
 | `internal/engine/falsy.go` | `FalsyJSON` | `return false` | 2 | Defensive: `maybeFalsyJSON` lets through only a value that starts with `n`, `f`, `""`, an empty array or object, or a number with no digit 1-9 before its exponent; a valid one of those compacts to `null`, `false`, `""`, `[]`, `{}` or that number spelled as written (`wire.AppendJSON`), so neither return is reached (probed over every value of up to 5 bytes, 2026-09-26). |
+| `internal/engine/read.go` | `ReadBody` | `return nil, ErrTooLarge` | 1 | Gap: a body reader that returns the byte past the limit together with an error (`iotest.DataErrReader`); the readers in tests return `io.EOF` on a later call, so the full-buffer check refuses the body first. |
 | `internal/engine/text.go` | `Credentials.detail` | `continue` | 1 | Gap: a wrapped chain with a nil link (an `Unwrap` that returns nil); no error chain in tests has one. |
 | `internal/engine/text.go` | `Credentials.inChain` | `continue` | 1 | Gap: a wrapped chain with a nil link (an `Unwrap` that returns nil); no error chain in tests has one. |
 | `internal/h2gate/config.go` | `alpnScope.String` | `return [...]string{"none", "every-handshake", "sni", "post-check-only"}[s]` | 1 | Defensive: called only when a failing test prints a scope. |

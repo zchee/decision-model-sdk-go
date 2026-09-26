@@ -27,6 +27,7 @@ import (
 	"testing"
 
 	"github.com/zchee/typesafe-sdk-go/internal/codec"
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
@@ -211,7 +212,7 @@ func measureCallItems(t *testing.T, c *Client, state any, qs *Prepared, prefix s
 		if err != nil {
 			t.Fatal(err)
 		}
-		rd[i] = testsupport.Measure(func() { raw, err = readBody(hresp.Body, hresp.ContentLength, c.cfg.maxResponseBytes) })
+		rd[i] = testsupport.Measure(func() { raw, err = engine.ReadBody(hresp.Body, hresp.ContentLength, c.cfg.maxResponseBytes) })
 		if err != nil {
 			t.Fatal(err)
 		}

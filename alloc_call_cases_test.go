@@ -22,6 +22,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
@@ -124,6 +125,6 @@ func memCases(t *testing.T) map[string]memCase {
 		"iv-declared-16MiB":          {reply: testsupport.Reply{Body: exact}, outcome: "ok", bound: bigBound},
 		"v-undeclared-16MiB":         {reply: testsupport.Reply{Body: exact, ContentLength: -1}, outcome: "ok", bound: bigBound},
 		"vi-declared-result.json":    {reply: testsupport.Reply{Body: small}, outcome: "ok", bound: uint64(len(small)) + 1 + 64<<10},
-		"vii-undeclared-result.json": {reply: testsupport.Reply{Body: small, ContentLength: -1}, outcome: "ok", bound: initialUndeclared + 64<<10},
+		"vii-undeclared-result.json": {reply: testsupport.Reply{Body: small, ContentLength: -1}, outcome: "ok", bound: engine.InitialUndeclared + 64<<10},
 	}
 }
