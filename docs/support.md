@@ -166,3 +166,51 @@ Performance numbers are comparable only when every host builds with the Go
 - Every row of [`perf/ledger.md`](perf/ledger.md) records the output of
   `go version` and `go list -f '{{context.ToolTags}}' runtime` from the run it
   reports, next to the command, the host and a time taken with `date`.
+
+## Fuzzing
+
+Seven targets run in CI's `fuzz` job for 60 seconds each on `ubuntu-26.04`
+(`.github/workflows/ci.yaml`, whose `fuzzed` list names them); their seed
+corpora also run as ordinary tests in every `go test` run.
+
+| Target | Package | What it reads |
+| --- | --- | --- |
+| `FuzzDecodeResponse` | `./internal/codec` | a response body, through the System One and the models decoders |
+| `FuzzErrorBody` | `./internal/codec` | an error response body |
+| `FuzzDecodePaths` | `./internal/codec` | a program that writes a System One body with repeated members; the visitor and the lazy pass must agree with the body's last-wins reading |
+| `FuzzRetryAfter` | `.` | `Retry-After-Ms` and `Retry-After` values |
+| `FuzzTagGrammar` | `.` | a `typesafe` struct tag |
+| `FuzzFalsyJSON` | `.` | a JSON value a question holds (`RawJSON`, JSON `Content`); `falsyJSON`, which reads its first bytes first, must give the whole-value check's verdict (W5.3) |
+| `FuzzIsSecretHeader` | `.` | a header name; `isSecretHeader`, which folds an ASCII name in place, must give the verdict of the name lower-cased (W5.3) |
+
+`FuzzAppendJSON` (`./internal/codec`, `./internal/wire`) and `FuzzValidString`
+(`./internal/codec`) run only their seed corpora; the job's `seeded` list
+names them, and a target in neither list fails the job.
+
+Run one target locally, one package per command (`go test -fuzz` takes one
+target):
+
+```sh
+go test -run '^$' -fuzz '^FuzzDecodePaths$' -fuzztime 10m ./internal/codec/
+```
+
+Add `GOEXPERIMENT=nosimd,noruntimesecret` where the measurement rule above
+asks for it, and `-parallel N` to leave cores to other work (the default is
+one worker per core).
+
+- Every input must finish within 10 seconds (`testsupport.FuzzInputBound`).
+  Go's fuzzing engine has no per-input timeout, so each target arms a
+  watchdog (`testsupport.BoundFuzzInput`) that panics when an input runs
+  longer. The engine then reports "fuzzing process hung or terminated
+  unexpectedly" and writes the input, as for a crash.
+- A failing input is written to `testdata/fuzz/<Target>/` in the target's
+  package, and CI uploads it as the `fuzz-failures` artifact. Commit it there
+  with the fix: it then runs in every `go test` run as a regression case.
+- The inputs a campaign finds interesting stay in the Go build cache
+  (`$(go env GOCACHE)/fuzz`), not in the tree, and a later campaign starts
+  from them.
+- `testdata/fuzz/FuzzDecodeResponse`, `FuzzErrorBody` and `FuzzRetryAfter`
+  hold the Rust SDK's `fuzz/corpus` (typesafe-sdk-rust 34c3b7c), one file per
+  input, byte for byte: `decode_response` for the first two (the Rust target
+  reads every body as an error body too), `retry_after` for the third, whose
+  input layout (the first byte picks the headers) `FuzzRetryAfter` keeps.

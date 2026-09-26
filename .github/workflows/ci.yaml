@@ -265,6 +265,99 @@ jobs:
         if: matrix.os == 'ubuntu-26.04'
         run: uv run --script .github/scripts/uncovered-lines.py --profile coverage.out --doc docs/uncovered-lines.md
 
-  # W6.1 adds a fuzz job on ubuntu-26.04: FuzzDecodeResponse and FuzzErrorBody
-  # (./internal/codec/), FuzzRetryAfter and FuzzTagGrammar (.), 60 s each, one
-  # package per go test -fuzz invocation.
+  # AC-Q3 (W6.1): every fuzz target for 60 s, in turn, one package per go test
+  # -fuzz invocation; the job fails when any target finds an input that fails
+  # (a panic, a failed property, or an input past the targets' 10 s
+  # per-input bound, internal/testsupport/fuzz.go) and uploads those inputs.
+  # The seed corpora (testdata/fuzz) also run in the test job, as tests.
+  fuzz:
+    name: fuzz
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # The lists are the one place that names the targets: `fuzzed` runs
+      # each for FUZZTIME, `seeded` names the targets that run only their
+      # seed corpus (in the test job). A target declared in the tree and in
+      # neither list, a listed target go test -list does not find, or an
+      # empty list fails the step before anything runs, so a new or renamed
+      # target cannot drop out of the job unnoticed.
+      - name: Fuzz every target
+        env:
+          FUZZTIME: 60s
+        run: |
+          fuzzed=(
+            "./internal/codec FuzzDecodeResponse" # both response decoders
+            "./internal/codec FuzzErrorBody"      # the error-body reader
+            "./internal/codec FuzzDecodePaths"    # the visitor vs lazy pass differential
+            ". FuzzRetryAfter"                    # the Retry-After parser
+            ". FuzzTagGrammar"                    # the struct tag grammar
+            ". FuzzFalsyJSON"                     # the falsy-value check (W5.3)
+            ". FuzzIsSecretHeader"                # the secret header names (W5.3)
+          )
+          seeded=(
+            "./internal/codec FuzzAppendJSON"  # compaction vs encoding/json (R44)
+            "./internal/codec FuzzValidString" # the string check (R44)
+            "./internal/wire FuzzAppendJSON"   # compaction invariants (R44)
+          )
+          if [ "${#fuzzed[@]}" -eq 0 ]; then
+            echo "::error::no fuzz target listed"
+            exit 1
+          fi
+          # grep exits 1 for a batch of files without a target; under the
+          # step's pipefail that must not end the step.
+          declared="$({ git ls-files -z -- '*_test.go' ':(exclude)_spikes/**' | xargs -0 grep -H -o '^func Fuzz[A-Za-z0-9_]*' || true; } |
+            sed -E 's|^(.*)/[^/]*_test\.go:func (.*)$|./\1 \2|; s|^[^/]*_test\.go:func (.*)$|. \1|' | sort -u)"
+          unlisted="$(comm -23 <(printf '%s\n' "$declared") <(printf '%s\n' "${fuzzed[@]}" "${seeded[@]}" | sort -u))"
+          if [ -n "$unlisted" ]; then
+            echo "::error::fuzz targets in neither list: $(tr '\n' ',' <<<"$unlisted")"
+            exit 1
+          fi
+          for entry in "${fuzzed[@]}"; do
+            read -r pkg target <<<"$entry"
+            if [ "$(go test -list "^$target\$" "$pkg" | grep -cx "$target")" != 1 ]; then
+              echo "::error::go test -list does not find $target in $pkg"
+              exit 1
+            fi
+          done
+          failed=()
+          for entry in "${fuzzed[@]}"; do
+            read -r pkg target <<<"$entry"
+            echo "::group::$target ($pkg) for $FUZZTIME"
+            if ! go test -run '^$' -fuzz "^$target\$" -fuzztime "$FUZZTIME" "$pkg"; then
+              failed+=("$target")
+              echo "::error::$target failed"
+            fi
+            echo "::endgroup::"
+          done
+          # go test -fuzz writes each failing input to testdata/fuzz/<target>/
+          # in its package; collect the new ones for the artifact.
+          mkdir -p "$RUNNER_TEMP/fuzz-failures"
+          git ls-files --others --exclude-standard -- '*testdata/fuzz/*' | while read -r f; do
+            echo "failing input $f:"
+            cat "$f"
+            mkdir -p "$RUNNER_TEMP/fuzz-failures/$(dirname "$f")"
+            cp "$f" "$RUNNER_TEMP/fuzz-failures/$f"
+          done
+          if [ "${#failed[@]}" -ne 0 ]; then
+            echo "::error::fuzz targets that failed: ${failed[*]}"
+            exit 1
+          fi
+
+      - name: Upload the failing inputs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-failures
+          path: ${{ runner.temp }}/fuzz-failures
+          if-no-files-found: ignore
