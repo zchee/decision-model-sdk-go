@@ -164,6 +164,10 @@ jobs:
     defaults:
       run:
         shell: bash
+    env:
+      # The packages the "go test without -race (allocation tests)" step runs
+      # whole; the allocation-budget step's !race guard reads the same list.
+      NORACE_PKGS: ./internal/codec/ ./internal/wire/ ./internal/testsupport/
     steps:
       - uses: actions/checkout@v7
         with:
@@ -186,7 +190,9 @@ jobs:
       # one value in four, so the codec allocation tests skip themselves there
       # (ruling R18).
       - name: go test without -race (allocation tests)
-        run: go test -count=1 ./internal/codec/ ./internal/wire/ ./internal/testsupport/
+        run: |
+          read -ra pkgs <<<"$NORACE_PKGS"
+          go test -count=1 "${pkgs[@]}"
 
       # The allocation budgets: the root package's, which internal/alloctest
       # holds since W6.5 (it measures the stages internal/engine holds, which
@@ -200,12 +206,17 @@ jobs:
       # pattern matches against its length, so a renamed or deleted test
       # fails the step instead of leaving it with less to run; and a test
       # that the step should run but its list lacks fails it too: a test of a
-      # !race file of the root package or of internal/alloctest (a budget
-      # left in the root package, where the list is not run, fails the -list
-      # count), or an internal/codec test that calls raceEnabled()
-      # (review-w5-2 NIT 3; ruling D-W6.5-design 6.4).
+      # !race file of internal/alloctest, or an internal/codec test that
+      # calls raceEnabled() (review-w5-2 NIT 3; ruling D-W6.5-design 6.4). A
+      # tracked test file built only without -race in a package that no step
+      # without -race runs, one neither this step's nor $NORACE_PKGS, fails
+      # the step by name (critic-p6 m-1 and n-11).
       - name: go test without -race (allocation budgets)
         run: |
+          # The two packages whose lists this step runs; the !race guard
+          # below reads the same two names.
+          root_pkg=./internal/alloctest/
+          codec_pkg=./internal/codec/
           root=(
             TestAllocPrepare         # Prepare's pinned counts (ruling R50)
             TestAllocFalsyJSON       # Prepare P2: truthy criteria not copied (W5.3)
@@ -244,16 +255,41 @@ jobs:
               exit 1
             fi
           }
-          # A //go:build !race file of the root package or of
-          # internal/alloctest is left out of the -race step, so its tests run
-          # only here. internal/codec cannot carry that constraint
+          # A test file whose //go:build line includes !race is left out of
+          # the -race step, so its tests run only in a step without -race:
+          # this one, for the lists of $root_pkg and $codec_pkg, or the step
+          # above, which runs the packages of $NORACE_PKGS whole. Every tracked test file
+          # the go command builds (none under a _, . or testdata directory,
+          # which ./... skips) must be in one of those packages, or its tests
+          # run nowhere.
+          read -ra whole <<<"$NORACE_PKGS"
+          tests="$(git ls-files -- '*_test.go' | grep -Ev '(^|/)([_.][^/]*|testdata)/')"
+          if [ -z "$tests" ]; then
+            echo "::error::git ls-files found no test file to check for !race"
+            exit 1
+          fi
+          stray=""
+          while IFS= read -r f; do
+            case " $root_pkg $codec_pkg ${whole[*]} " in
+              *" ./$(dirname "$f")/ "*) ;;
+              *)
+                names="$(grep -ho '^func Test[A-Za-z0-9_]*' "$f" | sed 's/^func //' | tr -d '\r' | tr '\n' ' ')" || true
+                stray+=" $f (${names% })"
+                ;;
+            esac
+          done < <(printf '%s\n' "$tests" | xargs grep -l -E '^//go:build .*!race' | tr -d '\r')
+          if [ -n "$stray" ]; then
+            echo "::error::test files built only without -race in a package no step without -race runs:$stray"
+            exit 1
+          fi
+          # internal/codec cannot carry the constraint
           # (TestSeamBuildConstraints); its tests skip themselves under -race
           # by calling raceEnabled().
           require_listed "tests built only without -race" \
-            "$(grep -l '^//go:build !race' -- *_test.go internal/alloctest/*_test.go | xargs grep -ho '^func Test[A-Za-z0-9_]*' | sed 's/^func //' | tr -d '\r')" \
+            "$(printf '%s\n' "$tests" | awk -v d="${root_pkg#./}" 'substr($0, 1, length(d)) == d && index(substr($0, length(d) + 1), "/") == 0' | xargs grep -l -E '^//go:build .*!race' | xargs grep -ho '^func Test[A-Za-z0-9_]*' | sed 's/^func //' | tr -d '\r')" \
             "${root[@]}"
           require_listed "internal/codec tests that skip under -race" \
-            "$(awk '/^func / { name = ($2 ~ /^Test[A-Za-z0-9_]*\(/) ? $2 : ""; sub(/\(.*/, "", name) } /raceEnabled\(\)/ && name != "" { print name }' internal/codec/*_test.go | tr -d '\r')" \
+            "$(awk '/^func / { name = ($2 ~ /^Test[A-Za-z0-9_]*\(/) ? $2 : ""; sub(/\(.*/, "", name) } /raceEnabled\(\)/ && name != "" { print name }' "${codec_pkg#./}"*_test.go | tr -d '\r')" \
             "${codec[@]}"
           # run_budgets PACKAGE TEST... guards and runs one list.
           run_budgets() {
@@ -268,8 +304,8 @@ jobs:
             fi
             go test -count=1 -run "$pattern" -v "$pkg"
           }
-          run_budgets ./internal/alloctest/ "${root[@]}"
-          run_budgets ./internal/codec/ "${codec[@]}"
+          run_budgets "$root_pkg" "${root[@]}"
+          run_budgets "$codec_pkg" "${codec[@]}"
 
       # OIDC authentication: the action exchanges the job's id-token (hence
       # `id-token: write` above) and ignores any token input. It needs the Codecov
