@@ -672,3 +672,72 @@ func TestAPIErrorMessageHidesEchoedKey(t *testing.T) {
 		})
 	}
 }
+
+// TestValidationErrorHidesEchoedKey pins ruling R103b: a successful
+// response that fails validation at an answer whose name, or at a
+// probability key that, echoes the client's API key no longer puts the key
+// into the *ResponseValidationError's FieldPath, Error(), %v or %+v, nor
+// into the decoder's error it unwraps to (whose %#v prints the path): each
+// form of a key of at least 8 bytes is "***", replaced before the name is
+// escaped and cut at 128 characters, and the path's other segments stay.
+// Body keeps the body as it arrived. A key shorter than 8 bytes is not
+// looked for (R68).
+func TestValidationErrorHidesEchoedKey(t *testing.T) {
+	const key = "ts_live_0123456789abcdef"
+	const endpoint = "POST https://api.typesafe.ai/v1/systemone: 200 Invalid response data at '"
+	pad := strings.Repeat("n", 120)
+	noul := func(name string) string { return `{"model":"m","usage":{},"answers":{"` + name + `":{"type":"noul"}}}` }
+	tests := map[string]struct {
+		key  string
+		body string
+		path string // FieldPath
+	}{
+		"error: an answer named with the key": {
+			key: key, body: noul(key), path: "answers.***.noul",
+		},
+		"error: the key across the 128-character cut of a name, replaced before it": {
+			key: key, body: noul(pad + key), path: "answers." + pad + "***.noul",
+		},
+		"error: a probability key that echoes the key": {
+			key: key, body: `{"model":"m","usage":{},"answers":{"q":{"type":"choice","choice":"a","confidence":0.5,"probabilities":{"` + key + `":"x"}}}}`,
+			path: "answers.q.probabilities.***",
+		},
+		"error: a key of 7 bytes is not looked for (R68)": {
+			key: "k123456", body: noul("k123456"), path: "answers.k123456.noul",
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			clearEnv(t)
+			c := newEnvClient(t, replying(http.StatusOK, []byte(tt.body)), WithAPIKey(tt.key))
+			_, err := c.SystemOne(t.Context(), "hi", noulQuestion(t))
+			e, ok := errors.AsType[*ResponseValidationError](err)
+			if !ok {
+				t.Fatalf("error = %T %v, want a *ResponseValidationError", err, err)
+			}
+			if e.FieldPath != tt.path {
+				t.Errorf("FieldPath = %q, want %q", e.FieldPath, tt.path)
+			}
+			want := endpoint + tt.path + "'."
+			for _, verb := range []string{"%v", "%+v", "%s"} {
+				if got := fmt.Sprintf(verb, err); got != want {
+					t.Errorf("%s = %q, want %q", verb, got, want)
+				}
+			}
+			if string(e.Body) != tt.body {
+				t.Errorf("Body = %q, want the body as it arrived", e.Body)
+			}
+			if tt.key == "k123456" {
+				return
+			}
+			for _, out := range []string{err.Error(), fmt.Sprintf("%#v", err), fmt.Sprintf("%#v", errors.Unwrap(err)), fmt.Sprintf("%+v", errors.Unwrap(err))} {
+				for k := minKeyNeedleBytes; k <= len(tt.key); k++ {
+					if strings.Contains(out, tt.key[:k]) {
+						t.Errorf("a rendering holds %d bytes of the key: %s", k, out)
+						break
+					}
+				}
+			}
+		})
+	}
+}

@@ -350,10 +350,17 @@ func (*ResponseValidationError) typesafeError() {}
 
 // newResponseValidationError returns the *ResponseValidationError for a
 // successful response whose body the decoder refused with err, with the
-// response header's credentials redacted by r ([headerRedactor]).
+// response header's credentials redacted by r ([headerRedactor]). The two
+// names of the field path the server chose, an answer's name and a
+// probability or legend key, have every form of the client's API key
+// replaced by "***" (a server may echo the key; ruling R103b) before the
+// path is escaped and cut, both in FieldPath and in the decoder's error,
+// which is this call's own and whose %#v prints the path; Body keeps the
+// body as it arrived.
 func newResponseValidationError(meta *wire.ResponseMeta, endpoint string, r headerRedactor, err error) *ResponseValidationError {
 	var path codec.FieldPath
 	if de, ok := errors.AsType[*codec.DecodeError](err); ok {
+		de.Path.Name, de.Path.Key = r.text(de.Path.Name), r.text(de.Path.Key)
 		path = de.Path
 	}
 	return &ResponseValidationError{
