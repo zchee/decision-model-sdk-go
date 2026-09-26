@@ -8,18 +8,33 @@ numbers of record, per host, are in [`ledger.md`](ledger.md), section W5.1.
 The top of each benchmark file states what the benchmark measures and how it
 can mislead.
 
+Owner directive G5 moved the benchmarks out of the root package. Those that
+need only the exported API and the internal packages are in
+`internal/benchmark`, a package with no code outside its tests. Six stay in
+the root's `bench_internal_test.go`, each because it times or builds from
+what only the root package can reach; the file's header gives the reason
+for each. `go test -bench . ./...` and CodSpeed find both.
+
 | ID | Benchmark | Package, file | Measures | Rows |
 | --- | --- | --- | --- | --- |
-| B1 | `BenchmarkEncodeBody` | root, `bench_encode_test.go` | The request body encode (`encodeBody`) into a pooled scratch, against the naive comparator's encode of the same body. | `<kind>/<size>/{sdk,naive,naive-json}`. Kinds: `text` (a boxed string), `rawjson` (`RawJSON`), `struct` (`*struct`), `map` (`map[string]any`). Sizes: `1KiB`, `64KiB`, `1MiB`. |
+| B1 | `BenchmarkEncodeBody` | root, `bench_internal_test.go` (its sdk arm times the unexported `encodeBody`) | The request body encode (`encodeBody`) into a pooled scratch, against the naive comparator's encode of the same body. | `<kind>/<size>/{sdk,naive,naive-json}`. Kinds: `text` (a boxed string), `rawjson` (`RawJSON`), `struct` (`*struct`), `map` (`map[string]any`). Sizes: `1KiB`, `64KiB`, `1MiB`. |
 | B1 | `BenchmarkEncodeState` | `internal/codec`, `encode_bench_test.go` | The state encode alone, next to the UTF-8 check of ruling R48. | `{ascii,cjk}/{1KiB,64KiB,6MiB}/{encode,check}` |
 | B2 | `BenchmarkDecode`, `BenchmarkDecodeNaiveSonic`, `BenchmarkDecodeNaiveJSON` | `internal/codec`, `decode_bench_test.go` | The production decode of each AC-P2 fixture, flood fixtures included, against the naive decode into a `map[string]any`. Sub-benchmarks with the same name pair up. | one row per fixture; a fixture the codec refuses (`parity-big-exp-unknown`, `1e400`) has no naive row |
-| B3 | `BenchmarkAssembly` | root, `bench_assembly_test.go` | Everything the first attempt of a call does before the transport: the encode, `GetBody`, the header template, the URL copy, the deadline, the body reader and the `*http.Request`. The question set is the section 5 set. | `request`, `prepare-and-request` |
-| B4 | `BenchmarkRetryAfter`, `BenchmarkBackoff` | root, `bench_retry_test.go` | `(*APIError).RetryAfter` on the error of a real 429, and the backoff delay with `DefaultRetry`'s numbers and a constant random draw. | `RetryAfter/{seconds,ms,http-date}`; `Backoff/{retry-1,retry-6,retry-1000,schedule}` (`schedule`: `DefaultRetry`'s two waits) |
-| B5 | `BenchmarkCall` | root, `bench_call_test.go` | One whole `SystemOne` call over the in-memory `Recorder`, which answers at once, measured against the floor and the naive comparator. | `sdk`, `floor`, `naive`, `naive-json`, and the same four with `-q20` |
-| B6 | `BenchmarkLoopback` | root, `bench_loopback_test.go` | Calls over HTTP/2 and TLS on loopback through the default transport. These rows are wall clock only. | `call` (one warm connection; the metric `new-conns` should be 0); `cold-fanout-64` (a fresh client, 64 calls at once; the metrics `leaders/op` and `firstholds/op`, the gate's own counters, should be 1, and `conns/op` too, although the stock HTTP/2 pool alone also meets that on loopback, so AC-P4's evidence is `internal/h2gate`'s `TestFanOut`) |
+| B3 | `BenchmarkAssembly` | root, `bench_internal_test.go` (it rebuilds `Client.attempt`'s unexported steps) | Everything the first attempt of a call does before the transport: the encode, `GetBody`, the header template, the URL copy, the deadline, the body reader and the `*http.Request`. The question set is the section 5 set. | `request`, `prepare-and-request` |
+| B4 | `BenchmarkRetryAfter`, `BenchmarkBackoff` | `BenchmarkRetryAfter`: `internal/benchmark`, `retry_test.go`; `BenchmarkBackoff`: root, `bench_internal_test.go` (the unexported `backoff`) | `(*APIError).RetryAfter` on the error of a real 429, and the backoff delay with `DefaultRetry`'s numbers and a constant random draw. | `RetryAfter/{seconds,ms,http-date}`; `Backoff/{retry-1,retry-6,retry-1000,schedule}` (`schedule`: `DefaultRetry`'s two waits) |
+| B5 | `BenchmarkCall` | `internal/benchmark`, `call_test.go` | One whole `SystemOne` call over the in-memory `Recorder`, which answers at once, measured against the floor and the naive comparator. | `sdk`, `floor`, `naive`, `naive-json`, and the same four with `-q20` |
+| B6 | `BenchmarkLoopback` | `call`: `internal/benchmark`, `loopback_test.go`; `cold-fanout-64`: root, `bench_internal_test.go` (its gate counters come from the unexported transport) | Calls over HTTP/2 and TLS on loopback through the default transport. These rows are wall clock only. | `call` (one warm connection; the metric `new-conns` should be 0); `cold-fanout-64` (a fresh client, 64 calls at once; the metrics `leaders/op` and `firstholds/op`, the gate's own counters, should be 1, and `conns/op` too, although the stock HTTP/2 pool alone also meets that on loopback, so AC-P4's evidence is `internal/h2gate`'s `TestFanOut`) |
 
-Setup-only benchmarks, kept from earlier waves: `BenchmarkPrepare`,
-`BenchmarkFalsyJSON`, `BenchmarkHeaderTemplateClone` and `BenchmarkNoop`.
+Setup-only benchmarks, kept from earlier waves: `BenchmarkPrepare` and
+`BenchmarkFalsyJSON` in the root's `bench_internal_test.go` (the first
+shares its case table, `prepare_cases_test.go`, with `TestAllocPrepare`;
+the second times the unexported `falsyJSON`), and
+`BenchmarkHeaderTemplateClone` and `BenchmarkNoop` in `internal/benchmark`.
+
+`go test -list 'Benchmark.*' ./...` prints 15 function names in three
+packages: 6 in the root, 5 in `internal/benchmark` and 4 in
+`internal/codec`. `BenchmarkLoopback` appears in two packages, each with one
+of its arms. Together they give 125 rows.
 
 ## Rows that the acceptance criteria read
 
@@ -30,9 +45,13 @@ Setup-only benchmarks, kept from earlier waves: `BenchmarkPrepare`,
 | AC-P7 | CodSpeed reports `BenchmarkCall/sdk` faster than `BenchmarkCall/naive` on the pull-request run | CodSpeed (amd64); report-only until K7 is met |
 
 The names above are stable. The plan's `call/sdk` is `BenchmarkCall/sdk` and
-`call/naive` is `BenchmarkCall/naive`. CodSpeed keeps each benchmark's
-history under its full name, so renaming a benchmark starts that history
-over, including the 20 runs that K7 counts.
+`call/naive` is `BenchmarkCall/naive`, both in `internal/benchmark`. CodSpeed
+keeps each benchmark's history under its full name, the package path
+included, so renaming or moving a benchmark starts that history over,
+including the 20 runs that K7 counts. The G5 move did that for every
+benchmark it moved: K7's count for `BenchmarkCall/sdk` restarts at the
+landing that carries the move. CodSpeed is report-only, so no gate moves
+with it.
 
 ## The naive comparator
 

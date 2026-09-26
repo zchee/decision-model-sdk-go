@@ -1679,7 +1679,7 @@ undeclared. Replies without headers (see above).
 ## W1.3: Prepare() allocations
 
 `BenchmarkPrepare`, `BenchmarkFalsyJSON` and their question sets
-(`prepareCases`) are in `bench_prepare_test.go`; `TestAllocPrepare`
+(`prepareCases`) are in `bench_prepare_test.go` (since G5, `prepare_cases_test.go`); `TestAllocPrepare`
 (`//go:build !race`) is in `alloc_prepare_test.go`. Both landed in 95f3e4c on
 top of b227e5b (W1.1 as landed). 95f3e4c changes no production file, so every
 number here is b227e5b's `Prepare()`. The measured section is `qs.Prepare()`
@@ -3353,6 +3353,12 @@ use `R=_spikes/s-c1/run.sh` (W0.5's runner), `O=_spikes/w5.1/results`,
 | W5.1-13 | 2026-09-26 02:57:00 UTC | W5.1 every benchmark once | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.92 → 0.92 | `BASE=1ca60e1 MAXLOAD=44 sh $R '(L)' $O /tmp/ts-spike/bench.lock onex-L -run '^$' -bench . -benchtime 1x -benchmem ./...` | 125 results, exit 0 | not a timing row; `results/onex-L.txt` |
 | W5.1-14 | 2026-09-26 02:57:01 UTC | W5.1 R62 gate after the rebase | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.92 → 1.38 | `go build ./... && go vet ./... && go test -race -count=1 ./...` | ok for all 6 packages | not a timing row; `results/race-L-1ca60e1.txt` |
 | W5.1-15 | 2026-09-26 11:57:55 JST | W5.1 gates per commit after the rebase | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | `sh _spikes/w5.1/gates.sh <scratchpad> $(git rev-list --reverse 87d1ac7..1ca60e1)` | PASS × 10 (4e3dd73 … 1ca60e1, → 12:00:54 JST): build, vet, gofumpt -extra, modernize, golangci-lint, staticcheck, tidy -diff, `go test -race` | not a timing row; `results/gates-M-1ca60e1.txt` |
+| W5.1-16 | 2026-09-26 12:17:48 JST | W5.1 G5 move: discovery | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | `GOEXPERIMENT=nosimd,noruntimesecret go test -list 'Benchmark.*' ./...` | 15 function names in 3 packages: root 6, `internal/benchmark` 5, `internal/codec` 4 (`BenchmarkLoopback` in two, one arm each) | at 438a12d; `results/list-M-438a12d.txt` |
+| W5.1-17 | 2026-09-26 12:17:48 JST | W5.1 G5 move: every benchmark once | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 10.48 → 10.48 | `BASE=438a12d GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock MAXLOAD=16 sh $R '(M)' $O $SP/bench.lock onex-M-438a12d -run '^$' -bench . -benchtime 1x -benchmem ./...` | 125 results (root 57, `internal/benchmark` 16, `internal/codec` 52), exit 0; the same 125 names as W5.1-12 | not a timing row; `results/onex-M-438a12d.txt` |
+| W5.1-18 | 2026-09-26 03:17:43 UTC | W5.1 G5 move: every benchmark once | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.01 → 0.01 | `BASE=438a12d MAXLOAD=44 sh $R '(L)' $O /tmp/ts-spike/bench.lock onex-L-438a12d -run '^$' -bench . -benchtime 1x -benchmem ./...` | 125 results, exit 0 | not a timing row; `results/onex-L-438a12d.txt` |
+| W5.1-19 | 2026-09-26 12:17:49 JST | W5.1 G5 move: smoke of `call/sdk` in its new package | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | 10.48 → 10.08 | `BASE=438a12d GOEXPERIMENT=nosimd,noruntimesecret FLOCK=/opt/homebrew/opt/util-linux/bin/flock MAXLOAD=16 sh $R '(M)' $O $SP/bench.lock smoke-call-M -run '^$' -bench '^BenchmarkCall$/^sdk$' -benchmem -count=10 ./internal/benchmark/` | `internal/benchmark` `BenchmarkCall/sdk` 4.994 µs ± 8 % (min 4.768), 22 allocs/op, 2.901 KiB/op; against W5.1-01's root row, 4.821 µs ± 3 % (min 4.677), 22 allocs/op: +3.6 % by median at load 10.5 against 4.5, inside this row's ± 8 %; the move did not move the number | arm64 recorded; `results/smoke-call-M.txt` |
+| W5.1-20 | 2026-09-26 03:17:45 UTC | W5.1 G5 move: R62 gate | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.01 → 0.29 | `go build ./... && go vet ./... && go test -race -count=1 ./...` | ok for all 7 packages, `internal/benchmark` included | not a timing row; `results/race-L-438a12d.txt` |
+| W5.1-21 | 2026-09-26 12:18:32 JST | W5.1 G5 move: gates per commit | (M) | `go1.27.1 darwin/arm64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]` | – | `sh _spikes/w5.1/gates.sh <scratchpad> aecf7cf 438a12d` | PASS × 2 (→ 12:19:14 JST) | not a timing row; `results/gates-M-438a12d.txt` |
 
 <a id="w51-tables"></a>
 
@@ -3485,3 +3491,37 @@ B6 re-run at 1ca60e1 (after b3fd5db's graceful close), b46-{M,L}.txt (-count=10)
 | --- | ---: |
 | `Loopback/call` | 0.982 / 1.004 |
 | `Loopback/cold-fanout-64` | 0.911 / 0.976 |
+
+### G5: the benchmarks leave the root package (438a12d)
+
+Owner directive G5 moved the root package's benchmark files to a new
+package, `internal/benchmark`, which has no code outside its tests
+(aecf7cf, 438a12d; no production file changed). Nothing was re-measured
+except a smoke run of `call/sdk` in its new package (W5.1-19), which
+matches W5.1-01 within noise. The rows above keep the names they were
+measured under. A benchmark's CodSpeed identity carries its package path,
+so the moved rows start a new history, and K7's count for
+`BenchmarkCall/sdk` restarts with the landing that carries the move.
+CodSpeed is report-only, so no gate moves.
+
+Where each benchmark went, and why six stay in the root's
+`bench_internal_test.go`:
+
+| Benchmark | Disposition | How, or why not |
+| --- | --- | --- |
+| `BenchmarkCall` (B5) | moved via the exported API | One real call through a recording transport comes first. `floor` sends that request's bytes again through `testsupport.FloorCall`, which `TestAllocWholeCall` now shares (MINOR 4: the copy and its pin are gone). The naive client takes that request's URL, header template and question bytes, with `DefaultModel` and `DefaultTimeout`. `TestNaiveRequestMatchesSDK` moved with it. |
+| `BenchmarkRetryAfter` (B4) | moved via the exported API | `(*APIError).RetryAfter` on a real 429; the header names are written out. |
+| `BenchmarkLoopback/call` (B6) | moved via the exported API | The loopback server is `testsupport.NewFixtureServer`, a helper moved to an internal package and shared with the root's arm. |
+| `BenchmarkHeaderTemplateClone` | moved via the exported API | It clones the header a first attempt sent, which is the template itself (R28): the same names and values, so the same clone. |
+| `BenchmarkNoop` | moved as is | |
+| `BenchmarkEncodeBody` (B1) | kept in root | Its `sdk` arm times the unexported `encodeBody`, and no exported path encodes a body alone. The naive arms stay beside it so that one run compares the three encoders on the same states. `TestEncodeBodyMatchesNaive` stays with it. |
+| `BenchmarkAssembly` (B3) | kept in root | It rebuilds `Client.attempt`'s unexported steps; `TestAssemblyMatchesCall` stays with it. |
+| `BenchmarkBackoff` (B4) | kept in root | It times the unexported `backoff`. |
+| `BenchmarkLoopback/cold-fanout-64` (B6) | kept in root | `leaders/op` and `firstholds/op` come from the client's unexported transport, and `Client.Stats` carries only `Dials` and `Attempts`. |
+| `BenchmarkFalsyJSON` | kept in root | It times the unexported `falsyJSON`. |
+| `BenchmarkPrepare` | kept in root | Its case table (`prepare_cases_test.go`) is shared with `TestAllocPrepare`, which pins the same cases' allocations and reads unexported fields of the result. A second table in `internal/benchmark` could drift from it unseen. |
+
+Each kept benchmark could move only through an exported hook that exists
+for the benchmark alone, or, for `BenchmarkPrepare`, through a duplicated
+case table. The owner rules on each. `go test -bench . ./...` still gives
+all 125 rows (W5.1-17, -18), and CodSpeed's runner finds all three packages.
