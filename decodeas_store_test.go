@@ -15,9 +15,11 @@
 package typesafe
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"reflect"
 	"slices"
 	"strconv"
@@ -435,12 +437,60 @@ func TestDecodeTypedPlanMismatch(t *testing.T) {
 // an unsafe.Add result. A copy of the answer's bytes would carry pointers
 // past the write barriers. The offset that unsafe.Add takes is a plain name
 // that the condition of an earlier if statement, whose body is a panic,
-// uses: the store writes at the offset its bound checked.
+// uses, and which is defined once, from the offset the plan recorded for the
+// field, and never assigned again: the store writes at the offset its bound
+// checked. TestMain runs the same check before any test.
 func TestStoreWritesTyped(t *testing.T) {
+	checkStoreShape(t)
+}
+
+// TestMain runs TestStoreWritesTyped's check of decodeas_store.go before
+// any test of the package. A store that writes past the offset its bound
+// checked, such as *(*F)(unsafe.Add(b.p, off+8)) = v, corrupts memory in
+// the first test that decodes a typed answer, and that test hangs until
+// the binary's timeout before TestStoreWritesTyped runs; checked first, the
+// package fails at once and names the test (review W6.2 RECHECK, NIT).
+func TestMain(m *testing.M) {
+	var failures shapeFailures
+	checkStoreShape(&failures)
+	if len(failures) > 0 {
+		fmt.Fprintln(os.Stderr, "--- FAIL: TestStoreWritesTyped (run by TestMain before every test)")
+		for _, f := range failures {
+			fmt.Fprintln(os.Stderr, "    "+f)
+		}
+		fmt.Fprintln(os.Stderr, "FAIL")
+		os.Exit(1)
+	}
+	m.Run()
+}
+
+// shapeReporter receives the failures of checkStoreShape: the test's
+// *testing.T, or TestMain's shapeFailures.
+type shapeReporter interface {
+	Helper()
+	Errorf(format string, args ...any)
+}
+
+// shapeFailures keeps the failures checkStoreShape reports to TestMain.
+type shapeFailures []string
+
+// Helper does nothing: TestMain prints the failures as they are.
+func (*shapeFailures) Helper() {}
+
+// Errorf keeps one failure.
+func (f *shapeFailures) Errorf(format string, args ...any) {
+	*f = append(*f, fmt.Sprintf(format, args...))
+}
+
+// checkStoreShape reports to t every way decodeas_store.go departs from
+// the shape TestStoreWritesTyped states.
+func checkStoreShape(t shapeReporter) {
+	t.Helper()
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "decodeas_store.go", nil, parser.ParseComments|parser.SkipObjectResolution)
 	if err != nil {
-		t.Fatal(err)
+		t.Errorf("parse decodeas_store.go: %v", err)
+		return
 	}
 	var imports []string
 	for _, spec := range f.Imports {
@@ -489,7 +539,7 @@ func TestStoreWritesTyped(t *testing.T) {
 // typedStores counts the assignments in fn of the form *(*F)(unsafe.Add(…))
 // = v, F a type parameter of fn constrained to the three answer types, and
 // fails on any other assignment through a pointer dereference.
-func typedStores(t *testing.T, fset *token.FileSet, fn *ast.FuncDecl) int {
+func typedStores(t shapeReporter, fset *token.FileSet, fn *ast.FuncDecl) int {
 	t.Helper()
 	answerParams := map[string]bool{}
 	if fn.Type.TypeParams != nil {
@@ -529,8 +579,8 @@ func typedStores(t *testing.T, fset *token.FileSet, fn *ast.FuncDecl) int {
 				t.Errorf("%s: a store that is not *(*F)(unsafe.Add(…)) with F one of the answer types", fset.Position(lhs.Pos()))
 				continue
 			}
-			if off := conv.Args[0].(*ast.CallExpr).Args; len(off) != 2 || !checkedBefore(fn, as, off[1]) {
-				t.Errorf("%s: a store whose offset is not the plain name that the bound before it checks", fset.Position(lhs.Pos()))
+			if off := conv.Args[0].(*ast.CallExpr).Args; len(off) != 2 || !checkedBefore(fn, as, off[1]) || !fromOffset(fn, off[1].(*ast.Ident).Name) {
+				t.Errorf("%s: a store whose offset is not the plain name, defined once from the field's offset, that the bound before it checks", fset.Position(lhs.Pos()))
 				continue
 			}
 			stores++
@@ -593,6 +643,40 @@ func checkedBefore(fn *ast.FuncDecl, store *ast.AssignStmt, off ast.Expr) bool {
 		}
 	}
 	return false
+}
+
+// fromOffset reports whether name is defined once in fn's body, from the
+// offset the plan recorded for the field (a selector ending in .offset),
+// and never assigned, incremented or taken the address of again, so that
+// the offset the bound checks is the one the store writes at.
+func fromOffset(fn *ast.FuncDecl, name string) bool {
+	defs, sets := 0, 0
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.AssignStmt:
+			for i, lhs := range n.Lhs {
+				if !isIdent(lhs, name) {
+					continue
+				}
+				sets++
+				if n.Tok == token.DEFINE && len(n.Rhs) == len(n.Lhs) {
+					if sel, ok := n.Rhs[i].(*ast.SelectorExpr); ok && sel.Sel.Name == "offset" {
+						defs++
+					}
+				}
+			}
+		case *ast.IncDecStmt:
+			if isIdent(n.X, name) {
+				sets++
+			}
+		case *ast.UnaryExpr:
+			if n.Op == token.AND && isIdent(n.X, name) {
+				sets++
+			}
+		}
+		return true
+	})
+	return defs == 1 && sets == 1
 }
 
 // isIdent reports whether n is the identifier name.
