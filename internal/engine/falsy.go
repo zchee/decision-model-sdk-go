@@ -41,7 +41,7 @@ func FalsyJSON(raw []byte) bool {
 // returns false without reading or copying the rest. That is the success path
 // of a raw score question.
 func maybeFalsyJSON(raw []byte) bool {
-	i := skipJSONSpace(raw, 0)
+	i := wire.SkipSpace(raw, 0)
 	if i == len(raw) {
 		return false
 	}
@@ -51,10 +51,10 @@ func maybeFalsyJSON(raw []byte) bool {
 	case '"':
 		return i+1 < len(raw) && raw[i+1] == '"'
 	case '[':
-		j := skipJSONSpace(raw, i+1)
+		j := wire.SkipSpace(raw, i+1)
 		return j < len(raw) && raw[j] == ']'
 	case '{':
-		j := skipJSONSpace(raw, i+1)
+		j := wire.SkipSpace(raw, i+1)
 		return j < len(raw) && raw[j] == '}'
 	case '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
 		for _, c := range raw[i:] {
@@ -69,13 +69,4 @@ func maybeFalsyJSON(raw []byte) bool {
 	default:
 		return false
 	}
-}
-
-// skipJSONSpace returns the index of the first byte of raw at or after i
-// that is not JSON whitespace, or len(raw).
-func skipJSONSpace(raw []byte, i int) int {
-	for i < len(raw) && (raw[i] == ' ' || raw[i] == '\t' || raw[i] == '\n' || raw[i] == '\r') {
-		i++
-	}
-	return i
 }

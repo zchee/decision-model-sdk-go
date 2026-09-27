@@ -58,6 +58,9 @@ func QuotedName(name string) string {
 	return string(append(b, '"'))
 }
 
+// hexDigits spells the hexadecimal digits of an escape in lower case.
+const hexDigits = "0123456789abcdef"
+
 // AppendSafeText appends s, text the SDK did not write, to dst escaped and
 // cut at limit characters, as the Rust port's src/text.rs renders such
 // text. Printable characters, non-ASCII and U+FFFD included, are written as
@@ -69,7 +72,6 @@ func QuotedName(name string) string {
 // its own layer wrote. A cut never splits a character or an escape and is
 // marked with U+2026.
 func AppendSafeText(dst []byte, s string, limit int, double bool) []byte {
-	const hex = "0123456789abcdef"
 	var buf [16]byte
 	n := 0
 	for i := 0; i < len(s); {
@@ -77,7 +79,7 @@ func AppendSafeText(dst []byte, s string, limit int, double bool) []byte {
 		var esc []byte // the escape written for this character, if any
 		switch {
 		case r == utf8.RuneError && size == 1:
-			esc = append(buf[:0], '\\', 'x', hex[s[i]>>4], hex[s[i]&0xf])
+			esc = append(buf[:0], '\\', 'x', hexDigits[s[i]>>4], hexDigits[s[i]&0xf])
 		case r == '\\':
 			if double {
 				esc = append(buf[:0], '\\', '\\')
@@ -263,7 +265,6 @@ func quotedForm(q string) string { return q[1 : len(q)-1] }
 // encoding/json, whose spelling of that last case differs between
 // encoders.
 func jsonForm(v string) string {
-	const hex = "0123456789abcdef"
 	var b strings.Builder
 	for i := 0; i < len(v); {
 		r, size := utf8.DecodeRuneInString(v[i:])
@@ -282,7 +283,7 @@ func jsonForm(v string) string {
 		case r < 0x20 || r == '<' || r == '>' || r == '&' || r == '\u2028' || r == '\u2029':
 			b.WriteString(`\u`)
 			for shift := 12; shift >= 0; shift -= 4 {
-				b.WriteByte(hex[r>>shift&0xf])
+				b.WriteByte(hexDigits[r>>shift&0xf])
 			}
 		default:
 			b.WriteString(v[i : i+size])
@@ -306,18 +307,6 @@ func (c Credentials) Redact(s string) (string, bool) {
 		s, found = u, true
 	}
 	return s, found
-}
-
-// logErrorText renders err, an error of the SDK's transport, for the
-// transport's DEBUG records "h2: gate error" and "h2: redial error"
-// (h2gate.Config.ErrorText): every credential of creds, the call's
-// ([Transport.Credentials]), and every URL userinfo replaced by "***"
-// ([Credentials.Redact]), then escaped and cut at 200 characters
-// ([SafeMessage]), as the text of a *ConnectionError is. The transport calls
-// it only for a record the logger keeps.
-func logErrorText(creds Credentials, err error) string {
-	text, _ := creds.Redact(err.Error())
-	return SafeMessage(text)
 }
 
 // maxChainErrors bounds the errors [Credentials.Cause] reads in a chain; a
@@ -373,28 +362,15 @@ const maxDetailChars = 1024
 // path only.
 func (c Credentials) detail(err error) string {
 	var b strings.Builder
-	stack := []error{err}
-	for n := 0; len(stack) > 0 && n < maxChainErrors; n++ {
-		e := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
-		if e == nil {
-			continue
-		}
+	walkChain(err, func(e error) bool {
 		if text := fmt.Sprintf("%+v", e); !strings.Contains(b.String(), text) {
 			if b.Len() > 0 {
 				b.WriteString(": ")
 			}
 			b.WriteString(text)
 		}
-		switch u := e.(type) { //nolint:errorlint // visits each link of the chain as it is; errors.As would skip links.
-		case interface{ Unwrap() error }:
-			stack = append(stack, u.Unwrap())
-		case interface{ Unwrap() []error }:
-			for _, w := range slices.Backward(u.Unwrap()) {
-				stack = append(stack, w)
-			}
-		}
-	}
+		return true
+	})
 	text, _ := c.Redact(b.String())
 	return string(AppendSafeText(make([]byte, 0, min(len(text), maxDetailChars)+4), text, maxDetailChars, false))
 }
@@ -403,6 +379,15 @@ func (c Credentials) detail(err error) string {
 // wraps, holds a credential ([Credentials.printed]); a chain of more than
 // [maxChainErrors] errors counts as holding one.
 func (c Credentials) inChain(err error) bool {
+	return walkChain(err, func(e error) bool { return !c.printed(e) })
+}
+
+// walkChain calls visit on err and on each error its chain wraps
+// (errors.Unwrap, both forms), depth first, the errors of an Unwrap() []error
+// in their order, at most [maxChainErrors] links, a nil link skipped, until
+// visit returns false. It reports whether it stopped before the chain's end:
+// visit returned false, or the chain is longer than [maxChainErrors].
+func walkChain(err error, visit func(error) bool) bool {
 	stack := []error{err}
 	for n := 0; len(stack) > 0 && n < maxChainErrors; n++ {
 		e := stack[len(stack)-1]
@@ -410,14 +395,16 @@ func (c Credentials) inChain(err error) bool {
 		if e == nil {
 			continue
 		}
-		if c.printed(e) {
+		if !visit(e) {
 			return true
 		}
 		switch u := e.(type) { //nolint:errorlint // visits each link of the chain as it is; errors.As would skip links.
 		case interface{ Unwrap() error }:
 			stack = append(stack, u.Unwrap())
 		case interface{ Unwrap() []error }:
-			stack = append(stack, u.Unwrap()...)
+			for _, w := range slices.Backward(u.Unwrap()) {
+				stack = append(stack, w)
+			}
 		}
 	}
 	return len(stack) > 0

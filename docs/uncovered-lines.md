@@ -91,8 +91,7 @@ Each reason starts with its class:
 | `internal/codec/visitor.go` | `(*visitor).OnInt64` | `return v.scalar(false, "", n)` | 1 | Defensive: with `OnlyNumber` set, sonic v1.15.4's parser skips number conversion and reports every number, integers included, through `OnFloat64`. |
 | `internal/codec/visitor.go` | `(*visitor).OnObjectKey` | `v.slot = slotIgnore` | 1 | Defensive: keys occur only inside objects, and every object container has its own case; the models array, the one other container, gets no key. |
 | `internal/engine/read.go` | `ReadBody` | `return nil, ErrTooLarge` | 1 | Gap: a body reader that returns the byte past the limit together with an error (`iotest.DataErrReader`); the readers in tests return `io.EOF` on a later call, so the full-buffer check refuses the body first. |
-| `internal/engine/text.go` | `Credentials.detail` | `continue` | 1 | Gap: a wrapped chain with a nil link (an `Unwrap` that returns nil); no error chain in tests has one. |
-| `internal/engine/text.go` | `Credentials.inChain` | `continue` | 1 | Gap: a wrapped chain with a nil link (an `Unwrap` that returns nil); no error chain in tests has one. |
+| `internal/engine/text.go` | `walkChain` | `continue` | 1 | Gap: a wrapped chain with a nil link (an `Unwrap` that returns nil); no error chain in tests has one. |
 | `internal/engine/transport.go` | `var traceKeys` | `{}` | 1 | Defensive: a `ConnectStart` hook that exists only so that `httptrace` sets its net-level key; the context never dials. |
 | `internal/h2gate/config.go` | `alpnScope.String` | `return [...]string{"none", "every-handshake", "sni", "post-check-only"}[s]` | 1 | Defensive: called only when a failing test prints a scope. |
 | `internal/h2gate/config.go` | `proxyMayApply` | `return false, fmt.Errorf("%w: %w", ErrProxyEnvironment, err)` | 1 | Gap: `http.ProxyFromEnvironment` reads the environment once per process, so only a subprocess started with an invalid `HTTPS_PROXY` reaches it. |

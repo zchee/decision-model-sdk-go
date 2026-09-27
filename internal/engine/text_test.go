@@ -230,8 +230,8 @@ func TestLogErrorText(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if diff := gocmp.Diff(tt.want, logErrorText(RequestCredentials(req.Header), tt.err)); diff != "" {
-				t.Errorf("logErrorText (-want +got):\n%s", diff)
+			if diff := gocmp.Diff(tt.want, (&Transport{}).ErrorText(req, tt.err)); diff != "" {
+				t.Errorf("ErrorText (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -280,8 +280,8 @@ func TestRedactionCoversGoEscapeForms(t *testing.T) {
 			if _, ok := cause.(*scrubbedError); !ok || cause.Error() != want { //nolint:errorlint // the stand-in itself, not a link of its chain
 				t.Errorf("cause = %T %q, want a *scrubbedError %q", cause, cause, want)
 			}
-			if got := logErrorText(RequestCredentials(h), original); got != want {
-				t.Errorf("logErrorText = %q, want %q", got, want)
+			if got := (&Transport{}).ErrorText(&http.Request{Header: h}, original); got != want {
+				t.Errorf("ErrorText = %q, want %q", got, want)
 			}
 			if !strings.HasPrefix(original.Error(), "raw="+tt.credential+";") {
 				t.Errorf("the original error's text changed: %q", original.Error())
@@ -394,7 +394,7 @@ func TestCredentialsCause(t *testing.T) {
 			if _, ok := errors.AsType[*net.OpError](got); ok {
 				t.Error("errors.As reaches the transport's *net.OpError through the stand-in")
 			}
-			assertNotPrinted(t, got, key)
+			testsupport.AssertNotPrinted(t, got, key)
 		})
 	}
 	if got := creds.Cause(nil); got != nil {
@@ -580,39 +580,5 @@ func TestScrubUserinfo(t *testing.T) {
 				t.Errorf("scrubUserinfo(%q) = %q, %t; want %q, %t", tt.in, got, scrubbed, tt.want, tt.scrubbed)
 			}
 		})
-	}
-}
-
-// errorTexts returns every way err and each error it wraps can be printed:
-// %v, %+v, %#v and %q.
-func errorTexts(err error) []string {
-	var texts []string
-	var walk func(error)
-	walk = func(err error) {
-		if err == nil {
-			return
-		}
-		texts = append(texts, fmt.Sprintf("%v", err), fmt.Sprintf("%+v", err), fmt.Sprintf("%#v", err), fmt.Sprintf("%q", err))
-		switch u := err.(type) { //nolint:errorlint // visits each link of the chain as it is; errors.As would skip links.
-		case interface{ Unwrap() error }:
-			walk(u.Unwrap())
-		case interface{ Unwrap() []error }:
-			for _, e := range u.Unwrap() {
-				walk(e)
-			}
-		}
-	}
-	walk(err)
-	return texts
-}
-
-// assertNotPrinted fails the test when any printed form of err, or of an
-// error it wraps, contains secret.
-func assertNotPrinted(t *testing.T, err error, secret string) {
-	t.Helper()
-	for _, text := range errorTexts(err) {
-		if strings.Contains(text, secret) {
-			t.Errorf("error text %q contains %q", text, secret)
-		}
 	}
 }

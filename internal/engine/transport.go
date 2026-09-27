@@ -159,10 +159,14 @@ func (t *Transport) Credentials(req *http.Request) Credentials {
 
 // ErrorText renders err, an error of the transport for the request req, for
 // its DEBUG records "h2: gate error" and "h2: redial error"
-// (h2gate.Config.ErrorText), scrubbed of every credential of the
-// call ([Transport.Credentials], [logErrorText]).
+// (h2gate.Config.ErrorText): every credential of the call
+// ([Transport.Credentials]) and every URL userinfo replaced by "***"
+// ([Credentials.Redact]), then escaped and cut at 200 characters
+// ([SafeMessage]), as the text of a *ConnectionError is. The transport
+// calls it only for a record the logger keeps.
 func (t *Transport) ErrorText(req *http.Request, err error) string {
-	return logErrorText(t.Credentials(req), err)
+	text, _ := t.Credentials(req).Redact(err.Error())
+	return SafeMessage(text)
 }
 
 // ResponseRedactor returns r, the client's header redactor, for the header

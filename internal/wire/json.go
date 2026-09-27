@@ -118,7 +118,7 @@ func AppendJSON(dst, raw []byte) ([]byte, error) {
 	n0 := len(dst)
 	var small [32]byte
 	stack := small[:0] // the open containers, '{' or '['
-	i := skipSpace(raw, 0)
+	i := SkipSpace(raw, 0)
 	var err error
 value:
 	for {
@@ -133,7 +133,7 @@ value:
 				end = ']'
 			}
 			dst = append(dst, c)
-			i = skipSpace(raw, i+1)
+			i = SkipSpace(raw, i+1)
 			if i < len(raw) && raw[i] == end {
 				dst = append(dst, end)
 				i++
@@ -164,7 +164,7 @@ value:
 		}
 		// A value ended at i: close containers until one continues.
 		for {
-			i = skipSpace(raw, i)
+			i = SkipSpace(raw, i)
 			if len(stack) == 0 {
 				if i != len(raw) {
 					return dst[:n0], &SyntaxError{Offset: i, msg: "unexpected " + quoteByte(raw[i]) + " after the value"}
@@ -178,7 +178,7 @@ value:
 			switch {
 			case c == ',':
 				dst = append(dst, ',')
-				i = skipSpace(raw, i+1)
+				i = SkipSpace(raw, i+1)
 				if top == '{' {
 					if dst, i, err = appendMemberName(dst, raw, i); err != nil {
 						return dst[:n0], err
@@ -196,9 +196,9 @@ value:
 	}
 }
 
-// skipSpace returns the offset of the first byte at or after i that is not
+// SkipSpace returns the offset of the first byte at or after i that is not
 // JSON whitespace (space, tab, line feed, carriage return).
-func skipSpace(raw []byte, i int) int {
+func SkipSpace(raw []byte, i int) int {
 	for i < len(raw) {
 		switch raw[i] {
 		case ' ', '\t', '\n', '\r':
@@ -226,11 +226,11 @@ func appendMemberName(dst, raw []byte, i int) ([]byte, int, error) {
 	if err != nil {
 		return dst, i, err
 	}
-	i = skipSpace(raw, i)
+	i = SkipSpace(raw, i)
 	if i == len(raw) || raw[i] != ':' {
 		return dst, i, &SyntaxError{Offset: i, msg: "want ':' after a member name"}
 	}
-	return append(dst, ':'), skipSpace(raw, i+1), nil
+	return append(dst, ':'), SkipSpace(raw, i+1), nil
 }
 
 // appendStringToken appends the JSON string that starts at raw[i] ('"') and
@@ -333,7 +333,7 @@ func AppendContent(dst []byte, c Content) ([]byte, error) {
 	if !c.IsJSON() {
 		return AppendString(dst, c.Text)
 	}
-	if i := skipSpace(c.JSON, 0); i == len(c.JSON) || c.JSON[i] != '{' && c.JSON[i] != '[' {
+	if i := SkipSpace(c.JSON, 0); i == len(c.JSON) || c.JSON[i] != '{' && c.JSON[i] != '[' {
 		return dst, ErrContentShape
 	}
 	return AppendJSON(dst, c.JSON)
