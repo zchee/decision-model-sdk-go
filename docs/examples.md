@@ -189,7 +189,7 @@ slice, a struct or `RawJSON`. A number, a boolean or `nil` is refused
 before anything is sent. A `RawQuestion` is sent as it is. `ExtraBody`,
 not used here, adds a member to the top level of the request body or
 replaces `state`, `model` or `questions`; the API refuses a member it does
-not know with a 400 `api_usage_error` (ledger W6.4-07).
+not know with a 400 `api_usage_error`.
 
 <!-- example: options/main.go -->
 ```go
@@ -556,8 +556,8 @@ A `*Client` is safe for concurrent use and so is a prepared question set.
 Over HTTPS the client holds one HTTP/2 connection to the API and sends each
 call as a stream on it; `WarmUp` opens it before a burst. `Stats` counts the
 connections dialled and the attempts made. The API accepts 100 concurrent
-streams on a connection (ledger W6.4-04); the client queues the calls
-beyond that on the same connection.
+streams on a connection; the client queues the calls beyond that on the
+same connection.
 
 <!-- example: concurrency/main.go -->
 ```go

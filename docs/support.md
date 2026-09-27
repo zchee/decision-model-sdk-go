@@ -56,7 +56,7 @@ Without the complementary constraint, sonic's own 32-bit code or its JIT-only
 functions would fail first with an unrelated error, and `go vet`, which prints
 only the first type error, would never show the identifier.
 
-From W0.2 on, CI checks the refusal on every run: `go vet` and `go build` of
+CI checks the refusal on every run: `go vet` and `go build` of
 `./internal/codec/` with `GOOS=linux GOARCH=386`, with `GOOS=linux
 GOARCH=riscv64` and with `-tags go1.28` (the local stand-in for a Go 1.28
 toolchain) must each exit non-zero and print the identifier. The weekly `gotip`
@@ -76,7 +76,7 @@ and, by comparing build lines, for every GOARCH and Go release up to the
 cutoff. `TestSeamImports` keeps every JSON library out of the other packages
 (`internal/testsupport`, which holds test tooling, excepted).
 
-From W2.0 on, `internal/codec` also imports `encoding/json`, only for the
+`internal/codec` also imports `encoding/json`, only for the
 `json.Number` type that sonic's `ast.Visitor` interface requires; nothing is
 encoded or decoded through it.
 
@@ -107,11 +107,12 @@ When a sonic tag without `!go1.28` exists:
 
 1. Bump sonic: `go get github.com/bytedance/sonic@<tag> && go mod tidy`.
    The codec guards against an over-read of sonic v1.15.4's native
-   scanner on short inputs; before trusting a new version, read the ledger's
-   note on it (W6-secfix, "MIN-1: the inputs that reach sonic's
-   `advance_dword`", in [`perf/ledger.md`](perf/ledger.md)), which names
-   the input shapes, the guards and the test that fails first when sonic
-   changes.
+   scanner on short inputs; before trusting a new version, read
+   `minSonicInput`, `padShort` and `cutPoint` in
+   `internal/codec/decode.go`, which name the input shapes and the guards.
+   `TestGuardPage` in `internal/codec/guard_test.go` is the test that fails
+   first when sonic changes, and [`perf/ledger.md`](perf/ledger.md) holds
+   the measurements.
 2. Set the `d1Cutoff` constant of `internal/codec/seam_test.go` to
    `"go1.29"` and run `go test -run Seam ./internal/codec/`: the seam tests
    derive both constraint lines, the identifier and the text of every site
@@ -172,48 +173,46 @@ and the example programs against a local stand-in for the API.
 `-args -record` also writes the bodies the API returned to
 [`testdata/live`](../testdata/live/README.md), each scrubbed of
 credentials before it reaches the disk. The last pass, its results and
-the facts it recorded about the API are ledger rows W6.4-01 to W6.4-08
-in [`perf/ledger.md`](perf/ledger.md). Observed there, not asserted by
-any test:
+the facts it recorded about the API are in
+[`perf/ledger.md`](perf/ledger.md). Observed there, not asserted by any
+test:
 
-- The API's HTTP/2 SETTINGS advertise `MAX_CONCURRENT_STREAMS` 100
-  (W6.4-04), so the client, which keeps one connection and counts its
-  streams strictly, queues a 101st concurrent call on it.
+- The API's HTTP/2 SETTINGS advertise `MAX_CONCURRENT_STREAMS` 100, so
+  the client, which keeps one connection and counts its streams strictly,
+  queues a 101st concurrent call on it.
 - Asked for gzip, as Go's transport asks by default, the API gzips its
   successful responses; the transport undoes the encoding and reports
   `ContentLength` −1, so the SDK reads the body with no declared length.
   Asked for no encoding, it declares `Content-Length: 311` for the models
-  list (W6.4-05). W6.4-08 prices the difference per call: without an
-  encoding a call makes 7 fewer allocations and about 10 KiB less
-  garbage, client and server counted together, on bodies of 311 and
-  401 B. `WithCompression(false)` asks for no encoding; the default stays
-  gzip, one of the encodings httpx asks for (owner decision G11 (1)).
+  list. Measured per call, without an encoding a call makes 7 fewer
+  allocations and about 10 KiB less garbage, client and server counted
+  together, on bodies of 311 and 401 B. `WithCompression(false)` asks for
+  no encoding; the default stays gzip, one of the encodings httpx asks
+  for.
 
 ## Responses with many answers
 
 A response is read under a limit, 16 MiB unless `WithMaxResponseBytes`
 sets another, and the SDK sets no limit on the number of answers in it, as
-the Python SDK sets none (owner decision G11 (2)). The decoder keeps one
-entry for each answer, of a known type or not, so while a call decodes,
-the heap it holds grows with the number of answers more than with the
-body's bytes. A 15 MiB body of small answers of an unknown type (688 682
-of them in `TestMemStatsFlood`) took 35 times its size in the decoder
-alone (review W6.2 MAJ-1) and 36.6 to 49.9 times its size through the
-whole call, 575 to 785 MB more than the heap held before it (frozen AC-P5
-(viii); ledger W6-secfix-01 and -02). That memory is the call's own and is
-released with it: once the call has returned, the decoder the SDK keeps
-for later calls holds at most 4 MiB of scratch (`codec.DecoderCeiling`,
-frozen with AC-P5), so once the collector has run, what stays live is at
-most 4 MiB for each decode that ran at the same time, and it drains two
-collections after the traffic falls. What a client that calls a server it
-does not trust may hold is set by its response limit and its concurrency:
-measured, a call in flight took up to about 50 times the body it read.
+the Python SDK sets none. The decoder keeps one entry for each answer, of
+a known type or not, so while a call decodes, the heap it holds grows with
+the number of answers more than with the body's bytes. A 15 MiB body of
+small answers of an unknown type (688 682 of them in `TestMemStatsFlood`)
+took 35 times its size in the decoder alone and 36.6 to 49.9 times its
+size through the whole call, 575 to 785 MB more than the heap held before
+it; what a client that calls a server it does not trust may hold is
+therefore set by its response limit and its concurrency. That memory is
+the call's own and is released with it: once the call has returned, the
+decoder the SDK keeps for later calls holds at most 4 MiB of scratch, so
+once the collector has run, what stays live is at most 4 MiB for each
+decode that ran at the same time, and it drains two collections after the
+traffic falls.
 
 ## What a kept response holds
 
 A response from a call keeps the header redactor that call used, so that
-`DecodeAs` redacts it as `Ask` did however long the caller keeps it (owner
-decision G11 (3)). A caller can see three consequences:
+`DecodeAs` redacts it as `Ask` did however long the caller keeps it. A
+caller can see three consequences:
 
 - A response to a plain-HTTP request through a proxy keeps the credentials
   of the proxies its client knew when the call returned: for each of up to
@@ -229,8 +228,7 @@ decision G11 (3)). A caller can see three consequences:
   because 16 other ones were used meanwhile, the call is not redacted of
   that credential: `Ask` and `DecodeAs` show it alike where the proxy echoed
   it. Only a proxy function that returns more than 16 distinct credentials
-  during one call meets this, and it was so before responses kept their
-  redactor.
+  during one call meets this.
 - Because a response from a call holds that function, `reflect.DeepEqual`
   of it and any other response value, its own copy included, is false (a
   response read back with `UnmarshalJSON` holds none). Compare what
@@ -274,9 +272,9 @@ corpora also run as ordinary tests in every `go test` run.
 | `FuzzDecodePaths` | `./internal/codec` | a program that writes a System One body with repeated members; the visitor and the lazy pass must agree with the body's last-wins reading |
 | `FuzzRetryAfter` | `.` | `Retry-After-Ms` and `Retry-After` values |
 | `FuzzTagGrammar` | `.` | a `typesafe` struct tag |
-| `FuzzFalsyJSON` | `./internal/engine` | a JSON value a question holds (`RawJSON`, JSON `Content`); `FalsyJSON`, which reads its first bytes first, must give the whole-value check's verdict (W5.3; in `internal/engine` since W6.5) |
-| `FuzzIsSecretHeader` | `./internal/engine` | a header name; `IsSecretHeader`, which folds an ASCII name in place, must give the verdict of the name lower-cased (W5.3; in `internal/engine` since W6.5) |
-| `FuzzValidUTF8` | `./internal/codec` | any byte string; `validUTF8` must give `utf8.Valid`'s verdict, which on amd64 holds sonic's SIMD validator to Go's (W6-fixes, owner ruling G8-b; `TestValidUTF8Parity` covers the short inputs exhaustively) |
+| `FuzzFalsyJSON` | `./internal/engine` | a JSON value a question holds (`RawJSON`, JSON `Content`); `FalsyJSON`, which reads its first bytes first, must give the whole-value check's verdict |
+| `FuzzIsSecretHeader` | `./internal/engine` | a header name; `IsSecretHeader`, which folds an ASCII name in place, must give the verdict of the name lower-cased |
+| `FuzzValidUTF8` | `./internal/codec` | any byte string; `validUTF8` must give `utf8.Valid`'s verdict, which on amd64 holds sonic's SIMD validator to Go's (`TestValidUTF8Parity` covers the short inputs exhaustively) |
 
 `FuzzAppendJSON` (`./internal/codec`, `./internal/wire`) and `FuzzValidString`
 (`./internal/codec`) run only their seed corpora; the job's `seeded` list
@@ -314,11 +312,7 @@ one worker per core).
   reads every body as an error body too), `retry_after` for the third, whose
   input layout (the first byte picks the headers) `FuzzRetryAfter` keeps.
 
-## Package layout (as built, W6.5)
-
-W6.5 moved the stages of a call out of the root package (owner
-instruction G9, design D1 of the W6.5 design report; the port plan's
-sections 4, 11 and 12 describe the layout before it):
+## Package layout
 
 - `internal/engine` holds the call's stages: the request body's assembly
   (`EncodeBody`, generic over the root package's `RawJSON` and `Content`),
@@ -354,6 +348,6 @@ sections 4, 11 and 12 describe the layout before it):
   also permit `unsafe` in the tests of `internal/codec` and in
   `internal/testsupport/naive`) and hold `internal/engine` to every rule
   of the root package.
-- CI's `-race` coverage step runs with `-coverpkg=./...` (owner ruling
-  G10), so a block is covered when any test of the module runs it.
+- CI's `-race` coverage step runs with `-coverpkg=./...`, so a block is
+  covered when any test of the module runs it.
 

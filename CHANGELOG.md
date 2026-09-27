@@ -10,9 +10,7 @@ The first release: a Go client for the TypeSafe System One API, ported from
 typesafe-sdk-python 0.7.1 (commit `0ffd094`). Each of the Python SDK's 129
 tests maps to a Go test or to a documented difference
 ([`docs/port-test-matrix.md`](docs/port-test-matrix.md),
-[`docs/deviations.md`](docs/deviations.md)), and
-[`docs/as-built.md`](docs/as-built.md) records how the port's plan changed
-while it was built.
+[`docs/deviations.md`](docs/deviations.md)).
 
 ### Added
 
@@ -87,9 +85,6 @@ while it was built.
   and `Example` functions.
 
 ### Security
-
-The security review before this release found these; no released version
-had them.
 
 - A pooled decoder drops scratch memory above 4 MiB when its call ends, so
   one response of many tiny answers inside the 16 MiB response cap cannot
@@ -166,10 +161,7 @@ decided while the port was built:
   internal configuration type, never the key.
 - Allocation budgets asserted in CI from `internal/alloctest` for request
   encoding, decoding, a whole call (12 allocations of the SDK's own on top
-  of the HTTP/2 transport's; 14 before the optimisation pass, which also
-  lets the decoder read a response in one scan when it can prove the scan
-  complete) and the response-size cap. CI fails a test built only without
-  the race detector in a package that no step without it runs.
+  of the HTTP/2 transport's) and the response-size cap.
 - Seam tests over every package of the module: `unsafe` only in the typed
   store's file and the codec's no-copy string, sonic only behind
   `internal/codec` and in the benchmarks' naive client, and no
@@ -181,9 +173,6 @@ decided while the port was built:
 - Fuzzing of every parser of server-chosen bytes in CI.
 - Live tests against the API (opt-in, `-tags live`).
 - Goldens of the exported API and the client options, with constant values.
-- The HTTP/2 gate counts a header-write hold's expiry before it hands the
-  turn to the next request, which then sees the count; a test that read
-  the count under load failed without it.
 - The time ratio of decoding an answer with 10 000 structured levels
   against one with 1 000 (at most 15) is asserted in the builds without
   the race detector, on every CI image; under the race detector a

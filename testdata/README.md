@@ -21,22 +21,23 @@ Conventions:
 - `malformed-*.json`: the SDK must reject it with `*ResponseValidationError`.
   Python 0.7.1 rejects every one of them.
 - `deviation-*.json`: the Go port deliberately differs from Python here
-  (plan Appendix B).
+  ([`docs/deviations.md`](../docs/deviations.md)).
 - `parity-*.json`: an edge case both accept.
 - Every other file is a valid body.
 - The "Python 0.7.1" columns are the output of
   `SystemOneResponse.from_http_response` (`ListModelsResponse` for
   `models.json`) in the upstream checkout at `0ffd094`, run with that
-  checkout's own `.venv`. Probed 2026-09-25 15:36:15 JST (time from `date`);
-  the two `-key` files and the value-only `malformed-invalid-utf8.json` were
-  probed 2026-09-25 16:11:04 JST, and their single-fault repairs were
-  accepted; `duplicates.json` was probed again 2026-09-25 16:51:41 JST (time
-  from `date`), after it gained the escaped `answers` and the `risk` answer.
+  checkout's own `.venv`. Probed 2026-09-25 15:36:15 JST; the two `-key`
+  files and the value-only `malformed-invalid-utf8.json` were probed
+  2026-09-25 16:11:04 JST, and their single-fault repairs were accepted;
+  `duplicates.json` was probed again 2026-09-25 16:51:41 JST, after it
+  gained the escaped `answers` and the `risk` answer.
   `malformed-too-deep.json`, `deviation-nan-unknown.json` and
   `deviation-nan-noul.json` were probed 2026-09-26 01:58:16 JST
   (`spikes@815453827b43:w2.0/python_paths.py`, output in
   `spikes@815453827b43:w2.0/results/python-paths.txt`).
-  `''` is Python's root path, which Go spells `.` (Appendix B).
+  `''` is Python's root path, which Go spells `.`
+  ([`docs/deviations.md`](../docs/deviations.md), "root path").
 
 ## Ported byte-exact
 
@@ -69,14 +70,14 @@ but that test returns `RESULT`; the body comes from `test_rich_descriptions`.
 
 | File | What it pins | Python 0.7.1 |
 | --- | --- | --- |
-| `result-20.json` | 20 answers in wire order: 7 noul, 7 choice, 6 score, text legends only. The questions it answers follow from it: a choice's options are the keys of its `probabilities`, and a score's levels are its `legend` values in key order. Serves AC-P2 and the 20-question case of S-C1. | accepted, 20 answers |
-| `type-last.json` | `result.json`'s values with every `type` after the value members and the top-level members reversed. It decodes to the same answers as `result.json` (plan 6.2.3). | accepted |
-| `escaped-names.json` | one JSON escape in each answer name: `\u00e9`, `\"`, `\\`, `\n`, the surrogate pair `\ud83c\udf0d` and `\/`. Escaped strings cost one allocation each (NF2). | accepted; names `spécial`, `quote"d`, `back\slash`, `new<LF>line`, `globe 🌍`, `sl/ash` |
-| `escaped-member-names.json` | escaped member names at every level: `"\u006dodel"`, `"\u0075sage"`, `"\u0061nswers"`, `"\u0074ype"`, `"l\u0065gend"`, the legend key `"\u0030"`, and `"summ\u0061ry"` inside a structured level, which also holds an escaped quote. The names decode to plain ones. The lazy pass's `Raw()` must keep the level's escapes byte-exact (plan 3.3). | accepted, same answers as the unescaped body |
-| `structured-legend-flood-1k.json`, `structured-legend-flood-10k.json` | the output of `testsupport.StructuredLegendFlood(1000)` and `(10000)`, 57,418 and 616,421 bytes. Answers are `spam`, `tone` and `flood`, a score answer with 10³ or 10⁴ structured levels (even levels are objects, odd levels are arrays) and as many probabilities. Used for AC-P8. | accepted |
-| `no-answers.json` | no `answers` member, so the answer set is empty (plan 6.2.3). | accepted, no answers |
-| `parity-big-exp-unknown.json` | `1e400` in an unknown top-level member (plan 6.2.2). | accepted |
-| `duplicates.json` | every duplicate rule of plan 6.2.4 in one body, for W2.0 and AC-F12. Top level: `model`, `usage` and `answers` twice each, the last `answers` spelled with an escape (`"\u0061nswers"`), so a decoder that compares raw member names keeps the wrong one; the first `answers` holds `gone`, an invalid `broken` (no `noul`) and `mystery` of the unknown kind `aurora`. Inside the last `answers`: `tone` twice (the first copy is invalid); in `spam`, `type` (`choice`, then `noul`) and `noul` twice; in the second `tone`, `confidence`, `probabilities` and the probability key `friendly` twice; in `quality`, `legend` twice (a structured level, then text levels) and the level key `1` twice; in `risk`, `legend` twice (a text level, then a structured one, which the lazy pass must find inside the escaped `answers`). | accepted, last wins at every level: the result below, no WARN |
+| `result-20.json` | 20 answers in wire order: 7 noul, 7 choice, 6 score, text legends only. The questions it answers follow from it: a choice's options are the keys of its `probabilities`, and a score's levels are its `legend` values in key order. Used by the decode's allocation budgets and the benchmarks' 20-question case. | accepted, 20 answers |
+| `type-last.json` | `result.json`'s values with every `type` after the value members and the top-level members reversed. It decodes to the same answers as `result.json`. | accepted |
+| `escaped-names.json` | one JSON escape in each answer name: `\u00e9`, `\"`, `\\`, `\n`, the surrogate pair `\ud83c\udf0d` and `\/`. Escaped strings cost one allocation each. | accepted; names `spécial`, `quote"d`, `back\slash`, `new<LF>line`, `globe 🌍`, `sl/ash` |
+| `escaped-member-names.json` | escaped member names at every level: `"\u006dodel"`, `"\u0075sage"`, `"\u0061nswers"`, `"\u0074ype"`, `"l\u0065gend"`, the legend key `"\u0030"`, and `"summ\u0061ry"` inside a structured level, which also holds an escaped quote. The names decode to plain ones. The lazy pass's `Raw()` must keep the level's escapes byte-exact. | accepted, same answers as the unescaped body |
+| `structured-legend-flood-1k.json`, `structured-legend-flood-10k.json` | the output of `testsupport.StructuredLegendFlood(1000)` and `(10000)`, 57,418 and 616,421 bytes. Answers are `spam`, `tone` and `flood`, a score answer with 10³ or 10⁴ structured levels (even levels are objects, odd levels are arrays) and as many probabilities. Used by the linearity tests. | accepted |
+| `no-answers.json` | no `answers` member, so the answer set is empty. | accepted, no answers |
+| `parity-big-exp-unknown.json` | `1e400` in an unknown top-level member. | accepted |
+| `duplicates.json` | every duplicate-member rule in one body. Top level: `model`, `usage` and `answers` twice each, the last `answers` spelled with an escape (`"\u0061nswers"`), so a decoder that compares raw member names keeps the wrong one; the first `answers` holds `gone`, an invalid `broken` (no `noul`) and `mystery` of the unknown kind `aurora`. Inside the last `answers`: `tone` twice (the first copy is invalid); in `spam`, `type` (`choice`, then `noul`) and `noul` twice; in the second `tone`, `confidence`, `probabilities` and the probability key `friendly` twice; in `quality`, `legend` twice (a structured level, then text levels) and the level key `1` twice; in `risk`, `legend` twice (a text level, then a structured one, which the lazy pass must find inside the escaped `answers`). | accepted, last wins at every level: the result below, no WARN |
 
 Python's result for `duplicates.json`, as a body without repeats
 (`duplicatesLastWins` in `fixtures_test.go`). The answers come in the order
@@ -98,18 +99,18 @@ differ.
 
 ## Deviations
 
-| File | Body | Python 0.7.1 | Go (plan) |
+| File | Body | Python 0.7.1 | Go |
 | --- | --- | --- | --- |
-| `deviation-big-exp-noul.json` | `"noul":1e400` | accepted, `noul == inf` | rejected with `*ResponseValidationError`: `strconv.ParseFloat` returns `ErrRange`, and ±Inf could not round-trip (AC-F10) |
-| `deviation-lone-surrogate.json` | a lone `\ud800` in a text legend level and inside a structured level | rejected at `''` | accepted: `Answers()` shows U+FFFD in the text level, and the lazy pass `Raw()` keeps `{"note":"\ud800"}` (Appendix B, AC-F7) |
-| `deviation-nan-unknown.json` | `NaN`, `Infinity` and `-Infinity` in an unknown member | accepted: pydantic-core's parser takes the three literals (`allow_inf_nan`) | rejected at `.`: JSON has no such literal, sonic's parser refuses them, and the port takes finite floats only, as for `1e400` (ruling R73) |
+| `deviation-big-exp-noul.json` | `"noul":1e400` | accepted, `noul == inf` | rejected with `*ResponseValidationError`: `strconv.ParseFloat` returns `ErrRange`, and ±Inf could not round-trip |
+| `deviation-lone-surrogate.json` | a lone `\ud800` in a text legend level and inside a structured level | rejected at `''` | accepted: `Answers()` shows U+FFFD in the text level, and the lazy pass `Raw()` keeps `{"note":"\ud800"}` ([`docs/deviations.md`](../docs/deviations.md), "lone surrogates") |
+| `deviation-nan-unknown.json` | `NaN`, `Infinity` and `-Infinity` in an unknown member | accepted: pydantic-core's parser takes the three literals (`allow_inf_nan`) | rejected at `.`: JSON has no such literal, sonic's parser refuses them, and the port takes finite floats only, as for `1e400` |
 | `deviation-nan-noul.json` | `"noul":NaN` | accepted, `noul` is `nan` | rejected at `.`, for the same reason |
 
 ## Malformed
 
 Every file here must be rejected with `*ResponseValidationError`.
 
-| File | The one fault | Python 0.7.1 `field_path` | Go field path (plan) |
+| File | The one fault | Python 0.7.1 `field_path` | Go field path |
 | --- | --- | --- | --- |
 | `malformed-empty.json` | zero bytes | `''` | `.` (`decoder.Skip` start < 0) |
 | `malformed-whitespace.json` | only JSON whitespace (space, tab, LF, CR) | `''` | `.` |
@@ -139,19 +140,18 @@ The two SDKs cap nesting differently, and the Go port is the lenient one:
 the Python SDK refuses a body nested more than 200 arrays deep inside the root
 object (201 fails at `''`), while the Go decoder takes up to 4096 containers
 in all, the root included, sonic's own limit, and refuses beyond it at `.`
-before its traversal recurses further (ruling R73). `malformed-too-deep.json`
-sits past both limits.
+before its traversal recurses further. `malformed-too-deep.json` sits past
+both limits.
 
 The faults inside an unknown member sit in a top-level member, `meta`, that a
-decoder has no reason to read. They are the reason for plan 6.2.2's rule that
-nothing is skipped: sonic's skip path accepts the five syntax faults, and
-every sonic path accepts a raw control character in a string value (plan
-6.2.2). The invalid-UTF-8 and control-character faults come in pairs, one in
-a string value and one in a member name: a decoder that checks only values,
-or only names, accepts one file of each pair, and the `malformed-*.json`
-loops catch it. A duplicate member is not malformed (last wins, plan 6.2.4;
-`duplicates.json`), and neither is an unknown answer kind
-(`unknown-answer-type.json`).
+decoder has no reason to read. They are the reason the decoder skips nothing:
+sonic's skip path accepts the five syntax faults, and every sonic path accepts
+a raw control character in a string value. The invalid-UTF-8 and
+control-character faults come in pairs, one in a string value and one in a
+member name: a decoder that checks only values, or only names, accepts one
+file of each pair, and the `malformed-*.json` loops catch it. A duplicate
+member is not malformed (last wins; `duplicates.json`), and neither is an
+unknown answer kind (`unknown-answer-type.json`).
 
 Two names differ from the plan's text:
 

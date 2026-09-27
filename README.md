@@ -378,8 +378,8 @@ checks that it is.
 
 ## Differences from the Python SDK
 
-The port keeps the Python SDK's behaviour except where Go, or a ruling
-made during the port, says otherwise. The main differences:
+The port keeps the Python SDK's behaviour except where noted. The main
+differences:
 
 - One `*Client` for synchronous and concurrent use; every call takes a
   `context.Context`, and each attempt has one deadline.
@@ -439,9 +439,9 @@ each System One call; CI does not run these tests
   [`docs/uncovered-lines.md`](docs/uncovered-lines.md).
 - [CodSpeed](https://codspeed.io/zchee/typesafe-sdk-go) runs every
   benchmark in walltime mode on `ubuntu-26.04`. The job fails when a whole
-  call is not faster than a naive sonic client's in the same run (AC-P7:
-  `BenchmarkCall/sdk`'s mean at or above `BenchmarkCall/naive`'s); every
-  absolute time is reported, not enforced
+  call is not faster than a naive sonic client's in the same run (the step
+  "AC-P7 gate" compares `BenchmarkCall/sdk`'s mean with
+  `BenchmarkCall/naive`'s); every absolute time is reported, not enforced
   ([`docs/perf/codspeed.md`](docs/perf/codspeed.md)).
 - The raw measurement files and prototype sources that the
   [performance ledger](docs/perf/ledger.md) cites are kept, with their

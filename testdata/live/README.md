@@ -1,9 +1,8 @@
 # Live response bodies
 
-Bodies the live TypeSafe API returned to W6.4's owner-approved live pass
-(plan risk K6: the decoder and its budgets checked against real responses;
-critic-p5 C4: the share of real bodies the decode reads in one scan). The
-live tests write them when run with `-args -record`
+Bodies the live TypeSafe API returned to the live tests, kept to check the
+decoder against real responses. The live tests write them when run with
+`-args -record`
 (`livetest/env_test.go`, `writeFixture`):
 
 ```sh
@@ -17,9 +16,9 @@ every occurrence of the API key, and of the wrong key
 nothing, a body that still holds a credential shape: a token starting with
 `ts_`, a member named like a credential header (`Authorization`,
 `Proxy-Authorization`, `X-Api-Key`, `Api-Key`, `Cookie`, `Set-Cookie`, or a
-header-style name holding `token` or `secret`), or a bearer credential. None of these bodies held a key; each is the exact body
-the SDK read, after the transport undid the API's gzip encoding (ledger
-W6.4-05).
+header-style name holding `token` or `secret`), or a bearer credential.
+None of these bodies held a key; each is the exact body the SDK read, after
+the transport undid the API's gzip encoding.
 
 The files sit in this subdirectory, not beside the other fixtures, so that
 the loops over `testdata/*.json` do not read them; one of those loops pins
@@ -38,11 +37,10 @@ decode in 4 allocations, as `result.json` does.
 
 The first three were recorded at 2026-09-27 02:41:00 JST (the pass's start,
 from `date`) on 47d2521, the last two at 02:42:13 JST on 47d2521's tree with
-`TestLiveUnauthenticated` as committed beside these files (ledger W6.4-01
-and W6.4-02).
+`TestLiveUnauthenticated` as committed beside these files.
 
 Two tests read them on every `go test` run, without the live tag:
 `livetest.TestRecordedBodiesHoldNoCredentials` (exactly these files, no
 credential shape, and no byte of `TYPESAFE_API_KEY` when the environment
 holds it) and `internal/codec.TestLiveBodiesOneScan` (each decodes, with the
-one-scan and the whole-body traversal agreeing; ledger W6.4-06).
+one-scan and the whole-body traversal agreeing).
