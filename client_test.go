@@ -57,11 +57,7 @@ func newTestClient(t *testing.T, rt http.RoundTripper, opts ...ClientOption) *Cl
 // Content-Type of application/json, the headers kv (name, value, ...) and
 // body.
 func replying(status int, body []byte, kv ...string) *testsupport.Recorder {
-	reply := testsupport.JSON(status, body)
-	for i := 0; i+1 < len(kv); i += 2 {
-		reply.Header.Add(kv[i], kv[i+1])
-	}
-	return &testsupport.Recorder{Replies: []testsupport.Reply{reply}}
+	return &testsupport.Recorder{Replies: []testsupport.Reply{withHeader(testsupport.JSON(status, body), kv...)}}
 }
 
 // onlyRequest returns the one request rec recorded.

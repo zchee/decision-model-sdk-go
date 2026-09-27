@@ -38,7 +38,7 @@ import (
 
 // noulBody is the question set {"q": {"type": "noul", "instructions": "?"}}
 // as a request body carries it.
-const noulBody = `"questions":{"q":{"type":"noul","instructions":"?"}}`
+const noulBody = `"questions":` + probeQuestions
 
 // capture wraps rt and records the context deadline and the GetBody of each
 // request before rt sees it.
@@ -552,19 +552,15 @@ func TestProtectedHeadersAndPrefixBaseURL(t *testing.T) {
 	}
 	assertDeadline(t, cp, 0, before, 2*time.Second)
 
-	var text strings.Builder
-	for _, r := range logs.Records() {
-		text.WriteString(r.String())
-		text.WriteByte('\n')
-	}
+	text := recordsText(logs)
 	for _, secret := range []string{testKey, "injected-secret", "key-secret", "cookie-secret", "response-secret"} {
-		if strings.Contains(text.String(), secret) {
-			t.Errorf("the records hold %q:\n%s", secret, text.String())
+		if strings.Contains(text, secret) {
+			t.Errorf("the records hold %q:\n%s", secret, text)
 		}
 	}
 	for _, visible := range []string{"req_log", "hello"} {
-		if !strings.Contains(text.String(), visible) {
-			t.Errorf("the records lack %q:\n%s", visible, text.String())
+		if !strings.Contains(text, visible) {
+			t.Errorf("the records lack %q:\n%s", visible, text)
 		}
 	}
 	dropped := map[string]bool{}

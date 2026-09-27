@@ -174,9 +174,13 @@ func TestUnknownAnswerTypeSkipped(t *testing.T) {
 // them are escaped and cut at 128 characters.
 func TestUnknownAnswerTypeWarnCap(t *testing.T) {
 	long := strings.Repeat("t", 300)
-	var answers []string
+	var answers, warned []string
 	for i := range 9 {
-		answers = append(answers, `"u`+strconv.Itoa(i)+`":{"type":"t`+strconv.Itoa(i)+`"}`)
+		n := strconv.Itoa(i)
+		answers = append(answers, `"u`+n+`":{"type":"t`+n+`"}`)
+		if i < 8 {
+			warned = append(warned, "WARN "+engine.MsgSkippedAnswer+" answer=u"+n+" type=t"+n)
+		}
 	}
 	tests := map[string]struct {
 		answers []string
@@ -184,22 +188,11 @@ func TestUnknownAnswerTypeWarnCap(t *testing.T) {
 	}{
 		"success: nine unknown answers, eight lines and a summary": {
 			answers: answers,
-			want: []string{
-				"WARN " + engine.MsgSkippedAnswer + " answer=u0 type=t0", "WARN " + engine.MsgSkippedAnswer + " answer=u1 type=t1",
-				"WARN " + engine.MsgSkippedAnswer + " answer=u2 type=t2", "WARN " + engine.MsgSkippedAnswer + " answer=u3 type=t3",
-				"WARN " + engine.MsgSkippedAnswer + " answer=u4 type=t4", "WARN " + engine.MsgSkippedAnswer + " answer=u5 type=t5",
-				"WARN " + engine.MsgSkippedAnswer + " answer=u6 type=t6", "WARN " + engine.MsgSkippedAnswer + " answer=u7 type=t7",
-				"WARN " + engine.MsgSkippedAnswers + " count=1",
-			},
+			want:    append(warned, "WARN "+engine.MsgSkippedAnswers+" count=1"),
 		},
 		"success: eight unknown answers, no summary": {
 			answers: answers[:8],
-			want: []string{
-				"WARN " + engine.MsgSkippedAnswer + " answer=u0 type=t0", "WARN " + engine.MsgSkippedAnswer + " answer=u1 type=t1",
-				"WARN " + engine.MsgSkippedAnswer + " answer=u2 type=t2", "WARN " + engine.MsgSkippedAnswer + " answer=u3 type=t3",
-				"WARN " + engine.MsgSkippedAnswer + " answer=u4 type=t4", "WARN " + engine.MsgSkippedAnswer + " answer=u5 type=t5",
-				"WARN " + engine.MsgSkippedAnswer + " answer=u6 type=t6", "WARN " + engine.MsgSkippedAnswer + " answer=u7 type=t7",
-			},
+			want:    warned,
 		},
 		"success: a name and a type escaped and cut": {
 			answers: []string{`"a\u001b[2Jb\\":{"type":"` + long + `"}`},

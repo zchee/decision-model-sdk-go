@@ -932,20 +932,12 @@ func TestErrorInterfaceExcludesForeignErrors(t *testing.T) {
 // TestInvalidRequestErrorChain.
 var errMarshal = errors.New("caller: cannot marshal")
 
-type refusingMarshaler struct{}
-
-func (refusingMarshaler) MarshalJSON() ([]byte, error) { return nil, errMarshal }
-
 // TestInvalidRequestErrorChain pins that the chain of an *InvalidRequestError
 // is not cut at the codec, so the error a caller's own MarshalJSON returned
 // stays reachable with errors.Is, while the message carries the escaped, cut
 // text.
 func TestInvalidRequestErrorChain(t *testing.T) {
-	qs, err := NewQuestions().Noul("q", Noul{Instructions: Text("?")}).Prepare()
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = encodeBody(map[string]any{"v": refusingMarshaler{}}, "m", qs, nil)
+	_, err := encodeBody(map[string]any{"v": failingMarshaler{err: errMarshal}}, "m", noulQuestion(t), nil)
 	if _, ok := errors.AsType[*InvalidRequestError](err); !ok {
 		t.Fatalf("err = %v (%T), want an *InvalidRequestError", err, err)
 	}

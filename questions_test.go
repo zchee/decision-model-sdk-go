@@ -26,9 +26,9 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
-// mustPrepare prepares qs and returns the "questions" bytes, failing the test
-// when Prepare fails.
-func mustPrepare(t *testing.T, qs *Questions) string {
+// questionBytes prepares qs and returns the "questions" bytes, failing the
+// test when Prepare fails.
+func questionBytes(t *testing.T, qs *Questions) string {
 	t.Helper()
 	p, err := qs.Prepare()
 	if err != nil {
@@ -79,11 +79,7 @@ func TestPreparedBytesMatchPython(t *testing.T) {
 		want      string
 	}{
 		"success: the API sketch of the port plan": {
-			questions: NewQuestions().
-				Noul("billing", Noul{Instructions: Text("Is this about billing?"), Yes: Text("payments or invoices")}).
-				Choice("tone", Choice{Instructions: Text("What is the tone?"), Options: Options{{"calm", Text("neutral or polite")}, {Label: "angry"}}}).
-				Score("urgency", Score{Levels: []Content{Text("can wait"), Text("this week"), Text("today")}}).
-				Raw("spam", RawQuestion{Type: "noul", Fields: map[string]any{"instructions": "Spam?"}}),
+			questions: sketchQuestions(""),
 			want: `{"billing":{"type":"noul","instructions":"Is this about billing?","criteria":{"true":"payments or invoices"}},` +
 				`"tone":{"type":"choice","instructions":"What is the tone?","criteria":{"calm":"neutral or polite","angry":null}},` +
 				`"urgency":{"type":"score","criteria":["can wait","this week","today"]},"spam":{"type":"noul","instructions":"Spam?"}}`,
@@ -155,7 +151,7 @@ func TestPreparedBytesMatchPython(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if got := mustPrepare(t, tt.questions); got != tt.want {
+			if got := questionBytes(t, tt.questions); got != tt.want {
 				t.Errorf("questions =\n%s\nwant (Python's to_json)\n%s", got, tt.want)
 			}
 		})
@@ -355,7 +351,7 @@ func TestUnsetMembersLeftOffWire(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if got := mustPrepare(t, tt.add(NewQuestions())); got != tt.want {
+			if got := questionBytes(t, tt.add(NewQuestions())); got != tt.want {
 				t.Errorf("questions = %s, want %s (Python: %s)", got, tt.want, tt.python)
 			}
 		})
@@ -423,7 +419,7 @@ func TestEachKindWritesItsTypeTag(t *testing.T) {
 				instructions string
 			}{{first, "Spam?"}, {second, "Updated?"}} {
 				prefix := `{"q":{"type":"` + tt.tag + `","instructions":"` + c.instructions + `"`
-				if got := mustPrepare(t, c.qs); !strings.HasPrefix(got, prefix) {
+				if got := questionBytes(t, c.qs); !strings.HasPrefix(got, prefix) {
 					t.Errorf("questions = %s, want the prefix %s", got, prefix)
 				}
 			}
@@ -506,7 +502,7 @@ func TestNoulCriteriaShapes(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if got, want := mustPrepare(t, tt.q(NewQuestions())), `{"q":`+tt.want+`}`; got != want {
+			if got, want := questionBytes(t, tt.q(NewQuestions())), `{"q":`+tt.want+`}`; got != want {
 				t.Errorf("questions = %s, want %s", got, want)
 			}
 		})
@@ -608,7 +604,7 @@ func TestRawScoreCriteriaThatAreNotEmpty(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := mustPrepare(t, NewQuestions().Raw("r", RawQuestion{Type: "score", Fields: map[string]any{"criteria": tt.criteria}}))
+			got := questionBytes(t, NewQuestions().Raw("r", RawQuestion{Type: "score", Fields: map[string]any{"criteria": tt.criteria}}))
 			if want := `{"r":{"type":"score","criteria":` + tt.want + `}}`; got != want {
 				t.Errorf("questions = %s, want %s", got, want)
 			}
@@ -661,7 +657,7 @@ func TestMixedQuestionMapsThroughOneBuilder(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if got := mustPrepare(t, tt.qs); got != tt.want {
+			if got := questionBytes(t, tt.qs); got != tt.want {
 				t.Errorf("questions = %s, want %s", got, tt.want)
 			}
 		})
@@ -702,7 +698,7 @@ func TestRawQuestionKeepsExplicitNull(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if got := mustPrepare(t, tt.qs); got != tt.want {
+			if got := questionBytes(t, tt.qs); got != tt.want {
 				t.Errorf("questions =\n%s\nwant\n%s", got, tt.want)
 			}
 		})
@@ -747,14 +743,14 @@ func TestArrayContentEverywhere(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if got := mustPrepare(t, tt.qs); got != tt.want {
+			if got := questionBytes(t, tt.qs); got != tt.want {
 				t.Errorf("questions =\n%s\nwant\n%s", got, tt.want)
 			}
 		})
 	}
 
 	typed := tests["success: typed"]
-	qs := prepared(t, typed.qs)
+	qs := mustPrepared(t, typed.qs)
 	type message struct {
 		Message string `json:"message"`
 	}
@@ -798,14 +794,14 @@ func TestNullInsideContentSurvives(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if got := mustPrepare(t, tt.qs); got != tt.want {
+			if got := questionBytes(t, tt.qs); got != tt.want {
 				t.Errorf("questions =\n%s\nwant\n%s", got, tt.want)
 			}
 		})
 	}
 
 	typed := tests["success: typed questions of every kind"]
-	qs := prepared(t, typed.qs)
+	qs := mustPrepared(t, typed.qs)
 	type nested struct {
 		Nested *string `json:"nested"`
 	}

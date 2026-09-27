@@ -644,6 +644,16 @@ func TestAPIErrorBodyEdgeCasesThroughClient(t *testing.T) {
 	}
 }
 
+// fiveNouls returns the noul questions spam, a, b, c and d, prepared.
+func fiveNouls(t *testing.T) *Prepared {
+	t.Helper()
+	qs := NewQuestions()
+	for _, name := range []string{"spam", "a", "b", "c", "d"} {
+		qs = qs.Noul(name, Noul{Instructions: Text("?")})
+	}
+	return mustPrepared(t, qs)
+}
+
 // TestSystemOneAnswersInline checks the answer entries a call allocates with
 // its response (engine.NewSystemOneAlloc): each call's answers live in an
 // array of their own, so a later call changes no earlier response's answers;
@@ -653,16 +663,12 @@ func TestAPIErrorBodyEdgeCasesThroughClient(t *testing.T) {
 func TestSystemOneAnswersInline(t *testing.T) {
 	body := testsupport.Fixture(t, "result.json")
 	one := mustPrepared(t, NewQuestions().Noul("spam", Noul{Instructions: Text("Spam?")}))
-	five := NewQuestions()
-	for _, name := range []string{"spam", "a", "b", "c", "d"} {
-		five = five.Noul(name, Noul{Instructions: Text("?")})
-	}
 	tests := map[string]struct {
 		qs *Prepared
 	}{
 		"success: three questions, the entries with the response":                {qs: q3Questions(t)},
 		"success: one question and three answers, the entries outgrow the array": {qs: one},
-		"success: five questions, past maxInlineAnswers":                         {qs: mustPrepared(t, five)},
+		"success: five questions, past maxInlineAnswers":                         {qs: fiveNouls(t)},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -697,15 +703,11 @@ func TestSystemOneAnswersInline(t *testing.T) {
 // engine.MaxInlineAnswers and for one past it.
 func TestAnswersOutliveTheirResponse(t *testing.T) {
 	body := testsupport.Fixture(t, "result.json")
-	five := NewQuestions()
-	for _, name := range []string{"spam", "a", "b", "c", "d"} {
-		five = five.Noul(name, Noul{Instructions: Text("?")})
-	}
 	tests := map[string]struct {
 		qs *Prepared
 	}{
 		"success: three questions, the entries in the call's allocation": {qs: q3Questions(t)},
-		"success: five questions, the entries the decode's":              {qs: mustPrepared(t, five)},
+		"success: five questions, the entries the decode's":              {qs: fiveNouls(t)},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {

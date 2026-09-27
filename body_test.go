@@ -42,20 +42,16 @@ import (
 // {"q":{"type":"noul","instructions":"?"}}.
 const probeQuestions = `{"q":{"type":"noul","instructions":"?"}}`
 
-// prepared prepares qs, failing the test when Prepare fails.
-func prepared(t *testing.T, qs *Questions) *Prepared {
-	t.Helper()
-	p, err := qs.Prepare()
-	if err != nil {
-		t.Fatalf("Prepare: %v", err)
-	}
-	return p
+// probeBody returns the request body of state with the default model and
+// the probe's question set, followed by extra.
+func probeBody(state, extra string) string {
+	return `{"state":` + state + `,"model":"jev-latest","questions":` + probeQuestions + extra + `}`
 }
 
 // probeSet returns the probe's question set, prepared.
 func probeSet(t *testing.T) *Prepared {
 	t.Helper()
-	return prepared(t, NewQuestions().Noul("q", Noul{Instructions: Text("?")}))
+	return mustPrepared(t, NewQuestions().Noul("q", Noul{Instructions: Text("?")}))
 }
 
 // bodyOf encodes a request body and returns a copy of its bytes, releasing
@@ -129,7 +125,6 @@ type ticketState struct {
 // level, because a Go map with more is sent in Go's iteration order (sonic
 // does not sort keys); the struct case shows the nested order.
 func TestBodyBytesMatchPython(t *testing.T) {
-	tail := `,"model":"jev-latest","questions":` + probeQuestions + `}`
 	tests := map[string]struct {
 		state any
 		model string
@@ -139,28 +134,28 @@ func TestBodyBytesMatchPython(t *testing.T) {
 	}{
 		"success: text state": {
 			state: "I was charged twice. Please help.",
-			want:  `{"state":"I was charged twice. Please help."` + tail,
+			want:  probeBody(`"I was charged twice. Please help."`, ""),
 		},
 		"success: map state": {
 			state: map[string]any{"message": "I was charged twice."},
-			want:  `{"state":{"message":"I was charged twice."}` + tail,
+			want:  probeBody(`{"message":"I was charged twice."}`, ""),
 		},
 		"success: nested state as structs": {
 			state: &ticketState{Name: "ticket", Items: []ticketItem{{ID: 1, Text: "hi", Tags: []string{"a", "b"}, OK: true, Meta: ticketMeta{Source: "web", Rank: 2}}}},
-			want:  `{"state":{"name":"ticket","items":[{"id":1,"text":"hi","tags":["a","b"],"ok":true,"meta":{"source":"web","rank":2,"note":null}}]}` + tail,
+			want:  probeBody(`{"name":"ticket","items":[{"id":1,"text":"hi","tags":["a","b"],"ok":true,"meta":{"source":"web","rank":2,"note":null}}]}`, ""),
 		},
 		"success: array state": {
 			state: []any{map[string]any{"message": "Classify"}, nil},
-			want:  `{"state":[{"message":"Classify"},null]` + tail,
+			want:  probeBody(`[{"message":"Classify"},null]`, ""),
 		},
 		"success: RawJSON state": {
 			state: RawJSON(`{"a":[1,2,{"b":null}],"c":"d"}`),
-			want:  `{"state":{"a":[1,2,{"b":null}],"c":"d"}` + tail,
+			want:  probeBody(`{"a":[1,2,{"b":null}],"c":"d"}`, ""),
 		},
 		"success: typed question set": {
 			state: "x",
 			qs: func(t *testing.T) *Prepared {
-				return prepared(t, NewQuestions().Noul("billing", Noul{Instructions: Text("Is this about billing?")}))
+				return mustPrepared(t, NewQuestions().Noul("billing", Noul{Instructions: Text("Is this about billing?")}))
 			},
 			want: `{"state":"x","model":"jev-latest","questions":{"billing":{"type":"noul","instructions":"Is this about billing?"}}}`,
 		},
@@ -624,7 +619,7 @@ func TestUnencodableBodyFailsBeforeNetwork(t *testing.T) {
 		if got := rec.Count(); got != 1 {
 			t.Fatalf("round trips = %d, want 1", got)
 		}
-		want := `{"state":"x","model":"jev-latest","questions":` + probeQuestions + `,"good":1}`
+		want := probeBody(`"x"`, `,"good":1`)
 		if diff := gocmp.Diff(want, string(rec.Requests()[0].Body)); diff != "" {
 			t.Errorf("body sent (-want +got):\n%s", diff)
 		}
@@ -675,7 +670,7 @@ func TestScalarStatesRefused(t *testing.T) {
 				if err != nil {
 					t.Fatalf("encodeBody: %v", err)
 				}
-				want := `{"state":` + tt.want + `,"model":"jev-latest","questions":` + probeQuestions + `}`
+				want := probeBody(tt.want, "")
 				if diff := gocmp.Diff(want, got); diff != "" {
 					t.Errorf("body (-want +got):\n%s", diff)
 				}
@@ -708,7 +703,7 @@ func TestNamedStringStateEncodesAsString(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			got := mustBody(t, tt.state, "jev-latest", probeSet(t))
-			want := `{"state":` + tt.want + `,"model":"jev-latest","questions":` + probeQuestions + `}`
+			want := probeBody(tt.want, "")
 			if diff := gocmp.Diff(want, got); diff != "" {
 				t.Errorf("body (-want +got):\n%s", diff)
 			}
@@ -752,7 +747,7 @@ func TestMapSliceStructStates(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			got := mustBody(t, tt.state, "jev-latest", probeSet(t))
-			want := `{"state":` + tt.want + `,"model":"jev-latest","questions":` + probeQuestions + `}`
+			want := probeBody(tt.want, "")
 			if diff := gocmp.Diff(want, got); diff != "" {
 				t.Errorf("body (-want +got):\n%s", diff)
 			}
@@ -760,7 +755,7 @@ func TestMapSliceStructStates(t *testing.T) {
 	}
 
 	t.Run("success: the upstream request", func(t *testing.T) {
-		qs := prepared(t, NewQuestions().
+		qs := mustPrepared(t, NewQuestions().
 			Choice("label", Choice{Instructions: JSON([]byte(`["read",{"ctx":null}]`)), Options: Options{{Label: "a"}, {"b", Text("x")}}}).
 			Score("rating", Score{Levels: []Content{Text("low"), Text("high")}}).
 			Raw("raw", RawQuestion{Type: "score", Fields: map[string]any{"criteria": []any{"bad", "good"}}}))
@@ -828,7 +823,7 @@ func TestRequestReaders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"state":{"k":"v"},"model":"jev-latest","questions":` + probeQuestions + `,"n":1}`
+	want := probeBody(`{"k":"v"}`, `,"n":1`)
 	rc, getBody, n, err := requestReaders(body)
 	if err != nil {
 		t.Fatal(err)
@@ -919,9 +914,6 @@ func TestNestedContentEncodesAsContent(t *testing.T) {
 		P *Content `json:"p"`
 	}
 	text := Text("a\bb")
-	body := func(state, extra string) string {
-		return `{"state":` + state + `,"model":"jev-latest","questions":` + probeQuestions + extra + `}`
-	}
 	tests := map[string]struct {
 		state   any
 		extra   []bodyMember
@@ -932,30 +924,30 @@ func TestNestedContentEncodesAsContent(t *testing.T) {
 	}{
 		"success: text in a map state": {
 			state: map[string]any{"c": text},
-			want:  []string{body(`{"c":"a\bb"}`, "")},
+			want:  []string{probeBody(`{"c":"a\bb"}`, "")},
 		},
 		"success: JSON content in a map state, compacted": {
 			state: map[string]any{"c": JSON([]byte(` { "a" : [1, null] } `))},
-			want:  []string{body(`{"c":{"a":[1,null]}}`, "")},
+			want:  []string{probeBody(`{"c":{"a":[1,null]}}`, "")},
 		},
 		"success: unset Content in a map state is null": {
 			state: map[string]any{"c": Content{}},
-			want:  []string{body(`{"c":null}`, "")},
+			want:  []string{probeBody(`{"c":null}`, "")},
 		},
 		"success: Content and *Content struct fields": {
 			state: holder{C: Text("x"), P: &text},
-			want:  []string{body(`{"c":"x","p":"a\bb"}`, "")},
+			want:  []string{probeBody(`{"c":"x","p":"a\bb"}`, "")},
 		},
 		"success: a nil *Content field is null": {
 			state: holder{C: JSON([]byte(`[]`))},
-			want:  []string{body(`{"c":[],"p":null}`, "")},
+			want:  []string{probeBody(`{"c":[],"p":null}`, "")},
 		},
 		"success: Content nested in an extra member's value": {
 			state: "hi",
 			extra: []bodyMember{{Key: "ctx", Value: map[string]any{"c": text, "u": Content{}}}},
 			want: []string{
-				body(`"hi"`, `,"ctx":{"c":"a\bb","u":null}`),
-				body(`"hi"`, `,"ctx":{"u":null,"c":"a\bb"}`),
+				probeBody(`"hi"`, `,"ctx":{"c":"a\bb","u":null}`),
+				probeBody(`"hi"`, `,"ctx":{"u":null,"c":"a\bb"}`),
 			},
 		},
 		// Under -race, sonic's own check of a MarshalJSON output accepts
@@ -1041,9 +1033,6 @@ func TestNestedRawJSONEncodesAsJSON(t *testing.T) {
 	}
 	raw := RawJSON(` {"a" : [1, null]} `)
 	four := RawJSON(`4`)
-	body := func(state, extra string) string {
-		return `{"state":` + state + `,"model":"jev-latest","questions":` + probeQuestions + extra + `}`
-	}
 	tests := map[string]struct {
 		state   any
 		extra   []bodyMember
@@ -1055,33 +1044,33 @@ func TestNestedRawJSONEncodesAsJSON(t *testing.T) {
 	}{
 		"success: RawJSON in a map state, compacted": {
 			state: map[string]any{"r": raw},
-			want:  body(`{"r":{"a":[1,null]}}`, ""),
+			want:  probeBody(`{"r":{"a":[1,null]}}`, ""),
 		},
 		"success: RawJSON as a struct field and through a pointer field": {
 			state: holder{R: RawJSON(`[1,2]`), P: &four},
-			want:  body(`{"r":[1,2],"p":4}`, ""),
+			want:  probeBody(`{"r":[1,2],"p":4}`, ""),
 		},
 		"success: a nil RawJSON and a nil *RawJSON field are null": {
 			state: holder{},
-			want:  body(`{"r":null,"p":null}`, ""),
+			want:  probeBody(`{"r":null,"p":null}`, ""),
 		},
 		"success: RawJSON in a slice state": {
 			state: []any{RawJSON(`"text"`), RawJSON(`{}`)},
-			want:  body(`["text",{}]`, ""),
+			want:  probeBody(`["text",{}]`, ""),
 		},
 		"success: a *RawJSON state takes the verbatim path": {
 			state: &raw,
-			want:  body(` {"a" : [1, null]} `, ""),
+			want:  probeBody(` {"a" : [1, null]} `, ""),
 		},
 		"success: RawJSON inside an extra member's value": {
 			state: "hi",
 			extra: []bodyMember{{Key: "cfg", Value: []any{RawJSON(`{"k":true}`), four}}},
-			want:  body(`"hi"`, `,"cfg":[{"k":true},4]`),
+			want:  probeBody(`"hi"`, `,"cfg":[{"k":true},4]`),
 		},
 		"success: a *RawJSON extra member takes the verbatim path": {
 			state: "hi",
 			extra: []bodyMember{{Key: "p", Value: &four}},
-			want:  body(`"hi"`, `,"p":4`),
+			want:  probeBody(`"hi"`, `,"p":4`),
 		},
 		"error: truncated RawJSON nested in the state": {
 			state:   map[string]any{"r": RawJSON(`{"a":`)},
@@ -1161,10 +1150,10 @@ type rawMessage []byte
 
 func (m rawMessage) MarshalJSON() ([]byte, error) { return m, nil }
 
-// failingMarshaler is a json.Marshaler that fails with its message.
-type failingMarshaler struct{ msg string }
+// failingMarshaler is a json.Marshaler that fails with err.
+type failingMarshaler struct{ err error }
 
-func (f failingMarshaler) MarshalJSON() ([]byte, error) { return nil, errors.New(f.msg) }
+func (f failingMarshaler) MarshalJSON() ([]byte, error) { return nil, f.err }
 
 // TestEncodeErrorMessageIsBounded checks that, however large or
 // unprintable the caller's data, an *InvalidRequestError's message stays
@@ -1210,7 +1199,7 @@ func TestEncodeErrorMessageIsBounded(t *testing.T) {
 			inCause:  true,
 		},
 		"error: a 1 MiB cause with control characters, escaped and cut": {
-			state:   map[string]any{"m": failingMarshaler{msg: "bad\x1b[31m\n" + payload}},
+			state:   map[string]any{"m": failingMarshaler{err: errors.New("bad\x1b[31m\n" + payload)}},
 			want:    `state: bad\x1b[31m\n` + secret,
 			cut:     true,
 			inCause: true,
