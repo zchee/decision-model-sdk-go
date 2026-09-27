@@ -105,6 +105,12 @@ signal to start the steps below.
 When a sonic tag without `!go1.28` exists:
 
 1. Bump sonic: `go get github.com/bytedance/sonic@<tag> && go mod tidy`.
+   The codec guards against an over-read of sonic v1.15.4's native
+   scanner on short inputs; before trusting a new version, read the ledger's
+   note on it (W6-secfix, "MIN-1: the inputs that reach sonic's
+   `advance_dword`", in [`perf/ledger.md`](perf/ledger.md)), which names
+   the input shapes, the guards and the test that fails first when sonic
+   changes.
 2. Set the `d1Cutoff` constant of `internal/codec/seam_test.go` to
    `"go1.29"` and run `go test -run Seam ./internal/codec/`: the seam tests
    derive both constraint lines, the identifier and the text of every site
@@ -177,6 +183,26 @@ any test:
   `ContentLength` −1, so the SDK reads the body with no declared length.
   Asked for no encoding, it declares `Content-Length: 311` for the models
   list (W6.4-05). W6.4-08 prices the difference per call.
+
+## Responses with many answers
+
+A response is read under a limit, 16 MiB unless `WithMaxResponseBytes`
+sets another, and the SDK sets no limit on the number of answers in it, as
+the Python SDK sets none (owner decision G11 (2)). The decoder keeps one
+entry for each answer, of a known type or not, so while a call decodes,
+the heap it holds grows with the number of answers more than with the
+body's bytes. A 15 MiB body of small answers of an unknown type (688 682
+of them in `TestMemStatsFlood`) took 35 times its size in the decoder
+alone (review W6.2 MAJ-1) and 36.6 to 49.9 times its size through the
+whole call, 575 to 785 MB more than the heap held before it (frozen AC-P5
+(viii); ledger W6-secfix-01 and -02). That memory is the call's own and is
+released with it: once the call has returned, the decoder the SDK keeps
+for later calls holds at most 4 MiB of scratch (`codec.DecoderCeiling`,
+frozen with AC-P5), so once the collector has run, what stays live is at
+most 4 MiB for each decode that ran at the same time, and it drains two
+collections after the traffic falls. What a client that calls a server it
+does not trust may hold is set by its response limit and its concurrency:
+measured, a call in flight took up to about 50 times the body it read.
 
 ## Measurement rule
 

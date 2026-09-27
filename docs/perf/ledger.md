@@ -5973,6 +5973,47 @@ and hold `/opt/homebrew/opt/util-linux/bin/flock <SCRATCHPAD>/bench.lock`;
 | W6-secfix-32 | 2026-09-27 09:28:58–09:31:43 JST | W6-secfix 11: AC-P6 and the logging cost, c3c64c7 against a40d33e, whose production code is 35f581f's (the two differ in two test files) | (M) | `go1.27.1 darwin/arm64` | as W6-secfix-01 | 11.18 and down (allocations only) | `_spikes/w6-secfix/acp6.sh <c3c64c7> <a40d33e> $SP/bench.lock` | **AC-P6 unchanged in all 10 runs: CALL q3 own=12/2008, ITEM q3 as W6-secfix-26**; LOG as W6-secfix-26 (the recorded frozen cell refreshed to +3/112 in this commit, D-W6-secfix-debug-bytes-B) | `acp6-a40d33e-M.txt` |
 | W6-secfix-G7 | 2026-09-27 09:33:30–09:35:08 JST (M) and the non-race steps after it; 2026-09-27 00:33:39–00:34:59 UTC (L) | commit 11, 35f581f, on 4c8e2b8, alone (R111); this row and its raw files change only docs and `_spikes` after its gate. Its first gate, at a40d33e, passed every step but uncovered-lines, which found `inHeader`'s return for a set with no whole credential of 8 bytes untested; the test was added, and the sesame-street case D-W6-secfix-commit-11 names replaced the word case | (M); (L) | `go1.27.1 darwin/arm64`; `go1.27.1 linux/amd64` | as W6-secfix-01; as W6-secfix-02 | 5.52; 0.91 | `gate.sh 35f581f <dir> $SP/bench.lock`; (L) `go test -race -count=1 ./...` under `flock`; the two non-race steps' `run:` blocks | build, vet, `go test ./...` 0 FAIL lines, section 11 rc 0 (golangci-lint 0 issues, govulncheck "No vulnerabilities found"), seam and API tests pass (`TestPublicAPISurface` unchanged), `-race` 0 FAIL lines, uncovered-lines OK, 85 zero-count blocks of 3 220, 75 rows; (L) `-race` 8/8 packages; both non-race steps rc 0 (CALL q3 own=12/2008) | `gate-35f581f-M.txt`, `nonrace-35f581f-M.txt`, `race-35f581f-L.txt` |
 
+### MIN-1: the inputs that reach sonic's `advance_dword`
+
+This is the internal sonic note of review W6.2 MIN-1, which the owner keeps
+in place of a report upstream (G8-a Q5, G11 (6)) and to which the owner
+added the cut shapes (G11 (10), W6.6). sonic v1.15.4's `advance_dword`
+(`native/scanning.h`), which reads the literals `true`, `null` and `false`,
+checks a literal's room in unsigned arithmetic that wraps on an input
+shorter than 4 bytes, and then loads 4 bytes from the literal's first byte
+(`t`, `n`) or from the byte after it (`f`): up to 4 bytes past the input's
+end, from whatever memory follows it (`minSonicInput` in
+`internal/codec/decode.go`). Two shapes of input reach it:
+
+- A body of 1 to 3 bytes with a `t`, `n` or `f` where sonic reads a
+  literal, such as `f`, `nu` or `[t`: the review's 31 inputs
+  (`sonicOverReads` in `internal/codec/guard_test.go`). `padShort` gives
+  sonic a copy of such a body with zeroed room after it.
+- A body of 4 bytes or more whose cut is shorter than 4 bytes. K36's
+  one-scan traversal hands sonic the body up to its last `}` (`cutPoint`),
+  so sonic reads an input shorter than the body, which a pad on the body
+  does not reach: `" f]}"` cuts to `" f]"`, whose `false` is read 2 bytes
+  past the body. With the cut's minimum taken out (the cut-off mutant,
+  W6-secfix-04 and -05), `TestGuardPage` faults on 53 inputs of its corpus
+  in each of `DecodeSystemOne`, `DecodeSystemOneInto` and `DecodeModels`,
+  159 in all, on both hosts: 51 distinct bodies of 4 bytes, each with an
+  `f` where sonic reads `false` in its first two bytes and a cut of 2 or 3
+  bytes (`" f]}"` and `"f]} "` are in the corpus twice, so W6-secfix-04's
+  "53 distinct" are 51; `_spikes/w6-secfix/results/min1-guard-M.txt` and
+  `min1-guard-L.txt`). The review's corpus had none of them. `cutPoint`
+  refuses a cut shorter than 4 bytes, and such a body takes the whole-body
+  path; `TestCutPointMinimumLength` pins the refusal on every system, and
+  `cutOverReads` keeps five cut shapes in `TestGuardPage`'s corpus.
+
+`TestGuardPage` (Linux and Darwin; it skips elsewhere) runs every way the
+SDK hands sonic bytes over every input of its corpus placed against pages
+no access may touch, and must see no fault. Its two controls must fault: a
+one-byte read past either edge of the guarded memory, and sonic's own
+`decoder.Skip` on the review's 31 inputs, the over-read as sonic v1.15.4
+has it. A sonic release that fixes `advance_dword` fails that control
+first, and the bump then reviews `padShort`, `cutPoint`'s minimum and this
+note (`docs/support.md`, "Bump procedure for Go 1.28", step 1).
+
 ## W6-flake: the hold expiry counted before the token goes back
 
 `TestSettleHold/"success: a hold that its bound ends clears the mark"`
