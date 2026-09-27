@@ -21,7 +21,7 @@ import (
 
 // Version is the version of this SDK. Every request names it in the
 // User-Agent and X-TypeSafe-SDK headers as typesafe-sdk-go/<Version>.
-const Version = "0.1.0-dev"
+const Version = "0.1.0"
 
 // sdkIdentifier is what the SDK calls itself in User-Agent and
 // X-TypeSafe-SDK, the same string in both, as typesafe-sdk-python sends
