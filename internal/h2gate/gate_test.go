@@ -109,7 +109,7 @@ func TestFanOut(t *testing.T) {
 		var waiterWire, warmWire, answerGaps, leadGaps []time.Duration
 		ok := 0
 		for rep := range fanReps {
-			b := newBarrier(fanN, fanGuard)
+			b := newBarrier(fanN)
 			b.free, b.freeDelay = "cold", leadDelay
 			srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: b})
 			tr := newTestTransport(t, Config{APIURL: mustURL(t, srv.URL())})
@@ -208,11 +208,11 @@ func minDuration(ds []time.Duration) time.Duration {
 
 // gatedTransport builds a default transport for srv whose dials wait at a
 // testsupport.GatedDialer until the returned gate channel is closed.
-func gatedTransport(t *testing.T, srv *testsupport.LoopbackServer, connect time.Duration) (*Transport, *testsupport.GatedDialer, chan struct{}) {
+func gatedTransport(t *testing.T, srv *testsupport.LoopbackServer) (*Transport, *testsupport.GatedDialer, chan struct{}) {
 	t.Helper()
 	gate := make(chan struct{})
 	gd := testsupport.NewGatedDialer(gate, nil)
-	tr := newTestTransport(t, Config{APIURL: mustURL(t, srv.URL()), ConnectTimeout: connect, DialContext: gd.DialContext})
+	tr := newTestTransport(t, Config{APIURL: mustURL(t, srv.URL()), DialContext: gd.DialContext})
 	return tr, gd, gate
 }
 
@@ -224,7 +224,7 @@ func gatedTransport(t *testing.T, srv *testsupport.LoopbackServer, connect time.
 func TestLeaderVanish(t *testing.T) {
 	t.Run("success: a lone leader cancelled mid-dial leaves the gate cold and the next caller leads", func(t *testing.T) {
 		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{})
-		tr, gd, gate := gatedTransport(t, srv, 10*time.Second)
+		tr, gd, gate := gatedTransport(t, srv)
 		ctx, cancel := context.WithCancel(t.Context())
 		done := make(chan result, 1)
 		go func() { done <- get(ctx, tr, srv.URL()+"/vanish") }()
@@ -253,7 +253,7 @@ func TestLeaderVanish(t *testing.T) {
 
 	t.Run("success: a leader cancelled with 63 waiters hands over and 1 connection serves them", func(t *testing.T) {
 		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{})
-		tr, gd, gate := gatedTransport(t, srv, 10*time.Second)
+		tr, gd, gate := gatedTransport(t, srv)
 		ctx, cancel := context.WithCancel(t.Context())
 		leaderDone := make(chan result, 1)
 		go func() { leaderDone <- get(ctx, tr, srv.URL()+"/leader") }()
@@ -423,7 +423,7 @@ func TestWaiterFallThrough(t *testing.T) {
 
 	t.Run("success: a leader's dial outlasts the wait bound; the waiters fall through and share its connection", func(t *testing.T) {
 		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{})
-		tr, gd, gate := gatedTransport(t, srv, 10*time.Second)
+		tr, gd, gate := gatedTransport(t, srv)
 		// The default bounds equal the dial's own (connect + handshake), so
 		// a held dial would fail first; a short wait bound isolates the
 		// fall-through path.

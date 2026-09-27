@@ -36,11 +36,6 @@ const (
 	stateWarm
 )
 
-// String returns the state's name.
-func (s state) String() string {
-	return [...]string{"cold", "dialing", "warm"}[s]
-}
-
 // outcome is how a leader's generation ended, as its waiters see it.
 type outcome int
 
@@ -116,7 +111,7 @@ type settings struct {
 	scope alpnScope
 	// waitBound bounds a waiter at the gate; holdBound bounds a FirstHold.
 	waitBound, holdBound time.Duration
-	log                  Logger
+	log                  *slog.Logger
 	errorText            func(*http.Request, error) string
 }
 
@@ -130,7 +125,7 @@ type Transport struct {
 	h2c       bool // every connection is HTTP/2 with prior knowledge
 	waitBound time.Duration
 	holdBound time.Duration
-	log       Logger
+	log       *slog.Logger
 	// errorText renders the error of a DEBUG event (Config.ErrorText).
 	errorText func(*http.Request, error) string
 
@@ -195,7 +190,7 @@ func newTransport(base *http.Transport, s settings) *Transport {
 		t.h2c = true
 	}
 	if t.log == nil {
-		t.log = nopLogger{}
+		t.log = discardLogger
 	}
 	if t.errorText == nil {
 		t.errorText = errorString
@@ -203,24 +198,12 @@ func newTransport(base *http.Transport, s settings) *Transport {
 	return t
 }
 
-// nopLogger discards every event.
-type nopLogger struct{}
-
-func (nopLogger) DebugContext(context.Context, string, ...any) {}
-func (nopLogger) WarnContext(context.Context, string, ...any)  {}
-func (nopLogger) Enabled(context.Context, slog.Level) bool     { return false }
+// discardLogger is the logger of a Transport built without one: it keeps no
+// event. One value serves every such Transport.
+var discardLogger = slog.New(slog.DiscardHandler)
 
 // errorString is the default Config.ErrorText: the error's own text.
 func errorString(_ *http.Request, err error) string { return err.Error() }
-
-// debugEnabled reports whether the logger keeps DEBUG events: its Enabled
-// method's answer, or true for a Logger without one.
-func (t *Transport) debugEnabled(ctx context.Context) bool {
-	if e, ok := t.log.(levelEnabler); ok {
-		return e.Enabled(ctx, slog.LevelDebug)
-	}
-	return true
-}
 
 // Stats returns a snapshot of the counters.
 func (t *Transport) Stats() Stats {
@@ -249,13 +232,6 @@ func (t *Transport) Parked() int { return int(t.parked.Load()) }
 // CloseIdleConnections closes the stock transport's idle connections and
 // cancels its pending dials.
 func (t *Transport) CloseIdleConnections() { t.base.CloseIdleConnections() }
-
-// gateState returns the gate state.
-func (t *Transport) gateState() state {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.state
-}
 
 // RoundTrip implements http.RoundTripper. A request that fails before the
 // transport handed it a connection, with its context alive, returns a
@@ -395,7 +371,7 @@ func (t *Transport) lead(req *http.Request, gen *generation) (*http.Response, er
 	t.mu.Unlock()
 	t.failures.Add(1)
 	t.coldResets.Add(1)
-	if t.debugEnabled(ctx) {
+	if t.log.Enabled(ctx, slog.LevelDebug) {
 		t.log.DebugContext(ctx, "h2: gate error", "reason", reason(de), "waiters", waiters, "error", t.errorText(req, de.Err))
 	}
 	return nil, de.clone()
@@ -485,7 +461,7 @@ func (t *Transport) send(req *http.Request, gen *generation) (*http.Response, er
 	if err != nil {
 		if c.seen.Load()&(callLookedUp|callConnected) == callLookedUp && ctx.Err() == nil {
 			de := classify(err)
-			if gen == nil && t.warm.Load() && t.debugEnabled(ctx) {
+			if gen == nil && t.warm.Load() && t.log.Enabled(ctx, slog.LevelDebug) {
 				// After warm, re-dials are the stock pool's, serial and ungated.
 				t.log.DebugContext(ctx, "h2: redial error", "reason", reason(de), "error", t.errorText(req, err))
 			}

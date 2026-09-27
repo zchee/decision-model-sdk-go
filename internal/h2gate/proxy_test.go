@@ -84,14 +84,13 @@ func (h *hops) seen() [][2]string {
 
 // proxiedTransport builds the default transport for api through proxy p,
 // recording every handshake in h.
-func proxiedTransport(t *testing.T, api string, p *testsupport.Proxy, h *hops, log Logger) *Transport {
+func proxiedTransport(t *testing.T, api string, p *testsupport.Proxy, h *hops) *Transport {
 	t.Helper()
 	return newTestTransport(t, Config{
 		APIURL:      mustURL(t, api),
 		Proxy:       http.ProxyURL(p.URL()),
 		DialContext: testsupport.Routes{}.DialContext, // loopback literals only: the proxy
 		TLSConfig:   &tls.Config{VerifyConnection: h.verify},
-		Logger:      log,
 	})
 }
 
@@ -105,7 +104,7 @@ func TestProxy(t *testing.T) {
 		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(answerExample)})
 		p := testsupport.NewProxy(t, testsupport.ProxyPlain, testsupport.Routes{"example.com:443": srv.Addr()})
 		var h hops
-		tr := proxiedTransport(t, exampleURL, p, &h, nil)
+		tr := proxiedTransport(t, exampleURL, p, &h)
 		if tr.scope != scopeSNI {
 			t.Fatalf("scope %v, want sni", tr.scope)
 		}
@@ -135,7 +134,7 @@ func TestProxy(t *testing.T) {
 		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{ALPN: testsupport.ALPNNone, Handler: http.HandlerFunc(answerExample)})
 		p := testsupport.NewProxy(t, testsupport.ProxyPlain, testsupport.Routes{"example.com:443": srv.Addr()})
 		var h hops
-		tr := proxiedTransport(t, exampleURL, p, &h, nil)
+		tr := proxiedTransport(t, exampleURL, p, &h)
 		r := get(t.Context(), tr, exampleURL+"/")
 		want := map[string]bool{"proxy": false, "timeout": false, "not_negotiated": true}
 		if diff := gocmp.Diff(want, dialFlags(r.Err)); diff != "" {
@@ -169,7 +168,7 @@ func TestProxy(t *testing.T) {
 		// (:1905-1910), stays an API-hop failure; W7 records it under K16.
 		p := testsupport.NewProxy(t, testsupport.ProxyPlain, testsupport.Routes{})
 		var h hops
-		tr := proxiedTransport(t, exampleURL, p, &h, nil)
+		tr := proxiedTransport(t, exampleURL, p, &h)
 		r := get(t.Context(), tr, exampleURL+"/")
 		want := map[string]bool{"proxy": true, "timeout": false, "not_negotiated": false}
 		if diff := gocmp.Diff(want, dialFlags(r.Err)); diff != "" {
@@ -331,7 +330,7 @@ func TestProxyTLS(t *testing.T) {
 		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(answerExample)})
 		p := testsupport.NewProxy(t, testsupport.ProxyTLSLenient, testsupport.Routes{"example.com:443": srv.Addr()})
 		var h hops
-		tr := proxiedTransport(t, exampleURL, p, &h, nil)
+		tr := proxiedTransport(t, exampleURL, p, &h)
 		r := get(t.Context(), tr, exampleURL+"/")
 		if r.Err != nil || r.Status != http.StatusOK || r.Body != "h2 example.com" {
 			t.Errorf("%d %q %v, want 200 h2 example.com", r.Status, r.Body, r.Err)
@@ -345,7 +344,7 @@ func TestProxyTLS(t *testing.T) {
 		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(answerExample)})
 		p := testsupport.NewProxy(t, testsupport.ProxyTLSStrict, testsupport.Routes{"example.com:443": srv.Addr()})
 		var h hops
-		tr := proxiedTransport(t, exampleURL, p, &h, nil)
+		tr := proxiedTransport(t, exampleURL, p, &h)
 		r := get(t.Context(), tr, exampleURL+"/")
 		want := map[string]bool{"proxy": true, "timeout": false, "not_negotiated": false}
 		if diff := gocmp.Diff(want, dialFlags(r.Err)); diff != "" {
@@ -367,7 +366,7 @@ func TestProxyTLS(t *testing.T) {
 		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(answerExample)})
 		p := testsupport.NewProxy(t, testsupport.ProxyTLSOfferH2, testsupport.Routes{"example.com:443": srv.Addr()})
 		var h hops
-		tr := proxiedTransport(t, exampleURL, p, &h, nil)
+		tr := proxiedTransport(t, exampleURL, p, &h)
 		r := get(t.Context(), tr, exampleURL+"/")
 		if r.Err != nil || r.Status != http.StatusOK {
 			t.Errorf("%d %v, want 200", r.Status, r.Err)
@@ -431,7 +430,7 @@ func TestProxyTLS(t *testing.T) {
 		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{})
 		p := testsupport.NewProxy(t, testsupport.ProxyTLSLenient, testsupport.Routes{})
 		var h hops
-		tr := proxiedTransport(t, srv.URL(), p, &h, nil)
+		tr := proxiedTransport(t, srv.URL(), p, &h)
 		r := get(t.Context(), tr, srv.URL()+"/")
 		if r.Err != nil || r.Status != http.StatusOK || r.ProtoMajor != 2 {
 			t.Errorf("%d HTTP/%d %v, want 200 over HTTP/2", r.Status, r.ProtoMajor, r.Err)

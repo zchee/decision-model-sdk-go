@@ -81,7 +81,7 @@ func TestRecordFanOut(t *testing.T) {
 	t.Run("negative control: the plain token at a 20 ms leader delay", func(t *testing.T) {
 		passed, failedB := 0, 0
 		for range fanReps {
-			b := newBarrier(fanN, fanGuard)
+			b := newBarrier(fanN)
 			b.free, b.freeDelay = "cold", leadDelay
 			srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: b})
 			tr := newTestTransport(t, Config{APIURL: mustURL(t, srv.URL())})

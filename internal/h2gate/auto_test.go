@@ -44,7 +44,7 @@ func TestAutoNoSerialisation(t *testing.T) {
 
 	t.Run("success: 8 concurrent requests to an HTTP/1.1 server use 8 connections", func(t *testing.T) {
 		const n = 8
-		b := newBarrier(n, fanGuard) // every response waits until all 8 requests are in handlers at once
+		b := newBarrier(n) // every response waits until all 8 requests are in handlers at once
 		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{ALPN: testsupport.ALPNHTTP1Only, Handler: b})
 		tr := newTestTransport(t, Config{APIURL: mustURL(t, srv.URL()), Mode: HTTPAuto})
 		start := time.Now()
@@ -72,7 +72,7 @@ func TestAutoNoSerialisation(t *testing.T) {
 			// The reworded AC-P4 handler (the first request answered at
 			// once): holding every response until all 64 arrive would
 			// deadlock against FirstHold until the guard, by design (G2).
-			b := newBarrier(fanN, fanGuard)
+			b := newBarrier(fanN)
 			b.free = "cold"
 			srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: b})
 			tr := newTestTransport(t, Config{APIURL: mustURL(t, srv.URL()), Mode: HTTPAuto})

@@ -267,7 +267,7 @@ func TestTokenResidualK21(t *testing.T) {
 				t.Errorf("accepts %d, want at most 2", srv.Accepts())
 			}
 			if sc.goAway {
-				closedGracefully(t, srv, 0, true, true)
+				closedGracefully(t, srv, true, true)
 			}
 			record(t, "case", "k21/"+strings.Fields(name)[1], "classes", fmt.Sprint(classes(calls)), "late", late, "bad", bad,
 				"accepts_scenario", scenarioAccepts, "accepts_total", srv.Accepts(), "refused_streams", refused,

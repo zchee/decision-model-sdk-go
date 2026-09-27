@@ -23,7 +23,6 @@ import (
 	"os"
 	"strconv"
 	"testing"
-	"time"
 
 	gocmp "github.com/google/go-cmp/cmp"
 
@@ -68,7 +67,7 @@ func TestNoALPN(t *testing.T) {
 	t.Run("error: every waiter of a refused leader gets a fresh not-negotiated error", func(t *testing.T) {
 		const n = 8
 		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{ALPN: testsupport.ALPNNone})
-		tr, gd, gate := gatedTransport(t, srv, 10*time.Second)
+		tr, gd, gate := gatedTransport(t, srv)
 		done := make(chan []result, 1)
 		go func() {
 			done <- fanOut(n, func(i int) result { return get(t.Context(), tr, srv.URL()+"/"+strconv.Itoa(i)) })

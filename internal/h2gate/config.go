@@ -85,28 +85,6 @@ const (
 	proxyConnectLimit = time.Minute
 )
 
-// Logger receives the transport's events: DEBUG "h2: dial", "h2: gate
-// release", "h2: gate error" (with a reason), "h2: redial error", "h2:
-// token wait expired", "h2: dial bound expired" and "h2: connection wait
-// expired" (each with its bound; the dial bound's is the connect timeout
-// plus a grace of 100 ms), and WARN "h2: response not HTTP/2". A
-// *log/slog.Logger satisfies it.
-//
-// A Logger that also has the method Enabled(context.Context, slog.Level)
-// bool, as a *slog.Logger has, is asked before an event that prints an
-// error, and the error is rendered ([Config.ErrorText]) only when it keeps
-// DEBUG events; a Logger without the method gets every event rendered.
-type Logger interface {
-	DebugContext(ctx context.Context, msg string, args ...any)
-	WarnContext(ctx context.Context, msg string, args ...any)
-}
-
-// levelEnabler is the optional method of a [Logger] that says whether it
-// keeps events at a level.
-type levelEnabler interface {
-	Enabled(ctx context.Context, level slog.Level) bool
-}
-
 // Config configures [NewTransport] and [Wrap].
 type Config struct {
 	// APIURL is the API's base URL. Its scheme (http or https) and host
@@ -121,8 +99,15 @@ type Config struct {
 	// and uses ConnectTimeout for the TLSHandshakeTimeout it fills in, the
 	// thin check's bound and the gate's bounds.
 	ConnectTimeout time.Duration
-	// Logger receives the transport's events; nil discards them.
-	Logger Logger
+	// Logger receives the transport's events: DEBUG "h2: dial", "h2: gate
+	// release", "h2: gate error" (with a reason), "h2: redial error", "h2:
+	// token wait expired", "h2: dial bound expired" and "h2: connection wait
+	// expired" (each with its bound; the dial bound's is the connect timeout
+	// plus a grace of 100 ms), and WARN "h2: response not HTTP/2". Before an
+	// event that prints an error it is asked whether it keeps DEBUG events,
+	// and the error is rendered ([Config.ErrorText]) only when it does. nil
+	// discards every event.
+	Logger *slog.Logger
 	// ErrorText renders the error that a DEBUG event prints, "h2: gate
 	// error" and "h2: redial error", for req, the request whose connection
 	// failed; nil renders err.Error(). The text is written by code the
@@ -206,11 +191,6 @@ const (
 	// response's ProtoMajor is checked (K16).
 	scopePostCheck
 )
-
-// String returns the scope's name, as the spike's decision table spells it.
-func (s alpnScope) String() string {
-	return [...]string{"none", "every-handshake", "sni", "post-check-only"}[s]
-}
 
 // target is what a build knows about the API URL.
 type target struct {

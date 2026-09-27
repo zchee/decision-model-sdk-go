@@ -81,6 +81,23 @@ func newTestTransport(tb testing.TB, cfg Config) *Transport {
 	return tr
 }
 
+// gateState returns the gate state.
+func (t *Transport) gateState() state {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.state
+}
+
+// String returns the state's name.
+func (s state) String() string {
+	return [...]string{"cold", "dialing", "warm"}[s]
+}
+
+// String returns the scope's name, for a failure message.
+func (s alpnScope) String() string {
+	return [...]string{"none", "every-handshake", "sni", "post-check-only"}[s]
+}
+
 // result is one completed call, with its client-side timeline.
 type result struct {
 	Path                                          string
@@ -313,9 +330,10 @@ type barrier struct {
 	freeFirst string
 }
 
-// newBarrier returns a barrier for n requests per key with the given guard.
-func newBarrier(n int, guard time.Duration) *barrier {
-	return &barrier{n: n, guard: guard, arrived: map[string]int{}, all: map[string]chan struct{}{}, guarded: map[string]int{}}
+// newBarrier returns a barrier for n requests per key whose guard is
+// fanGuard.
+func newBarrier(n int) *barrier {
+	return &barrier{n: n, guard: fanGuard, arrived: map[string]int{}, all: map[string]chan struct{}{}, guarded: map[string]int{}}
 }
 
 // barrierKey returns the first path segment: /cold/3 → cold.
