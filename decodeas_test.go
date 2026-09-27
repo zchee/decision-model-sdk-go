@@ -877,7 +877,7 @@ func TestDecodeAsProxyParity(t *testing.T) {
 	type view struct {
 		FieldPath, Echo, Password, RequestID, Error string
 	}
-	viewOf := func(t *testing.T, err error) view {
+	proxyView := func(t *testing.T, err error) view {
 		t.Helper()
 		rve, ok := errors.AsType[*ResponseValidationError](err)
 		if !ok {
@@ -892,7 +892,7 @@ func TestDecodeAsProxyParity(t *testing.T) {
 	ask := func(t *testing.T, c *Client) view {
 		t.Helper()
 		_, err := Ask[typedSystemOneResponse](t.Context(), c, "x", Retry(NoRetry()))
-		return viewOf(t, err)
+		return proxyView(t, err)
 	}
 	live := func(t *testing.T, c *Client) *SystemOneResponse {
 		t.Helper()
@@ -902,10 +902,10 @@ func TestDecodeAsProxyParity(t *testing.T) {
 		}
 		return resp
 	}
-	decodeAs := func(t *testing.T, resp *SystemOneResponse) view {
+	decodeView := func(t *testing.T, resp *SystemOneResponse) view {
 		t.Helper()
 		_, err := DecodeAs[typedSystemOneResponse](resp)
-		return viewOf(t, err)
+		return proxyView(t, err)
 	}
 	hidden := view{FieldPath: path, Echo: engine.Redacted, Password: engine.Redacted, RequestID: engine.Redacted, Error: "200 Invalid response data at '" + path + "'. (request_id=***)"}
 
@@ -913,7 +913,7 @@ func TestDecodeAsProxyParity(t *testing.T) {
 		pu := newEchoingProxy(t, proxyAnswer).URL()
 		pu.User = url.UserPassword(proxyUser, "hunter2@proxy-password")
 		c := newCredentialClient(t, slog.New(slog.DiscardHandler), WithBaseURL("http://example.com"), WithProxy(http.ProxyURL(pu)))
-		byAsk, byDecodeAs := ask(t, c), decodeAs(t, live(t, c))
+		byAsk, byDecodeAs := ask(t, c), decodeView(t, live(t, c))
 		if diff := gocmp.Diff(hidden, byAsk); diff != "" {
 			t.Errorf("Ask (-want +got):\n%s", diff)
 		}
@@ -935,7 +935,7 @@ func TestDecodeAsProxyParity(t *testing.T) {
 		pu.User = url.UserPassword(proxyUser, password)
 		c := newCredentialClient(t, slog.New(slog.DiscardHandler), WithBaseURL("https://example.com"), WithRootCAs(testsupport.RootCAs(t)), WithProxy(http.ProxyURL(pu)))
 		shown := view{FieldPath: path, Password: "seen " + password, RequestID: "req-" + password, Error: "200 Invalid response data at '" + path + "'. (request_id=req-" + password + ")"}
-		byAsk, byDecodeAs := ask(t, c), decodeAs(t, live(t, c))
+		byAsk, byDecodeAs := ask(t, c), decodeView(t, live(t, c))
 		if diff := gocmp.Diff(shown, byAsk); diff != "" {
 			t.Errorf("Ask (-want +got):\n%s", diff)
 		}
@@ -974,7 +974,7 @@ func TestDecodeAsProxyParity(t *testing.T) {
 		if diff := gocmp.Diff(hidden, byAsk); diff != "" {
 			t.Errorf("Ask (-want +got):\n%s", diff)
 		}
-		if diff := gocmp.Diff(byAsk, decodeAs(t, kept)); diff != "" {
+		if diff := gocmp.Diff(byAsk, decodeView(t, kept)); diff != "" {
 			t.Errorf("DecodeAs of the kept response against Ask (-Ask +DecodeAs):\n%s", diff)
 		}
 	})

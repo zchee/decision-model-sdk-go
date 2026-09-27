@@ -21,6 +21,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -107,7 +108,7 @@ func (l *attemptLog) RoundTrip(req *http.Request) (*http.Response, error) {
 func (l *attemptLog) attempts() []seenAttempt {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return append([]seenAttempt(nil), l.seen...)
+	return slices.Clone(l.seen)
 }
 
 // waits returns the fake time between the end of each attempt and the start
