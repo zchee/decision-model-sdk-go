@@ -46,11 +46,11 @@ func debugEvents(logs *testsupport.LogRecorder, key map[string]string) []string 
 }
 
 // TestLogEvents checks the transport's DEBUG events: one "h2: dial" per new
-// connection, "h2: gate release" with the waiters it released, "h2: gate
-// error" with the reason of a failed or vanished leader, and "h2: redial
-// error" for a dial that fails after the gate is warm.
+// connection, "h2: gate release" with the waiters it released, and "h2: gate
+// error" with the reason of a failed or vanished leader. TestLogErrorText
+// checks "h2: redial error".
 func TestLogEvents(t *testing.T) {
-	attrs := map[string]string{"h2: dial": "h2", "h2: gate error": "reason", "h2: redial error": "reason"}
+	attrs := map[string]string{"h2: dial": "h2", "h2: gate error": "reason"}
 
 	t.Run("success: a cold burst logs one dial and one gate release", func(t *testing.T) {
 		const n = 8
@@ -104,22 +104,6 @@ func TestLogEvents(t *testing.T) {
 			t.Fatalf("leader error %v", r.Err)
 		}
 		if diff := gocmp.Diff([]string{"h2: gate error reason=leader-gone"}, debugEvents(logs, attrs)); diff != "" {
-			t.Errorf("DEBUG events (-want +got):\n%s", diff)
-		}
-	})
-
-	t.Run("error: a dial that fails after warm logs a redial error", func(t *testing.T) {
-		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{})
-		logs := testsupport.NewLogRecorder(slog.LevelDebug)
-		tr := newTestTransport(t, Config{APIURL: mustURL(t, srv.URL()), Logger: logs.Logger()})
-		warmUp(t, tr, srv.URL())
-		srv.Close()               // the listener is gone: the next dial is refused
-		tr.CloseIdleConnections() // and the pooled connection with it, so the next call dials
-		r := get(t.Context(), tr, srv.URL()+"/after")
-		if _, ok := errors.AsType[*DialError](r.Err); !ok {
-			t.Fatalf("error %s, want a *DialError from the refused re-dial", chain(r.Err))
-		}
-		if diff := gocmp.Diff([]string{"h2: dial h2=true", "h2: gate release", "h2: redial error reason=dial"}, debugEvents(logs, attrs)); diff != "" {
 			t.Errorf("DEBUG events (-want +got):\n%s", diff)
 		}
 	})
