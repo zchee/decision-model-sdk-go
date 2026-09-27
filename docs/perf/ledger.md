@@ -42,7 +42,10 @@ the run id is the stable key. Quoted commands otherwise stand as they
 were run; in them the spikes' old directory names the archive's root.
 Where a page says what a commit changed, the spike paths are those of
 the commit before the rewrite, and the rewritten commit changes the
-other paths only.
+other paths only. W7.1 renamed the package `livetests` to `livetest` at
+8fb16ea (the owner's G16); a row that quotes a command or an output line of
+a run made before it, or records the code as a wave read it, keeps the
+old name.
 
 ## Hosts
 
@@ -6712,3 +6715,26 @@ hold `/tmp/ts-spike/bench.lock` the same way.
 | W7-03 | 2026-09-27 20:24:48–20:37:19 JST | W7 checklist: K18's B1–B6 | (M) | as W7-01 | as W7-01 | 2.89–8.02, before each hold | `scripts/brun.sh M f7c0ff3 5`: every benchmark of the module, 125 rows of 15 top-level benchmarks in 3 packages, one top-level benchmark per hold, `-benchmem`, one count per hold, five rounds with the order rotated by one per round | 75 of 75 holds rc 0, none left untaken for load. Medians of five (benchstat, which gives no 95 % interval under six samples): `Call/sdk` 4.323 µs, `Call/naive` 3.547 µs, `Call/floor` 465.9 ns; with 20 questions 20.71 µs, 12.66 µs and 497.9 ns. On arm64 the whole call is slower than the naive client's; AC-P6's time clause is asserted on amd64 and recorded on arm64 (the as-built page's row R104, K18) | `b-M-r1-f7c0ff32527eb5812c7c116718e66ab7f9abb870.txt` to `b-M-r5-…`, `benchstat-M-f7c0ff32527eb5812c7c116718e66ab7f9abb870.txt` |
 | W7-04 | 2026-09-27 20:32:49–20:46:51 JST | W7 checklist: K18's B1–B6 | (L) | as W7-02 | as W7-02 | 0.55–3.91, before each hold | `scripts/brun.sh L f7c0ff3 5`, as W7-03 | 75 of 75 holds rc 0. Medians of five: `Call/sdk` 5.535 µs, `Call/naive` 6.881 µs (sdk / naive 0.804), `Call/floor` 740.9 ns; with 20 questions 21.85 µs, 25.94 µs and 753.7 ns | `b-L-r1-f7c0ff32527eb5812c7c116718e66ab7f9abb870.txt` to `b-L-r5-…`, `benchstat-L-f7c0ff32527eb5812c7c116718e66ab7f9abb870.txt` |
 | W7-05 | read 2026-09-27 20:48:07 and 20:57:03 JST | W7 checklist: K7's bookkeeping (R109b; not a gate since G8-a) | CI, `ubuntu-26.04` | as W7-02 | as W7-02 | the runner's | `scripts/k7.sh` (`main`'s push runs) and `scripts/k7-all.sh` (every successful bench.yaml run from run 36249189420 on, any event): the CPU line and the ratio of each run's AC-P7 step, the verdict line's, or the table's means before the gate printed one | AC-P7's ratio by the runner's CPU model; the bound is < 1.0 and no trend is read across the models. AMD EPYC 7763 (AVX-512 no), 15 runs: 0.776 to 0.860, `main` at 23789e2 0.837261 (run 36310615357). AMD EPYC 9V45 (AVX-512 yes), 3 runs: 0.871, 0.826 and 0.888613, the last `main` at e973adc (run 36315492374). AMD EPYC 9V74, 2 runs: 0.797 (AVX-512 no) and 0.819 (AVX-512 yes). Intel Xeon Platinum 8573C (AVX-512 yes), 2 runs: 0.757 and 0.845. Intel Xeon 6973P-C, 1 run: 0.839 | `k7-all-runs.tsv`; `k7-runs.tsv` (`main`'s push runs); `main-runs-e973adc8c3b9ed56b10e50ac06b36ae4d1b533e9.txt` |
+
+## W7.1: the package `livetest` (G16)
+
+W7.1 renamed the package `livetests` to `livetest` at 8fb16ea, on W7's head
+6578016, which landed on `main` at 21:40:53 JST, as the owner instructed
+(G16). The runs of record in `## W7`
+were taken at f7c0ff3 and, for `internal/testsupport`, at 8490c48; they
+carry to 8fb16ea. No test binary behind them compiles a file of the renamed
+package (`go list -deps -test -tags live` of the root package,
+`internal/alloctest`, `internal/codec`, `internal/wire`,
+`internal/testsupport` and `internal/benchmark` names none, and nothing
+imports it); the rename edits only comments in two test files that those
+binaries compile, `internal/codec/decode_live_test.go` and
+`internal/testsupport/settings_test.go`, and each of the six test binaries,
+built on (M) with `-trimpath` and an empty build id in the same directory
+from its record tree and from 8fb16ea, is byte-identical. The seam tests of
+`internal/codec` read `.github/workflows/ci.yaml` and `docs/support.md`,
+which the rename changed, so W7-01's and W7-02's chunk for
+`internal/codec` whole was taken again at 8fb16ea: rc 0 on (M) at
+21:28:05–21:28:09 JST and on (L) at 12:32:48–12:32:54 UTC. The ledger's seven
+occurrences of the old name quote runs made before the rename (W6.4-01,
+-02, -07, W6.5-02, -24 and the W6.4 section's first paragraph) or record
+the code as W6-flake read it, and keep it.
