@@ -82,18 +82,18 @@
 // A panic in GetConn on a warm HTTP/2 connection leaves the stock pool's
 // mutex locked (internal/http2/client_conn_pool.go:52-61), and one in
 // GotConn leaks the stream ReserveNewRequest reserved, which only
-// cc.RoundTrip releases (internal/http2/transport.go:423-425); so the root
-// package's shield recovers every caller hook in place and panics again once
-// RoundTrip has returned.
+// cc.RoundTrip releases (internal/http2/transport.go:423-425); so
+// internal/engine's shield recovers every caller hook in place and panics
+// again once RoundTrip has returned.
 //
 // Hooks run while their request holds the token: from GetConn to
 // WroteHeaders, and under FirstHold until the response headers. A request
 // that waits for a token a blocked hook holds goes out without it at the
-// hold bound (Stats.TokenExpiries) unless its own context ends first, the
-// root package's WithNoTimeout included; the FirstHold bound, which starts
-// only at WroteHeaders, does not end such a hold. The root package's
-// WithClientTrace gives callers the contract hook by hook. Two cases need
-// more.
+// hold bound (Stats.TokenExpiries), whatever its deadline, the root package's
+// WithNoTimeout included, unless its own context ends first; the FirstHold
+// bound, which starts only at WroteHeaders, does not end such a hold. The
+// root package's WithClientTrace gives callers the contract hook by hook. Two
+// cases need more.
 //
 // GetConn on a warm transport is unbounded: net/http holds its pool mutex
 // while it calls the hook, so a request that leaves send at the hold bound
