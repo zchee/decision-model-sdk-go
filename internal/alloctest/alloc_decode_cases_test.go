@@ -30,9 +30,10 @@ import (
 
 // The decode cases of AC-P2 and AC-P8, built with and without -race: the
 // budgets are TestAllocDecodeFixtures and TestLinearityFlood
-// (//go:build !race); TestLinearityFloodTime, AC-P8's time ratio, runs in
-// every build, and TestAllocDecodeFixturesFunctional is AC-P2's functional
-// half.
+// (//go:build !race); TestLinearityFloodTime, AC-P8's time ratio, measures
+// with linearityRatio and asserts the bound in the build without -race
+// (alloc_linearity_test.go; alloc_linearity_race_test.go logs it under -race),
+// and TestAllocDecodeFixturesFunctional is AC-P2's functional half.
 
 // decodeAllocs pins, per fixture, the allocations of one decode of a System
 // One body into its answers (want), measured identically on (M) and (L)
@@ -157,7 +158,7 @@ func membersVisited(t *testing.T, body []byte) uint64 {
 	return n
 }
 
-// Timing spans of TestLinearityFloodTime. A span repeats one flood's decode
+// Timing spans of linearityRatio. A span repeats one flood's decode
 // until the clock has advanced by at least linearitySpan, so it holds as
 // many decodes as the host needs for its clock to resolve it: Windows
 // advances time.Now in ticks (about 15.6 ms by default), under which one
@@ -173,21 +174,21 @@ const (
 	linearityMaxDecodes = 1 << 16
 )
 
-// TestLinearityFloodTime checks AC-P8's time ratio on the structured-legend
-// floods: one 10^4 decode takes at most 15 times as long as one 10^3
-// decode. It runs in every build, the race detector's included, since it
-// asserts no allocation count (plan section 7, W5.2); AC-P8's allocation
-// clauses are TestLinearityFlood's. A decode's time is a span's length
-// divided by the decodes it holds, the minimum over the flood's spans,
-// which filters scheduler noise. The number of decodes is not fixed in
-// advance, since a fixed count would have to be sized for the slowest
+// linearityRatio measures AC-P8's time ratio on the structured-legend
+// floods, the time of one 10^4 decode over the time of one 10^3 decode, logs
+// it in the LINEARITY line and returns it; TestLinearityFloodTime asserts it
+// at most 15 in the build without -race (alloc_linearity_test.go). AC-P8's
+// allocation clauses are TestLinearityFlood's. A decode's time is a span's
+// length divided by the decodes it holds, the minimum over the flood's
+// spans, which filters scheduler noise. The number of decodes is not fixed
+// in advance, since a fixed count would have to be sized for the slowest
 // runner; each span runs until linearitySpan has elapsed on the host's own
 // clock (K30). The two floods' spans alternate, so a change in the host's
 // load reaches both. The collector stays off (QuietRuntime) and is run once
 // before each span, to free the last span's garbage, which keeps the pooled
 // decoder (sync.Pool keeps it through one collection); a warm decode then
 // precedes the span.
-func TestLinearityFloodTime(t *testing.T) {
+func linearityRatio(t *testing.T) float64 {
 	testsupport.QuietRuntime(t)
 	type flood struct {
 		name    string
@@ -241,7 +242,5 @@ func TestLinearityFloodTime(t *testing.T) {
 	}
 	ratio := float64(large.time) / float64(small.time)
 	t.Logf("LINEARITY time 1k %v, 10k %v, ratio %.2f (bound 15), decodes per span 1k %v 10k %v, %d spans of at least %v", small.time, large.time, ratio, small.decodes, large.decodes, linearitySpans, linearitySpan)
-	if ratio > 15 {
-		t.Errorf("10^4 : 10^3 time ratio = %.2f, want at most 15", ratio)
-	}
+	return ratio
 }

@@ -144,7 +144,8 @@ func strconvRatio(a, b uint64) string {
 //
 // Counts are runtime.ReadMemStats deltas, the minimum that three of five
 // runs share, with the collector off and GOMAXPROCS 1. The time ratio is
-// TestLinearityFloodTime, which runs in every build.
+// TestLinearityFloodTime, asserted in the build without -race, as this test
+// is (alloc_linearity_test.go).
 func TestLinearityFlood(t *testing.T) {
 	testsupport.QuietRuntime(t)
 	wantMembers := [2]uint64{1011, 10011}
