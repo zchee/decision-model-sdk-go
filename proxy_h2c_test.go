@@ -35,7 +35,7 @@ import (
 )
 
 // TestProxyH2CEchoRedactedOnEveryCall pins the response header scan on a
-// held h2c connection to a proxy (review W6.2, DELTA 4c8e2b8). With
+// held h2c connection to a proxy (review W6.2, DELTA 174a1d5). With
 // HTTP2Only on a plain-http base URL the transport speaks h2c prior
 // knowledge to the proxy, and every call after the first rides that one
 // connection. The scan applies to a response only when the proxy func
