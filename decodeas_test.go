@@ -1027,7 +1027,7 @@ func TestResponseNeverPrintsKey(t *testing.T) {
 				}
 				return resp, c.cfg().Transport.Proxies
 			},
-			secrets: []string{quirkyKey, password, strings.TrimPrefix(proxySecrets(user, password)[1], "Basic ")},
+			secrets: []string{quirkyKey, password, proxySecrets(user, password)[1]},
 		},
 	}
 	for name, tt := range tests {

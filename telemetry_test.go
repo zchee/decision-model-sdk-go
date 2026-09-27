@@ -877,7 +877,6 @@ func TestProxyEchoConcurrentColdClient(t *testing.T) {
 			}
 			assertRecordsScrubbed(t, logs, secrets, n)
 			sent := proxies[0].requests.Load() + proxies[1].requests.Load()
-			t.Logf("CONSULTS %s: the func asked %d times for %d calls; the proxies sent %d requests", name, calls.Load(), n, sent)
 			if calls.Load() != sent {
 				t.Errorf("the func was asked %d times for the %d requests the proxies were sent, want as many: none on the error path", calls.Load(), sent)
 			}
