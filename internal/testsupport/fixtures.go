@@ -87,17 +87,6 @@ func readFixture(name string) (string, error) {
 	return v.(string), nil
 }
 
-// FixtureDir returns the absolute path of the module's testdata directory,
-// found by walking up from the working directory to go.mod.
-func FixtureDir(tb testing.TB) string {
-	tb.Helper()
-	dir, err := testdataDir()
-	if err != nil {
-		tb.Fatal(err)
-	}
-	return dir
-}
-
 // FixtureString returns the content of testdata/<name> (a slash-separated
 // path such as "result.json"). The file is read once per process; later calls
 // return the same cached string without copying.

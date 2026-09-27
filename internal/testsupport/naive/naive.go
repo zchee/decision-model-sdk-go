@@ -19,13 +19,13 @@
 // no retries, no validation of the answers and no error types beyond
 // [StatusError].
 //
-// A [Client] marshals a plain [Body] with its [Codec], builds a request with
-// [net/http.NewRequestWithContext] over the encoded bytes, sets the headers
-// it was given one by one, calls its RoundTripper directly (no
-// [net/http.Client]), reads the response with [io.ReadAll] and unmarshals it
-// into a map[string]any. Nothing is pooled, interned or reused between
-// calls, and nothing is checked beyond what the codec checks: that is the
-// point of the comparison.
+// A [Client] marshals a plain struct of the request's members with its
+// [Codec], builds a request with [net/http.NewRequestWithContext] over the
+// encoded bytes, sets the headers it was given one by one, calls its
+// RoundTripper directly (no [net/http.Client]), reads the response with
+// [io.ReadAll] and unmarshals it into a map[string]any. Nothing is pooled,
+// interned or reused between calls, and nothing is checked beyond what the
+// codec checks: that is the point of the comparison.
 //
 // Two codecs are provided. [Sonic], sonic's Marshal and Unmarshal with its
 // default configuration, is the comparator of record: the SDK uses
@@ -80,10 +80,10 @@ var (
 	StdJSON = Codec{Name: "encoding/json", Marshal: json.Marshal, Unmarshal: json.Unmarshal}
 )
 
-// Body is the request body of POST /v1/systemone as a straightforward
+// body is the request body of POST /v1/systemone as a straightforward
 // client declares it: its members in the order the SDK writes them, the
 // question set as JSON the caller already holds.
-type Body struct {
+type body struct {
 	State     any             `json:"state"`
 	Model     string          `json:"model"`
 	Questions json.RawMessage `json:"questions"`
@@ -92,7 +92,7 @@ type Body struct {
 // Encode returns the codec's encoding of the request body {state, model,
 // questions}, questions being the question set as JSON.
 func (c Codec) Encode(state any, model string, questions []byte) ([]byte, error) {
-	return c.Marshal(Body{State: state, Model: model, Questions: questions})
+	return c.Marshal(body{State: state, Model: model, Questions: questions})
 }
 
 // Decode returns the codec's decoding of a response body into a generic

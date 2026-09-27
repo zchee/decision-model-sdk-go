@@ -24,13 +24,13 @@ import (
 	"sync/atomic"
 )
 
-// FakeAPIModels is the body FakeAPI answers GET /v1/models with.
-const FakeAPIModels = `{"models":[{"name":"jev-latest","description":"a stand-in model","release_date":"2026-09-10T00:00:00+00:00"}]}`
+// fakeAPIModels is the body FakeAPI answers GET /v1/models with.
+const fakeAPIModels = `{"models":[{"name":"jev-latest","description":"a stand-in model","release_date":"2026-09-10T00:00:00+00:00"}]}`
 
-// FakeAPIUsageError is the body FakeAPI answers, with status 400, a System
+// fakeAPIUsageError is the body FakeAPI answers, with status 400, a System
 // One request whose top level holds a member other than state, model and
 // questions: the live API's answer to such a request.
-const FakeAPIUsageError = `{"detail":{"error_type":"api_usage_error","message":"Invalid request."}}`
+const fakeAPIUsageError = `{"detail":{"error_type":"api_usage_error","message":"Invalid request."}}`
 
 // FakeAPI is an in-process stand-in for the TypeSafe API, for tests that run
 // programs written against the real one (the examples under examples/).
@@ -38,7 +38,7 @@ const FakeAPIUsageError = `{"detail":{"error_type":"api_usage_error","message":"
 //
 //   - a request without an Authorization header: 401 with the API's
 //     authentication error body;
-//   - GET /v1/models: [FakeAPIModels];
+//   - GET /v1/models: one stand-in model, jev-latest;
 //   - POST /v1/systemone: every question of the request answered by its
 //     type, with fixed values that the SDK's typed checks accept: a noul
 //     0.75; a choice the first of its option labels in byte order, with
@@ -49,7 +49,7 @@ const FakeAPIUsageError = `{"detail":{"error_type":"api_usage_error","message":"
 //     its input tokens;
 //   - a System One body whose top level holds a member other than state,
 //     model and questions (an ExtraBody the API does not know): 400 with
-//     [FakeAPIUsageError], as the live API answers it;
+//     the API's api_usage_error body, as the live API answers it;
 //   - a System One body that is not an object with state, model and
 //     questions: 422 with a detail list, as the API's validation does;
 //   - anything else: 404.
@@ -81,7 +81,7 @@ func (f *FakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/models":
-		_, _ = w.Write([]byte(FakeAPIModels))
+		_, _ = w.Write([]byte(fakeAPIModels))
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/systemone":
 		body, status := fakeSystemOne(r)
 		w.WriteHeader(status)
@@ -107,7 +107,7 @@ func fakeSystemOne(r *http.Request) ([]byte, int) {
 	if json.Unmarshal(raw, &members) == nil {
 		for name := range members {
 			if name != "state" && name != "model" && name != "questions" {
-				return []byte(FakeAPIUsageError), http.StatusBadRequest
+				return []byte(fakeAPIUsageError), http.StatusBadRequest
 			}
 		}
 	}

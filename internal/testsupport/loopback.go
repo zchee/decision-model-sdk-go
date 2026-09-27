@@ -122,9 +122,9 @@ const (
 	CodeNoError ErrCode = 0x0
 	// CodeInternalError is the code of the RST_STREAM after a handler panics.
 	CodeInternalError ErrCode = 0x2
-	// CodeRefusedStream is the code of the RST_STREAM of ActionRefuse and of
+	// codeRefusedStream is the code of the RST_STREAM of ActionRefuse and of
 	// a stream over MaxConcurrentStreams.
-	CodeRefusedStream ErrCode = 0x7
+	codeRefusedStream ErrCode = 0x7
 )
 
 // ServerConfig configures a [LoopbackServer].

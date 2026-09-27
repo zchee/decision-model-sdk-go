@@ -1,5 +1,3 @@
-//go:build !race
-
 // Copyright 2026 The typesafe-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,6 +11,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+//go:build !race
 
 package alloctest
 
@@ -92,7 +92,7 @@ func TestAllocDecodeFixtures(t *testing.T) {
 				if naiveErr != nil {
 					t.Fatalf("naive decode: %v", naiveErr)
 				}
-				naiveCount, ratio = least.String(), strconvRatio(got.Mallocs, least.Mallocs)
+				naiveCount, ratio = least.String(), ratioText(got.Mallocs, least.Mallocs)
 				if name == "result.json" && 2*got.Mallocs > least.Mallocs {
 					t.Errorf("result.json decode allocations = %d, want at most half the naive decode's %d (AC-P2)", got.Mallocs, least.Mallocs)
 				}
@@ -118,8 +118,8 @@ func TestAllocDecodeFixtures(t *testing.T) {
 	}
 }
 
-// strconvRatio renders a / b with three decimals.
-func strconvRatio(a, b uint64) string {
+// ratioText renders a / b with three decimals.
+func ratioText(a, b uint64) string {
 	if b == 0 {
 		return "-"
 	}

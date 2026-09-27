@@ -317,9 +317,9 @@ func sonicJSON(tb testing.TB, v any) []byte {
 
 // encodeQuestions is the question set of the body encode tests: three
 // questions, one of each kind.
-func encodeQuestions(t testing.TB) *typesafe.Prepared {
-	t.Helper()
-	return mustPrepared(t, typesafe.NewQuestions().
+func encodeQuestions(tb testing.TB) *typesafe.Prepared {
+	tb.Helper()
+	return mustPrepared(tb, typesafe.NewQuestions().
 		Noul("billing", typesafe.Noul{Instructions: typesafe.Text("Is this about billing?"), Yes: typesafe.Text("payments or invoices")}).
 		Choice("tone", typesafe.Choice{Instructions: typesafe.Text("What is the tone?"), Options: typesafe.Options{{Label: "calm", Description: typesafe.Text("neutral or polite")}, {Label: "angry"}}}).
 		Score("urgency", typesafe.Score{Levels: []typesafe.Content{typesafe.Text("can wait"), typesafe.Text("this week"), typesafe.Text("today")}}))

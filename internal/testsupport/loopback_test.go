@@ -425,7 +425,7 @@ func TestLoopbackStreamLimit(t *testing.T) {
 		for _, id := range []uint32{1, 3, 5} {
 			c.request(id, "/", true)
 		}
-		c.expect(frame{Type: "RST_STREAM", StreamID: 5, Code: CodeRefusedStream})
+		c.expect(frame{Type: "RST_STREAM", StreamID: 5, Code: codeRefusedStream})
 		WaitUntil(t, "three recorded requests", func() bool { return len(srv.Requests()) == 3 })
 		if diff := gocmp.Diff([]Action{ActionHold, ActionHold, ActionRefuse}, actions(srv)); diff != "" {
 			t.Errorf("actions (-want +got):\n%s", diff)
@@ -498,7 +498,7 @@ func TestLoopbackStreamLimit(t *testing.T) {
 		}
 		c.expect(frame{Type: "SETTINGS", MaxStreams: 2})
 		c.request(5, "/c", true) // a third stream against the new limit of 2
-		c.expect(frame{Type: "RST_STREAM", StreamID: 5, Code: CodeRefusedStream})
+		c.expect(frame{Type: "RST_STREAM", StreamID: 5, Code: codeRefusedStream})
 		if err := conn.SetMaxConcurrentStreams(3); err != nil {
 			t.Fatal(err)
 		}
@@ -716,7 +716,7 @@ func TestLoopbackRefuseCloseHold(t *testing.T) {
 		}})
 		c := dialRaw(t, srv.Addr())
 		c.request(1, "/", true)
-		c.expect(frame{Type: "RST_STREAM", StreamID: 1, Code: CodeRefusedStream})
+		c.expect(frame{Type: "RST_STREAM", StreamID: 1, Code: codeRefusedStream})
 		c.request(3, "/", true)
 		c.expect(frame{Type: "HEADERS", StreamID: 3, Status: "200", End: true})
 	})

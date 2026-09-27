@@ -638,7 +638,7 @@ func (c *H2Conn) onHeaders(f *http2.MetaHeadersFrame) {
 	if full {
 		c.srv.overLimit.Add(1)
 		c.srv.setAction(st.Seq, ActionRefuse)
-		_ = c.write(func() error { return c.fr.WriteRSTStream(id, http2.ErrCode(CodeRefusedStream)) })
+		_ = c.write(func() error { return c.fr.WriteRSTStream(id, http2.ErrCode(codeRefusedStream)) })
 		return
 	}
 
@@ -649,7 +649,7 @@ func (c *H2Conn) onHeaders(f *http2.MetaHeadersFrame) {
 	c.srv.setAction(st.Seq, action)
 	switch action {
 	case ActionRefuse:
-		_ = c.write(func() error { return c.fr.WriteRSTStream(id, http2.ErrCode(CodeRefusedStream)) })
+		_ = c.write(func() error { return c.fr.WriteRSTStream(id, http2.ErrCode(codeRefusedStream)) })
 	case ActionGoAway:
 		_ = c.GoAway(max(id, 2)-2, CodeNoError)
 	case ActionClose:

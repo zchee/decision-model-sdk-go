@@ -37,7 +37,7 @@ func TestFakeAPI(t *testing.T) {
 	}{
 		"success: models": {
 			method: http.MethodGet, path: "/v1/models", auth: "Bearer k",
-			wantStatus: http.StatusOK, want: FakeAPIModels,
+			wantStatus: http.StatusOK, want: fakeAPIModels,
 		},
 		"success: every question type answered, an unknown one skipped": {
 			method: http.MethodPost, path: "/v1/systemone", auth: "Bearer k",
@@ -67,7 +67,7 @@ func TestFakeAPI(t *testing.T) {
 			method: http.MethodPost, path: "/v1/systemone", auth: "Bearer k",
 			body:       `{"state":"s","model":"m","questions":{"n":{"type":"noul"}},"beam_width":4}`,
 			wantStatus: http.StatusBadRequest,
-			want:       FakeAPIUsageError,
+			want:       fakeAPIUsageError,
 		},
 		"success: the fake does not check a question's own members (the live API's rule for them is unprobed)": {
 			method: http.MethodPost, path: "/v1/systemone", auth: "Bearer k",
