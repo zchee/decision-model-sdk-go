@@ -23,31 +23,12 @@ func FalsyJSON(raw []byte) bool {
 	if !maybeFalsyJSON(raw) {
 		return false
 	}
-	// A candidate, the question's rejection path: the whole value is
-	// checked and compacted, and the verdict read from its compact form.
+	// A candidate, the question's rejection path: maybeFalsyJSON let
+	// through only values that are falsy when valid, so the verdict is
+	// whether the whole value is valid JSON.
 	var buf [32]byte
-	compact, err := wire.AppendJSON(buf[:0], raw)
-	if err != nil {
-		return false
-	}
-	switch s := string(compact); s {
-	case "null", "false", `""`, "[]", "{}":
-		return true
-	default:
-		if s[0] != '-' && (s[0] < '0' || s[0] > '9') {
-			return false
-		}
-		// A number is zero when every digit of its mantissa is.
-		for i := range len(s) {
-			switch c := s[i]; {
-			case c == 'e' || c == 'E':
-				return true
-			case '1' <= c && c <= '9':
-				return false
-			}
-		}
-		return true
-	}
+	_, err := wire.AppendJSON(buf[:0], raw)
+	return err == nil
 }
 
 // maybeFalsyJSON reports whether raw can be one of FalsyJSON's falsy values,

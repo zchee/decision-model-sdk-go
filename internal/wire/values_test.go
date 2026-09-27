@@ -24,51 +24,42 @@ import (
 
 func TestContent(t *testing.T) {
 	tests := map[string]struct {
-		a, b       Content
-		wantAJSON  bool
-		wantEquals bool
+		a         Content
+		wantAJSON bool
 	}{
 		"success: same text": {
-			a: Content{Text: "can wait"}, b: Content{Text: "can wait"},
-			wantEquals: true,
+			a: Content{Text: "can wait"},
 		},
 		"success: different text": {
-			a: Content{Text: "can wait"}, b: Content{Text: "today"},
+			a: Content{Text: "can wait"},
 		},
 		"success: empty text equals empty text": {
-			a: Content{}, b: Content{Text: ""},
-			wantEquals: true,
+			a: Content{},
 		},
 		"success: same JSON bytes": {
-			a: Content{JSON: []byte(`{"a":1}`)}, b: Content{JSON: []byte(`{"a":1}`)},
-			wantAJSON: true, wantEquals: true,
+			a:         Content{JSON: []byte(`{"a":1}`)},
+			wantAJSON: true,
 		},
 		"success: JSON compares bytes, not meaning": {
-			a: Content{JSON: []byte(`{"a":1}`)}, b: Content{JSON: []byte(`{"a": 1}`)},
+			a:         Content{JSON: []byte(`{"a":1}`)},
 			wantAJSON: true,
 		},
 		"success: an empty object is JSON, not text": {
-			a: Content{JSON: []byte(`{}`)}, b: Content{},
+			a:         Content{JSON: []byte(`{}`)},
 			wantAJSON: true,
 		},
 		"success: an empty non-nil JSON slice is still JSON": {
-			a: Content{JSON: []byte{}}, b: Content{},
+			a:         Content{JSON: []byte{}},
 			wantAJSON: true,
 		},
 		"success: text never equals JSON spelling the same bytes": {
-			a: Content{Text: `["x"]`}, b: Content{JSON: []byte(`["x"]`)},
+			a: Content{Text: `["x"]`},
 		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			if got := tt.a.IsJSON(); got != tt.wantAJSON {
 				t.Errorf("IsJSON() = %t, want %t", got, tt.wantAJSON)
-			}
-			if got := tt.a.Equal(tt.b); got != tt.wantEquals {
-				t.Errorf("a.Equal(b) = %t, want %t", got, tt.wantEquals)
-			}
-			if got := tt.b.Equal(tt.a); got != tt.wantEquals {
-				t.Errorf("b.Equal(a) = %t, want %t (Equal must be symmetric)", got, tt.wantEquals)
 			}
 		})
 	}

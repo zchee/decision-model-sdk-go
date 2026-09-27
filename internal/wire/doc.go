@@ -14,7 +14,7 @@
 
 // Package wire holds the plain values that a decoded response and a prepared
 // question set are made of: answers, token usage, model cards, response
-// metadata, error data and the prepared question tables.
+// metadata and the prepared question tables.
 //
 // The package imports the standard library only. internal/codec fills these
 // values and the root package wraps them in its exported types

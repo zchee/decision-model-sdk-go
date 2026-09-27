@@ -14,8 +14,6 @@
 
 package wire
 
-import "bytes"
-
 // Content is text, or a JSON object or array: the shape of question
 // instructions, option and level descriptions, and the score legends a
 // response echoes back.
@@ -35,15 +33,3 @@ type Content struct {
 
 // IsJSON reports whether c holds a JSON object or array rather than text.
 func (c Content) IsJSON() bool { return c.JSON != nil }
-
-// Equal reports whether c and o hold the same text, or the same JSON bytes.
-// Text never equals JSON, even when the text spells the same bytes.
-func (c Content) Equal(o Content) bool {
-	if c.IsJSON() != o.IsJSON() {
-		return false
-	}
-	if c.IsJSON() {
-		return bytes.Equal(c.JSON, o.JSON)
-	}
-	return c.Text == o.Text
-}

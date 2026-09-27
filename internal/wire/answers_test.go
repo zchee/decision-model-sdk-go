@@ -86,8 +86,6 @@ type put struct {
 
 func noul(p float64) Answer { return Answer{Kind: KindNoul, Noul: NoulAnswer{Noul: p}} }
 
-func unknown() Answer { return Answer{Kind: KindUnknown} }
-
 // numbered returns n puts of noul answers named q0, q1, ..., each valued by
 // its index, so a test can tell which put a stored value came from.
 func numbered(n int) []put {
@@ -189,140 +187,11 @@ func TestAnswersPut(t *testing.T) {
 	}
 }
 
-func TestAnswersDropUnknown(t *testing.T) {
-	manyWithUnknown := numbered(linearLimit + 4)
-	manyWithUnknown[3].answer = unknown()
-	manyWithUnknown[7].answer = unknown()
-	var wantMany []put
-	for i, p := range numbered(linearLimit + 4) {
-		if i != 3 && i != 7 {
-			wantMany = append(wantMany, p)
-		}
-	}
-
-	tests := map[string]struct {
-		puts      []put
-		want      []AnswerEntry
-		wantIndex bool
-	}{
-		"success: nothing to drop": {
-			puts: []put{{"a", noul(0.1)}, {"b", noul(0.2)}},
-			want: entriesOf(put{"a", noul(0.1)}, put{"b", noul(0.2)}),
-		},
-		"success: an unknown answer is dropped and the order of the rest kept": {
-			puts: []put{{"a", noul(0.1)}, {"future", unknown()}, {"b", noul(0.2)}},
-			want: entriesOf(put{"a", noul(0.1)}, put{"b", noul(0.2)}),
-		},
-		"success: unknown first, known last keeps the first position": {
-			puts: []put{{"a", unknown()}, {"b", noul(0.2)}, {"a", noul(0.3)}},
-			want: entriesOf(put{"a", noul(0.3)}, put{"b", noul(0.2)}),
-		},
-		"success: known first, unknown last drops the name": {
-			puts: []put{{"a", noul(0.1)}, {"b", noul(0.2)}, {"a", unknown()}},
-			want: entriesOf(put{"b", noul(0.2)}),
-		},
-		"success: every answer unknown leaves an empty set": {
-			puts: []put{{"a", unknown()}, {"b", unknown()}},
-			want: []AnswerEntry{},
-		},
-		"success: dropping past linearLimit rebuilds the index": {
-			puts:      manyWithUnknown,
-			want:      entriesOf(wantMany...),
-			wantIndex: true,
-		},
-	}
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			var s Answers
-			for _, p := range tt.puts {
-				s.Put(p.name, p.answer)
-			}
-			s.DropUnknown()
-			if diff := gocmp.Diff(tt.want, s.Entries()); diff != "" {
-				t.Fatalf("Entries() after DropUnknown mismatch (-want +got):\n%s", diff)
-			}
-			if (s.index != nil) != tt.wantIndex {
-				t.Errorf("index built = %t, want %t", s.index != nil, tt.wantIndex)
-			}
-			// Positions must still resolve after the shift: every kept name
-			// finds its own value, and every dropped name is gone.
-			kept := map[string]bool{}
-			for _, e := range tt.want {
-				kept[e.Name] = true
-				got, ok := s.Get(e.Name)
-				if !ok {
-					t.Errorf("Get(%q) not found after DropUnknown, want %+v", e.Name, e.Answer)
-				} else if diff := gocmp.Diff(e.Answer, got); diff != "" {
-					t.Errorf("Get(%q) mismatch (-want +got):\n%s", e.Name, diff)
-				}
-			}
-			for _, p := range tt.puts {
-				if kept[p.name] {
-					continue
-				}
-				if got, ok := s.Get(p.name); ok {
-					t.Errorf("Get(%q) = %+v, true after DropUnknown; want not found", p.name, got)
-				}
-			}
-			// A later Put appends after the kept entries.
-			s.Put("late", noul(1))
-			if last := s.Entries()[s.Len()-1]; last.Name != "late" {
-				t.Errorf("last entry after Put = %q, want %q", last.Name, "late")
-			}
-		})
-	}
-}
-
-func TestAnswersReset(t *testing.T) {
-	tests := map[string]struct {
-		before []put
-		after  []put
-	}{
-		"success: reset below linearLimit": {
-			before: []put{{"a", noul(0.1)}, {"b", noul(0.2)}},
-			after:  []put{{"b", noul(0.9)}},
-		},
-		"success: reset past linearLimit keeps the index usable": {
-			before: numbered(linearLimit + 4),
-			after:  []put{{"q5", noul(0.9)}, {"new", noul(0.8)}, {"q5", noul(0.7)}},
-		},
-	}
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			var s Answers
-			for _, p := range tt.before {
-				s.Put(p.name, p.answer)
-			}
-			capBefore := cap(s.entries)
-			s.Reset()
-			if s.Len() != 0 {
-				t.Fatalf("Len() after Reset = %d, want 0", s.Len())
-			}
-			if cap(s.entries) != capBefore {
-				t.Errorf("cap after Reset = %d, want the storage kept (%d)", cap(s.entries), capBefore)
-			}
-			for _, p := range tt.before {
-				if _, ok := s.Get(p.name); ok {
-					t.Errorf("Get(%q) found an answer after Reset", p.name)
-				}
-			}
-			var want Answers
-			for _, p := range tt.after {
-				s.Put(p.name, p.answer)
-				want.Put(p.name, p.answer)
-			}
-			if diff := gocmp.Diff(want.Entries(), s.Entries()); diff != "" {
-				t.Errorf("Entries() after Reset and Put mismatch (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
 func TestAnswersGrow(t *testing.T) {
 	tests := map[string]struct {
 		grow    int
 		puts    int
-		wantCap int // lower bound on cap after Grow
+		wantCap int // lower bound on cap after grow
 	}{
 		"success: grow for the exact number of puts": {grow: 5, puts: 5, wantCap: 5},
 		"success: grow zero is a no-op":              {grow: 0, puts: 0, wantCap: 0},
@@ -331,16 +200,16 @@ func TestAnswersGrow(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			var s Answers
-			s.Grow(tt.grow)
+			s.grow(tt.grow)
 			if cap(s.entries) < tt.wantCap {
-				t.Fatalf("cap after Grow(%d) = %d, want >= %d", tt.grow, cap(s.entries), tt.wantCap)
+				t.Fatalf("cap after grow(%d) = %d, want >= %d", tt.grow, cap(s.entries), tt.wantCap)
 			}
 			capAfterGrow := cap(s.entries)
 			for i := range tt.puts {
 				s.Put("q"+strconv.Itoa(i), noul(0))
 			}
 			if cap(s.entries) != capAfterGrow {
-				t.Errorf("Put reallocated after Grow(%d): cap %d -> %d", tt.grow, capAfterGrow, cap(s.entries))
+				t.Errorf("Put reallocated after grow(%d): cap %d -> %d", tt.grow, capAfterGrow, cap(s.entries))
 			}
 		})
 	}
@@ -421,7 +290,7 @@ func TestScoreAnswerLookups(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			description, ok := answer.Description(tt.level)
-			if ok != tt.wantDescOK || !description.Equal(tt.wantDescription) {
+			if ok != tt.wantDescOK || !gocmp.Equal(description, tt.wantDescription) {
 				t.Errorf("Description(%d) = %+v, %t; want %+v, %t", tt.level, description, ok, tt.wantDescription, tt.wantDescOK)
 			}
 			probability, ok := answer.Probability(tt.level)
@@ -468,7 +337,7 @@ func TestAnswersGrowInto(t *testing.T) {
 				s.Put("q"+strconv.Itoa(i), Answer{Kind: KindNoul, Noul: NoulAnswer{Noul: float64(i)}})
 			}
 			if tt.n == 0 && !tt.putFirst && s.Entries() != nil {
-				t.Errorf("Entries = %#v after GrowInto(spare, 0), want nil as Grow(0) leaves it", s.Entries())
+				t.Errorf("Entries = %#v after GrowInto(spare, 0), want nil as grow(0) leaves it", s.Entries())
 			}
 			used := tt.spareCap > 0 && s.Len() > 0 && &s.Entries()[0] == &spare[:1][0]
 			if used != tt.wantUsed {

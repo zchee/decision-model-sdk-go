@@ -160,8 +160,7 @@ func (a *ScoreAnswer) Probability(level uint32) (float64, bool) {
 
 // Answer is one answer of any kind. Kind says which of Noul, Choice and Score
 // holds the value; the other two are zero. An Answer of KindUnknown holds no
-// value: it marks a slot whose type is not modelled, which
-// [Answers.DropUnknown] removes.
+// value.
 type Answer struct {
 	// Kind selects the field that holds the value.
 	Kind Kind
@@ -204,21 +203,23 @@ func (s *Answers) Len() int { return len(s.entries) }
 
 // Entries returns the entries in the order their names first appeared. The
 // slice is shared with s: callers must not modify it, and it is valid until
-// the next Put, DropUnknown or Reset.
+// the next Put.
 func (s *Answers) Entries() []AnswerEntry { return s.entries }
 
-// Grow makes room for n more entries, so that the next n calls to Put with
+// grow makes room for n more entries, so that the next n calls to Put with
 // new names do not reallocate. A negative n is treated as zero.
-func (s *Answers) Grow(n int) {
+func (s *Answers) grow(n int) {
 	if n > 0 {
 		s.entries = slices.Grow(s.entries, n)
 	}
 }
 
-// GrowInto is Grow for an empty set: when spare's capacity has room for n
-// entries, n > 0, the entries go into spare's array from its first element
-// (its length is ignored), whose elements past len(s.Entries()) the set may
-// overwrite, and nothing is allocated; otherwise it is Grow(n), so a set of
+// GrowInto makes room for n more entries, so that the next n calls to Put
+// with new names do not reallocate; a negative n is treated as zero. When
+// the set is empty and spare's capacity has room for n entries, n > 0, the
+// entries go into spare's array from its first element (its length is
+// ignored), whose elements past len(s.Entries()) the set may overwrite, and
+// nothing is allocated; otherwise the set grows its own array, and a set of
 // no entries stays nil, as the decode without a spare leaves it. A caller
 // that gives spare keeps no other use of its array.
 func (s *Answers) GrowInto(spare []AnswerEntry, n int) {
@@ -226,7 +227,7 @@ func (s *Answers) GrowInto(spare []AnswerEntry, n int) {
 		s.entries = spare[:0]
 		return
 	}
-	s.Grow(n)
+	s.grow(n)
 }
 
 // Get returns the answer to the question called name, and whether there is
@@ -255,36 +256,6 @@ func (s *Answers) Put(name string, a Answer) {
 			s.index[s.entries[i].Name] = i
 		}
 	}
-}
-
-// DropUnknown removes every entry of KindUnknown and keeps the order of the
-// rest, as the Python SDK deletes an answer of an unrecognised type after the
-// whole object has been read. It runs in time linear in the number of
-// entries.
-func (s *Answers) DropUnknown() {
-	kept := s.entries[:0]
-	for i := range s.entries {
-		if s.entries[i].Answer.Kind != KindUnknown {
-			kept = append(kept, s.entries[i])
-		}
-	}
-	clear(s.entries[len(kept):]) // release the dropped values to the GC
-	s.entries = kept
-	if s.index != nil {
-		clear(s.index)
-		for i := range s.entries {
-			s.index[s.entries[i].Name] = i
-		}
-	}
-}
-
-// Reset removes every entry and keeps the storage, for a document that
-// repeats its top-level "answers" member: the last one replaces every answer
-// the earlier ones held.
-func (s *Answers) Reset() {
-	clear(s.entries)
-	s.entries = s.entries[:0]
-	clear(s.index)
 }
 
 // find returns the position of name, or -1.

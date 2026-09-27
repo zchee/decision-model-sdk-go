@@ -93,21 +93,3 @@ func (m *ResponseMeta) RequestID() (string, bool) {
 	}
 	return strings.Join(values, ", "), true
 }
-
-// ErrorData is what an unsuccessful response carried, as the lenient
-// error-body reader leaves it for the root package's error types.
-type ErrorData struct {
-	// Meta is the response's status, header and body.
-	Meta ResponseMeta
-	// Endpoint is the request method and URL without credentials, query or
-	// fragment, or empty when it is not known.
-	Endpoint string
-	// Message is the message the body carried, or the text standing in for
-	// one when it carried none.
-	Message string
-	// ErrorType is the server's machine-readable name for the failure, from
-	// detail.error_type, when HasErrorType is true.
-	ErrorType string
-	// HasErrorType reports whether the body carried an error type.
-	HasErrorType bool
-}
