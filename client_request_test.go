@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -100,7 +101,7 @@ func TestClientUnencodableBodyFailsBeforeNetwork(t *testing.T) {
 		"error: a nil state (T2)":     {state: nil, want: "state: nil encodes as null"},
 		"error: a boolean state (T2)": {state: true, want: "state: bool encodes as a boolean"},
 		"error: a number state (T2)":  {state: 1.5, want: "state: float64 encodes as a number"},
-		"error: a NaN in the state":   {state: map[string]any{"v": nanValue()}, want: "could not be encoded as JSON"},
+		"error: a NaN in the state":   {state: map[string]any{"v": math.NaN()}, want: "could not be encoded as JSON"},
 		"error: a plain []byte state": {state: []byte(`{}`), want: "send string(b) for text or RawJSON(b) for JSON"},
 	}
 	for name, tt := range tests {
@@ -178,12 +179,6 @@ func TestClientInvalidUTF8StateFailsBeforeNetwork(t *testing.T) {
 			}
 		})
 	}
-}
-
-// nanValue returns NaN without a constant expression the compiler folds.
-func nanValue() float64 {
-	zero := 0.0
-	return zero / zero
 }
 
 // TestClientStateForms re-asserts T1 and T6 through the client: a named
@@ -326,15 +321,7 @@ func TestStructuredContentRoundTrip(t *testing.T) {
 func TestQuestionValidationBeforeNetwork(t *testing.T) {
 	rec := replying(http.StatusOK, testsupport.Fixture(t, "result.json"))
 	c := newTestClient(t, rec)
-	empty, err := NewQuestions().Prepare()
-	if err == nil {
-		t.Run("error: an empty question set", func(t *testing.T) {
-			_, err := c.SystemOne(t.Context(), "x", empty)
-			if _, ok := errors.AsType[*ConfigError](err); !ok || !strings.Contains(err.Error(), "At least one question") {
-				t.Errorf("SystemOne error = %v, want a *ConfigError with \"At least one question\"", err)
-			}
-		})
-	} else if !strings.Contains(err.Error(), "At least one question") {
+	if _, err := NewQuestions().Prepare(); err == nil || !strings.Contains(err.Error(), "At least one question") {
 		t.Errorf("Prepare of no question = %v, want \"At least one question\"", err)
 	}
 	t.Run("error: no question set", func(t *testing.T) {
