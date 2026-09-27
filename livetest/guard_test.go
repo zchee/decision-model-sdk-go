@@ -164,12 +164,7 @@ func testNames(out string) []string {
 // live adds to the list, so a new one is covered without an edit here; the
 // four of the upstream port must be among them.
 func TestLiveTestsFailWithoutEnv(t *testing.T) {
-	var env []string
-	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(strings.ToUpper(kv), "TYPESAFE_") {
-			env = append(env, kv)
-		}
-	}
+	env := environWithout("TYPESAFE_")
 	untagged, err := runGo(t, env, "test", "-list", ".*", ".")
 	if err != nil {
 		t.Fatalf("go test -list without the tag: %v\n%s", err, untagged)

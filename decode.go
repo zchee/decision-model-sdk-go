@@ -31,11 +31,7 @@ import (
 // [*ResponseValidationError] naming the first failure the Python SDK would
 // report, whose header r redacts.
 func decodeSystemOneInto(ctx context.Context, logger *slog.Logger, meta *wire.ResponseMeta, endpoint string, r engine.HeaderRedactor, qs *Prepared, model string, dst *wire.SystemOneResult, spare []wire.AnswerEntry) error {
-	var q *wire.Prepared
-	if qs != nil {
-		q = qs.wirePrepared()
-	}
-	if err := engine.DecodeSystemOneInto(ctx, logger, meta.Body, q, model, dst, spare); err != nil {
+	if err := engine.DecodeSystemOneInto(ctx, logger, meta.Body, qs.wirePrepared(), model, dst, spare); err != nil {
 		return newResponseValidationError(meta, endpoint, r, err)
 	}
 	return nil

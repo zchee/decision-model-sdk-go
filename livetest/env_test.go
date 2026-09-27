@@ -114,16 +114,22 @@ func credentialFindings(b []byte, secrets ...string) []string {
 // or an error, naming what it found and never the text, when the result
 // still holds a secret or a credential shape (credentialShapes).
 func scrub(body []byte, secrets ...string) ([]byte, error) {
-	out := body
-	for _, s := range secrets {
-		if s != "" {
-			out = bytes.ReplaceAll(out, []byte(s), []byte(redactedCredential))
-		}
-	}
+	out := replaceSecrets(body, secrets)
 	if found := credentialFindings(out, secrets...); len(found) > 0 {
 		return nil, fmt.Errorf("the body still holds %s after scrubbing; nothing written", strings.Join(found, ", "))
 	}
 	return out, nil
+}
+
+// replaceSecrets returns b with every occurrence of each non-empty secret
+// replaced by ***.
+func replaceSecrets(b []byte, secrets []string) []byte {
+	for _, s := range secrets {
+		if s != "" {
+			b = bytes.ReplaceAll(b, []byte(s), []byte(redactedCredential))
+		}
+	}
+	return b
 }
 
 // writeFixture scrubs body and writes the result to dir/name. When scrub

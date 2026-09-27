@@ -149,11 +149,6 @@ type unknownTypeAnswers struct {
 	Mystery NoulAnswer `typesafe:"kind=noul;name=mystery;optional"`
 }
 
-// spamAnswers types parity-big-exp-unknown.json, whose one answer is spam.
-type spamAnswers struct {
-	Spam NoulAnswer `typesafe:"kind=noul;name=spam"`
-}
-
 // noAnswers types no-answers.json, which has no answers member: a struct
 // needs a field, and an optional one is absent.
 type noAnswers struct {
@@ -238,7 +233,7 @@ func TestDecodeAsAgreesWithAnswers(t *testing.T) {
 		"success: escaped-member-names.json":        {fixture: "escaped-member-names.json", agree: agreeAs[escapedMemberNamesAnswers]()},
 		"success: structured-legend.json":           {fixture: "structured-legend.json", agree: agreeAs[riskAnswers]()},
 		"success: deviation-lone-surrogate.json":    {fixture: "deviation-lone-surrogate.json", agree: agreeAs[loneSurrogateAnswers]()},
-		"success: parity-big-exp-unknown.json":      {fixture: "parity-big-exp-unknown.json", agree: agreeAs[spamAnswers]()},
+		"success: parity-big-exp-unknown.json":      {fixture: "parity-big-exp-unknown.json", agree: agreeAs[knownResponse]()},
 		"success: no-answers.json":                  {fixture: "no-answers.json", agree: agreeAs[noAnswers]()},
 		"success: structured-legend-flood-1k.json":  {fixture: "structured-legend-flood-1k.json", agree: agreeAs[flood1kAnswers]()},
 		"success: structured-legend-flood-10k.json": {fixture: "structured-legend-flood-10k.json", agree: agreeAs[flood10kAnswers]()},

@@ -20,7 +20,6 @@ import (
 
 	"github.com/zchee/typesafe-sdk-go/internal/codec"
 	"github.com/zchee/typesafe-sdk-go/internal/engine"
-	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
 // bodyMember is one member a call adds to the top level of its request
@@ -61,11 +60,7 @@ type bodyMember = engine.BodyMember
 // valid UTF-8, and with an [*InvalidRequestError] when a member cannot be
 // encoded. The configuration is checked first.
 func encodeBody(state any, model string, qs *Prepared, extra []bodyMember) (codec.Body, error) {
-	var q *wire.Prepared
-	if qs != nil {
-		q = qs.wirePrepared()
-	}
-	body, f := engine.EncodeBody[RawJSON, Content](state, model, q, extra)
+	body, f := engine.EncodeBody[RawJSON, Content](state, model, qs.wirePrepared(), extra)
 	switch f.Kind {
 	case engine.FailNone:
 		return body, nil

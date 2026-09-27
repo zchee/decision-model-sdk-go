@@ -59,12 +59,7 @@ func environWithout(prefix string, extra ...string) []string {
 
 // redacted returns s with each secret replaced by ***.
 func redacted(s string, secrets []string) string {
-	for _, k := range secrets {
-		if k != "" {
-			s = strings.ReplaceAll(s, k, redactedCredential)
-		}
-	}
-	return s
+	return string(replaceSecrets([]byte(s), secrets))
 }
 
 // runExample runs go run ./examples/<name> from the module's root with env,

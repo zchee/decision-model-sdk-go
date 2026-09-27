@@ -211,11 +211,14 @@ func (e storeRefusal) Error() string {
 	if f.index >= 0 && f.index < e.p.typ.NumField() {
 		field = e.p.typ.Field(f.index).Name
 	}
-	u := func(v uintptr) string { return strconv.FormatUint(uint64(v), 10) }
 	return "typesafe: the typed store refused to write field " + field + " (a " + answerTypeName(f.kind) + ", question " + strconv.Quote(f.name) + ") of " +
-		e.p.typ.String() + " at offset " + u(e.off) + ": a " + u(e.n) + "-byte write there would cover bytes [" + u(e.off) + ", " + u(e.off+e.n) +
-		") of the struct's " + u(e.size) + ", but the plan recorded the field's end at " + u(f.end) + "; the plan is corrupt"
+		e.p.typ.String() + " at offset " + utoa(e.off) + ": a " + utoa(e.n) + "-byte write there would cover bytes [" + utoa(e.off) + ", " + utoa(e.off+e.n) +
+		") of the struct's " + utoa(e.size) + ", but the plan recorded the field's end at " + utoa(f.end) + "; the plan is corrupt"
 }
+
+// utoa formats v in decimal, for the messages of a store refusal and of a
+// corrupt plan.
+func utoa(v uintptr) string { return strconv.FormatUint(uint64(v), 10) }
 
 // undeclaredOption returns the path, below the answer, of the first option
 // that a names and options does not list: the pick itself first, then the

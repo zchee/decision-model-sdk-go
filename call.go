@@ -16,13 +16,9 @@ package typesafe
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
-
-	"github.com/zchee/typesafe-sdk-go/internal/engine"
 )
 
 // CallOption configures one call, over the client's settings: [Model],
@@ -201,31 +197,12 @@ func (o *callOptions) forModels() error {
 	return nil
 }
 
-// callHeader returns base with the call's headers set over it, checked as
-// [options.headerTemplate] checks the client's: a name holding the key is
-// refused first, then the name and the value must be valid, and a header the
-// SDK or the transport owns is dropped with a debug record. base is not
-// modified.
+// callHeader returns base with the call's headers set over it by
+// [applyHeaders], as the client's are. base is not modified.
 func callHeader(ctx context.Context, cfg *config, base http.Header, headers []headerOption) (http.Header, error) {
 	h := base.Clone()
-	lowerKey := strings.ToLower(cfg.APIKey)
-	for i, ho := range headers {
-		if engine.KeyNeedle(cfg.APIKey) && strings.Contains(strings.ToLower(ho.name), lowerKey) {
-			return nil, newConfigError("The name given to Header call option " + strconv.Itoa(i+1) + " contains the API key, so it is not shown; pass the key with WithAPIKey only.")
-		}
-		if !validFieldName(ho.name) {
-			return nil, newConfigError("The name given to Header call option " + strconv.Itoa(i+1) + " is not a valid HTTP field name (RFC 9110, section 5.6.2); it is not shown, since it may hold a credential.")
-		}
-		name := http.CanonicalHeaderKey(ho.name)
-		if !validFieldValue(ho.value) {
-			return nil, newConfigError("The value given to Header for " + name + " is not a valid HTTP field value (RFC 9110, section 5.5).")
-		}
-		if reason, owned := sdkOwnedHeaders[name]; owned {
-			cfg.Logger.LogAttrs(ctx, slog.LevelDebug, "call: header dropped",
-				slog.String("header", name), slog.String("reason", reason))
-			continue
-		}
-		h[name] = []string{ho.value}
+	if err := applyHeaders(ctx, cfg.Logger, h, headers, cfg.APIKey, "Header call option", "Header", "call: header dropped"); err != nil {
+		return nil, err
 	}
 	return h, nil
 }

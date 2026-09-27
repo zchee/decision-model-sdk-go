@@ -31,8 +31,14 @@ import (
 type Prepared engine.Prepared
 
 // wirePrepared returns p's bytes and tables from its state, internal/engine's
-// Prepared, over which Prepared is defined: a free conversion.
-func (p *Prepared) wirePrepared() *wire.Prepared { return (*engine.Prepared)(p).Wire() }
+// Prepared, over which Prepared is defined: a free conversion. It returns
+// nil for a nil p.
+func (p *Prepared) wirePrepared() *wire.Prepared {
+	if p == nil {
+		return nil
+	}
+	return (*engine.Prepared)(p).Wire()
+}
 
 // Len returns the number of questions in the set. It is never zero for a set
 // returned by [Questions.Prepare].

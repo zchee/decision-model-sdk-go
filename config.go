@@ -487,32 +487,12 @@ func (o *options) resolveTimeout() (time.Duration, error) {
 }
 
 // headerTemplate returns the headers of a request without a body: the
-// caller's headers without the ones the SDK or the transport owns, then the
-// SDK's own (py:_core/transport.py:116-127). Each dropped header is logged
-// by name at debug level. A name that holds the key, without regard to case,
-// is refused before anything else is checked, when the key is at least
-// [engine.MinKeyNeedleBytes] long: names are logged and sent as they are, and
-// redaction looks for the key in values only.
+// caller's headers, set by [applyHeaders], then the SDK's own
+// (py:_core/transport.py:116-127).
 func (o *options) headerTemplate(logger *slog.Logger, key, userAgent string) (http.Header, error) {
 	h := make(http.Header, len(o.headers)+5)
-	lowerKey := strings.ToLower(key)
-	for i, ho := range o.headers {
-		if engine.KeyNeedle(key) && strings.Contains(strings.ToLower(ho.name), lowerKey) {
-			return nil, newConfigError("The name given to WithHeader call " + strconv.Itoa(i+1) + " contains the API key, so it is not shown; pass the key with WithAPIKey only.")
-		}
-		if !validFieldName(ho.name) {
-			return nil, newConfigError("The name given to WithHeader call " + strconv.Itoa(i+1) + " is not a valid HTTP field name (RFC 9110, section 5.6.2); it is not shown, since it may hold a credential.")
-		}
-		name := http.CanonicalHeaderKey(ho.name)
-		if !validFieldValue(ho.value) {
-			return nil, newConfigError("The value given to WithHeader for " + name + " is not a valid HTTP field value (RFC 9110, section 5.5).")
-		}
-		if reason, owned := sdkOwnedHeaders[name]; owned {
-			logger.LogAttrs(context.Background(), slog.LevelDebug, "config: header dropped",
-				slog.String("header", name), slog.String("reason", reason))
-			continue
-		}
-		h[name] = []string{ho.value}
+	if err := applyHeaders(context.Background(), logger, h, o.headers, key, "WithHeader call", "WithHeader", "config: header dropped"); err != nil {
+		return nil, err
 	}
 	h.Set(headerAuthorization, "Bearer "+key)
 	h.Set(headerAccept, jsonContentType)
@@ -522,6 +502,39 @@ func (o *options) headerTemplate(logger *slog.Logger, key, userAgent string) (ht
 		h.Set(headerRuntime, runtimeIdentifier)
 	}
 	return h, nil
+}
+
+// applyHeaders sets the caller's headers in h, each under its canonical
+// name, a later one of a name replacing an earlier one. A name that holds
+// key, without regard to case, is refused before anything else is checked,
+// when the key is at least [engine.MinKeyNeedleBytes] long: names are logged
+// and sent as they are, and redaction looks for the key in values only.
+// Then the name and the value must be valid, and a header the SDK or the
+// transport owns is dropped and logged by name at debug level, with record
+// as the message. A refusal is a *ConfigError whose message names the
+// option as nameWhat before the header's position ("WithHeader call 2") or
+// as valueWhat before its name ("WithHeader for X-Team").
+func applyHeaders(ctx context.Context, logger *slog.Logger, h http.Header, headers []headerOption, key, nameWhat, valueWhat, record string) error {
+	needle := engine.KeyNeedle(key)
+	lowerKey := strings.ToLower(key)
+	for i, ho := range headers {
+		if needle && strings.Contains(strings.ToLower(ho.name), lowerKey) {
+			return newConfigError("The name given to " + nameWhat + " " + strconv.Itoa(i+1) + " contains the API key, so it is not shown; pass the key with WithAPIKey only.")
+		}
+		if !validFieldName(ho.name) {
+			return newConfigError("The name given to " + nameWhat + " " + strconv.Itoa(i+1) + " is not a valid HTTP field name (RFC 9110, section 5.6.2); it is not shown, since it may hold a credential.")
+		}
+		name := http.CanonicalHeaderKey(ho.name)
+		if !validFieldValue(ho.value) {
+			return newConfigError("The value given to " + valueWhat + " for " + name + " is not a valid HTTP field value (RFC 9110, section 5.5).")
+		}
+		if reason, owned := sdkOwnedHeaders[name]; owned {
+			logger.LogAttrs(ctx, slog.LevelDebug, record, slog.String("header", name), slog.String("reason", reason))
+			continue
+		}
+		h[name] = []string{ho.value}
+	}
+	return nil
 }
 
 // Why a caller's header is dropped, as the debug record reports it.

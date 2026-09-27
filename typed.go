@@ -319,7 +319,6 @@ func buildPlan(t reflect.Type) *typedPlan {
 // the plan is built, and its message names the type, the field and both
 // layouts.
 func checkPlanLayout(t reflect.Type, fields []typedField) {
-	u := func(v uintptr) string { return strconv.FormatUint(uint64(v), 10) }
 	for i := range fields {
 		f := &fields[i]
 		if f.index < 0 || f.index >= t.NumField() {
@@ -329,8 +328,8 @@ func checkPlanLayout(t reflect.Type, fields []typedField) {
 		sf := t.Field(f.index)
 		if f.offset != sf.Offset || f.end != sf.Offset+sf.Type.Size() || answerKind(sf.Type) != f.kind {
 			panic("typesafe: the typed plan of " + t.String() + " records field " + sf.Name + " (index " + strconv.Itoa(f.index) +
-				", question " + strconv.Quote(f.name) + ") as a " + answerTypeName(f.kind) + " at bytes [" + u(f.offset) + ", " + u(f.end) +
-				"), but reflect gives a " + sf.Type.String() + " at bytes [" + u(sf.Offset) + ", " + u(sf.Offset+sf.Type.Size()) + "); the plan is corrupt")
+				", question " + strconv.Quote(f.name) + ") as a " + answerTypeName(f.kind) + " at bytes [" + utoa(f.offset) + ", " + utoa(f.end) +
+				"), but reflect gives a " + sf.Type.String() + " at bytes [" + utoa(sf.Offset) + ", " + utoa(sf.Offset+sf.Type.Size()) + "); the plan is corrupt")
 		}
 	}
 }
