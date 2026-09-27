@@ -104,7 +104,7 @@ func TestProxyCredsRecord(t *testing.T) {
 		var p ProxyCreds
 		p.Record(proxyURL(url.UserPassword("u", "p w@<x")))
 		token := base64.StdEncoding.EncodeToString([]byte("u:p w@<x"))
-		want := []string{token, "p w@<x", "p%20w%40%3Cx", "p", "w@<x", `w@<x`, `p w@<x`}
+		want := []string{token, "p w@<x", "p%20w%40%3Cx", "p", "w@<x", `w@\u003cx`, `p w@\u003cx`}
 		creds := p.Credentials()
 		for _, n := range want {
 			if !slices.Contains(creds, n) {
