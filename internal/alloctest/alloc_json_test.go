@@ -30,7 +30,7 @@ import (
 var sinkPayload []byte
 
 // jsonAllocs pins the allocations of reading a response payload back and of
-// writing it (W2.4, informational: no frozen budget covers them). A payload
+// writing it (informational: no frozen budget covers them). A payload
 // is one allocation whatever its size: the writer sizes its buffer before
 // writing, with every float at its longest, so only strings that need
 // escapes can outgrow it. Reading a payload back is the decode without a
@@ -44,10 +44,8 @@ var jsonAllocs = map[string]struct{ marshal, unmarshal uint64 }{
 }
 
 // TestAllocResponseJSON measures MarshalJSON and UnmarshalJSON of a response
-// read from each fixture of jsonAllocs: runtime.ReadMemStats deltas, the
-// minimum that three of five runs share, with the collector off and
-// GOMAXPROCS 1, the decoder's pool warm (section 6.1.6). Each JSON line is a
-// ledger row.
+// read from each fixture of jsonAllocs, the decoder's pool warm. Each JSON
+// line is a ledger row.
 func TestAllocResponseJSON(t *testing.T) {
 	testsupport.QuietRuntime(t)
 	for _, name := range slices.Sorted(maps.Keys(jsonAllocs)) {

@@ -22,12 +22,12 @@ import (
 	"testing"
 )
 
-// FloorCall is the floor of one whole SDK call (the port plan's NF3): rt
-// called with a request built beforehand, its response drained into
-// [io.Discard] and closed. No client can cost less. The root package's
-// TestAllocWholeCall counts its allocations and the call/floor benchmark
-// times it, so the two measure one floor. It returns the transport's error,
-// or the read's, or the close's, in that order.
+// FloorCall is the floor of one whole SDK call: rt called with a request
+// built beforehand, its response drained into [io.Discard] and closed. No
+// client can cost less. TestAllocWholeCall (internal/alloctest) counts its
+// allocations and the call/floor benchmark times it, so the two measure one
+// floor. It returns the transport's error, or the read's, or the close's, in
+// that order.
 func FloorCall(rt http.RoundTripper, req *http.Request) error {
 	resp, err := rt.RoundTrip(req)
 	if err != nil {

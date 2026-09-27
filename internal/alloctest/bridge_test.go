@@ -12,14 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package alloctest holds the root package's allocation budgets (AC-P1,
-// AC-P2, AC-P3, AC-P5, AC-P6, AC-P8 and the rows the ledger records), which
-// W6.5 moved out of the root package (owner instruction G9, design D1): they
+// Package alloctest holds the root package's allocation budgets
+// (docs/perf/frozen-budgets.md, and the rows the ledger records): they
 // measure the stages of a call that internal/engine holds, as the root
 // package's calls run them, through the public API and the bridge below. It
 // has test files only. The files built with //go:build !race run in CI's
 // allocation-budget step, whose list names every test of them; the others
 // run in the -race coverage step.
+//
+// An exact count is a runtime.ReadMemStats delta, the minimum that three of
+// five runs share (testsupport.StableMin), with the collector off and
+// GOMAXPROCS 1.
 package alloctest
 
 import (
@@ -36,8 +39,8 @@ import (
 )
 
 // The bridge from the root package's public types to the state and the
-// stages internal/engine holds for them (W6.5 design D1). The root package
-// declares Client, Prepared and SystemOneResponse as defined types over
+// stages internal/engine holds for them. The root package declares Client,
+// Prepared and SystemOneResponse as defined types over
 // engine.Client[RetryPolicy], engine.Prepared and engine.Response, so each
 // conversion below is free and compile-checked, and each stage below is the
 // engine function the root package's own wrapper calls, with that wrapper's
@@ -108,7 +111,7 @@ func decodeSystemOneInto(ctx context.Context, logger *slog.Logger, meta *wire.Re
 // read and this package cannot). Trusting the plan check here is sound only
 // while that root copy stays: it compares each plan offset and end with
 // reflect's independently of the check, so a check that passed a wrong plan
-// still fails a root test (critic-p6 n-9).
+// still fails a root test.
 func requireStoreLayout[T any](t *testing.T) {
 	t.Helper()
 	if _, err := typesafe.PreparedFor[T](); err != nil {

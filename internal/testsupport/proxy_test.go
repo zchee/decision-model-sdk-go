@@ -69,7 +69,7 @@ func TestProxyModes(t *testing.T) {
 				}
 				// The proxy records its side of the refused handshake after its
 				// Handshake returns, which can be after the client read the
-				// alert and returned (K29, as in TestLoopbackALPNModes): wait
+				// alert and returned (as in TestLoopbackALPNModes): wait
 				// for the record instead of reading it at once.
 				waitFor(t, "the proxy's record of the refused handshake", func() bool {
 					conns := proxy.Conns()

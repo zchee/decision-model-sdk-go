@@ -32,41 +32,40 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
-// TestMemStatsFlood is AC-P5's structured-flood case (review W6.2 MAJ-1;
-// docs/perf/frozen-budgets.md, AC-P5 (viii)): the SDK's own transport, over
-// TLS and HTTP/2 to the in-process loopback server, answered with a 200
-// whose undeclared body is 15 MiB of tiny answers of an unknown type
-// (testsupport.UnknownAnswerFlood, 688 682 answers), inside the 16 MiB cap.
-// The decode keeps one answer entry for each, so the call's live heap grows
-// to many times the body; the clause bounds that peak and, the review's
-// finding, what stays live afterwards.
+// TestMemStatsFlood is the structured-flood case of the response-memory
+// budget (docs/perf/frozen-budgets.md, case (viii)): the SDK's own
+// transport, over TLS and HTTP/2 to the in-process loopback server, answered
+// with a 200 whose undeclared body is 15 MiB of tiny answers of an unknown
+// type (testsupport.UnknownAnswerFlood, 688 682 answers), inside the 16 MiB
+// cap. The decode keeps one answer entry for each, so the call's live heap
+// grows to many times the body; the clause bounds that peak and what stays
+// live afterwards.
 //
 //   - Peak: the heap (runtime.MemStats.HeapAlloc, read by another goroutine
 //     on a 200 µs ticker, which on the test's one P runs only when the
 //     runtime preempts the decoding goroutine, about every 10 ms: on the
 //     order of 100 samples a second, 55 to 122 on the hosts and CI runners
-//     measured (ledger W6-secfix-20), which the FLOOD peak line counts; so
-//     the figure is a lower estimate of the true peak)
-//     stays within 2.2 × (base + L), where base is the heap before the call
-//     and L = 2 × cap + n × (2.25 × 288 + 64) bytes the call's largest live
-//     set: readBody's buffers at their last doubling (AC-P5 (v)'s term); the
-//     answer array's old and new copies while it grows, the old holding at
-//     most the generator's n answers and append growing a large slice by a
-//     quarter, so 2.25 n entries of 288 bytes; and the 64 bytes codec
-//     charges an answer's index entry (mapEntryBytes). 2.2 is the
-//     collector's limit for the default GOGC of 100: a cycle lets the heap
-//     grow to twice the live heap it will mark, and 1.1 times that when it
-//     overruns (runtime/mgcpacer.go, hardGoal and maxOvershoot); the base is
-//     in it because the collector paces on the whole heap.
+//     measured, which the FLOOD peak line counts; so the figure is a lower
+//     estimate of the true peak) stays within 2.2 × (base + L), where base
+//     is the heap before the call and L = 2 × cap + n × (2.25 × 288 + 64)
+//     bytes the call's largest live set: readBody's buffers at their last
+//     doubling (the term of case (v)); the answer array's old and new copies
+//     while it grows, the old holding at most the generator's n answers and
+//     append growing a large slice by a quarter, so 2.25 n entries of
+//     288 bytes; and the 64 bytes codec charges an answer's index entry
+//     (mapEntryBytes). 2.2 is the collector's limit for the default GOGC of
+//     100: a cycle lets the heap grow to twice the live heap it will mark,
+//     and 1.1 times that when it overruns (runtime/mgcpacer.go, hardGoal and
+//     maxOvershoot); the base is in it because the collector paces on the
+//     whole heap.
 //   - Retained: after the flood call, six ordinary calls (result.json), each
 //     followed by a collection, leave at most codec.DecoderCeiling + 1 MiB
 //     live above the heap before the flood call, the 1 MiB being the
 //     allowance for the loopback connection's two sides and the runtime,
-//     whose own growth over the calls measured under 80 KiB (ledger
-//     ## W6-secfix). Before the ceiling the pooled decoder kept about
-//     233 MiB. The base is taken after two collections have emptied every
-//     pool and one ordinary call has refilled them, so a scratch that an
-//     earlier test left pooled cannot hide in it.
+//     whose own growth over the calls measured under 80 KiB. The base is
+//     taken after two collections have emptied every pool and one ordinary
+//     call has refilled them, so a scratch that an earlier test left pooled
+//     cannot hide in it.
 //
 // Everything runs on one P (GOMAXPROCS 1), so the ordinary calls take the
 // flood call's pool slot, the case in which the pool kept the flood's

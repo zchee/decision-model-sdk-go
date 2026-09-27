@@ -14,11 +14,11 @@
 
 package alloctest
 
-// Copies of the root package's test helpers that the allocation budgets
-// use, each from the root file its comment names: a test of the root
-// package cannot be imported, and the root package's own tests keep theirs.
-// A copy that drifts from its original changes what a budget measures and
-// so fails loudly (W6.5 design D1).
+// Copies of the root package's test helpers that the allocation budgets use,
+// each from the root file its comment names: a test of the root package
+// cannot be imported, and the root package's own tests keep theirs. Keep
+// each copy equal to its original; a copy that drifts measures or checks
+// something else.
 
 import (
 	"maps"
@@ -29,7 +29,8 @@ import (
 	typesafe "github.com/zchee/typesafe-sdk-go"
 )
 
-// testKey is the API key of the transport tests, which never reach an API.
+// testKey is the API key of the clients these tests build, the root tests'
+// default key; no call of theirs reaches an API.
 //
 // Copied from the root package's transport_test.go.
 const testKey = "test-key"
@@ -51,15 +52,15 @@ func clearEnv(t *testing.T) {
 
 // newTestClient builds a client over rt, the test's transport
 // (WithRoundTripper), with testKey (the upstream tests' key, 8 bytes long,
-// so the checks that look for the key inside other text apply to it, ruling
-// R68) and opts, after clearing the variables a client reads, so a
-// developer's TYPESAFE_API_KEY never reaches a test. The client is closed
-// when the test ends.
+// so the checks that look for the key inside other text apply to it) and
+// opts, after clearing the variables a client reads, so a developer's
+// TYPESAFE_API_KEY never reaches a test. The client is closed when the test
+// ends.
 //
 // Its calls make one attempt each (NoRetry), as the upstream tests' clients
-// do unless a test asks for retries (tests/conftest.py:34-35, ruling R88b);
-// a test that wants the production policy passes WithRetry(DefaultRetry())
-// in opts, which comes later and wins.
+// do unless a test asks for retries (tests/conftest.py:34-35); a test that
+// wants the production policy passes WithRetry(DefaultRetry()) in opts,
+// which comes later and wins.
 //
 // Copied from the root package's client_test.go.
 func newTestClient(t *testing.T, rt http.RoundTripper, opts ...typesafe.ClientOption) *typesafe.Client {
@@ -85,8 +86,9 @@ func mustPrepared(t testing.TB, qs *typesafe.Questions) *typesafe.Prepared {
 	return p
 }
 
-// q3Questions is the NF3 question set: the three questions of the upstream
-// round-trip test (tests/test_clients.py:60-80), which result.json answers.
+// q3Questions is the whole call's question set: the three questions of the
+// upstream round-trip test (tests/test_clients.py:60-80), which result.json
+// answers.
 //
 // Copied from the root package's client_test.go.
 func q3Questions(t testing.TB) *typesafe.Prepared {

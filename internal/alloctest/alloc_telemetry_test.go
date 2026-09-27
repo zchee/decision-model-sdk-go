@@ -42,20 +42,19 @@ func (discardHandler) Handle(context.Context, slog.Record) error          { retu
 func (h discardHandler) WithAttrs([]slog.Attr) slog.Handler               { return h }
 func (h discardHandler) WithGroup(string) slog.Handler                    { return h }
 
-// TestAllocLoggedCall records what logging costs a call (section 9, ledger
-// row W3.3-01): the whole q3 call of TestAllocWholeCall, under
-// DefaultRetry, with the default logger (slog.DiscardHandler, which keeps
-// nothing, so no record is built), with WithLogger at INFO and at DEBUG
-// into a handler that keeps the records and discards them (the SDK's cost
-// of one INFO record per attempt, and of the DEBUG records with their
-// redacted headers), and at INFO into slog's text handler writing to
-// io.Discard (a handler's formatting added). The "LOG q3" line is the
-// ledger's row (W3.3-01). The "LOG q3+id" line measures the same call whose
-// reply carries an x-typesafe-request-id header, as a real response does,
-// so the INFO record's request id is read and redacted (ruling R107; ledger
-// row W3.3-07); its default is not pinned, since the extra header costs
-// bytes before any record is built. The default of q3 must cost what AC-P6
-// measures, since no record is built.
+// TestAllocLoggedCall records what logging costs a call: the whole q3 call
+// of TestAllocWholeCall, under DefaultRetry, with the default logger
+// (slog.DiscardHandler, which keeps nothing, so no record is built), with
+// WithLogger at INFO and at DEBUG into a handler that keeps the records and
+// discards them (the SDK's cost of one INFO record per attempt, and of the
+// DEBUG records with their redacted headers), and at INFO into slog's text
+// handler writing to io.Discard (a handler's formatting added). The "LOG q3"
+// line is the ledger's row. The "LOG q3+id" line measures the same call
+// whose reply carries an x-typesafe-request-id header, as a real response
+// does, so the INFO record's request id is read and redacted; its default is
+// not pinned, since the extra header costs bytes before any record is built.
+// The default of q3 must cost what TestAllocWholeCall measures, since no
+// record is built.
 func TestAllocLoggedCall(t *testing.T) {
 	testsupport.QuietRuntime(t)
 	ctx := t.Context()
@@ -121,22 +120,20 @@ func TestAllocLoggedCall(t *testing.T) {
 // sinkID keeps TestAllocRequestID's results alive.
 var sinkID string
 
-// TestAllocRequestID pins what reading a request id for the INFO
-// "response" record costs (ruling R107, review R103REVERT MINOR 3). One
-// value, with or without the client's API key in it, and no header cost
-// no allocation. Several values cost what wire.ResponseMeta.RequestID
-// costs, the reading the record made before R107: that joins them into one
-// string, and engine.HeaderRedactor.RequestID builds one string too, of
-// "***" ones when a value holds the key. The header's name is not
-// lower-cased, as the engine's credential check would be. A client whose
-// transport chose a proxy reads its credential set here too, the one
-// success-path read of the set (ruling D-W6-secfix-m2): one value costs no
-// allocation, with or without the proxy's password.
+// TestAllocRequestID pins what reading a request id for the INFO "response"
+// record costs. One value, with or without the client's API key in it, and
+// no header cost no allocation. Several values cost what
+// wire.ResponseMeta.RequestID costs: that joins them into one string, and
+// engine.HeaderRedactor.RequestID builds one string too, of "***" ones when
+// a value holds the key. The header's name is not lower-cased, as the
+// engine's credential check would be. A client whose transport chose a proxy
+// reads its credential set here too, the one success-path read of the set:
+// one value costs no allocation, with or without the proxy's password.
 func TestAllocRequestID(t *testing.T) {
 	const key = "ts_live_QzXjWvKpYbNmHgFd"
 	r := engine.NewHeaderRedactor(key)
-	// A client whose transport chose a proxy (ruling D-W6-secfix-m2): its
-	// set is read on the success path here and nowhere else.
+	// A client whose transport chose a proxy: its set is read on the success
+	// path here and nowhere else.
 	proxies := new(engine.ProxyCreds)
 	proxies.Record(&url.URL{Scheme: "http", User: url.UserPassword("proxy-user", "hunter2-proxy"), Host: "127.0.0.1:3128"})
 	withProxies := r.WithProxies(proxies)
@@ -178,13 +175,12 @@ func TestAllocRequestID(t *testing.T) {
 }
 
 // TestAllocSecretHeaderName pins the by-name credential test at no
-// allocation (W5.3, from D-r103revert-rereview): engine.IsSecretHeader folds an
-// ASCII name's letters in place where strings.ToLower copied every
-// mixed-case name, which cost the redacted header copy of each error one
-// allocation per header and a transport error's credential scan one per
-// request header. The redacted copy of a four-header response is its map
-// and the replaced value alone, and a request header with no credential
-// costs its scan nothing.
+// allocation: engine.IsSecretHeader folds an ASCII name's letters in place,
+// where strings.ToLower would copy every mixed-case name, which would cost
+// the redacted header copy of each error one allocation per header and a
+// transport error's credential scan one per request header. The redacted
+// copy of a four-header response is its map and the replaced value alone,
+// and a request header with no credential costs its scan nothing.
 func TestAllocSecretHeaderName(t *testing.T) {
 	for _, name := range []string{"Content-Type", "X-Typesafe-Request-Id", "Authorization", "X-Access-Token", "Date", "set-cookie"} {
 		if n := testing.AllocsPerRun(100, func() { sinkBool = engine.IsSecretHeader(name) }); n != 0 {

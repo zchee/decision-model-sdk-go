@@ -31,25 +31,22 @@ import (
 // sinkReview keeps a typed decode's result alive past the measured section.
 var sinkReview reviewAnswers
 
-// TestAllocTypedDecode checks AC-P3: DecodeAs of result.json's response
+// TestAllocTypedDecode checks the typed decode budget
+// (docs/perf/frozen-budgets.md): DecodeAs of result.json's response
 // allocates fewer times than the decode that fills the response's Answers(),
 // measured in the same run. The Answers() decode is the one a call makes
 // (the pooled decoder warm, a fresh result, the question set and model of
 // the call, interned), here with the question set Ask sends for
-// reviewAnswers. DecodeAs's count is pinned exactly, as the decode counts
-// of AC-P2 are (ruling R70 (3)), so a change that moves it fails here: no
-// allocation. The T being decoded stays on DecodeAs's stack, since the
-// answers are stored at the fields' offsets (decodeas_store.go, ruling
-// R116; before W5.3, reflect.Value.Interface moved it to the heap, one
-// allocation of 144 B), and the answers share the response's slices.
+// reviewAnswers. DecodeAs's count is pinned exactly, as the per-fixture
+// decode counts are, so a change that moves it fails here: no allocation.
+// The T being decoded stays on DecodeAs's stack, since the answers are
+// stored at the fields' offsets (decodeas_store.go; through
+// reflect.Value.Interface it would move to the heap, one allocation of
+// 144 B), and the answers share the response's slices.
 //
-// It also measures what Ask adds to a call (AC-P6, ruling R77/R28): Ask
-// over the Recorder allocates exactly what SystemOne with the same question
-// set and DecodeAs allocate together.
-//
-// Counts are runtime.ReadMemStats deltas, the minimum that three of five
-// runs share, with the collector off and GOMAXPROCS 1. The TYPED line is
-// ledger row W4.2-01.
+// It also measures what Ask adds to a call: Ask over the Recorder allocates
+// exactly what SystemOne with the same question set and DecodeAs allocate
+// together. The TYPED line is a ledger row.
 func TestAllocTypedDecode(t *testing.T) {
 	testsupport.QuietRuntime(t)
 	ctx := t.Context()
@@ -116,12 +113,12 @@ type failToneAnswers struct {
 	Tone typesafe.ChoiceAnswer `typesafe:"kind=choice;name=tone;instructions=Tone?;options=calm|hostile"`
 }
 
-// TestAllocTypedFailure pins what a typed failure costs (W5.3, review-w4.2
-// NIT F): DecodeAs of result.json into failToneAnswers fails at
-// "tone.choice", and its *ResponseValidationError renders that path once,
-// where it rendered the decoder's form and then replaced it: 9 allocations
-// before, 5 now. The response is UnmarshalJSON's, whose Meta has no header,
-// so the count is the error's alone.
+// TestAllocTypedFailure pins what a typed failure costs: DecodeAs of
+// result.json into failToneAnswers fails at "tone.choice", and its
+// *ResponseValidationError renders that path once; rendering the decoder's
+// form and then replacing it would cost more. The response is
+// UnmarshalJSON's, whose Meta has no header, so the count is the error's
+// alone.
 func TestAllocTypedFailure(t *testing.T) {
 	requireStoreLayout[failToneAnswers](t)
 	var resp typesafe.SystemOneResponse

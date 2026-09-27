@@ -27,15 +27,10 @@ import (
 // the local end of the connection it holds, and that connection is still
 // open, so a dial to the address is refused on every OS; when runtime.GOOS
 // is "linux" an explicit listen on it fails too. As the control, the
-// address of a closed listener, which the tests used before (ruling K39),
-// can be taken by the next listener, after which a dial meant to be refused
-// succeeds. The closed-listener mutant (refusedConn returning the closed
-// listener's address) fails the first check on every OS.
-//
-// It runs in CI's -race test step (go test -race with coverage) and its
-// non-race allocation-tests step (go test -count=1 ./internal/codec/
-// ./internal/wire/ ./internal/testsupport/), on ubuntu-26.04, xcode-27 and
-// windows-2025; ubuntu-26.04 is the image that asserts the Linux-only half.
+// address of a closed listener can be taken by the next listener, after
+// which a dial meant to be refused succeeds. The closed-listener mutant
+// (refusedConn returning the closed listener's address) fails the first
+// check on every OS. Only Linux runs the second half's listen check.
 func TestRefusedAddr(t *testing.T) {
 	t.Run("error: a closed listener's address can be taken again", func(t *testing.T) {
 		// The race this shows can hit it too: another listener may take the

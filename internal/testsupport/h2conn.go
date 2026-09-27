@@ -191,7 +191,7 @@ func (c *H2Conn) ActiveStreams() []uint32 {
 // lastStreamID has finished, the server ends the connection gracefully, as
 // [LoopbackServer.CloseConns] does: close_notify and a TCP FIN, then it
 // reads and discards what the client still sends until the client closes
-// its side, and only then closes the socket (ruling K34). The GOAWAY frame
+// its side, and only then closes the socket. The GOAWAY frame
 // always reaches the wire before close_notify. A second call can only lower
 // lastStreamID. On a connection whose graceful close has begun nothing is
 // written, and GoAway returns an error.
@@ -199,8 +199,8 @@ func (c *H2Conn) GoAway(lastStreamID uint32, code ErrCode) error {
 	// Once c.mu is released, the goroutine that finishes the last stream at or
 	// below lastStreamID may run maybeFinish at once. Holding the write lock
 	// from before the state changes until the frame is written makes its
-	// close_notify wait for GOAWAY; without it, the frame write failed with
-	// "tls: protocol is shutdown" and the client read EOF with no GOAWAY.
+	// close_notify wait for GOAWAY, so close_notify cannot overtake the
+	// GOAWAY frame.
 	c.wmu.Lock()
 	if c.draining.Load() {
 		c.wmu.Unlock()
@@ -285,7 +285,7 @@ func (c *H2Conn) SetMaxConcurrentStreams(n uint32) error {
 // before the TCP FIN, so the client reads io.EOF, provided the server has
 // read everything the client sent and nothing more arrives: otherwise the
 // kernel answers with a TCP reset, and on Windows the reset destroys what
-// the client has not read yet (ruling K33). [LoopbackServer.CloseConns] and
+// the client has not read yet. [LoopbackServer.CloseConns] and
 // ActionClose close gracefully instead; [H2Conn.Reset] ends the connection
 // with a TCP reset.
 func (c *H2Conn) Close() {
@@ -308,9 +308,9 @@ func (c *H2Conn) Reset() {
 	c.noteClosed()
 }
 
-// h2Hooks stop an H2Conn at the points of a race for this package's tests
-// (ruling K25); a server without them (every server outside those tests)
-// runs as if they were not there.
+// h2Hooks stop an H2Conn at the points of a race for this package's tests;
+// a server without them (every server outside those tests) runs as if they
+// were not there.
 type h2Hooks struct {
 	// goAwayPublished runs in GoAway once the GOAWAY state is visible to
 	// the other goroutines and before the frame is written, with the write
@@ -340,8 +340,7 @@ func (c *H2Conn) closeGracefully() {
 // client's side or drainBound passes, and only then does serve close the
 // socket. A socket closed earlier, with the client's frames unread or still
 // on their way, is ended by the kernel with a TCP reset (RFC 1122 section
-// 4.2.2.13), which on Windows destroys what the client has not read yet
-// (rulings K33, K34).
+// 4.2.2.13), which on Windows destroys what the client has not read yet.
 func (c *H2Conn) closeWrite() {
 	bound := drainBound
 	if h := c.srv.hooks.Load(); h != nil {
@@ -732,12 +731,7 @@ func (c *H2Conn) onWindowUpdate(f *http2.WindowUpdateFrame) {
 
 // maybeFinish ends the connection gracefully (closeWrite) once GOAWAY was
 // sent and no stream at or below its LastStreamID is left. The streams above
-// it were dropped by GoAway, so none is left at all. Before ruling K34 it
-// sent close_notify alone and let the reader handle frames as before: a
-// DATA frame of a stream GOAWAY had refused made the reader write a
-// WINDOW_UPDATE refund after close_notify, the write failed and closed the
-// socket with the client's frames unread, and on Windows the reset
-// destroyed the GOAWAY before net/http could replay the request.
+// it were dropped by GoAway, so none is left at all.
 func (c *H2Conn) maybeFinish() {
 	c.mu.Lock()
 	if !c.goAway || c.closed {

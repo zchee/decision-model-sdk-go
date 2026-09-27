@@ -54,9 +54,9 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
 // TestFloorCall checks the floor both the allocation test and the call/floor
-// benchmark use: it reads the response to its end and closes it (review
-// W5.1 MINOR 4's mutant, a floor that stops draining, fails here), and it
-// returns the transport's error as it is.
+// benchmark use: it reads the response to its end and closes it (a floor
+// that stops draining fails here), and it returns the transport's error as
+// it is.
 func TestFloorCall(t *testing.T) {
 	errTransport := errors.New("transport down")
 	tests := map[string]struct {

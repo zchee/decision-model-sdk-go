@@ -36,9 +36,9 @@ func mustPrepared(tb testing.TB, qs *typesafe.Questions) *typesafe.Prepared {
 	return p
 }
 
-// q3Questions is the NF3 question set: the three questions of the upstream
-// round-trip test (tests/test_clients.py:60-80), which result.json answers.
-// The root package's tests build the same set.
+// q3Questions is the whole call's question set: the three questions of the
+// upstream round-trip test (tests/test_clients.py:60-80), which result.json
+// answers. The root package's tests build the same set.
 func q3Questions(tb testing.TB) *typesafe.Prepared {
 	tb.Helper()
 	return mustPrepared(tb, typesafe.NewQuestions().
@@ -47,8 +47,8 @@ func q3Questions(tb testing.TB) *typesafe.Prepared {
 		Score("quality", typesafe.Score{Instructions: typesafe.Text("Quality?"), Levels: []typesafe.Content{typesafe.Text("bad"), typesafe.Text("ok"), typesafe.Text("great")}}))
 }
 
-// newCallState returns the NF3 state: 1 KiB of text once encoded, boxed in
-// an any before the call.
+// newCallState returns the whole call's state: 1 KiB of text once encoded,
+// boxed in an any before the call.
 func newCallState() any { return strings.Repeat("s", 1<<10-2) }
 
 // newBenchClient builds a client over rt with every setting an option

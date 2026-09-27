@@ -34,8 +34,8 @@ var errNoGetBody = errors.New("testsupport: the request has no GetBody, so it ca
 // to the end, closes it, and returns the SHA-256 digest of the bytes and
 // their number. A test calls it once per attempt to assert that every
 // attempt of a call, and every replay the transport makes, sends the same
-// bytes (port plan PM4), and compares the count with the request's
-// ContentLength. A nil getBody is an error, as is a read or close failure.
+// bytes, and compares the count with the request's ContentLength. A nil
+// getBody is an error, as is a read or close failure.
 //
 // It allocates the hash state and one 4 KiB read buffer per call, whatever
 // the size of the body.

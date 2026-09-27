@@ -26,9 +26,9 @@ import (
 // whole pages mapped between two pages that no access may touch
 // (PROT_NONE), so that a read one byte before the first readable byte or
 // one byte past the last one faults instead of reading a neighbour's
-// memory. Review W6.2 MIN-1 found sonic's native code reading up to 4 bytes
-// past an input with it; the Go heap, which always has something after an
-// allocation, cannot show such a read.
+// memory. sonic's native scanner can read up to 4 bytes past a short input
+// (internal/codec's minSonicInput); the Go heap, which always has something
+// after an allocation, cannot show such a read.
 type Guard struct {
 	mem  []byte // the leading guard page, the readable pages, the trailing guard page
 	page int    // the page size

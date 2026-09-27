@@ -26,15 +26,15 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
-// The request states of AC-P1 (plan section 6.1, spike S-E1): one value of
-// each state kind a caller passes, at the sizes the budget names. The file
-// is built with and without -race: the allocation budgets over these states
-// are TestAllocEncode and TestAllocScratchSequence (//go:build !race), and
-// their functional halves, which also run under the race detector, are in
+// The request states of the encode budget: one value of each state kind a
+// caller passes, at the sizes the budget names. The file is built with and
+// without -race: the allocation budgets over these states are
+// TestAllocEncode and TestAllocScratchSequence (//go:build !race), and their
+// functional halves, which also run under the race detector, are in
 // alloc_functional_test.go.
 
-// allocSizes are AC-P1's single-size targets: states whose JSON encoding is
-// about 1 KiB, 64 KiB, 1 MiB and 6 MiB, S-E1's sizes below the scratch
+// allocSizes are the encode budget's single-size targets: states whose JSON
+// encoding is about 1 KiB, 64 KiB, 1 MiB and 6 MiB, below the scratch
 // ceiling (codec.ScratchCeiling, 8 MiB).
 var allocSizes = []int{1 << 10, 64 << 10, 1 << 20, 6 << 20}
 
@@ -46,8 +46,8 @@ func sizeName(n int) string {
 	return strconv.Itoa(n>>10) + "KiB"
 }
 
-// allocItem and allocState make the struct state, shaped like spike S-E1's:
-// about 100 bytes of JSON per item.
+// allocItem and allocState make the struct state: about 100 bytes of JSON
+// per item.
 type allocItem struct {
 	ID    int64    `json:"id"`
 	Text  string   `json:"text"`
@@ -61,15 +61,15 @@ type allocState struct {
 	Items []allocItem `json:"items"`
 }
 
-// stateKind is one request state kind of AC-P1, S-E1's kinds.
+// stateKind is one request state kind of the encode budget.
 type stateKind struct {
 	name string
 	// bare reports that a caller passes the state unboxed, so that passing
-	// it to the SDK's any parameter boxes it: NF1's B = 1.
+	// it to the SDK's any parameter boxes it: B = 1.
 	bare bool
 	// sonic is E(kind) for a state without maps: 1 for what sonic encodes,
 	// 0 for RawJSON, which the SDK appends as it is. A state holding m maps
-	// costs sonic 1 + m (frozen-budgets.md AC-P1, G2 (b)).
+	// costs sonic 1 + m (docs/perf/frozen-budgets.md).
 	sonic uint64
 	// boxBytes is what boxing a bare state allocates: a string header (16 B)
 	// or a slice header (24 B); 0 for a boxed state.
@@ -101,7 +101,8 @@ func (k stateKind) wantE(maps uint64) uint64 {
 	return k.sonic
 }
 
-// b returns NF1's B for the kind: 1 when a caller's argument is boxed.
+// b returns the budget's B for the kind: 1 when a caller's argument is
+// boxed.
 func (k stateKind) b() uint64 {
 	if k.bare {
 		return 1
@@ -109,8 +110,8 @@ func (k stateKind) b() uint64 {
 	return 0
 }
 
-// stateKinds are the kinds AC-P1 budgets, in report order. The sequence of
-// section 6.1.6 uses the boxed ones.
+// stateKinds are the kinds the encode budget covers, in report order. The
+// mixed-size sequence uses the boxed ones.
 var stateKinds = []stateKind{
 	{name: "string", bare: true, sonic: 1, boxBytes: 16, build: func(_ testing.TB, size int) stateCase {
 		s := stateString(size)
@@ -198,9 +199,10 @@ func stateFor(tb testing.TB, k stateKind, size int) stateCase {
 	return sc
 }
 
-// stringCache and nestedCache share the underlying values between the kinds
-// built from them (string and boxed-string; the nested map and the three
-// raw kinds), so a size is built once. Both are guarded by stateMu.
+// stringCache, nestedCache and rawCache share the underlying values between
+// the kinds built from them (string and boxed-string; the nested map and the
+// three raw kinds), so a size is built once. The three are guarded by
+// stateMu.
 var (
 	stringCache = map[int]string{}
 	nestedCache = map[int]map[string]any{}
@@ -228,8 +230,7 @@ func nestedMap(tb testing.TB, size int) map[string]any {
 }
 
 // nestedMapJSON returns sonic's encoding of the nested-map state of size,
-// the raw kinds' bytes (S-E1's choice): a JSON value of that size with
-// every kind of member.
+// the raw kinds' bytes: a JSON value of that size with every kind of member.
 func nestedMapJSON(tb testing.TB, size int) []byte {
 	if raw, ok := rawCache[size]; ok {
 		return raw
@@ -255,8 +256,7 @@ func makeStruct(n int) *allocState {
 }
 
 // makeMap returns a map[string]any with n entries: when flat, every value a
-// string; otherwise strings, numbers, nested maps and slices in turn, as
-// S-E1's map kinds.
+// string; otherwise strings, numbers, nested maps and slices in turn.
 func makeMap(n int, flat bool) map[string]any {
 	n = max(n, 1)
 	m := make(map[string]any, n)
@@ -315,7 +315,7 @@ func sonicJSON(tb testing.TB, v any) []byte {
 	return buf
 }
 
-// encodeQuestions is the question set of the AC-P1 body tests: three
+// encodeQuestions is the question set of the body encode tests: three
 // questions, one of each kind.
 func encodeQuestions(t testing.TB) *typesafe.Prepared {
 	t.Helper()
@@ -325,9 +325,8 @@ func encodeQuestions(t testing.TB) *typesafe.Prepared {
 		Score("urgency", typesafe.Score{Levels: []typesafe.Content{typesafe.Text("can wait"), typesafe.Text("this week"), typesafe.Text("today")}}))
 }
 
-// The AC-P1 mixed-size sequence of plan section 6.1.6: 32 calls on one
-// client, a 1 KiB state ×10, a 6 MiB state, 1 KiB ×10, a 9 MiB state and
-// 1 KiB ×10.
+// The encode budget's mixed-size sequence: 32 calls on one client, a 1 KiB
+// state ×10, a 6 MiB state, 1 KiB ×10, a 9 MiB state and 1 KiB ×10.
 const (
 	sequenceCalls = 32
 	sequenceSix   = 11 // the call whose state is 6 MiB
@@ -349,24 +348,22 @@ func sequenceState(call int) int {
 	return 0
 }
 
-// sequenceKind is one state kind of the AC-P1 sequence and what the frozen
-// row asserts of it.
+// sequenceKind is one state kind of the mixed-size sequence and what the
+// frozen row asserts of it.
 type sequenceKind struct {
 	name string
 	// frozen is the encode-level count of calls 2 to 32 in the notation of
-	// frozen-budgets.md (the state's encode and the body around it, as
-	// S-E1 measured it), or "" for a kind that is recorded, not asserted.
+	// frozen-budgets.md (the state's encode and the body around it), or ""
+	// for a kind that is recorded, not asserted.
 	frozen string
-	// g6 and g9 are the growth budgets of S-E1: the allocations of one
-	// encode of the 6 MiB and the 9 MiB state into a fresh 4 KiB scratch,
-	// E included.
+	// g6 and g9 are the growth budgets: the allocations of one encode of the
+	// 6 MiB and the 9 MiB state into a fresh 4 KiB scratch, E included.
 	g6, g9 uint64
 }
 
 // sequenceKinds are the kinds the sequence runs: the boxed string and
 // RawJSON states, whose growth is exact on both architectures, asserted, and
-// the *struct and flat-map states, recorded per host (owner decision G3 (b),
-// rulings R22 and R22b; K24 is W5.3's).
+// the *struct and flat-map states, recorded per host.
 var sequenceKinds = []sequenceKind{
 	{name: "boxed-string", frozen: "1×9 | 2 | 1×10 | 2 | 2 | 1×9", g6: 2, g9: 2},
 	{name: "boxed-RawJSON", frozen: "0×9 | 1 | 0×10 | 1 | 1 | 0×9", g6: 1, g9: 1},
@@ -422,8 +419,9 @@ func sequenceDrops(caps [sequenceCalls]int, lens [3]int) []int {
 	return drops
 }
 
-// sequenceNotation renders counts in the notation of frozen-budgets.md's
-// AC-P1 row: runs of equal values as "v×n", joined by " | ".
+// sequenceNotation renders counts in the notation of the mixed-size
+// sequence's row of docs/perf/frozen-budgets.md: runs of equal values as
+// "v×n", joined by " | ".
 func sequenceNotation(counts []uint64) string {
 	var sb strings.Builder
 	for i := 0; i < len(counts); {

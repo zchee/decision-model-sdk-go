@@ -28,8 +28,8 @@ import (
 var sinkHeader http.Header
 
 // sentHeader returns the header a client built with opts sends on a call's
-// first attempt, which is its POST template itself (ruling R28), as a
-// Recorder records it: a copy with the same names and values.
+// first attempt, which is its POST template itself, as a Recorder records
+// it: a copy with the same names and values.
 func sentHeader(tb testing.TB, opts ...typesafe.ClientOption) http.Header {
 	tb.Helper()
 	rec := &testsupport.Recorder{Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, testsupport.Fixture(tb, "result.json"))}}

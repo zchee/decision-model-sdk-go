@@ -206,19 +206,19 @@ type ConnInfo struct {
 	HandshakeErr string
 	// GoAwaySeq, CloseWriteSeq, PeerClosedSeq and ClosedSeq record how an
 	// HTTP/2 connection ended, as numbers of one sequence the server shares
-	// across its connections, so they order events without a clock (K29); 0
-	// means the event did not happen. GoAwaySeq is the last GOAWAY frame,
-	// taken before it is written; CloseWriteSeq is the server beginning its
+	// across its connections, so they order events without a clock; 0 means
+	// the event did not happen. GoAwaySeq is the last GOAWAY frame, taken
+	// before it is written; CloseWriteSeq is the server beginning its
 	// graceful close ([LoopbackServer.CloseConns], ActionClose, or the end
 	// of a connection after GOAWAY once no stream at or below its
 	// LastStreamID is left), taken before its close_notify and FIN leave;
 	// PeerClosedSeq is the reader reading the end of the client's side;
 	// ClosedSeq is the socket's close. 0 < PeerClosedSeq < ClosedSeq shows
 	// that the socket closed with nothing the client sent left unread, and
-	// CloseWriteSeq < PeerClosedSeq that the server's close came first
-	// (rulings K33, K34). The client may close first: net/http closes a
-	// connection that GOAWAY ended as soon as its last stream is done, and
-	// then PeerClosedSeq precedes CloseWriteSeq, or CloseWriteSeq is 0.
+	// CloseWriteSeq < PeerClosedSeq that the server's close came first. The
+	// client may close first: net/http closes a connection that GOAWAY ended
+	// as soon as its last stream is done, and then PeerClosedSeq precedes
+	// CloseWriteSeq, or CloseWriteSeq is 0.
 	GoAwaySeq, CloseWriteSeq, PeerClosedSeq, ClosedSeq int64
 	// Drained lists the types of the frames the reader read and discarded,
 	// answering none, once the graceful close had begun: what the client
@@ -362,19 +362,14 @@ func (s *LoopbackServer) LiveH2Conns() []*H2Conn {
 // dropped, TLS close_notify and a TCP FIN follow the frames already
 // written, nothing is written after them, and the server keeps reading,
 // discarding whatever the client still sends, until the client closes its
-// side or [drainBound] passes; only then does it close the socket. It returns once close_notify
-// and FIN are sent, without waiting for the client, and
-// [ConnInfo.CloseWriteSeq] and the records after it tell how the close
-// went. Any other connection (HTTP/1.1, or one still in its handshake) is
-// closed at once: close_notify when past the handshake, then FIN.
-//
-// Closing a socket that holds unread data, or one that data reaches after
-// its close, makes the kernel end the connection with a TCP reset instead
-// of FIN (RFC 1122 section 4.2.2.13), and a client that has not yet read the
-// server's last frames and close_notify when the reset arrives loses them
-// on Windows, where its read fails with WSAECONNABORTED (ruling K33). A
-// fresh client connection writes after its request (its SETTINGS
-// acknowledgement, for one), so the close must not race those writes.
+// side or a bounded drain (5 s) passes; only then does it close the
+// socket, since a socket closed with the client's data unread ends with a
+// TCP reset, which on Windows destroys what the client has not read yet.
+// It returns once close_notify and FIN are sent, without waiting for the
+// client, and [ConnInfo.CloseWriteSeq] and the records after it tell how
+// the close went. Any other connection (HTTP/1.1, or one still in its
+// handshake) is closed at once: close_notify when past the handshake, then
+// FIN.
 func (s *LoopbackServer) CloseConns() {
 	s.mu.Lock()
 	conns := make([]net.Conn, 0, len(s.raw))

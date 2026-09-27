@@ -29,8 +29,7 @@ const FakeAPIModels = `{"models":[{"name":"jev-latest","description":"a stand-in
 
 // FakeAPIUsageError is the body FakeAPI answers, with status 400, a System
 // One request whose top level holds a member other than state, model and
-// questions: the live API's answer to such a request, as W6.4's live pass
-// recorded it (ledger W6.4-07).
+// questions: the live API's answer to such a request.
 const FakeAPIUsageError = `{"detail":{"error_type":"api_usage_error","message":"Invalid request."}}`
 
 // FakeAPI is an in-process stand-in for the TypeSafe API, for tests that run

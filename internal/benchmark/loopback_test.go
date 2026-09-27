@@ -15,14 +15,13 @@
 package benchmark
 
 // B6's warm call (docs/perf/benchmarks.md): one q3 call at a time over a
-// real HTTP/2 connection over TLS on loopback, through the default
-// transport (internal/h2gate), on one warm connection (the client warmed up
-// with WarmUp before the timer starts), wall clock only: the plan's
-// call/loopback. The new-conns metric counts connections the server
-// accepted during the timed calls; anything but 0 means a call paid a
-// handshake. B6's cold 64-way burst reports the gate's own counters, which
-// the exported API does not carry, and stays in the root package
-// (bench_internal_test.go).
+// real HTTP/2 connection over TLS on loopback, through the default transport
+// (internal/h2gate), on one warm connection (the client warmed up with
+// WarmUp before the timer starts), wall clock only. The new-conns metric
+// counts connections the server accepted during the timed calls; anything
+// but 0 means a call paid a handshake. B6's cold 64-way burst reports the
+// gate's own counters, which the exported API does not carry, and stays in
+// the root package (bench_internal_test.go).
 //
 // The server is testsupport.NewFixtureServer: TLS on 127.0.0.1 with its own
 // HTTP/2 frame writer, answering result.json (and models.json for WarmUp)

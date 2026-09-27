@@ -71,7 +71,8 @@ func TestSilentListener(t *testing.T) {
 }
 
 // TestGatedDialer covers the dial gate that stands in for a handshake delay:
-// a dial held until the test opens the gate, as W0.4's cold-start tests need.
+// a dial held until the test opens the gate, as internal/h2gate's cold-start
+// tests need.
 func TestGatedDialer(t *testing.T) {
 	t.Run("success: a dial waits at the gate, then reaches the server", func(t *testing.T) {
 		srv := NewLoopbackServer(t, ServerConfig{})

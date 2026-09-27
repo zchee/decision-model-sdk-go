@@ -16,11 +16,7 @@ package alloctest
 
 // A copy of the root package's prepare_cases_test.go, which the root
 // package's BenchmarkPrepare shares: TestAllocPrepare pins the counts of
-// these sets (ruling R50), BenchmarkPrepare times them.
-
-// The question sets whose Prepare cost the ledger records (section W1.3):
-// TestAllocPrepare pins their allocations and BenchmarkPrepare
-// (bench_internal_test.go) times them, so both read this one table.
+// these sets, BenchmarkPrepare times them.
 
 import (
 	"strconv"
@@ -34,8 +30,8 @@ import (
 var prepareSink *typesafe.Prepared
 
 // prepareCases are the question sets whose Prepare cost the performance
-// ledger records (docs/perf/ledger.md, section W1.3), keyed by the name of
-// their sub-benchmark; the name starts with the ledger's case number. Each
+// ledger records (docs/perf/ledger.md), keyed by the name of their
+// sub-benchmark; the name starts with the ledger's case number. Each
 // function builds a fresh set, so that a measured section never includes
 // building it.
 //
@@ -44,7 +40,7 @@ var prepareSink *typesafe.Prepared
 // only in the type string, "Score" instead of "score", so that the check
 // does not run while the writer does the same work.
 var prepareCases = map[string]func() *typesafe.Questions{
-	// The API sketch of the port plan's section 5.
+	// The sketch set: one question of each kind.
 	"c1-sketch": func() *typesafe.Questions {
 		return sketchQuestions("")
 	},
@@ -110,8 +106,9 @@ var prepareCases = map[string]func() *typesafe.Questions{
 	},
 }
 
-// sketchQuestions returns the question set of the port plan's API sketch,
-// with suffix appended to every name and text.
+// sketchQuestions returns the sketch set, one question of each kind (a
+// noul, a choice, a score and a raw question), with suffix appended to
+// every name and text.
 func sketchQuestions(suffix string) *typesafe.Questions {
 	return typesafe.NewQuestions().
 		Noul("billing"+suffix, typesafe.Noul{Instructions: typesafe.Text("Is this about billing?" + suffix), Yes: typesafe.Text("payments or invoices" + suffix)}).

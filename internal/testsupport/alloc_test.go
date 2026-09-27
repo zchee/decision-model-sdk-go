@@ -76,7 +76,7 @@ func TestStableMin(t *testing.T) {
 }
 
 // TestSpread covers the per-counter minimum and maximum of a bounded
-// section's runs, which need not agree (ruling K32).
+// section's runs, which need not agree.
 func TestSpread(t *testing.T) {
 	a := func(m, b uint64) Allocs { return Allocs{Mallocs: m, Bytes: b} }
 	tests := map[string]struct {

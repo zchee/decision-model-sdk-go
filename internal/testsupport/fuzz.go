@@ -20,9 +20,9 @@ import (
 	"time"
 )
 
-// FuzzInputBound is the time one fuzz input may run (plan section 7, W6.1):
-// an input that takes longer is a finding, as a hang past libFuzzer's
-// -timeout=10 is for the Rust SDK's targets.
+// FuzzInputBound is the time one fuzz input may run: an input that takes
+// longer is a finding, as a hang past libFuzzer's -timeout=10 is for the
+// Rust SDK's targets.
 const FuzzInputBound = 10 * time.Second
 
 // BoundFuzzInput arms the per-input bound for the fuzz input tb runs and

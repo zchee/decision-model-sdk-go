@@ -38,7 +38,7 @@ const (
 	// classValid: a body the SDK must accept, as Python 0.7.1 does.
 	classValid fixtureClass = iota
 	// classDeviation: a body where the Go port deliberately differs from
-	// Python (plan Appendix B); named deviation-*.json.
+	// Python (docs/deviations.md); named deviation-*.json.
 	classDeviation
 	// classMalformed: a body the SDK must reject with
 	// *ResponseValidationError, as Python does; named malformed-*.json.
@@ -265,7 +265,7 @@ var fixtureManifest = map[string]fixtureSpec{
 	}},
 	// NaN and the infinities: JSON has no such literal, the Python SDK's
 	// parser takes them (allow_inf_nan), and the Go port takes finite floats
-	// only, as for 1e400 (review W2.0 MINOR 1, ruling R73).
+	// only, as for 1e400.
 	"deviation-nan-unknown.json": {classDeviation, func(raw []byte) error {
 		fixed := raw
 		for old, repl := range map[string]string{`"cost":NaN`: `"cost":1`, `"max":Infinity`: `"max":2`, `"min":-Infinity`: `"min":3`} {
@@ -347,8 +347,8 @@ var fixtureManifest = map[string]fixtureSpec{
 	"malformed-answers-not-object.json": {classMalformed, schemaFault(`"answers":[]`, `"answers":{}`)},
 	// Nesting past sonic's limit: 4096 arrays in an unknown member, 4097
 	// containers with the root, where 4096 is the most the decoder and
-	// sonic's Skip take (review W2.0 MAJOR 1). encoding/json takes it, so
-	// the check is on the bytes.
+	// sonic's Skip take. encoding/json takes it, so the check is on the
+	// bytes.
 	"malformed-too-deep.json": {classMalformed, func(raw []byte) error {
 		deep := strings.Repeat("[", 4096) + strings.Repeat("]", 4096)
 		if n := bytes.Count(raw, []byte(deep)); n != 1 {
@@ -381,8 +381,8 @@ func TestFixtureManifest(t *testing.T) {
 	}
 }
 
-// TestFixtureNames covers the glob helper on the malformed set, which later
-// waves loop over.
+// TestFixtureNames covers the glob helper on the malformed set, which the
+// SDK's malformed-body tests loop over.
 func TestFixtureNames(t *testing.T) {
 	var want []string
 	for name, spec := range fixtureManifest {

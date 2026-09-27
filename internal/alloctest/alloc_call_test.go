@@ -61,27 +61,25 @@ func measureRuns(setup, section func()) []testsupport.Allocs {
 	return runs
 }
 
-// TestAllocWholeCall checks AC-P6 (NF3): one whole SystemOne call of the q3
-// shape (three questions, a 1 KiB boxed-string state, the discarding
-// Recorder answering result.json, DefaultRetry in force and its first
-// attempt succeeding, no call options, the default logger) makes at most N
+// TestAllocWholeCall checks that one whole SystemOne call of the q3 shape
+// (three questions, a 1 KiB boxed-string state, the discarding Recorder
+// answering result.json, DefaultRetry in force and its first attempt
+// succeeding, no call options, the default logger) makes at most N
 // allocations of its own above the floor, where the floor is the
 // Recorder's round trip of a request built beforehand plus E_sonic, sonic's
-// own allocation for the state (frozen-budgets.md: N = 12, frozen at W5.3
-// after W3.4's 14; the floor is 8/640, as in W0.5). Counts are runtime.ReadMemStats deltas
-// with a warm pool, the collector off and GOMAXPROCS 1, the minimum that
-// three of five runs share (section 6.1.6). The CALL and ITEM lines are the
-// ledger's rows; the ITEM line splits the call into the allocations
-// frozen-budgets.md lists as N's composition (ruling R28's format).
+// own allocation for the state (docs/perf/frozen-budgets.md: N = 12; the
+// floor is 8/640). Counts are taken with a warm pool. The CALL and ITEM
+// lines are the ledger's rows; the ITEM line splits the call into the
+// allocations frozen-budgets.md lists as N's composition.
 func TestAllocWholeCall(t *testing.T) {
 	testsupport.QuietRuntime(t)
 	ctx := t.Context()
 	qs := q3Questions(t)
 	body := testsupport.Fixture(t, "result.json")
 	rec := &testsupport.Recorder{Discard: true, Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, body)}}
-	// The production policy, not newTestClient's single attempt: AC-P6 is
-	// measured with DefaultRetry in force (ruling R88b), whose first attempt
-	// that succeeds must allocate nothing more.
+	// The production policy, not newTestClient's single attempt: the budget
+	// is measured with DefaultRetry in force, whose first attempt that
+	// succeeds must allocate nothing more.
 	c := newTestClient(t, rec, typesafe.WithRetry(typesafe.DefaultRetry()))
 	state := newAllocState()
 	for range 2 { // warm the pools, the encoder and the decoder
@@ -121,11 +119,10 @@ func TestAllocWholeCall(t *testing.T) {
 	items := measureCallItems(t, c, state, qs, "")
 	t.Logf("ITEM q3 %s", items)
 
-	// Exact pins (R70 (3)'s precedent), so a change of the floor fails
-	// loudly. The frozen ceiling is N = 12 (W5.3, frozen-budgets.md; 14 at
-	// W3.4), and the pin is the ceiling itself (R104): an allocation added
-	// to the call fails here, and one removed moves the pin and the frozen
-	// row together.
+	// Exact pins, so a change of the floor fails loudly. The frozen ceiling
+	// is N = 12 (docs/perf/frozen-budgets.md), and the pin is the ceiling
+	// itself: an allocation added to the call fails here, and one removed
+	// moves the pin and the frozen row together.
 	if floor != (testsupport.Allocs{Mallocs: 8, Bytes: 640}) {
 		t.Errorf("the floor of one call = %s, want 8/640 (the Recorder's round trip 7/624 and E_sonic 1/16)", floor)
 	}
@@ -133,9 +130,9 @@ func TestAllocWholeCall(t *testing.T) {
 		t.Errorf("SDK-own allocations of one call = %d, want exactly 12 (AC-P6: N = 12, frozen at W5.3)", own)
 	}
 
-	// q20, recorded (frozen-budgets.md AC-P6, "Recorded, not in N"; W3.4
-	// measured it with a probe): the same call asking the twenty questions
-	// result-20.json answers, over the Recorder answering it.
+	// q20, recorded (frozen-budgets.md, "Recorded, not in N"): the same call
+	// asking the twenty questions result-20.json answers, over the Recorder
+	// answering it.
 	_, first20, err := decodeFixture(t, "result-20.json")
 	check("result-20.json")
 	qs20 := questionsFor(t, &first20)
@@ -244,11 +241,10 @@ func measureCallItems(t *testing.T, c *typesafe.Client, state any, qs *typesafe.
 }
 
 // TestAllocAnswersInlineBound checks the bound of the answer entries a call
-// allocates with its response (W5.3's N2, engine.NewSystemOneAlloc) at the
-// boundary: a call of engine.MaxInlineAnswers questions costs the
-// allocations of one of engine.MaxInlineAnswers-1, and a call of
-// engine.MaxInlineAnswers+1 questions one more, its entries allocated by
-// the decode as before W5.3. Every call is
+// allocates with its response (engine.NewSystemOneAlloc) at the boundary: a
+// call of engine.MaxInlineAnswers questions costs the allocations of one of
+// engine.MaxInlineAnswers-1, and a call of engine.MaxInlineAnswers+1
+// questions one more, its entries allocated by the decode. Every call is
 // answered by result.json's three answers, which fit each inline array
 // here; the bytes differ with the array's size and are logged.
 func TestAllocAnswersInlineBound(t *testing.T) {
@@ -285,32 +281,26 @@ func TestAllocAnswersInlineBound(t *testing.T) {
 	}
 }
 
-// TestMemStatsCap checks AC-P5 per attempt (frozen-budgets.md; rulings R26,
-// R26b, R27): the TotalAlloc delta of one whole SystemOne call with
-// Retry(NoRetry()) and the default 16 MiB cap, for each case of memCases:
-// (i) a body that declares 16 MiB and sends 10 bytes (≤ 256 KiB + 64 KiB),
-// (ii) a declared 16 MiB + 1 refused before a read (≤ 64 KiB), (iii) an
-// undeclared 16 MiB + 1 refused at the byte past the cap and (iv), (v) a
-// declared and an undeclared body of exactly 16 MiB, read and decoded (each
-// ≤ 2 × cap + 64 KiB), and result.json declared and undeclared, (vi) and
-// (vii), each within its first read buffer + 64 KiB (W5.2's bounds, on the
-// frozen cases' rule). Before each measured call the heap is collected,
-// outside the section, and one small call re-fills the pools the collection
-// emptied, so the section pays only for its own call.
+// TestMemStatsCap checks the response-memory bounds per attempt
+// (docs/perf/frozen-budgets.md): the TotalAlloc delta of one whole
+// SystemOne call with Retry(NoRetry()) and the default 16 MiB cap, for each
+// case of memCases, within the case's bound. Before each measured call the
+// heap is collected, outside the section, and one small call re-fills the
+// pools the collection emptied, so the section pays only for its own call.
 //
-// AC-P5 is a set of bounds (R26), and every one of the
-// testsupport.AllocRuns runs of a case is checked against its bound. The
-// runs are not asked to agree, as the exact pins of AC-P1, AC-P2 and AC-P6
-// are (testsupport.StableMin, three of five): identical calls can differ by
-// a few allocations for reasons outside the SDK (ruling K32). The runtime
-// builds a type assertion's or a type switch's cache on about one lookup
-// in 1024 that misses it, at random, and (i)'s error path makes many such
-// lookups (errors.Is and errors.As on the chain, fmt printing the cause), so
-// one run in a hundred or so costs 1 or 2 allocations and 48 to 112 B more;
-// and (i)'s first run pays for fmt's pooled printer, which the collections
-// of the cases before it emptied and the small success call does not
-// refill (4 allocations, 288 B). The MEM lines record each case's minimum,
-// its own cost and the ledger's row, and the maximum of its runs
+// The budget is a set of bounds, and every one of the testsupport.AllocRuns
+// runs of a case is checked against its bound. The runs are not asked to
+// agree, as the exact pins of the encode, the decode and the whole call are
+// (testsupport.StableMin, three of five): identical calls can differ by a
+// few allocations for reasons outside the SDK. The runtime builds a type
+// assertion's or a type switch's cache on about one lookup in 1024 that
+// misses it, at random, and (i)'s error path makes many such lookups
+// (errors.Is and errors.As on the chain, fmt printing the cause), so one run
+// in a hundred or so costs 1 or 2 allocations and 48 to 112 B more; and
+// (i)'s first run pays for fmt's pooled printer, which the collections of
+// the cases before it emptied and the small success call does not refill (4
+// allocations, 288 B). The MEM lines record each case's minimum, its own
+// cost and the ledger's row, and the maximum of its runs
 // (testsupport.Spread). The functional half, each case's outcome under the
 // race detector too, is TestMemStatsCapFunctional; the cap over a real
 // HTTP/2 connection is TestResponseCapOverTheWire.

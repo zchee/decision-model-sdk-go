@@ -20,19 +20,14 @@ import (
 	"time"
 )
 
-// TestDrainBoundClosesSilentClient pins the path ruling R100 left unpinned:
-// a client that reads the server's close_notify and never closes its own
-// side still gets the server's close once the drain bound passes. The
+// TestDrainBoundClosesSilentClient pins the drain bound's close of a silent
+// client: a client that reads the server's close_notify and never closes its
+// own side still gets the server's close once the drain bound passes. The
 // records say so in order: the graceful close began (CloseWriteSeq), the
 // reader never read the end of the client's side (PeerClosedSeq 0), and the
-// socket closed after that (ClosedSeq), no earlier than the bound. The
-// bound is shortened for the test (h2Hooks.drainBound); the default is
-// drainBound, 5 s.
-//
-// It runs in CI's -race test step (go test -race with coverage) and its
-// non-race allocation-tests step (go test -count=1 ./internal/codec/
-// ./internal/wire/ ./internal/testsupport/), on ubuntu-26.04, xcode-27 and
-// windows-2025.
+// socket closed after that (ClosedSeq), no earlier than the bound. The bound
+// is shortened for the test (h2Hooks.drainBound); the default is drainBound,
+// 5 s.
 func TestDrainBoundClosesSilentClient(t *testing.T) {
 	const bound = 200 * time.Millisecond
 	// A timer that fires on a coarse clock (about 15.6 ms ticks on Windows)

@@ -13,11 +13,11 @@
 // limitations under the License.
 
 // Package naive is the benchmark comparator of the SDK's performance
-// criteria (AC-P2, AC-P6, AC-P7; owner decision G3 (a)): a System One call
-// written the obvious way, with a general-purpose JSON library and no
-// SDK machinery. It is a yardstick for benchmarks and allocation reports,
-// not an SDK: it has no retries, no validation of the answers and no error
-// types beyond [StatusError].
+// criteria (docs/perf/frozen-budgets.md): a System One call written the
+// obvious way, with a general-purpose JSON library and no SDK machinery. It
+// is a yardstick for benchmarks and allocation reports, not an SDK: it has
+// no retries, no validation of the answers and no error types beyond
+// [StatusError].
 //
 // A [Client] marshals a plain [Body] with its [Codec], builds a request with
 // [net/http.NewRequestWithContext] over the encoded bytes, sets the headers
@@ -28,7 +28,7 @@
 // point of the comparison.
 //
 // Two codecs are provided. [Sonic], sonic's Marshal and Unmarshal with its
-// default configuration, is the comparator of record (G3 (a)): the SDK uses
+// default configuration, is the comparator of record: the SDK uses
 // sonic too, so a gap between the two measures the SDK's design, not the
 // library. [StdJSON], encoding/json, is a second comparator whose numbers
 // are reported only.
@@ -41,10 +41,10 @@
 // SDK's; the root package's tests assert that byte for byte.
 //
 // With internal/codec it is the only package of the module that imports
-// sonic (plan section 4, NF6; the seam test in internal/codec holds the
-// rule). It imports encoding/json as the second comparator, which the seam
-// test allows internal/testsupport and its subpackages, test tooling only.
-// It imports neither the root package nor internal/codec.
+// sonic (the seam test in internal/codec holds the rule). It imports
+// encoding/json as the second comparator, which the seam test allows
+// internal/testsupport and its subpackages, test tooling only. It imports
+// neither the root package nor internal/codec.
 package naive
 
 import (
@@ -72,11 +72,11 @@ type Codec struct {
 var (
 	// Sonic is sonic's Marshal and Unmarshal with sonic's default
 	// configuration (no HTML escaping, map members in iteration order):
-	// the comparator of record, G3 (a).
+	// the comparator of record.
 	Sonic = Codec{Name: "sonic", Marshal: sonic.Marshal, Unmarshal: sonic.Unmarshal}
-	// StdJSON is encoding/json's Marshal and Unmarshal, reported only (G3
-	// (a)). It escapes <, > and & in strings, which sonic and the SDK do
-	// not, and writes map members in key order.
+	// StdJSON is encoding/json's Marshal and Unmarshal, reported only. It
+	// escapes <, > and & in strings, which sonic and the SDK do not, and
+	// writes map members in key order.
 	StdJSON = Codec{Name: "encoding/json", Marshal: json.Marshal, Unmarshal: json.Unmarshal}
 )
 

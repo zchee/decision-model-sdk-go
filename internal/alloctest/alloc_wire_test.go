@@ -59,24 +59,24 @@ func (b *countingBody) Read(p []byte) (int, error) {
 }
 
 // TestResponseCapOverTheWire checks the response size cap over a real
-// connection (plan section 9, "size cap over the wire"; rulings R92 m-2 and
-// R106 as V50 worded it): the SDK's own transport, over TLS and HTTP/2 to
-// the in-process loopback server, answered with a 200 whose body is the
-// default cap + 1 bytes, declared by its Content-Length or undeclared (no
+// connection: the SDK's own transport, over TLS and HTTP/2 to the
+// in-process loopback server, answered with a 200 whose body is the default
+// cap + 1 bytes, declared by its Content-Length or undeclared (no
 // Content-Length: DATA frames until the end of the stream), ends the call
 // with a *ResponseTooLargeError naming the 200 and the cap, after one
 // attempt under DefaultRetry, which does not retry it (one POST on the
-// server, Stats().Attempts one more than after WarmUp), having read none
-// of a declared body and exactly cap + 1 bytes of an undeclared one, the
-// byte past the cap (the transport's response body is wrapped in a
-// counter, below the SDK's reads).
+// server, Stats().Attempts one more than after WarmUp), having read none of
+// a declared body and exactly cap + 1 bytes of an undeclared one, the byte
+// past the cap (the transport's response body is wrapped in a counter,
+// below the SDK's reads).
 //
 // It records the call's runtime.MemStats deltas (the WIRE lines, ledger
-// rows), which are not AC-P5's measure and are not bounded here: the
-// loopback server runs in the test's process, so they also count its
-// 16 MiB write and both sides' TLS and HTTP/2 buffers. AC-P5's bounds are
-// TestMemStatsCap's, over the Recorder. The test asserts no allocation
-// count, so it runs in every build, the race detector's included.
+// rows), which are not the response-memory budget's measure and are not
+// bounded here: the loopback server runs in the test's process, so they also
+// count its 16 MiB write and both sides' TLS and HTTP/2 buffers. The
+// budget's bounds are TestMemStatsCap's, over the Recorder. The test asserts
+// no allocation count, so it runs in every build, the race detector's
+// included.
 func TestResponseCapOverTheWire(t *testing.T) {
 	const limit = typesafe.DefaultMaxResponseBytes
 	over := bytes.Repeat([]byte{' '}, limit+1)

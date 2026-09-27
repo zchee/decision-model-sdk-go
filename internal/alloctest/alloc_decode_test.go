@@ -31,26 +31,24 @@ import (
 // sinkNaive keeps the naive decodes' maps reachable, as a caller's would be.
 var sinkNaive map[string]any
 
-// TestAllocDecodeFixtures checks AC-P2 over every fixture of testdata that
-// decodes as a System One body: the allocations of one decode, as a call
-// makes it (the pooled decoder warm, a fresh result, the question set and
-// model the response answers, no logger), equal the pinned count of
-// decodeAllocs, which is within the frozen budget; a fixture that decodes
-// without a pin, or is pinned and does not decode, fails. The plain
-// 3-answer fixture, result.json, also allocates at most 8 times (the plan's
-// ceiling; target 4) and at most half as often as the naive comparator's
-// decode of the same body measured in the same run (G3 (a):
-// internal/testsupport/naive's sonic codec, sonic.Unmarshal into a
+// TestAllocDecodeFixtures checks the per-fixture decode budget
+// (docs/perf/frozen-budgets.md) over every fixture of testdata that decodes
+// as a System One body: the allocations of one decode, as a call makes it
+// (the pooled decoder warm, a fresh result, the question set and model the
+// response answers, no logger), equal the pinned count of decodeAllocs,
+// which is within the frozen budget; a fixture that decodes without a pin,
+// or is pinned and does not decode, fails. The plain 3-answer fixture,
+// result.json, also allocates at most 8 times (target 4) and at most half as
+// often as the naive comparator's decode of the same body measured in the
+// same run (internal/testsupport/naive's sonic codec, sonic.Unmarshal into a
 // map[string]any); every other fixture's ratio, the 20-answer and escaped
 // ones included, is reported.
 //
-// Counts are runtime.ReadMemStats deltas, the minimum that three of five
-// runs share, with the collector off and GOMAXPROCS 1 (section 6.1.6); the
-// naive decode's is the minimum of five runs, the comparator's cost at its
-// best. Each DECODE line is a ledger row; its misses column is the same
-// decode without a question set or model, where every string is a copy
-// into one arena (recorded, not pinned). A fixture that does not decode is
-// logged with its error, and so is one the naive decode refuses. The
+// The naive decode's count is the minimum of five runs, the comparator's
+// cost at its best. Each DECODE line is a ledger row; its misses column is
+// the same decode without a question set or model, where every string is a
+// copy into one arena (recorded, not pinned). A fixture that does not decode
+// is logged with its error, and so is one the naive decode refuses. The
 // functional half is TestAllocDecodeFixturesFunctional.
 func TestAllocDecodeFixtures(t *testing.T) {
 	testsupport.QuietRuntime(t)
@@ -128,23 +126,21 @@ func strconvRatio(a, b uint64) string {
 	return strconv.FormatFloat(float64(a)/float64(b), 'f', 3, 64)
 }
 
-// TestLinearityFlood checks AC-P8's allocation clauses on the
-// structured-legend floods: one decode of the 10^4 flood allocates at most
-// 12 times as often as one of the 10^3 flood (the frozen ratio; a1 measured
-// 7.54 at W0.3), where each count is the flood's pinned AC-P2 count
-// (decodeAllocs: 90 and 685). The members the lazy pass visits (plan
-// section 8) are counted from the fixture by membersVisited, independently
-// of the decoder, and must be frozen-budgets.md's 1 011 and 10 011, the
-// inputs of the frozen c₀ + c₁ × members bound (c₀ = 20, c₁ = 1/15, plus one
+// TestLinearityFlood checks the allocation clauses of the floods' linearity
+// budget (docs/perf/frozen-budgets.md) on the structured-legend floods: one
+// decode of the 10^4 flood allocates at most 12 times as often as one of the
+// 10^3 flood (the frozen ratio), where each count is the flood's pinned
+// decode count (decodeAllocs: 90 and 685). The members the lazy pass visits
+// are counted from the fixture by membersVisited, independently of the
+// decoder, and must be frozen-budgets.md's 1 011 and 10 011, the inputs of
+// the frozen c₀ + c₁ × members bound (c₀ = 20, c₁ = 1/15, plus one
 // allocation per escaped key and the arena). That bound is on the lazy pass
 // alone, which the root package cannot run apart from the decode: it is
 // asserted by internal/codec's TestLazyPassAllocations, and here the whole
 // decode's growth per member visited is recorded against c₁.
 //
-// Counts are runtime.ReadMemStats deltas, the minimum that three of five
-// runs share, with the collector off and GOMAXPROCS 1. The time ratio is
-// TestLinearityFloodTime, asserted in the build without -race, as this test
-// is (alloc_linearity_test.go).
+// The time ratio is TestLinearityFloodTime, asserted in the build without
+// -race, as this test is (alloc_linearity_test.go).
 func TestLinearityFlood(t *testing.T) {
 	testsupport.QuietRuntime(t)
 	wantMembers := [2]uint64{1011, 10011}

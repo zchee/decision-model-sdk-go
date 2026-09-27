@@ -17,10 +17,11 @@ package testsupport
 import "encoding/json"
 
 // StdlibMarshal returns encoding/json's Marshal of v, and StdlibUnmarshal
-// is its Unmarshal. The root package imports no JSON library, its tests
-// included (the seam test); through these its tests check how a caller's
+// is its Unmarshal. No package of the module outside internal/codec and
+// internal/testsupport imports a JSON library, its tests included (the seam
+// test in internal/codec), so test code there that checks how a caller's
 // encoding/json treats the SDK's types, which it finds json.Marshaler and
-// json.Unmarshaler on by method set.
+// json.Unmarshaler on by method set, goes through these.
 func StdlibMarshal(v any) ([]byte, error) { return json.Marshal(v) }
 
 // StdlibUnmarshal returns encoding/json's Unmarshal of data into v; see
@@ -29,6 +30,6 @@ func StdlibUnmarshal(data []byte, v any) error { return json.Unmarshal(data, v) 
 
 // StdlibRawMessage returns data as a json.RawMessage boxed in an any, the
 // request state kind that reaches the SDK's encoder as a json.Marshaler
-// (the root package's AC-P1 tests; see [StdlibMarshal] for why they cannot
-// name the type).
+// (the allocation tests of the state encode; see [StdlibMarshal] for why
+// they cannot name the type).
 func StdlibRawMessage(data []byte) any { return json.RawMessage(data) }

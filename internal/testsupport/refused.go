@@ -24,19 +24,11 @@ import (
 // until the test ends, on every OS: the local end of a TCP connection the
 // test holds open, where nothing listens.
 //
-// Unlike a closed listener's address it is not free while the test runs:
-// the connection holds the port. A listener that asks for any port
-// (127.0.0.1:0), as the tests' listeners do, is not given a held port; that
-// is measured on darwin (0 of 40 000 listens) and Linux (0 of 200 000), not
-// on Windows, where CI showed only that an explicit listen binds a held
-// port, so port-0 allocation there is unmeasured. An explicit listen on the
-// address fails on Linux alone; no test listens on an address by number,
-// so that failure is evidence, not part of the guarantee.
-//
-// The address of a listener that was closed instead is free for anyone at
-// once, and under load another listener took one before the dial that was
-// meant to be refused (ruling K39: TestProxyRefusals saw "200 Connection
-// established" where it wanted 502).
+// The connection holds the port while the test runs, so a listener that
+// asks for any port (127.0.0.1:0), as the tests' listeners do, is not given
+// it on darwin or Linux (Windows is unmeasured). A closed listener's address
+// would not do: it is free for anyone at once, and under load another
+// listener can take it before the dial that was meant to be refused.
 func RefusedAddr(tb testing.TB) string {
 	tb.Helper()
 	addr, _ := refusedConn(tb)

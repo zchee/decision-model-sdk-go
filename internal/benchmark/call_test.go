@@ -20,25 +20,25 @@ package benchmark
 //
 //   - sdk: Client.SystemOne with the default deadline and retry policy:
 //     encode, header template, request, the transport, reading the body,
-//     decoding it. The plan's call/sdk.
+//     decoding it.
 //   - floor: testsupport.FloorCall, the transport called directly with a
 //     request built beforehand and its response drained, plus sonic's
 //     encode of the state through codec.EncodeState into a presized
 //     buffer, as TestAllocWholeCall measures E_sonic (its time includes
-//     EncodeState's shape and UTF-8 checks): the NF3 floor as that test
+//     EncodeState's shape and UTF-8 checks): the floor as that test
 //     defines it, through the same FloorCall. No client can cost less.
-//   - naive: internal/testsupport/naive with sonic, G3 (a)'s comparator of
-//     record; the plan's call/naive (AC-P6, AC-P7).
+//   - naive: internal/testsupport/naive with sonic, the comparator of
+//     record.
 //   - naive-json: the same client with encoding/json, reported only.
 //
-// The q3 rows are the NF3 shape: the three questions of the upstream
-// round-trip test, a 1 KiB boxed-string state and result.json. The -q20
-// rows ask the twenty questions result-20.json answers. Before timing,
-// each scenario makes one real SDK call through a recording transport;
-// the floor sends that request's bytes again, and the naive client takes
-// its URL, header template and question bytes from it, with the SDK's
-// default model and deadline. So both clients send the same request byte
-// for byte (TestNaiveRequestMatchesSDK), through the exported API only.
+// The q3 rows are the shape TestAllocWholeCall pins: the three questions of
+// the upstream round-trip test, a 1 KiB boxed-string state and result.json.
+// The -q20 rows ask the twenty questions result-20.json answers. Before
+// timing, each scenario makes one real SDK call through a recording
+// transport; the floor sends that request's bytes again, and the naive
+// client takes its URL, header template and question bytes from it, with the
+// SDK's default model and deadline. So both clients send the same request
+// byte for byte (TestNaiveRequestMatchesSDK), through the exported API only.
 //
 // How this can mislead: the Recorder answers at once and discards the
 // request body, so everything the network costs is absent by design (B6
@@ -74,7 +74,7 @@ var (
 // callScenario is one whole-call shape of B5.
 type callScenario struct {
 	name      string // "q3" or "q20"
-	suffix    string // appended to each row's name: "" for q3, the plan's call/sdk and call/naive
+	suffix    string // appended to each row's name: "" for q3
 	fixture   string // the response body
 	answers   int    // how many answers the fixture holds
 	questions func(tb testing.TB) *typesafe.Prepared
@@ -95,10 +95,10 @@ var naiveCodecs = []struct {
 	{name: "naive-json", codec: naive.StdJSON},
 }
 
-// q20Questions is the question set result-20.json answers, as S-C1 built
-// it (testdata/README.md): each question named after its answer, a choice's
-// options the keys of its probabilities in wire order, a score's levels its
-// legend's texts in level order.
+// q20Questions is the question set result-20.json answers, as
+// testdata/README.md describes it: each question named after its answer, a
+// choice's options the keys of its probabilities in wire order, a score's
+// levels its legend's texts in level order.
 func q20Questions(tb testing.TB) *typesafe.Prepared {
 	tb.Helper()
 	var res wire.SystemOneResult
@@ -137,8 +137,8 @@ func q20Questions(tb testing.TB) *typesafe.Prepared {
 	return p
 }
 
-// sentRequest returns the request a client's call asking qs with the NF3
-// state sends, as a Recorder answering fixture records it.
+// sentRequest returns the request a client's call asking qs with
+// newCallState's state sends, as a Recorder answering fixture records it.
 func sentRequest(tb testing.TB, qs *typesafe.Prepared, fixture string) testsupport.RecordedRequest {
 	tb.Helper()
 	rec := &testsupport.Recorder{Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, testsupport.Fixture(tb, fixture))}}

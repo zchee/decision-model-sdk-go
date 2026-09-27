@@ -23,7 +23,7 @@ import (
 	gocmp "github.com/google/go-cmp/cmp"
 )
 
-// levelTrace is the SDK's trace level (plan section 0: slog.LevelDebug-4).
+// levelTrace is the SDK's trace level.
 const levelTrace = slog.LevelDebug - 4
 
 // TestLogRecorderConformance runs the standard library's handler tests over

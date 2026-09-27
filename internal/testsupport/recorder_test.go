@@ -42,7 +42,7 @@ func (c *closeCounter) Close() error {
 }
 
 // TestRecorderRoundTrip covers replies, recording and body handling through
-// an http.Client, as the SDK's client tests will use it.
+// an http.Client, as the SDK's client tests use it.
 func TestRecorderRoundTrip(t *testing.T) {
 	errDial := errors.New("dial refused")
 	tests := map[string]struct {

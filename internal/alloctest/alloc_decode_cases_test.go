@@ -27,25 +27,25 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
-// The decode cases of AC-P2 and AC-P8, built with and without -race: the
-// budgets are TestAllocDecodeFixtures and TestLinearityFlood
-// (//go:build !race); TestLinearityFloodTime, AC-P8's time ratio, measures
-// with linearityRatio and asserts the bound in the build without -race
-// (alloc_linearity_test.go; alloc_linearity_race_test.go logs it under -race),
-// and TestAllocDecodeFixturesFunctional is AC-P2's functional half.
+// The decode cases of the per-fixture decode budget and of the floods'
+// linearity, built with and without -race: the budgets are
+// TestAllocDecodeFixtures and TestLinearityFlood (//go:build !race);
+// TestLinearityFloodTime, the floods' time ratio, measures with
+// linearityRatio and asserts the bound in the build without -race
+// (alloc_linearity_test.go; alloc_linearity_race_test.go logs it under
+// -race), and TestAllocDecodeFixturesFunctional is the decode budget's
+// functional half.
 
 // decodeAllocs pins, per fixture, the allocations of one decode of a System
-// One body into its answers (want), measured identically on (M) and (L)
-// (ledger rows W2.0-01 and W2.0-04), next to AC-P2's frozen budget (frozen:
-// docs/perf/frozen-budgets.md, S-D1 variant a1; duplicates at 17 by the
-// owner's G2 c). The counts are pinned exactly, not as ceilings (ruling
-// R70), so that a sonic upgrade or a decoder change that moves one fails
-// here and is looked at, as the NF1 encode pins do. The six fixtures one
-// below their budget (duplicates, escaped-member-names, structured-legend,
-// deviation-lone-surrogate and the two floods: each holds a structured
-// level) are those whose frozen count included the arena that copied
-// structured levels, which interning makes unnecessary. The plain
-// 3-answer fixture also keeps the plan's ceiling of 8 (NF2).
+// One body into its answers (want), measured identically on darwin/arm64 and
+// linux/amd64, next to the frozen budget (docs/perf/frozen-budgets.md). The
+// counts are pinned exactly, not as ceilings, so that a sonic upgrade or a
+// decoder change that moves one fails here and is looked at, as the encode
+// pins do. The six fixtures one below their budget (duplicates,
+// escaped-member-names, structured-legend, deviation-lone-surrogate and the
+// two floods: each holds a structured level) are those whose frozen count
+// included the arena that copied structured levels, which interning makes
+// unnecessary. The plain 3-answer fixture also keeps its ceiling of 8.
 //
 // The keys are exactly the fixtures of testdata that decode as a System One
 // body: TestAllocDecodeFixtures decodes every testdata/*.json and fails on
@@ -122,17 +122,17 @@ func questionsFor(t *testing.T, res *wire.SystemOneResult) *typesafe.Prepared {
 	return p
 }
 
-// The floods of AC-P8: one score answer whose legend has 10^3 and 10^4
+// The linearity floods: one score answer whose legend has 10^3 and 10^4
 // levels, half of them structured, among a noul and a choice answer.
 var linearityFloods = [2]string{"structured-legend-flood-1k.json", "structured-legend-flood-10k.json"}
 
-// membersVisited counts, in the JSON object body, the members AC-P8's lazy
-// pass iterates (plan section 8): the root's members, the members of
-// "answers", and for each answer whose legend holds a structured level (an
-// array or an object, not a string) the answer's own members and its legend
-// levels. It reads body with encoding/json, independently of the SDK's
-// decoder, and counts a name once, so it holds for a body without duplicate
-// member names, as the floods are.
+// membersVisited counts, in the JSON object body, the members the decoder's
+// lazy pass iterates: the root's members, the members of "answers", and for
+// each answer whose legend holds a structured level (an array or an object,
+// not a string) the answer's own members and its legend levels. It reads
+// body with encoding/json, independently of the SDK's decoder, and counts a
+// name once, so it holds for a body without duplicate member names, as the
+// floods are.
 func membersVisited(t *testing.T, body []byte) uint64 {
 	t.Helper()
 	var root map[string]any
@@ -157,36 +157,36 @@ func membersVisited(t *testing.T, body []byte) uint64 {
 	return n
 }
 
-// Timing spans of linearityRatio. A span repeats one flood's decode
-// until the clock has advanced by at least linearitySpan, so it holds as
-// many decodes as the host needs for its clock to resolve it: Windows
-// advances time.Now in ticks (about 15.6 ms by default), under which one
-// 10^3 decode, well under a millisecond, can measure 0 s and make the ratio
-// +Inf (K30), while a 250 ms span covers at least 16 such ticks, so its
-// reading is within about 6% of its length. Each flood gets linearitySpans
-// spans. linearityMaxDecodes only ends a span on a clock that never
-// advances, which the test then reports: a 10^3 decode would have to take
-// under 4 µs to reach it before 250 ms.
+// Timing spans of linearityRatio. A span repeats one flood's decode until
+// the clock has advanced by at least linearitySpan, so it holds as many
+// decodes as the host needs for its clock to resolve it: Windows advances
+// time.Now in ticks (about 15.6 ms by default), under which one 10^3 decode,
+// well under a millisecond, can measure 0 s and make the ratio +Inf, while a
+// 250 ms span covers at least 16 such ticks, so its reading is within about
+// 6% of its length. Each flood gets linearitySpans spans.
+// linearityMaxDecodes only ends a span on a clock that never advances, which
+// the test then reports: a 10^3 decode would have to take under 4 µs to
+// reach it before 250 ms.
 const (
 	linearitySpan       = 250 * time.Millisecond
 	linearitySpans      = 5
 	linearityMaxDecodes = 1 << 16
 )
 
-// linearityRatio measures AC-P8's time ratio on the structured-legend
-// floods, the time of one 10^4 decode over the time of one 10^3 decode, logs
-// it in the LINEARITY line and returns it; TestLinearityFloodTime asserts it
-// at most 15 in the build without -race (alloc_linearity_test.go). AC-P8's
-// allocation clauses are TestLinearityFlood's. A decode's time is a span's
-// length divided by the decodes it holds, the minimum over the flood's
-// spans, which filters scheduler noise. The number of decodes is not fixed
-// in advance, since a fixed count would have to be sized for the slowest
-// runner; each span runs until linearitySpan has elapsed on the host's own
-// clock (K30). The two floods' spans alternate, so a change in the host's
-// load reaches both. The collector stays off (QuietRuntime) and is run once
-// before each span, to free the last span's garbage, which keeps the pooled
-// decoder (sync.Pool keeps it through one collection); a warm decode then
-// precedes the span.
+// linearityRatio measures the time ratio on the structured-legend floods,
+// the time of one 10^4 decode over the time of one 10^3 decode, logs it in
+// the LINEARITY line and returns it; TestLinearityFloodTime asserts it at
+// most 15 in the build without -race (alloc_linearity_test.go). The
+// allocation clauses of the same budget are TestLinearityFlood's. A decode's
+// time is a span's length divided by the decodes it holds, the minimum over
+// the flood's spans, which filters scheduler noise. The number of decodes is
+// not fixed in advance, since a fixed count would have to be sized for the
+// slowest runner; each span runs until linearitySpan has elapsed on the
+// host's own clock. The two floods' spans alternate, so a change in the
+// host's load reaches both. The collector stays off (QuietRuntime) and is
+// run once before each span, to free the last span's garbage, which keeps
+// the pooled decoder (sync.Pool keeps it through one collection); a warm
+// decode then precedes the span.
 func linearityRatio(t *testing.T) float64 {
 	testsupport.QuietRuntime(t)
 	type flood struct {

@@ -40,13 +40,13 @@ import (
 // budget test with the suffix Functional.
 
 // TestAllocEncodeFunctional is the functional half of TestAllocEncode: for
-// every state kind at every AC-P1 size, the request body is
+// every state kind at every size of allocSizes, the request body is
 // {"state":<state>,"model":"jev-latest","questions":<prepared>}, where the
 // state member is the state's encoding by encoding/json, an encoder
 // independent of the SDK's (byte for byte; a map's members come out in each
 // encoder's own order, so a map state is compared as a JSON value), and the
 // scratch the pool holds after the body is released is within the 8 MiB
-// ceiling (AC-P1: scratch ≤ 8 MiB).
+// ceiling.
 func TestAllocEncodeFunctional(t *testing.T) {
 	qs := encodeQuestions(t)
 	prefix := []byte(`{"state":`)
@@ -106,16 +106,17 @@ func TestAllocEncodeFunctional(t *testing.T) {
 
 // TestAllocScratchSequenceFunctional is the functional half of
 // TestAllocScratchSequence: for each state kind of the sequence, the 32
-// calls of section 6.1.6 on one client succeed, each request the Recorder
-// saw carries GetBody and declares its length, and its body is the body of
-// the same state encoded on its own, byte for byte (a map state, whose
-// members come in a random order: the same length, and for the 1 KiB state
-// the same JSON value), so a scratch reused across the sizes never leaks the
-// bytes of a larger body into a smaller one; the scratch the pool hands out
-// after any call is within the 8 MiB ceiling, and after call 22 (9 MiB) it
-// is not the one the call grew, which the pool dropped. Under the race
-// detector the pool also drops one value in four at random, so which other
-// calls leave no scratch behind is the budget test's clause, not this one's.
+// calls of the mixed-size sequence on one client succeed, each request the
+// Recorder saw carries GetBody and declares its length, and its body is the
+// body of the same state encoded on its own, byte for byte (a map state,
+// whose members come in a random order: the same length, and for the 1 KiB
+// state the same JSON value), so a scratch reused across the sizes never
+// leaks the bytes of a larger body into a smaller one; the scratch the pool
+// hands out after any call is within the 8 MiB ceiling, and after call 22
+// (9 MiB) it is not the one the call grew, which the pool dropped. Under the
+// race detector the pool also drops one value in four at random, so which
+// other calls leave no scratch behind is the budget test's clause, not this
+// one's.
 func TestAllocScratchSequenceFunctional(t *testing.T) {
 	qs := q3Questions(t)
 	reply := testsupport.JSON(http.StatusOK, testsupport.Fixture(t, "result.json"))

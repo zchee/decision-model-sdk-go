@@ -31,19 +31,9 @@ import (
 )
 
 // TestAllocPrepare counts the heap allocations of Questions.Prepare on every
-// set of prepareCases, the set built outside the measured section, and pins
-// the count of the first three cases of the performance ledger's W1.3
-// section (c1-sketch 9 → 6 with W5.3's P1, which sorts map keys on the
-// Builder's key stack) and of c5-raw-100x3, P1's case (1 710 → 14; 1 700 of
-// the 1 710 sorted the keys), and of the two NIT 8 score sets, P2's cases,
-// whose criteria the falsiness check no longer copies, and P3's, whose
-// buffer the size hint now covers (with P1 to P3, 252 → 10 and 1 215 → 13),
-// and of the two score sets, c4b-score-20x8-json P4's case, whose level
-// spans Prepare now reserves (36 → 28), and c4a-score-20x8-text, which has
-// no spans to reserve; P5 cuts every choice's and score's table from one
-// array per kind (c3-choice-20x10 and c4a 27 → 8, c4b 28 → 9). The other
-// sets are measured and logged, with the bytes of every run and the
-// prepared length, for the ledger.
+// set of prepareCases, the set built outside the measured section, pins the
+// counts of the table below and logs every set, with the bytes of every run
+// and the prepared length, for the ledger.
 func TestAllocPrepare(t *testing.T) {
 	testsupport.QuietRuntime(t)
 
@@ -89,11 +79,11 @@ func TestAllocPrepare(t *testing.T) {
 	}
 }
 
-// TestAllocFalsyJSON checks the falsiness check's success path (W5.3's P2):
-// a raw score question's criteria that is not falsy is neither copied nor
-// checked whole, so values that compact to more than the check's 32-byte
-// stack buffer, which each cost one or more allocations when the check
-// compacted every value, cost none. A falsy value is still checked whole.
+// TestAllocFalsyJSON checks the falsiness check's success path: a raw score
+// question's criteria that is not falsy is neither copied nor checked
+// whole, so values that compact to more than the check's 32-byte stack
+// buffer cost no allocation, where compacting every value would cost one or
+// more each. A falsy value is still checked whole.
 func TestAllocFalsyJSON(t *testing.T) {
 	tests := map[string]struct {
 		raw   []byte

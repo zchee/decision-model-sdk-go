@@ -16,7 +16,7 @@
 // API and the module's internal packages (docs/perf/benchmarks.md): B5, the
 // whole call against its floor and the naive comparator; B4's Retry-After
 // parse; B6's warm call over loopback; the header template's clone; and an
-// empty loop. They left the root package on owner directive G5.
+// empty loop.
 //
 // The benchmarks that time an unexported symbol of the root package (the
 // body encode, request assembly, the backoff, the falsiness check, the

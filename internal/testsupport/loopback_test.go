@@ -81,7 +81,7 @@ func get(t *testing.T, rt http.RoundTripper, url string) (status, proto int, bod
 // connLog records how a net/http transport got its connections, in order:
 // every dial with the dialing goroutine's stack, and every request for a
 // connection (httptrace GetConn) and connection obtained (GotConn). A test
-// prints it when an assertion about connections fails (ruling K25).
+// prints it when an assertion about connections fails.
 type connLog struct {
 	tr    *http.Transport
 	start time.Time
@@ -794,12 +794,12 @@ func TestLoopbackGoAway(t *testing.T) {
 		}
 		// Connection 0 received GOAWAY and served nothing, and net/http
 		// replayed the request once, on a later connection. Which one, and
-		// how many connections it opened, is its pool's choice (rulings K25
-		// and D-flake-3): dialConnFor hands a new connection to the request
-		// before putOrCloseIdleConn pools it, so a dialing goroutine
-		// descheduled in between gives the replay the stale connection 0,
-		// which makes it dial once more and close whichever new connection
-		// loses (go1.24.13 to go1.27.1 and tip). Neither is exact here.
+		// how many connections it opened, is its pool's choice: dialConnFor
+		// hands a new connection to the request before putOrCloseIdleConn
+		// pools it, so a dialing goroutine descheduled in between gives the
+		// replay the stale connection 0, which makes it dial once more and
+		// close whichever new connection loses (go1.24.13 to go1.27.1 and
+		// tip). Neither is exact here.
 		var seen []int
 		for _, r := range srv.Requests() {
 			seen = append(seen, r.Conn)
@@ -977,13 +977,12 @@ func TestLoopbackConnEnd(t *testing.T) {
 }
 
 // TestLoopbackCloseConnsDrains checks the close choreography of CloseConns
-// (ruling K33) against a client that writes after the server began to
-// close, as a fresh HTTP/2 client does: the frames already written and
-// close_notify reach the client, then io.EOF, never a reset; the server
-// reads and discards the client's late frame; and it closes the socket only
-// after it read the end of the client's side. The records order the events
-// by sequence number (K29), and a GOAWAY written before CloseConns leaves
-// before close_notify.
+// against a client that writes after the server began to close, as a fresh
+// HTTP/2 client does: the frames already written and close_notify reach the
+// client, then io.EOF, never a reset; the server reads and discards the
+// client's late frame; and it closes the socket only after it read the end
+// of the client's side. The records order the events by sequence number,
+// and a GOAWAY written before CloseConns leaves before close_notify.
 func TestLoopbackCloseConnsDrains(t *testing.T) {
 	tests := map[string]struct {
 		goAway bool
@@ -1046,16 +1045,15 @@ func TestLoopbackCloseConnsDrains(t *testing.T) {
 }
 
 // TestLoopbackActionsDrain checks that ActionGoAway's end of the connection
-// and ActionClose close as CloseConns does (rulings K33, K34). The request's
-// body follows its HEADERS, as a POST's does; the client sends it, and a
-// PING, only after it read close_notify. Before K34 the end after GOAWAY
-// sent close_notify alone and the reader answered the body with a
-// WINDOW_UPDATE refund; that write failed and closed the socket with the
-// PING unread, a reset that on Windows destroys the GOAWAY before the client
-// reads it. Now the client reads the GOAWAY (when sent) and then io.EOF,
-// the server reads and discards both late frames, answering neither, and
-// it closes the socket only after it read the end of the client's side.
-// The records order the events by sequence number (K29).
+// and ActionClose close as CloseConns does. The request's body follows its
+// HEADERS, as a POST's does; the client sends it, and a PING, only after it
+// read close_notify. A reader that answered the body with a WINDOW_UPDATE
+// refund after close_notify would fail that write and close the socket with
+// the PING unread, a reset that on Windows destroys the GOAWAY before the
+// client reads it. The client must read the GOAWAY (when sent) and then
+// io.EOF, the server must read and discard both late frames, answering
+// neither, and it must close the socket only after it read the end of the
+// client's side. The records order the events by sequence number.
 func TestLoopbackActionsDrain(t *testing.T) {
 	tests := map[string]struct {
 		action Action

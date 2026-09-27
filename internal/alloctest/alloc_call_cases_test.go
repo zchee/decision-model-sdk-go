@@ -28,22 +28,22 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
-// The whole-call cases of AC-P6 and AC-P5, built with and without -race:
-// the budgets are TestAllocWholeCall and TestMemStatsCap (//go:build
-// !race), and their functional halves are in alloc_functional_test.go.
+// The whole-call cases of the whole-call and the response-memory budgets,
+// built with and without -race: the budgets are TestAllocWholeCall and
+// TestMemStatsCap (//go:build !race), and their functional halves are in
+// alloc_functional_test.go.
 
-// allocStateSize is the length of the whole-call state's JSON encoding: the
-// plan's 1 KiB state (NF3), a string boxed in an any before the call.
+// allocStateSize is the length of the whole-call state's JSON encoding: a
+// 1 KiB state, a string boxed in an any before the call.
 const allocStateSize = 1 << 10
 
 // newAllocState returns the 1 KiB boxed-string state.
 func newAllocState() any { return strings.Repeat("s", allocStateSize-2) }
 
-// floorRequest returns the floor's request of a call of c with state and
-// qs (NF3; testsupport.FloorCall): the request the call's first attempt
-// sends, built beforehand, over a rewindable copy of the body the call
-// encodes, and the reader under it, which the caller rewinds before each
-// round trip.
+// floorRequest returns the floor's request of a call of c with state and qs
+// (testsupport.FloorCall): the request the call's first attempt sends, built
+// beforehand, over a rewindable copy of the body the call encodes, and the
+// reader under it, which the caller rewinds before each round trip.
 func floorRequest(t *testing.T, c *typesafe.Client, state any, qs *typesafe.Prepared) (*http.Request, *bytes.Reader) {
 	t.Helper()
 	enc, err := encodeBody(state, cfgOf(c).Model, qs, nil)
@@ -59,7 +59,8 @@ func floorRequest(t *testing.T, c *typesafe.Client, state any, qs *typesafe.Prep
 	}, rd
 }
 
-// memCase is one AC-P5 reply and the outcome and bound it must meet.
+// memCase is one reply of TestMemStatsCap and the outcome and bound it must
+// meet.
 type memCase struct {
 	reply   testsupport.Reply
 	outcome string // "ok", "eof" (io.ErrUnexpectedEOF) or "large" (*ResponseTooLargeError)
@@ -102,17 +103,17 @@ func paddedResult(t *testing.T, size int) []byte {
 	return b
 }
 
-// memCases returns AC-P5's cases (frozen-budgets.md; rulings R26, R26b,
-// R27) for the default 16 MiB cap: (i) a body that declares 16 MiB and
-// sends 10 bytes, (ii) a declared 16 MiB + 1 refused before a read, (iii)
-// an undeclared 16 MiB + 1 refused at the byte past the cap, (iv) and (v) a
-// declared and an undeclared body of exactly 16 MiB, read and decoded, and
-// result.json declared and undeclared, (vi) and (vii). The bounds of (i) to
-// (v) are frozen: the first read buffer (256 KiB for a declared body) or
-// twice the cap, plus 64 KiB. (vi) and (vii), a call that reads a small
-// body, are bounded by W5.2 on the same rule: the first read buffer (the
-// declared length + 1, or 4 KiB for an undeclared body, R27) plus the
-// 64 KiB that (ii) allows a call that reads nothing.
+// memCases returns the response-memory budget's cases
+// (docs/perf/frozen-budgets.md) for the default 16 MiB cap: (i) a body that
+// declares 16 MiB and sends 10 bytes, (ii) a declared 16 MiB + 1 refused
+// before a read, (iii) an undeclared 16 MiB + 1 refused at the byte past the
+// cap, (iv) and (v) a declared and an undeclared body of exactly 16 MiB,
+// read and decoded, and result.json declared and undeclared, (vi) and (vii).
+// The bounds of (i) to (v) are frozen: the first read buffer (256 KiB for a
+// declared body) or twice the cap, plus 64 KiB. (vi) and (vii), a call that
+// reads a small body, are bounded on the same rule: the first read buffer
+// (the declared length + 1, or 4 KiB for an undeclared body) plus the 64 KiB
+// that (ii) allows a call that reads nothing.
 func memCases(t *testing.T) map[string]memCase {
 	t.Helper()
 	const limit = typesafe.DefaultMaxResponseBytes

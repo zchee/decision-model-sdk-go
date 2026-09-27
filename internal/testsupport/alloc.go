@@ -170,13 +170,13 @@ func stableMin(runs []Allocs) (Allocs, error) {
 // for a section a test checks against a bound on every run, not for an
 // exact pin, which stays with [StableMin].
 //
-// A section can cost a few allocations more in one run than in another for
-// a reason outside the code it measures (ruling K32): the runtime builds a
-// type assertion's or a type switch's cache on about one in 1024 of the
-// lookups that miss it, at random (runtime/iface.go, typeAssert and
-// interfaceSwitch), an allocation of 48 B or more, and a pooled object the
-// collection before a run emptied is allocated anew. A bound holds on every
-// run whatever those add; the minimum is the section's own cost.
+// A section can cost a few allocations more in one run than in another for a
+// reason outside the code it measures: the runtime builds a type assertion's
+// or a type switch's cache on about one in 1024 of the lookups that miss it,
+// at random (runtime/iface.go, typeAssert and interfaceSwitch), an
+// allocation of 48 B or more, and a pooled object the collection before a
+// run emptied is allocated anew. A bound holds on every run whatever those
+// add; the minimum is the section's own cost.
 func Spread(tb testing.TB, label string, runs []Allocs) (least, most Allocs) {
 	tb.Helper()
 	tb.Logf("runs of %-38s mallocs/bytes:%s", label, formatRuns(runs))

@@ -31,22 +31,22 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
-// TestAllocScratchSequence checks AC-P1's mixed-size sequence (plan section
-// 6.1.6, frozen-budgets.md): 32 SystemOne calls on one client, a 1 KiB state
-// ×10, a 6 MiB state, 1 KiB ×10, a 9 MiB state and 1 KiB ×10, through the
-// Recorder, a synchronous in-memory RoundTripper that reads and closes each
-// request body before it returns, so every call's scratch is back in the
-// pool, or dropped, when the call returns (the HTTP/2 transport closes
+// TestAllocScratchSequence checks the encode budget's mixed-size sequence
+// (docs/perf/frozen-budgets.md): 32 SystemOne calls on one client, a 1 KiB
+// state ×10, a 6 MiB state, 1 KiB ×10, a 9 MiB state and 1 KiB ×10, through
+// the Recorder, a synchronous in-memory RoundTripper that reads and closes
+// each request body before it returns, so every call's scratch is back in
+// the pool, or dropped, when the call returns (the HTTP/2 transport closes
 // bodies on a goroutine of its own). For the boxed-string and RawJSON
 // states:
 //
 //   - calls 2-10, 12-21 and 24-32 cost exactly the single-size call, the
 //     same call on a warm client measured on its own (the pool hit);
 //   - call 11 grows the pooled scratch to the 6 MiB body and call 22 to the
-//     9 MiB one, within S-E1's growth budgets g₆ and g₉, and the pool keeps
-//     the first (calls 12-21 cost the single-size call) and drops the
-//     second, past the 8 MiB ceiling, so that call 23 pays one allocation
-//     more, its fresh scratch;
+//     9 MiB one, within the growth budgets g₆ and g₉, and the pool keeps the
+//     first (calls 12-21 cost the single-size call) and drops the second,
+//     past the 8 MiB ceiling, so that call 23 pays one allocation more, its
+//     fresh scratch;
 //   - the encode-level counts, the call's count less what the single-size
 //     call spends outside its encode, are frozen-budgets.md's row exactly:
 //     "1×9 | 2 | 1×10 | 2 | 2 | 1×9" and "0×9 | 1 | 0×10 | 1 | 1 | 0×9";
@@ -54,21 +54,20 @@ import (
 //     finds exactly one drop, after call 22, and no retained scratch over
 //     the ceiling.
 //
-// The *struct and flat-map states are measured and recorded, not asserted
-// (G3 (b)): sonic's growslice steps can end past the ceiling at 6 MiB, and
-// then call 11 drops its scratch too.
+// The *struct and flat-map states are measured and recorded, not asserted:
+// sonic's growslice steps can end past the ceiling at 6 MiB, and then call
+// 11 drops its scratch too.
 //
 // Call 1 is recorded: it follows two collections and pays the body, its
-// scratch and the refill of every pool (R22b). Counts are per-call
+// scratch and the refill of every pool. Counts are per-call
 // runtime.ReadMemStats deltas, not testing.AllocsPerRun, whose warm-up call
-// would consume pool state; the collector is off (the 6 MiB and 9 MiB
-// bodies would otherwise start collections that empty the pool) and
-// GOMAXPROCS is 1 (sync.Pool.Put fills the current P's private slot, which
-// another P does not see). The sequence runs five times, each on a fresh
-// client after two collections, and each call's count is the minimum that
-// three of the five share (testsupport.StableMin); a recorded kind's is the
-// minimum and the maximum (testsupport.Spread). The SEQ lines are the
-// ledger's rows.
+// would consume pool state; the collector is off (the 6 MiB and 9 MiB bodies
+// would otherwise start collections that empty the pool) and GOMAXPROCS is 1
+// (sync.Pool.Put fills the current P's private slot, which another P does
+// not see). The sequence runs five times, each on a fresh client after two
+// collections, and each call's count is the minimum that three of the five
+// share (testsupport.StableMin); a recorded kind's is the minimum and the
+// maximum (testsupport.Spread). The SEQ lines are the ledger's rows.
 //
 // The file is built without -race: under the race detector sync.Pool.Put
 // drops one value in four. The functional half is

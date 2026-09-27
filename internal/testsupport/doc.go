@@ -13,59 +13,14 @@
 // limitations under the License.
 
 // Package testsupport holds the test doubles and measurement helpers the
-// SDK's tests share.
-//
-// It provides:
-//
-//   - [LoopbackServer]: a TLS server on 127.0.0.1 that speaks HTTP/2 through
-//     its own frame writer (golang.org/x/net/http2's Framer and hpack), so a
-//     test can send GOAWAY with a LastStreamID below streams in flight, refuse
-//     a stream, close the connection (close_notify) or reset it (TCP RST),
-//     advertise a MAX_CONCURRENT_STREAMS limit and count accepted
-//     connections; its ALPN modes also give a server without ALPN and one
-//     that offers http/1.1 only.
-//   - [SilentListener]: a TCP listener that accepts and never answers, for a
-//     peer that never finishes the TLS handshake.
-//   - [RefusedAddr]: a loopback address that refuses every dial until the
-//     test ends: the port of a connection the test holds open, which a
-//     listener asking for any port was not given on darwin or Linux
-//     (Windows is unmeasured).
-//   - [GatedDialer]: a client DialContext that holds each dial until the test
-//     closes a channel. The LoopbackServer has no knob that delays its
-//     handshake; a test that needs a dial to complete late gates the
-//     client's dial to [LoopbackServer.Addr] instead.
-//   - [FakeH2CServer]: an [net/http/httptest] server on the in-memory network
-//     that speaks HTTP/2 over cleartext with prior knowledge, usable inside a
-//     [testing/synctest] bubble.
-//   - [Proxy]: an HTTP/1.1 CONNECT proxy, plain or behind TLS with lenient,
-//     strict or h2-offering ALPN.
-//   - [Recorder]: an in-memory [net/http.RoundTripper] that records requests
-//     and returns canned replies.
-//   - [FloorCall]: the floor of one whole call, which the allocation test
-//     and the call/floor benchmark share; [NewFixtureServer]: a
-//     LoopbackServer answering result.json and models.json, for the
-//     loopback benchmarks.
-//   - [SumGetBody]: the SHA-256 digest of the bytes a request's GetBody
-//     reads, so a test can assert that every attempt sends the same body.
-//   - [FakeAPI]: an in-process stand-in for the TypeSafe API that answers
-//     every question by its type, for running the example programs
-//     without the network.
-//   - [ReadPeerSettings]: the settings of the first SETTINGS frame an
-//     HTTP/2 server sends (its MAX_CONCURRENT_STREAMS among them), read
-//     without a request; the live tests record the API's (risk K22).
-//   - [LogRecorder]: a [log/slog.Handler] that keeps every record.
-//   - [QuietRuntime], [Measure] and [MeasureMin]: allocation counting with the
-//     collector off, GOMAXPROCS at 1, and a stable minimum of five runs;
-//     [Spread] for a section checked against a bound on every run.
-//   - [Fixture] and friends: the response bodies under the module's testdata
-//     directory, read once and cached.
-//   - [BoundFuzzInput]: the per-input bound every fuzz target arms,
-//     [FuzzInputBound].
-//   - [StructuredLegendFlood] and [UnknownAnswerFlood]: generated response
-//     bodies, the floods AC-P8 and AC-P5 (viii) decode.
-//   - [NewGuard] and [CatchFault]: memory between two pages no access may
-//     touch (Linux and Darwin), so that a read past an input faults, and the
-//     fault as a test result.
+// SDK's tests share: servers, listeners, dialers and a proxy for transport
+// tests ([LoopbackServer], [SilentListener], [RefusedAddr], [GatedDialer],
+// [FakeH2CServer], [Proxy]); request and log doubles ([Recorder],
+// [FakeAPI], [LogRecorder]); allocation measurement ([Measure],
+// [MeasureMin], [Spread], [FloorCall]); response bodies, from the module's
+// testdata directory and generated ([Fixture], [UnknownAnswerFlood]); and
+// the fuzz targets' per-input bound and guard pages ([BoundFuzzInput],
+// [NewGuard]).
 //
 // The package imports neither the SDK's root package nor internal/codec, so
 // the packages that test the transport can use it without sonic. It is the

@@ -88,10 +88,10 @@ func StructuredLegendFlood(levels int) []byte {
 //
 //	{"model":"m","usage":{"input_tokens":1,"output_tokens":1},"answers":{"a0":{"type":"x"},"a1":{"type":"x"},…}}
 //
-// It is the hostile body of review W6.2 MAJ-1: a decode keeps one answer
-// entry for each of about 20 bytes of it, so its scratch outgrows the body
-// many times over. The body is compact, deterministic and decodes without a
-// failure, every answer skipped.
+// It is a hostile body: a decode keeps one answer entry for each of about
+// 20 bytes of it, so its scratch outgrows the body many times over. The body
+// is compact, deterministic and decodes without a failure, every answer
+// skipped.
 func UnknownAnswerFlood(size int) (body []byte, answers int) {
 	b := make([]byte, 0, size+64)
 	b = append(b, `{"model":"m","usage":{"input_tokens":1,"output_tokens":1},"answers":{`...)

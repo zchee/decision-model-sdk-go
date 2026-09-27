@@ -45,8 +45,7 @@ const (
 	ProxyTLSStrict
 	// ProxyTLSOfferH2 is a TLS proxy that offers h2 and http/1.1, so an
 	// h2-offering client negotiates h2 on the proxy hop, although the proxy
-	// still expects an HTTP/1.1 CONNECT (the case the plan records under
-	// K16).
+	// still expects an HTTP/1.1 CONNECT.
 	ProxyTLSOfferH2
 )
 

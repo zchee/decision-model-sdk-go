@@ -27,20 +27,19 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
-// encodeExceptions are the single-size cases of AC-P1 outside its
-// steady-state budget, by GOARCH (ruling R62: a sonic count that differs by
-// architecture is keyed by it). The budget holds "while the scratch stays
-// within the 8 MiB ceiling" (frozen-budgets.md AC-P1): sonic grows the
-// scratch of a *struct or map state in runtime.growslice steps, and on arm64
-// the steps of the 6 MiB *struct state end at 8.86 MiB, past the ceiling,
-// so the pool drops the scratch after every call and no call is warm (R22,
-// G2 (b); K24 is W5.3's). Where the steps end depends on the exact length
-// of the body at each step: the flat map that S-E1 encoded alone ended at
-// 8.76 MiB (finding 5), and the same map inside a request body, after
-// {"state":, ends at 7.51 MiB and is warm. Such a case is recorded, and its
-// scratch must still outgrow the ceiling, so that a change that ends the
-// overshoot fails here and the exception is removed; any other case whose
-// scratch outgrows the ceiling fails AC-P1.
+// encodeExceptions are the single-size cases of the encode budget outside
+// its steady state, by GOARCH (a sonic count that differs by architecture
+// is keyed by it). The budget holds "while the scratch stays within the
+// 8 MiB ceiling" (docs/perf/frozen-budgets.md): sonic grows the scratch of
+// a *struct or map state in runtime.growslice steps, and on arm64 the steps
+// of the 6 MiB *struct state end at 8.86 MiB, past the ceiling, so the pool
+// drops the scratch after every call and no call is warm. Where the steps
+// end depends on the exact length of the body at each step: the flat map
+// encoded alone ends at 8.76 MiB, and the same map inside a request body,
+// after {"state":, ends at 7.51 MiB and is warm. Such a case is recorded,
+// and its scratch must still outgrow the ceiling, so that a change that
+// ends the overshoot fails here and the exception is removed; any other
+// case whose scratch outgrows the ceiling fails the budget.
 var encodeExceptions = map[string]map[string]bool{
 	"arm64": {"pointer-to-struct/6MiB": true},
 	"amd64": {},
@@ -49,44 +48,41 @@ var encodeExceptions = map[string]map[string]bool{
 // encodeWarmLimit bounds the calls that bring a case to its steady state.
 // A nested map is encoded in the map's random order, and sonic's reserve
 // ahead of each member depends on it, so the scratch can grow over a few
-// calls (three on (M) at 6 MiB) before it holds every order.
+// calls (three on darwin/arm64 at 6 MiB) before it holds every order.
 const encodeWarmLimit = 32
 
 // encodeWarmBytes is the frozen ceiling on what a warm-pool body encode
-// allocates above sonic's own encode of the state (frozen-budgets.md AC-P1,
-// "encode bytes": 112 B, tighter than the plan's 1.05 × body + 4 KiB).
+// allocates above sonic's own encode of the state
+// (docs/perf/frozen-budgets.md, "encode bytes": 112 B, tighter than
+// 1.05 × body + 4 KiB).
 const encodeWarmBytes = 112
 
 // noInput is the input of a measured section that takes none.
 func noInput() struct{} { return struct{}{} }
 
-// TestAllocEncode checks AC-P1's single-size clauses (NF1) for every state
-// kind at 1 KiB, 64 KiB, 1 MiB and 6 MiB: one request body encoded around a
-// prepared question set and released on a warm pool allocates at most
-// E_sonic + B times, where E_sonic is the state's own encode (the SDK's
-// engine.AppendState into a buffer that needs no growth, measured in the
-// same run) and B = 1 when the caller's argument is boxed at the call;
-// E_sonic is pinned to the frozen E(kind) (1, 0 for RawJSON, 1 + m for a
-// state with m maps) and the body to exactly E(kind) + B, so a sonic upgrade
-// or an encoder change that moves either fails here. Its bytes above
-// E_sonic's are exactly the boxing's, 16 B for a bare string, 24 B for a
-// bare RawJSON and 0 otherwise: no case varies from run to run, on any host
-// or CI image, so the pin is exact, inside the frozen 112 B (also checked,
-// as is the plan's 1.05 × body + 4 KiB), and the scratch the call leaves is
-// within the 8 MiB ceiling, so the pool keeps it. Opening readers is the
-// transport's cost and is not part of it (AC-P6 counts it).
+// TestAllocEncode checks the encode budget's single-size clauses
+// (docs/perf/frozen-budgets.md) for every state kind at 1 KiB, 64 KiB, 1 MiB
+// and 6 MiB: one request body encoded around a prepared question set and
+// released on a warm pool allocates at most E_sonic + B times, where E_sonic
+// is the state's own encode (the SDK's engine.AppendState into a buffer that
+// needs no growth, measured in the same run) and B = 1 when the caller's
+// argument is boxed at the call; E_sonic is pinned to the frozen E(kind) (1,
+// 0 for RawJSON, 1 + m for a state with m maps) and the body to exactly
+// E(kind) + B, so a sonic upgrade or an encoder change that moves either
+// fails here. Its bytes above E_sonic's are exactly the boxing's, 16 B for a
+// bare string, 24 B for a bare RawJSON and 0 otherwise: no case varies from
+// run to run, on any host or CI image, so the pin is exact, inside the
+// frozen 112 B (also checked, as is 1.05 × body + 4 KiB), and the scratch
+// the call leaves is within the 8 MiB ceiling, so the pool keeps it. Opening
+// readers is the transport's cost and is not part of it (the whole-call
+// budget counts it).
 //
 // Each case starts from empty pools (two collections), as a process that
 // sends only states of that size does, since a scratch another case grew
 // would hide sonic's overshoot; unmeasured calls then bring it to its steady
 // state, where the scratch a call leaves is the one the call before left.
-// Counts are runtime.ReadMemStats deltas, the minimum that three of five
-// runs share, with the collector off and GOMAXPROCS 1 (section 6.1.6). The
-// ENCODE lines are the ledger's rows. The 1 KiB rows are the pins of the
-// former TestAllocBodyKinds (W1.2): a bare string 2, a boxed string 1, a
-// bare RawJSON 1, a boxed RawJSON 0, a *struct 1 and a flat map 2. The
-// cases of encodeExceptions are recorded, the minimum and the maximum of
-// five runs.
+// The ENCODE lines are the ledger's rows. The cases of encodeExceptions are
+// recorded, the minimum and the maximum of five runs.
 //
 // The file is built without -race: under the race detector sync.Pool.Put
 // drops one value in four, so a warm pool is not warm. The functional half,

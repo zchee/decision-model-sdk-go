@@ -35,11 +35,6 @@ const boundChildEnv = "TYPESAFE_TESTSUPPORT_BOUND_CHILD"
 // panic ends the process it fires in; the disarm is checked through
 // boundFuzzInput, the wrapper every target calls, with boundFire swapped for
 // a recorder.
-//
-// It runs in CI's -race test step (go test -race with coverage) and its
-// non-race allocation-tests step (go test -count=1 ./internal/codec/
-// ./internal/wire/ ./internal/testsupport/), on ubuntu-26.04, xcode-27 and
-// windows-2025.
 func TestBoundFuzzInput(t *testing.T) {
 	const bound = 50 * time.Millisecond
 	if os.Getenv(boundChildEnv) == "1" {
