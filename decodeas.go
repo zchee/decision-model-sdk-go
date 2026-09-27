@@ -120,15 +120,21 @@ func Ask[T any](ctx context.Context, c *Client, state any, opts ...CallOption) (
 // Header is a new map in which each value of a header that is a credential
 // by its name, such as Authorization, Cookie or Set-Cookie
 // ([APIError.Header] lists them), is "***"; the other headers' values are
-// the response's own and must not be modified. DecodeAs has no client, so
-// unlike [Ask] it cannot look for the client's API key: a key the server
-// echoes in another header or in the request id stays visible in Header
-// and Error, where Ask shows "***". Neither redacts FieldPath: the answer's
-// name and the option or level it names are shown as they arrived, as the
-// SDK's other errors show a path (ruling R103-rev). Its Endpoint is empty;
-// Ask fills it in.
+// the response's own and must not be modified. A response from a request
+// keeps the redactor its call used, so DecodeAs also replaces the client's
+// API key wherever the server echoes it in the header or the request id,
+// and, in the response to a plain-HTTP request through a proxy, a whole
+// credential of the client's proxies, as [Ask] does (ruling R114). Such a
+// response keeps those credentials as they were when its call returned, so
+// it is redacted alike however long it is kept, although the client
+// remembers only its 16 most recent proxies' ([WithProxy]). A response read
+// back with [SystemOneResponse.UnmarshalJSON] came from no client and keeps
+// no redactor, so DecodeAs redacts it by name alone. Neither DecodeAs nor Ask
+// redacts FieldPath: the answer's name and the option or level it names
+// are shown as they arrived, as the SDK's other errors show a path (ruling
+// R103-rev). Its Endpoint is empty; Ask fills it in.
 func DecodeAs[T any](resp *SystemOneResponse) (T, error) {
-	return decodeTyped[T](typedPlanFor[T](), resp, "", headerRedactor{})
+	return decodeTyped[T](typedPlanFor[T](), resp, "", resp.redactor())
 }
 
 // decodeTyped decodes resp into a T by p, the plan of T, and names endpoint

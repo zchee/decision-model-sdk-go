@@ -93,6 +93,11 @@ func (r *SystemOneResponse) result() *wire.SystemOneResult { return (*engine.Res
 // respMeta: see result.
 func (r *SystemOneResponse) respMeta() *wire.ResponseMeta { return (*engine.Response)(r).Meta() }
 
+// redactor returns the redactor of the client whose request r answers, or
+// the zero redactor, by name alone, for a response read back with
+// UnmarshalJSON (ruling R114).
+func (r *SystemOneResponse) redactor() headerRedactor { return (*engine.Response)(r).Redactor() }
+
 // Model returns the model that answered.
 func (r *SystemOneResponse) Model() string { return r.result().Model }
 
@@ -154,6 +159,7 @@ func (r *SystemOneResponse) UnmarshalJSON(data []byte) error {
 		return newResponseValidationError(&wire.ResponseMeta{}, "", headerRedactor{}, err)
 	}
 	*r.respMeta() = wire.ResponseMeta{}
+	(*engine.Response)(r).SetRedactor(nil)
 	return nil
 }
 

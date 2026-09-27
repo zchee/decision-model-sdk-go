@@ -17,11 +17,16 @@ package typesafe
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"log/slog"
 	"maps"
 	"net/http"
+	"net/url"
 	"reflect"
+	"slices"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -738,12 +743,15 @@ func TestDecodeAsStoredResponse(t *testing.T) {
 }
 
 // TestTypedErrorRedactsHeader checks what a typed validation error shows
-// of a credential (rulings R99 (d) and R103-rev, review W4.2 MINOR 4 and
-// V48 NIT A). The response echoes the client's API key in a header, in the
-// request id and in a probability label that T does not list, so the
-// decode fails at that label. Ask, which has the client's key, shows "***"
-// for it in the header and the request id; DecodeAs, which has none,
-// leaves both as the server sent them. Both show the label in the field
+// of a credential (rulings R99 (d), R103-rev and R114, review W4.2 MINOR 4,
+// V48 NIT A and review W6.2 MIN-5). The response echoes the client's API
+// key in two headers, in the request id and in a probability label that T
+// does not list, so the decode fails at that label. Ask, which has the
+// client's key, shows "***" for it in the header and the request id, and so
+// does DecodeAs over the same live response, which keeps its client's
+// redactor (ruling D-W6.6-decodeas-carrier; until then DecodeAs showed the
+// key). A response read back with UnmarshalJSON came from no client: its
+// Meta is empty and it keeps no redactor. Both show the label in the field
 // path and in Error as it arrived, as the SDK's other errors show a path
 // (R103-rev), and both show Set-Cookie, a credential by its name, as "***".
 // Neither changes the response's own header.
@@ -752,30 +760,39 @@ func TestTypedErrorRedactsHeader(t *testing.T) {
 	// typedSystemOneResponse's options do not list.
 	body := resultWith(spamJSON, `"tone":{"type":"choice","choice":"friendly","confidence":0.9,"probabilities":{"friendly":0.9,"`+testKey+`":0.1}}`)
 	echo := "echoed " + testKey + " back"
+	location := "https://example.test/" + testKey
 	requestID := "req-" + testKey
 	type view struct {
-		FieldPath, Cookie, Echo, RequestID, Endpoint, Error string
+		FieldPath, Cookie, Echo, Location, RequestID, Endpoint, Error string
 	}
 	path := "tone.probabilities." + testKey
+	liveResponse := func(t *testing.T, c *Client) *SystemOneResponse {
+		t.Helper()
+		resp, err := c.SystemOne(t.Context(), "x", mustPrepared(t, NewQuestions().Noul("spam", Noul{})))
+		if err != nil {
+			t.Fatalf("SystemOne: %v", err)
+		}
+		return resp
+	}
 	tests := map[string]struct {
 		typed func(*testing.T, *Client) error
 		want  view
 	}{
-		"error: DecodeAs redacts by the header's name only": {
+		"error: DecodeAs over a live response redacts as Ask does": {
 			typed: func(t *testing.T, c *Client) error {
-				resp, err := c.SystemOne(t.Context(), "x", mustPrepared(t, NewQuestions().Noul("spam", Noul{})))
-				if err != nil {
-					t.Fatalf("SystemOne: %v", err)
-				}
-				_, err = DecodeAs[typedSystemOneResponse](resp)
+				resp := liveResponse(t, c)
+				_, err := DecodeAs[typedSystemOneResponse](resp)
 				if got := resp.Meta().Header().Get("Set-Cookie"); got != "session=abc" {
 					t.Errorf("the response's own Set-Cookie = %q, want it unchanged", got)
+				}
+				if got := resp.Meta().Header().Get("X-Echo"); got != echo {
+					t.Errorf("the response's own X-Echo = %q, want it unchanged, %q", got, echo)
 				}
 				return err
 			},
 			want: view{
-				FieldPath: path, Cookie: "***", Echo: echo, RequestID: requestID,
-				Error: "200 Invalid response data at '" + path + "'. (request_id=" + requestID + ")",
+				FieldPath: path, Cookie: "***", Echo: "***", Location: "***", RequestID: "***",
+				Error: "200 Invalid response data at '" + path + "'. (request_id=***)",
 			},
 		},
 		"error: Ask redacts the header by name and by the client's key": {
@@ -784,14 +801,32 @@ func TestTypedErrorRedactsHeader(t *testing.T) {
 				return err
 			},
 			want: view{
-				FieldPath: path, Cookie: "***", Echo: "***", RequestID: "***", Endpoint: systemOneEndpoint,
+				FieldPath: path, Cookie: "***", Echo: "***", Location: "***", RequestID: "***", Endpoint: systemOneEndpoint,
 				Error: systemOneEndpoint + ": 200 Invalid response data at '" + path + "'. (request_id=***)",
 			},
+		},
+		"error: a live response read back in place keeps no redactor and no Meta": {
+			typed: func(t *testing.T, c *Client) error {
+				resp := liveResponse(t, c)
+				payload, err := resp.MarshalJSON()
+				if err != nil {
+					t.Fatalf("MarshalJSON: %v", err)
+				}
+				if err := resp.UnmarshalJSON(payload); err != nil {
+					t.Fatalf("UnmarshalJSON: %v", err)
+				}
+				if got := resp.redactor(); got != (headerRedactor{}) {
+					t.Errorf("the redactor after UnmarshalJSON = %+v, want the zero redactor: the response came from no client", got)
+				}
+				_, err = DecodeAs[typedSystemOneResponse](resp)
+				return err
+			},
+			want: view{FieldPath: path, Error: "Invalid response data at '" + path + "'."},
 		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			c := newTestClient(t, replying(http.StatusOK, body, "Set-Cookie", "session=abc", "X-Echo", echo, "x-typesafe-request-id", requestID))
+			c := newTestClient(t, replying(http.StatusOK, body, "Set-Cookie", "session=abc", "X-Echo", echo, "Location", location, "x-typesafe-request-id", requestID))
 			err := tt.typed(t, c)
 			var rve *ResponseValidationError
 			if !errors.As(err, &rve) {
@@ -799,7 +834,7 @@ func TestTypedErrorRedactsHeader(t *testing.T) {
 			}
 			id, _ := rve.RequestID()
 			got := view{
-				FieldPath: rve.FieldPath, Cookie: rve.Header.Get("Set-Cookie"), Echo: rve.Header.Get("X-Echo"), RequestID: id, Endpoint: rve.Endpoint,
+				FieldPath: rve.FieldPath, Cookie: rve.Header.Get("Set-Cookie"), Echo: rve.Header.Get("X-Echo"), Location: rve.Header.Get("Location"), RequestID: id, Endpoint: rve.Endpoint,
 				Error: rve.Error(),
 			}
 			if diff := gocmp.Diff(tt.want, got); diff != "" {
@@ -807,6 +842,267 @@ func TestTypedErrorRedactsHeader(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDecodeAsProxyParity pins rulings D-W6.6-decodeas-carrier-3 and
+// N-W6.6-c5-edge-35 (charters/w6.6.md Addendum 4): DecodeAs over a live
+// response redacts its header as Ask redacts the same answer, at every sink
+// the error has (Header, RequestID, Error), when the answer went through a
+// proxy. A plain-HTTP request through a proxy gets the proxy's own answer,
+// which repeats the proxy's credential in two headers and the request id:
+// "***" for all three from both. Over HTTPS the proxy only tunnels, and the
+// API's header, which here holds the proxy's password, is shown as the
+// server sent it by both. A response kept while the client goes through 16
+// other proxies, as many as the client's set remembers
+// (engine.MaxProxyUserinfos), still redacts its own proxy's credential, which
+// the set has forgotten by then: the response keeps a snapshot of the
+// credentials as they were when its call returned. The typed decode fails
+// at a label T does not list, so each call yields a validation error.
+func TestDecodeAsProxyParity(t *testing.T) {
+	const user = "proxy-user"
+	path := "tone.probabilities.sneaky"
+	body := resultWith(spamJSON, `"tone":{"type":"choice","choice":"friendly","confidence":0.9,"probabilities":{"friendly":0.9,"sneaky":0.1}}`)
+	// proxyAnswer is a plain-HTTP proxy's own 200: the typed body, and the
+	// credential the request carried in two headers and the request id.
+	proxyAnswer := func(pw, auth string) string {
+		return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" +
+			"X-Proxy-Echo: " + auth + "\r\nX-Proxy-Password: seen " + pw + "\r\nX-Typesafe-Request-Id: req-" + pw + "\r\n" +
+			"Content-Length: " + strconv.Itoa(len(body)) + "\r\nConnection: close\r\n\r\n" + string(body)
+	}
+	type view struct {
+		FieldPath, Echo, Password, RequestID, Error string
+	}
+	viewOf := func(t *testing.T, err error) view {
+		t.Helper()
+		rve, ok := errors.AsType[*ResponseValidationError](err)
+		if !ok {
+			t.Fatalf("err = %T %v, want *ResponseValidationError", err, err)
+		}
+		id, _ := rve.RequestID()
+		return view{
+			FieldPath: rve.FieldPath, Echo: rve.Header.Get("X-Proxy-Echo"), Password: rve.Header.Get("X-Proxy-Password"), RequestID: id,
+			Error: strings.TrimPrefix(rve.Error(), rve.Endpoint+": "),
+		}
+	}
+	ask := func(t *testing.T, c *Client) view {
+		t.Helper()
+		_, err := Ask[typedSystemOneResponse](t.Context(), c, "x", Retry(NoRetry()))
+		return viewOf(t, err)
+	}
+	live := func(t *testing.T, c *Client) *SystemOneResponse {
+		t.Helper()
+		resp, err := c.SystemOne(t.Context(), "x", mustPrepared(t, NewQuestions().Noul("spam", Noul{})), Retry(NoRetry()))
+		if err != nil {
+			t.Fatalf("SystemOne: %v", err)
+		}
+		return resp
+	}
+	decodeAs := func(t *testing.T, resp *SystemOneResponse) view {
+		t.Helper()
+		_, err := DecodeAs[typedSystemOneResponse](resp)
+		return viewOf(t, err)
+	}
+	hidden := view{FieldPath: path, Echo: redacted, Password: redacted, RequestID: redacted, Error: "200 Invalid response data at '" + path + "'. (request_id=***)"}
+
+	t.Run("error: plain HTTP through a proxy: DecodeAs redacts the proxy's answer as Ask does", func(t *testing.T) {
+		pu := newEchoingProxy(t, proxyAnswer).URL()
+		pu.User = url.UserPassword(user, "hunter2@proxy-password")
+		c := newCredentialClient(t, slog.New(slog.DiscardHandler), WithBaseURL("http://example.com"), WithProxy(http.ProxyURL(pu)))
+		byAsk, byDecodeAs := ask(t, c), decodeAs(t, live(t, c))
+		if diff := gocmp.Diff(hidden, byAsk); diff != "" {
+			t.Errorf("Ask (-want +got):\n%s", diff)
+		}
+		if diff := gocmp.Diff(byAsk, byDecodeAs); diff != "" {
+			t.Errorf("DecodeAs against Ask (-Ask +DecodeAs):\n%s", diff)
+		}
+	})
+
+	t.Run("success: HTTPS through a proxy: DecodeAs shows the API's header as Ask does", func(t *testing.T) {
+		const password = "hunter2@proxy-password"
+		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("X-Proxy-Password", "seen "+password)
+			w.Header().Set("X-Typesafe-Request-Id", "req-"+password)
+			_, _ = w.Write(body)
+		})})
+		p := testsupport.NewProxy(t, testsupport.ProxyPlain, testsupport.Routes{"example.com:443": srv.Addr()})
+		pu := p.URL()
+		pu.User = url.UserPassword(user, password)
+		c := newCredentialClient(t, slog.New(slog.DiscardHandler), WithBaseURL("https://example.com"), WithRootCAs(testsupport.RootCAs(t)), WithProxy(http.ProxyURL(pu)))
+		shown := view{FieldPath: path, Password: "seen " + password, RequestID: "req-" + password, Error: "200 Invalid response data at '" + path + "'. (request_id=req-" + password + ")"}
+		byAsk, byDecodeAs := ask(t, c), decodeAs(t, live(t, c))
+		if diff := gocmp.Diff(shown, byAsk); diff != "" {
+			t.Errorf("Ask (-want +got):\n%s", diff)
+		}
+		if diff := gocmp.Diff(byAsk, byDecodeAs); diff != "" {
+			t.Errorf("DecodeAs against Ask (-Ask +DecodeAs):\n%s", diff)
+		}
+	})
+
+	t.Run("error: a response kept while the client goes through 16 other proxies still redacts its own", func(t *testing.T) {
+		first := newEchoingProxy(t, proxyAnswer).URL()
+		first.User = url.UserPassword(user, "proxy-password-kept")
+		others := make([]*url.URL, engine.MaxProxyUserinfos)
+		for i := range others {
+			others[i] = newEchoingProxy(t, malformedEcho).URL()
+			others[i].User = url.UserPassword(user, "proxy-password-"+strconv.Itoa(i)+"-of-16")
+		}
+		var calls atomic.Int64
+		choose := func(*http.Request) (*url.URL, error) {
+			if n := int(calls.Add(1)); n > 2 {
+				return others[n-3], nil
+			}
+			return first, nil // Ask's call, then the kept response's
+		}
+		c := newCredentialClient(t, slog.New(slog.DiscardHandler), WithBaseURL("http://example.com"), WithProxy(choose))
+		byAsk := ask(t, c)
+		kept := live(t, c)
+		for i := range others {
+			_, err := c.Models().List(t.Context(), Retry(NoRetry()))
+			if _, ok := errors.AsType[*ConnectionError](err); !ok {
+				t.Fatalf("call %d through another proxy: err = %T %v, want the *ConnectionError of its malformed answer", i, err, err)
+			}
+		}
+		if slices.Contains(c.cfg().Transport.Proxies.Credentials(), "proxy-password-kept") {
+			t.Fatal("the client's set still holds the kept response's proxy: the case proves nothing")
+		}
+		if diff := gocmp.Diff(hidden, byAsk); diff != "" {
+			t.Errorf("Ask (-want +got):\n%s", diff)
+		}
+		if diff := gocmp.Diff(byAsk, decodeAs(t, kept)); diff != "" {
+			t.Errorf("DecodeAs of the kept response against Ask (-Ask +DecodeAs):\n%s", diff)
+		}
+	})
+}
+
+// TestResponseNeverPrintsKey pins ruling D-W6.6-decodeas-carrier (3) and
+// its amendments -2 and -3: a live response keeps the redactor its call
+// used, which knows the API key and, for the answer to a plain-HTTP request
+// through a proxy, the proxy's credentials, yet no fmt verb applied to the
+// response, by pointer or by value, prints any of them, and neither does a
+// dump that follows the response's pointers by reflection, as go-spew and
+// testify's failure diffs do. The redactor sits behind a func, whose
+// captures neither fmt nor reflection sees; a pointer to it would print the
+// key under %s and %q, and a reflective walk would reach it. Two controls
+// per response keep the probe honest (STANDING 9): the response's redactor
+// must redact each secret, so it does hold them, and the same walk must find
+// each behind a plain pointer to a redactor that holds it or in its proxy
+// set's credentials.
+func TestResponseNeverPrintsKey(t *testing.T) {
+	const user, password = "proxy-user", "hunter2@proxy-password"
+	body := resultWith(spamJSON)
+	tests := map[string]struct {
+		key      string
+		response func(*testing.T) (*SystemOneResponse, *engine.ProxyCreds)
+		secrets  []string // what the redactor must redact and no print may show
+	}{
+		"success: a response straight from the API": {
+			key: testKey,
+			response: func(t *testing.T) (*SystemOneResponse, *engine.ProxyCreds) {
+				c := newTestClient(t, replying(http.StatusOK, body))
+				resp, err := c.SystemOne(t.Context(), "x", mustPrepared(t, NewQuestions().Noul("spam", Noul{})))
+				if err != nil {
+					t.Fatalf("SystemOne: %v", err)
+				}
+				return resp, nil
+			},
+			secrets: []string{testKey},
+		},
+		"success: a plain-HTTP proxy's answer, with a snapshot of the proxy's credentials": {
+			key: quirkyKey,
+			response: func(t *testing.T) (*SystemOneResponse, *engine.ProxyCreds) {
+				pu := newEchoingProxy(t, func(string, string) string {
+					return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " + strconv.Itoa(len(body)) +
+						"\r\nConnection: close\r\n\r\n" + string(body)
+				}).URL()
+				pu.User = url.UserPassword(user, password)
+				c := newCredentialClient(t, slog.New(slog.DiscardHandler), WithBaseURL("http://example.com"), WithProxy(http.ProxyURL(pu)))
+				resp, err := c.SystemOne(t.Context(), "x", mustPrepared(t, NewQuestions().Noul("spam", Noul{})), Retry(NoRetry()))
+				if err != nil {
+					t.Fatalf("SystemOne: %v", err)
+				}
+				return resp, c.cfg().Transport.Proxies
+			},
+			secrets: []string{quirkyKey, password, strings.TrimPrefix(proxySecrets(user, password)[1], "Basic ")},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			resp, proxies := tt.response(t)
+			red := engine.NewHeaderRedactor(tt.key).WithProxies(proxies)
+			control := struct {
+				r *engine.HeaderRedactor
+				c engine.Credentials // the set's own, where its Basic token is
+			}{&red, proxies.Credentials()}
+			for _, secret := range tt.secrets {
+				if got := resp.redactor().Header(http.Header{"X-Echo": {"seen " + secret}}).Get("X-Echo"); got != redacted {
+					t.Fatalf("the response's redactor leaves %q in a header as %q: it does not hold it, so the probe would pass vacuously", secret, got)
+				}
+				if !reachesString(reflect.ValueOf(&control), secret, map[uintptr]bool{}) {
+					t.Fatalf("the reflective walk misses %q behind a pointer to a redactor and its credentials; it proves nothing", secret)
+				}
+			}
+			needles := append([]string{"Bearer "}, tt.secrets...)
+			for _, verb := range []string{"%v", "%+v", "%#v", "%s", "%d", "%x", "%q"} {
+				for form, v := range map[string]any{"*SystemOneResponse": resp, "SystemOneResponse": reflect.ValueOf(resp).Elem()} {
+					out := fmt.Sprintf(verb, v)
+					for _, needle := range needles {
+						if strings.Contains(out, needle) {
+							t.Errorf("%s of %s prints %q: %s", verb, form, needle, out)
+						}
+					}
+				}
+			}
+			for _, needle := range needles {
+				if reachesString(reflect.ValueOf(resp), needle, map[uintptr]bool{}) {
+					t.Errorf("a reflective walk of the response reaches %q", needle)
+				}
+			}
+		})
+	}
+}
+
+// reachesString reports whether a string or byte slice containing s is
+// reachable from v through pointers, interfaces, struct fields, arrays,
+// slices and maps, as a reflective dump follows them. A func is opaque to
+// reflection, so the walk, like the dumps, cannot look into what it holds.
+func reachesString(v reflect.Value, s string, seen map[uintptr]bool) bool {
+	switch v.Kind() {
+	case reflect.String:
+		return strings.Contains(v.String(), s)
+	case reflect.Pointer:
+		if v.IsNil() || seen[v.Pointer()] {
+			return false
+		}
+		seen[v.Pointer()] = true
+		return reachesString(v.Elem(), s, seen)
+	case reflect.Interface:
+		return !v.IsNil() && reachesString(v.Elem(), s, seen)
+	case reflect.Struct:
+		for _, f := range v.Fields() {
+			if reachesString(f, s, seen) {
+				return true
+			}
+		}
+	case reflect.Slice:
+		if v.Type().Elem().Kind() == reflect.Uint8 {
+			return bytes.Contains(v.Bytes(), []byte(s))
+		}
+		fallthrough
+	case reflect.Array:
+		for i := range v.Len() {
+			if reachesString(v.Index(i), s, seen) {
+				return true
+			}
+		}
+	case reflect.Map:
+		for it := v.MapRange(); it.Next(); {
+			if reachesString(it.Key(), s, seen) || reachesString(it.Value(), s, seen) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // TestAskPreservesAPIErrors ports test_custom_response_preserves_api_errors

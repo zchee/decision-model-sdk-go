@@ -90,7 +90,7 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 				", cannot be prepared for the JSON encoder: "+safeMessage(err.Error())+".", err)
 		}
 	}
-	return (*Client)(engine.NewClient(cfg, endpointOf(http.MethodPost, cfg.SystemOneURL), endpointOf(http.MethodGet, cfg.ModelsURL))), nil
+	return (*Client)(engine.NewClient(cfg, cfg.Redactor, endpointOf(http.MethodPost, cfg.SystemOneURL), endpointOf(http.MethodGet, cfg.ModelsURL))), nil
 }
 
 // Close releases the client's network resources: it closes the idle
@@ -245,6 +245,7 @@ func (c *Client) systemOne(ctx context.Context, state any, qs *Prepared, opts []
 	if err != nil {
 		return nil, err
 	}
+	call.Resp.SetRedactor(r.ResponseFunc(cfg.RedactorFunc()))
 	if red != nil {
 		*red = r
 	}

@@ -106,6 +106,18 @@ func (p *ProxyCreds) Record(proxy *url.URL) {
 	p.needles.Store(&n)
 }
 
+// Snapshot returns a set that holds the credentials p, which must not be
+// nil, holds now and never changes: what a response keeps to redact its
+// header after its call has returned, when p may since have forgotten the
+// proxy the response went through ([HeaderRedactor.ResponseFunc]). It costs
+// one allocation; the credentials themselves are shared, since p replaces
+// rather than changes them.
+func (p *ProxyCreds) Snapshot() *ProxyCreds {
+	s := new(ProxyCreds)
+	s.needles.Store(p.needles.Load())
+	return s
+}
+
 // Credentials returns every credential of every userinfo in p, the text
 // needles, longest first, or nil; the slice is shared and must not be
 // modified.

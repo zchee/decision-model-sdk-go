@@ -88,6 +88,12 @@ type Config[R any] struct {
 	// math/rand/v2's Float64. No option sets it: tests write it, before the
 	// client's first call, to pin the jitter of a whole call.
 	Random func() float64
+
+	// redact is the client's Redactor method value, which NewClient stores
+	// once, before the client's first request, so that every response of
+	// the client keeps it without an allocation of its own (ruling R114,
+	// D-W6.6-decodeas-carrier-2).
+	redact func() HeaderRedactor
 }
 
 // Redactor returns the redactor of the response headers the error types
@@ -95,6 +101,10 @@ type Config[R any] struct {
 // no proxy's credentials, which [Transport.ResponseRedactor] adds for the
 // response that may hold them.
 func (c *Config[R]) Redactor() HeaderRedactor { return NewHeaderRedactor(c.APIKey) }
+
+// RedactorFunc returns the client's Redactor method value, which a response
+// of the client keeps ([Response.SetRedactor]); nil before [NewClient].
+func (c *Config[R]) RedactorFunc() func() HeaderRedactor { return c.redact }
 
 // ConfigRef holds a client's *Config, so that the key is two pointers away
 // from the Client (ruling R66): fmt prints a pointer field as an address,
@@ -129,8 +139,13 @@ type Client[R any] struct {
 }
 
 // NewClient returns the state of a client configured by cfg, whose errors
-// name its endpoints systemOneEndpoint and modelsEndpoint.
-func NewClient[R any](cfg *Config[R], systemOneEndpoint, modelsEndpoint string) *Client[R] {
+// name its endpoints systemOneEndpoint and modelsEndpoint. redact is cfg's
+// Redactor method value, which the client's responses keep
+// ([Config.RedactorFunc]); the caller takes it where cfg's type is concrete,
+// since a method value taken here, in a generic function, also holds the
+// instantiation's dictionary: 24 bytes against 16.
+func NewClient[R any](cfg *Config[R], redact func() HeaderRedactor, systemOneEndpoint, modelsEndpoint string) *Client[R] {
+	cfg.redact = redact
 	return &Client[R]{cfg: &ConfigRef[R]{cfg}, systemOneEndpoint: systemOneEndpoint, modelsEndpoint: modelsEndpoint}
 }
 
@@ -168,6 +183,20 @@ func (p *Prepared) Wire() *wire.Prepared { return &p.w }
 type Response struct {
 	res  wire.SystemOneResult
 	meta wire.ResponseMeta
+	// red returns the redactor the response's call used, and is nil for a
+	// response no request made, such as one the root package's
+	// UnmarshalJSON reads back (ruling R114, D-W6.6-decodeas-carrier and
+	// -3, N-W6.6-c5-edge-35). It is the client's Redactor method value,
+	// or, for a response to a plain-HTTP request through a proxy, a func
+	// over that redactor with a snapshot of the proxies' credentials
+	// ([HeaderRedactor.ResponseFunc]). It is a func rather than a pointer
+	// to the redactor: fmt prints a pointer field's target under a verb a
+	// pointer does not take, such as %s, and a dump that follows pointers
+	// by reflection reaches its fields, the API key among them, while
+	// neither sees what a func holds. The method value is the response's
+	// one reference to its client, which keeps the client's configuration
+	// reachable while the response is.
+	red func() HeaderRedactor
 }
 
 // Result returns the decoded result.
@@ -175,6 +204,20 @@ func (r *Response) Result() *wire.SystemOneResult { return &r.res }
 
 // Meta returns the HTTP metadata: the status, the header and the body.
 func (r *Response) Meta() *wire.ResponseMeta { return &r.meta }
+
+// SetRedactor sets the func that returns the redactor of the response's
+// client ([Config.RedactorFunc]); nil drops it.
+func (r *Response) SetRedactor(red func() HeaderRedactor) { r.red = red }
+
+// Redactor returns the redactor of the response's client, or the zero
+// HeaderRedactor, which redacts by name alone, for a response no request
+// made.
+func (r *Response) Redactor() HeaderRedactor {
+	if r.red == nil {
+		return HeaderRedactor{}
+	}
+	return r.red()
+}
 
 // SystemOneAlloc is what a SystemOne call keeps on the heap, in one piece:
 // the response it returns and its first attempt's copy of the endpoint URL

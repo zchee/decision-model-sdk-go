@@ -144,6 +144,26 @@ func (r HeaderRedactor) WithProxies(proxies *ProxyCreds) HeaderRedactor {
 	return r
 }
 
+// ResponseFunc returns the func a [Response] keeps to redact its header
+// when the call has returned ([Response.SetRedactor]), for r, the redactor
+// its call used ([Transport.ResponseRedactor]). When r looks for no
+// proxy's credentials, which is every response but one to a plain-HTTP
+// request through a proxy, it returns keyOnly, the client's own method value
+// ([Config.RedactorFunc]), which costs nothing. Otherwise it returns a func
+// that gives r with its proxies' credentials as they are now
+// ([ProxyCreds.Snapshot]): the client's set holds the most recent
+// [MaxProxyUserinfos] and forgets the oldest, so a response kept while the
+// client goes through that many other proxies would otherwise lose its own
+// proxy's credential. That path costs two allocations, the snapshot and the
+// func.
+func (r HeaderRedactor) ResponseFunc(keyOnly func() HeaderRedactor) func() HeaderRedactor {
+	if r.proxies == nil {
+		return keyOnly
+	}
+	r.proxies = r.proxies.Snapshot()
+	return func() HeaderRedactor { return r }
+}
+
 // credential reports whether the values of the header name must not be
 // printed: [isCredential]'s test for r's key, or one of them holds a
 // credential of r's proxies ([ProxyCreds.inHeader]).
