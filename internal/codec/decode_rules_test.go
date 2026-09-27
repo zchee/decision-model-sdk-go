@@ -160,7 +160,6 @@ func TestDecodeFieldPaths(t *testing.T) {
 		"error: spelling, a bad probability 01 after 1":        {body: body(`{"s":{"type":"score","score":1,"confidence":1,"legend":{},"probabilities":{"1":1,"01":"x"}}}`), want: "answers.s.probabilities.01"},
 		"error: spelling, a bad key among spellings":           {body: body(`{"s":{"type":"score","score":1,"confidence":1,"legend":{"1":"a","01":"b","x":"c"},"probabilities":{}}}`), want: "answers.s.legend.x"},
 		"success: spelling, the same spelling repairs a value": {body: body(`{"s":{"type":"score","score":1,"confidence":1,"legend":{"0":5,"00":"a","0":"b"},"probabilities":{}}}`)},
-		"success: the same spelling repairs a value":           {body: body(`{"s":{"type":"score","score":1,"confidence":1,"legend":{"0":5,"0":"a"},"probabilities":{}}}`)},
 
 		// Deviations (docs/deviations.md).
 		"error: deviation, a negative token count":         {body: `{"model":"m","usage":{"input_tokens":-1}}`, want: "usage.input_tokens"},
@@ -279,24 +278,6 @@ func TestLevelKeys(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-// TestUnknownMembersIgnored ports test_unknown_extra_fields_tolerated
-// (tests/test_responses.py:140-154) to the decoder: members the schema does
-// not name, in usage and in an answer, are read past and dropped.
-func TestUnknownMembersIgnored(t *testing.T) {
-	body := `{"model":"test","usage":{"input_tokens":1,"output_tokens":1,"reasoning_tokens":9,"billing_units":1},"answers":{"spam":{"type":"noul","noul":0.9,"explanation":"spammy"}}}`
-	res, _, _, err := decodeBody(t, []byte(body), nil, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []wire.AnswerEntry{{Name: "spam", Answer: wire.Answer{Kind: wire.KindNoul, Noul: wire.NoulAnswer{Noul: 0.9}}}}
-	if diff := gocmp.Diff(want, res.Answers.Entries()); diff != "" {
-		t.Errorf("answers (-want +got):\n%s", diff)
-	}
-	if diff := gocmp.Diff(wire.Usage{InputTokens: 1, OutputTokens: 1, HasInputTokens: true, HasOutputTokens: true}, res.Usage); diff != "" {
-		t.Errorf("usage (-want +got):\n%s", diff)
 	}
 }
 

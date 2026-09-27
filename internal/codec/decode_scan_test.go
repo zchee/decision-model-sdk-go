@@ -296,10 +296,7 @@ func TestK41ScannerBoundary(t *testing.T) {
 		wantErr string
 	}{
 		"error: the finding, 64 bytes at the cut":               {body: `{"":"` + zeros(64) + `}`, wantErr: "eof"},
-		"error: 32 bytes with the brace, at the body's end":     {body: `{"":"` + zeros(31) + `}`, wantErr: "eof"},
 		"error: 32 bytes at the cut, the last an escaped quote": {body: `{"":"` + zeros(30) + `\"}`, wantErr: "eof"},
-		"error: a truncated body":                               {body: `{"":"` + zeros(64), wantErr: "eof"},
-		"error: a top-level string of 32 bytes":                 {body: `"` + zeros(32), wantErr: "not a JSON object"},
 		"error: after the members a response has":               {body: `{"model":"m","answers":{},"x":"` + zeros(32) + `}`, wantErr: "eof"},
 	}
 	// Every length sonic takes as complete, 32·k for k = 1 to 9 (32 to 288

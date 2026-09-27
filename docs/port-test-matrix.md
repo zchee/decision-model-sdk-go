@@ -160,7 +160,7 @@ Rows by status: 35 deviation, 94 ported.
 | R6 | `test_copied_response_preserves_metadata` | deviation "responses are values" + `TestResponseCopyKeepsMeta` | deviation |
 | R7 | `test_missing_raw_raises_on_access` | deviation "empty `Meta()`" + `TestZeroResponseHasEmptyMeta` | deviation |
 | R8 | `test_missing_request_id_raises_on_access` | `TestRequestIDAbsent` | ported |
-| R9 | `test_unknown_extra_fields_tolerated` | `codec.TestUnknownMembersIgnored` + `TestUnknownMembersIgnoredThroughClient` | ported |
+| R9 | `test_unknown_extra_fields_tolerated` | `TestUnknownMembersIgnoredThroughClient` | ported |
 | R10 | `test_unknown_answer_type_ignored` | `TestUnknownAnswerTypeSkipped` + `TestUnknownAnswerTypeThroughClient` | ported |
 | R11 | `test_response_preserves_nested_json` | `codec.TestStructuredLegendExactBytes` | ported |
 | R12 | `test_answer_attributes_and_dictionary_types` | `TestAnswerJSONShapes` | ported |
