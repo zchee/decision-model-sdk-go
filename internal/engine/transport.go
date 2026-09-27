@@ -38,11 +38,6 @@ type Transport struct {
 	// Gate is the SDK's transport (the default one or WithHTTPTransport's
 	// clone), nil under WithRoundTripper.
 	Gate *h2gate.Transport
-	// Idler is WithRoundTripper's RT when it has CloseIdleConnections, as
-	// an *http.Transport has.
-	Idler interface{ CloseIdleConnections() }
-	// Closer is WithRoundTripper's RT when it is an io.Closer.
-	Closer io.Closer
 	// Trace is WithClientTrace's hooks, shielded per request.
 	Trace  *httptrace.ClientTrace
 	Logger *slog.Logger
@@ -133,11 +128,11 @@ func (t *Transport) Close() error {
 			t.Gate.CloseIdleConnections()
 			return
 		}
-		if t.Idler != nil {
-			t.Idler.CloseIdleConnections()
+		if idler, ok := t.RT.(interface{ CloseIdleConnections() }); ok {
+			idler.CloseIdleConnections()
 		}
-		if t.Closer != nil {
-			t.closeErr = t.Closer.Close()
+		if closer, ok := t.RT.(io.Closer); ok {
+			t.closeErr = closer.Close()
 		}
 	})
 	return t.closeErr

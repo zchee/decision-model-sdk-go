@@ -74,9 +74,6 @@ func TestPreparedForTicketParity(t *testing.T) {
 	if diff := gocmp.Diff(want.wirePrepared().Entries(), got.wirePrepared().Entries()); diff != "" {
 		t.Errorf("PreparedFor[Ticket] tables differ from the hand-built set (-hand +typed):\n%s", diff)
 	}
-	if diff := gocmp.Diff(want.wirePrepared().LevelHint, got.wirePrepared().LevelHint); diff != "" {
-		t.Errorf("PreparedFor[Ticket] level hint (-hand +typed):\n%s", diff)
-	}
 
 	plan := typedPlanFor[Ticket]()
 	if plan.prepared != got || plan.err != nil {

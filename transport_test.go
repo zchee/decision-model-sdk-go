@@ -242,14 +242,15 @@ func TestTransportKinds(t *testing.T) {
 			if got := c.Transport.Gate != nil; got != tt.wantGate {
 				t.Fatalf("gate built: %t, want %t", got, tt.wantGate)
 			}
+			closer, _ := c.Transport.RT.(io.Closer)
 			if tt.wantGate {
-				if c.Transport.RT != c.Transport.Gate || c.Transport.Closer != nil {
-					t.Errorf("rt %T, closer %T; want the gate and no closer", c.Transport.RT, c.Transport.Closer)
+				if c.Transport.RT != c.Transport.Gate || closer != nil {
+					t.Errorf("rt %T, closer %T; want the gate and no closer", c.Transport.RT, closer)
 				}
 				return
 			}
-			if c.Transport.RT != rt || c.Transport.Closer != rt {
-				t.Errorf("rt %T, closer %T; want the Recorder for both", c.Transport.RT, c.Transport.Closer)
+			if c.Transport.RT != rt || closer != rt {
+				t.Errorf("rt %T, closer %T; want the Recorder for both", c.Transport.RT, closer)
 			}
 			if got := c.Transport.Stats(); got != (h2gate.Stats{}) {
 				t.Errorf("stats() = %+v, want zero values without the SDK's transport", got)

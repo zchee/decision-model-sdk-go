@@ -15,7 +15,6 @@
 package wire
 
 import (
-	"errors"
 	"net/http"
 	"strconv"
 	"testing"
@@ -177,10 +176,8 @@ func TestPreparedLookup(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			questions := []byte(`{"billing":{"type":"noul"}}`)
-			p, err := NewPrepared(questions, tt.entries)
-			if err != nil {
-				t.Fatalf("NewPrepared: %v", err)
-			}
+			p := new(Prepared)
+			p.init(questions, tt.entries)
 			if string(p.Questions) != string(questions) {
 				t.Errorf("Questions = %q, want %q", p.Questions, questions)
 			}
@@ -204,52 +201,6 @@ func TestPreparedLookup(t *testing.T) {
 			}
 			if diff := gocmp.Diff(tt.entries, p.Entries()); diff != "" {
 				t.Errorf("Entries() mismatch (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestNewPreparedRejectsRepeatedNames(t *testing.T) {
-	numbered := func(n int) []PreparedQuestion {
-		entries := make([]PreparedQuestion, n)
-		for i := range entries {
-			entries[i] = PreparedQuestion{Name: "q" + strconv.Itoa(i), Kind: KindNoul}
-		}
-		return entries
-	}
-	withRepeat := func(n, at int, name string) []PreparedQuestion {
-		entries := numbered(n)
-		entries[at].Name = name
-		return entries
-	}
-	tests := map[string]struct {
-		entries  []PreparedQuestion
-		wantErr  bool
-		wantName string // the repeated name the error reports
-	}{
-		"success: distinct names up to linearLimit":   {entries: numbered(linearLimit)},
-		"success: distinct names past linearLimit":    {entries: numbered(linearLimit + 1)},
-		"success: the empty name once":                {entries: []PreparedQuestion{{Name: ""}, {Name: "a"}}},
-		"error: adjacent repeat in a small set":       {entries: withRepeat(3, 1, "q0"), wantErr: true, wantName: "q0"},
-		"error: first and last of a set at the limit": {entries: withRepeat(linearLimit, linearLimit-1, "q0"), wantErr: true, wantName: "q0"},
-		"error: repeat just past linearLimit":         {entries: withRepeat(linearLimit+1, linearLimit, "q3"), wantErr: true, wantName: "q3"},
-		"error: repeat in a large set":                {entries: withRepeat(linearLimit+20, 25, "q24"), wantErr: true, wantName: "q24"},
-		"error: the empty name twice":                 {entries: []PreparedQuestion{{Name: ""}, {Name: "a"}, {Name: ""}}, wantErr: true, wantName: ""},
-	}
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			p, err := NewPrepared([]byte(`{}`), tt.entries)
-			if !tt.wantErr {
-				if err != nil || p == nil {
-					t.Fatalf("NewPrepared = %v, %v; want a set, nil", p, err)
-				}
-				return
-			}
-			if p != nil || !errors.Is(err, ErrDuplicateQuestion) {
-				t.Fatalf("NewPrepared = %v, %v; want nil, ErrDuplicateQuestion", p, err)
-			}
-			if want := ErrDuplicateQuestion.Error() + ": " + strconv.Quote(tt.wantName); err.Error() != want {
-				t.Errorf("error = %q, want %q", err, want)
 			}
 		})
 	}

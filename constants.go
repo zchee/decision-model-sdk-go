@@ -84,7 +84,6 @@ const (
 	headerSDK           = "X-TypeSafe-SDK"
 	headerRuntime       = "X-TypeSafe-Runtime"
 	headerRetryCount    = engine.HeaderRetryCount
-	headerRequestID     = "x-typesafe-request-id"
 )
 
 // jsonContentType is the media type of every request body and of every

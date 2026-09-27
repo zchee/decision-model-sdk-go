@@ -22,19 +22,6 @@ import (
 	"unicode/utf8"
 )
 
-// ErrDuplicateQuestion is returned by [NewPrepared] for a question set that
-// names a question twice.
-var ErrDuplicateQuestion = errors.New("wire: question name repeated in a prepared set")
-
-// MaxLevelHint is the largest value [Prepared.LevelHint] takes.
-//
-// The hint sizes the lists a score answer's decoder starts with. The server
-// decides how many levels an answer carries, so an unbounded hint would let a
-// request with a long scale make every response reserve that much memory up
-// front; 8 saves the one growth a list of 5 to 8 levels pays after starting at
-// 4, and a longer list grows from 8 as it would without a hint.
-const MaxLevelHint = 8
-
 // PreparedQuestion is one question of a prepared set: its name and kind, and
 // the tables the decoder interns response strings against.
 type PreparedQuestion struct {
@@ -53,62 +40,31 @@ type PreparedQuestion struct {
 // Prepared is a question set serialised once and reused by every call that
 // asks it.
 //
-// It is read-only once NewPrepared or [Builder.Finish] has made it, and safe
-// for concurrent use. The entries sit behind [Prepared.Entries] so that the
-// lookup index built over them cannot go stale.
+// It is read-only once [Builder.Finish] has made it, and safe for concurrent
+// use. The entries sit behind [Prepared.Entries] so that the lookup index
+// built over them cannot go stale.
 type Prepared struct {
 	// Questions is the compact JSON object that is the value of a request's
 	// "questions" member, spliced into every request body as is.
 	Questions []byte
-	// LevelHint is the largest number of levels of any score question in the
-	// set, capped at [MaxLevelHint], or 0 when the set has no score question
-	// with a levels table. It is a sizing hint for the decoder, never sent.
-	LevelHint int
 
 	entries []PreparedQuestion
 	index   map[string]int // nil when entries has at most linearLimit questions
 }
 
-// NewPrepared returns the prepared set of the questions whose serialised form
-// is questions and whose tables are entries. It fails with
-// [ErrDuplicateQuestion] when two entries share a name, whatever the size of
-// the set (the root package rejects a repeated name before it gets here). The
-// slices are kept, not copied: the caller must not modify them afterwards.
-func NewPrepared(questions []byte, entries []PreparedQuestion) (*Prepared, error) {
-	p := new(Prepared)
-	if err := p.init(questions, entries); err != nil {
-		return nil, err
-	}
-	return p, nil
-}
-
-// init makes p the prepared set of questions and entries, see NewPrepared.
-// p is left unchanged when it fails.
-func (p *Prepared) init(questions []byte, entries []PreparedQuestion) error {
-	hint := 0
-	for i := range entries {
-		hint = max(hint, min(len(entries[i].Levels), MaxLevelHint))
-	}
+// init makes p the prepared set of the questions whose serialised form is
+// questions and whose tables are entries. The slices are kept, not copied.
+// The names are not checked for repeats: the root package rejects a repeated
+// name before it builds the set.
+func (p *Prepared) init(questions []byte, entries []PreparedQuestion) {
 	var index map[string]int
-	if len(entries) <= linearLimit {
-		for i := range entries {
-			for j := range i {
-				if entries[j].Name == entries[i].Name {
-					return fmt.Errorf("%w: %q", ErrDuplicateQuestion, entries[i].Name)
-				}
-			}
-		}
-	} else {
+	if len(entries) > linearLimit {
 		index = make(map[string]int, len(entries))
 		for i := range entries {
-			if _, ok := index[entries[i].Name]; ok {
-				return fmt.Errorf("%w: %q", ErrDuplicateQuestion, entries[i].Name)
-			}
 			index[entries[i].Name] = i
 		}
 	}
-	*p = Prepared{Questions: questions, LevelHint: hint, entries: entries, index: index}
-	return nil
+	*p = Prepared{Questions: questions, entries: entries, index: index}
 }
 
 // Entries returns the questions in the order they were added. The slice is
@@ -371,13 +327,12 @@ func (b *Builder) Raw(name, typ string, fields map[string]any, leaf Leaf) error 
 	return nil
 }
 
-// Finish closes the JSON object and makes *p the prepared set, as
-// [NewPrepared] would, so that a caller holding a Prepared inside a larger
-// value does not pay a second allocation. Questions has no spare capacity: an
-// append to it copies instead of writing into memory the set shares. p is
-// left unchanged when Finish fails, and the Builder must not be used
+// Finish closes the JSON object and makes *p the prepared set, so that a
+// caller holding a Prepared inside a larger value does not pay a second
+// allocation. Questions has no spare capacity: an append to it copies instead
+// of writing into memory the set shares. The Builder must not be used
 // afterwards.
-func (b *Builder) Finish(p *Prepared) error {
+func (b *Builder) Finish(p *Prepared) {
 	if len(b.buf) == 0 {
 		b.buf = append(b.buf, '{')
 	}
@@ -385,5 +340,5 @@ func (b *Builder) Finish(p *Prepared) error {
 	for _, s := range b.spans {
 		b.entries[s.entry].Levels[s.level].JSON = b.buf[s.start:s.end:s.end]
 	}
-	return p.init(b.buf, b.entries)
+	p.init(b.buf, b.entries)
 }

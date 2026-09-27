@@ -15,10 +15,13 @@
 package typesafe
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	gocmp "github.com/google/go-cmp/cmp"
+
+	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
 // TestConstantsMatchPython pins every name and default the SDK shares with
@@ -43,7 +46,7 @@ func TestConstantsMatchPython(t *testing.T) {
 		"SDK_HEADER":                    headerSDK,
 		"RUNTIME_HEADER":                headerRuntime,
 		"RETRY_COUNT_HEADER":            headerRetryCount,
-		"REQUEST_ID_HEADER":             headerRequestID,
+		"REQUEST_ID_HEADER":             strings.ToLower(wire.RequestIDHeader),
 		"DefaultConnectTimeout":         DefaultConnectTimeout,
 		"DefaultMaxResponseBytes (NF5)": int64(DefaultMaxResponseBytes),
 	}

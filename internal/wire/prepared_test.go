@@ -39,7 +39,6 @@ func TestBuilder(t *testing.T) {
 		build       func(b *Builder) error
 		want        string
 		wantEntries []PreparedQuestion
-		wantHint    int
 	}{
 		"success: nothing written is an empty object": {
 			build:       func(*Builder) error { return nil },
@@ -85,7 +84,6 @@ func TestBuilder(t *testing.T) {
 			wantEntries: []PreparedQuestion{{Name: "urgency", Kind: KindScore, Levels: []Content{
 				{Text: "low"}, {JSON: []byte(`{"extra":null}`)}, {Text: "high"},
 			}}},
-			wantHint: 3,
 		},
 		"success: raw fields in sorted order after type": {
 			build: func(b *Builder) error {
@@ -121,7 +119,6 @@ func TestBuilder(t *testing.T) {
 				}
 				return []PreparedQuestion{{Name: "a", Kind: KindNoul}, {Name: "b", Kind: KindScore, Levels: levels[:3]}, {Name: "c", Kind: KindScore, Levels: levels}}
 			}(),
-			wantHint: MaxLevelHint,
 		},
 	}
 	for name, tt := range tests {
@@ -132,17 +129,12 @@ func TestBuilder(t *testing.T) {
 				t.Fatalf("build: %v", err)
 			}
 			var p Prepared
-			if err := b.Finish(&p); err != nil {
-				t.Fatalf("Finish: %v", err)
-			}
+			b.Finish(&p)
 			if string(p.Questions) != tt.want {
 				t.Errorf("Questions =\n%s\nwant\n%s", p.Questions, tt.want)
 			}
 			if diff := gocmp.Diff(tt.wantEntries, p.Entries()); diff != "" {
 				t.Errorf("Entries() mismatch (-want +got):\n%s", diff)
-			}
-			if p.LevelHint != tt.wantHint {
-				t.Errorf("LevelHint = %d, want %d", p.LevelHint, tt.wantHint)
 			}
 			if cap(p.Questions) != len(p.Questions) {
 				t.Errorf("cap(Questions) = %d, want len %d: spare capacity would be shared", cap(p.Questions), len(p.Questions))
@@ -325,68 +317,6 @@ func TestBuilderErrors(t *testing.T) {
 			}
 			if me != nil && me.Member != tt.wantMember {
 				t.Errorf("Member = %q, want %q", me.Member, tt.wantMember)
-			}
-		})
-	}
-}
-
-// TestBuilderFinishRejectsRepeatedNames checks that Finish fails as
-// NewPrepared does on a repeated name, on both lookup paths, and leaves the
-// destination as it was.
-func TestBuilderFinishRejectsRepeatedNames(t *testing.T) {
-	tests := map[string]struct {
-		n        int // questions written, all named "q<i>" except the last
-		wantName string
-	}{
-		"error: a repeat in a small set":   {n: 3, wantName: "q0"},
-		"error: a repeat past linearLimit": {n: linearLimit + 3, wantName: "q0"},
-	}
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			var b Builder
-			for i := range tt.n {
-				qname := "q" + strconv.Itoa(i)
-				if i == tt.n-1 {
-					qname = tt.wantName
-				}
-				if err := b.Noul(qname, nil, nil, nil); err != nil {
-					t.Fatalf("Noul: %v", err)
-				}
-			}
-			p := Prepared{LevelHint: -1}
-			err := b.Finish(&p)
-			if !errors.Is(err, ErrDuplicateQuestion) {
-				t.Fatalf("Finish error = %v, want ErrDuplicateQuestion", err)
-			}
-			if p.LevelHint != -1 || p.Questions != nil || p.Entries() != nil {
-				t.Errorf("Finish changed its destination on failure: %+v", p)
-			}
-		})
-	}
-}
-
-func TestNewPreparedLevelHint(t *testing.T) {
-	levels := func(n int) []Content { return make([]Content, n) }
-	tests := map[string]struct {
-		entries []PreparedQuestion
-		want    int
-	}{
-		"success: no score":              {entries: []PreparedQuestion{{Name: "a", Kind: KindNoul}}, want: 0},
-		"success: a score with 3 levels": {entries: []PreparedQuestion{{Name: "a", Kind: KindScore, Levels: levels(3)}}, want: 3},
-		"success: the largest score wins": {
-			entries: []PreparedQuestion{{Name: "a", Levels: levels(5)}, {Name: "b", Levels: levels(2)}},
-			want:    5,
-		},
-		"success: capped at MaxLevelHint": {entries: []PreparedQuestion{{Name: "a", Levels: levels(MaxLevelHint + 1)}}, want: MaxLevelHint},
-	}
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			p, err := NewPrepared([]byte(`{}`), tt.entries)
-			if err != nil {
-				t.Fatalf("NewPrepared: %v", err)
-			}
-			if p.LevelHint != tt.want {
-				t.Errorf("LevelHint = %d, want %d", p.LevelHint, tt.want)
 			}
 		})
 	}

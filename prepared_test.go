@@ -27,8 +27,7 @@ import (
 
 // TestPreparedTables checks what Prepare records besides the bytes: the
 // names in order, each choice's labels, each score's levels (text as given,
-// structured levels as their compact bytes inside the prepared object) and
-// the decoder's level hint.
+// structured levels as their compact bytes inside the prepared object).
 func TestPreparedTables(t *testing.T) {
 	twelve := make([]Content, 12)
 	for i := range twelve {
@@ -38,7 +37,6 @@ func TestPreparedTables(t *testing.T) {
 		qs          *Questions
 		wantNames   []string
 		wantEntries []wire.PreparedQuestion
-		wantHint    int
 	}{
 		"success: one question of each form": {
 			qs: NewQuestions().
@@ -54,7 +52,6 @@ func TestPreparedTables(t *testing.T) {
 				// A raw question has no tables, whatever its type.
 				{Name: "spam", Kind: wire.KindChoice},
 			},
-			wantHint: 2,
 		},
 		"success: the hint is capped": {
 			qs:        NewQuestions().Score("a", Score{Levels: twelve[:3]}).Score("b", Score{Levels: twelve}),
@@ -66,7 +63,6 @@ func TestPreparedTables(t *testing.T) {
 				}
 				return []wire.PreparedQuestion{{Name: "a", Kind: wire.KindScore, Levels: levels[:3]}, {Name: "b", Kind: wire.KindScore, Levels: levels}}
 			}(),
-			wantHint: wire.MaxLevelHint,
 		},
 		"success: many distinct options": {
 			qs: NewQuestions().Choice("tone", Choice{Options: func() Options {
@@ -123,9 +119,6 @@ func TestPreparedTables(t *testing.T) {
 			}
 			if diff := gocmp.Diff(tt.wantEntries, p.wirePrepared().Entries()); diff != "" {
 				t.Errorf("tables mismatch (-want +got):\n%s", diff)
-			}
-			if p.wirePrepared().LevelHint != tt.wantHint {
-				t.Errorf("LevelHint = %d, want %d", p.wirePrepared().LevelHint, tt.wantHint)
 			}
 			if cap(p.wirePrepared().Questions) != len(p.wirePrepared().Questions) {
 				t.Errorf("cap(Questions) = %d, want len %d", cap(p.wirePrepared().Questions), len(p.wirePrepared().Questions))

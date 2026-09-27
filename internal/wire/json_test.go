@@ -289,9 +289,7 @@ func TestBuilderRawValues(t *testing.T) {
 				t.Fatalf("Raw: %v", err)
 			}
 			var p Prepared
-			if err := b.Finish(&p); err != nil {
-				t.Fatalf("Finish: %v", err)
-			}
+			b.Finish(&p)
 			if want := `{"r":{"type":"future","v":` + tt.want + `}}`; string(p.Questions) != want {
 				t.Errorf("Questions = %s, want %s", p.Questions, want)
 			}
@@ -351,9 +349,7 @@ func TestBuilderRawKeyStack(t *testing.T) {
 			if err := b2.Raw("q1", "future", tt.fields, nil); err != nil {
 				t.Fatal(err)
 			}
-			if err := b2.Finish(&p); err != nil {
-				t.Fatal(err)
-			}
+			b2.Finish(&p)
 			want := `{"q1":{"type":"future"` + refMembers(tt.fields) + `}}`
 			if string(p.Questions) != want {
 				t.Errorf("Questions =\n%s\nwant\n%s", p.Questions, want)

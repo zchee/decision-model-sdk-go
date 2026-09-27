@@ -23,27 +23,13 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
-// decodeSystemOne decodes the body of a successful System One response,
-// meta.Body, into *dst. qs is the question set the request asked and model
-// the model it named: the answers' strings are theirs where equal
-// (codec.DecodeSystemOne), so the result never aliases the body. A body the
-// decoder refuses is a [*ResponseValidationError] naming the first failure
-// the Python SDK would report.
-//
-// Every answer of a type this version does not model is dropped and logged
-// at WARN through logger, as the Python SDK logs "Ignoring answer %r with
-// unrecognized type %r": at most [codec.MaxSkipped] lines per response,
-// each with the answer's name and type escaped and cut at 128 characters,
-// then one line counting the rest. The lines are logged even when the decode
-// then fails, for the answers the Python SDK would have logged before
-// failing. A nil logger logs nothing. r redacts the error's header
-// ([headerRedactor]).
-func decodeSystemOne(ctx context.Context, logger *slog.Logger, meta *wire.ResponseMeta, endpoint string, r headerRedactor, qs *Prepared, model string, dst *wire.SystemOneResult) error {
-	return decodeSystemOneInto(ctx, logger, meta, endpoint, r, qs, model, dst, nil)
-}
-
-// decodeSystemOneInto is decodeSystemOne with spare as the room for the
-// answers ([engine.DecodeSystemOneInto], which logs the WARN lines).
+// decodeSystemOneInto decodes the body of a successful System One response,
+// meta.Body, into *dst, with spare as the room for the answers
+// ([engine.DecodeSystemOneInto], which logs at WARN through logger the
+// answers of a type this version does not model). qs is the question set the
+// request asked and model the model it named. A body the decoder refuses is a
+// [*ResponseValidationError] naming the first failure the Python SDK would
+// report, whose header r redacts.
 func decodeSystemOneInto(ctx context.Context, logger *slog.Logger, meta *wire.ResponseMeta, endpoint string, r headerRedactor, qs *Prepared, model string, dst *wire.SystemOneResult, spare []wire.AnswerEntry) error {
 	var q *wire.Prepared
 	if qs != nil {

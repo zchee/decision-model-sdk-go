@@ -237,10 +237,7 @@ func (qs *Questions) Prepare() (*Prepared, error) {
 		}
 	}
 	p := new(Prepared)
-	if err := b.Finish(p.wirePrepared()); err != nil {
-		// Unreachable: the names were checked above.
-		return nil, newConfigError("Question set cannot be prepared: "+err.Error(), err)
-	}
+	b.Finish(p.wirePrepared())
 	return p, nil
 }
 

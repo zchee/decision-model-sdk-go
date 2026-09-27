@@ -16,7 +16,6 @@ package typesafe
 
 import (
 	"errors"
-	"io"
 	"strconv"
 
 	"github.com/zchee/typesafe-sdk-go/internal/codec"
@@ -112,18 +111,4 @@ func encodeError(member string, err error) *InvalidRequestError {
 		msg = append(msg, "; send string(b) for text or RawJSON(b) for JSON"...)
 	}
 	return newInvalidRequestError(string(msg), err)
-}
-
-// requestReaders returns what an http.Request carries to send body: a reader
-// for its Body, the GetBody function a replay or a retry reads the same bytes
-// again through, and its ContentLength. Every reader holds a reference to the
-// body until the transport closes it, so the scratch buffer is reused only
-// after the last one is closed and the call has dropped its own reference
-// with Release. It fails with codec.ErrBodyReleased when the body is gone.
-func requestReaders(body codec.Body) (io.ReadCloser, func() (io.ReadCloser, error), int64, error) {
-	r, err := body.GetBody()
-	if err != nil {
-		return nil, nil, 0, err
-	}
-	return r, body.GetBody, int64(body.Len()), nil
 }

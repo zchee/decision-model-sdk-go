@@ -81,7 +81,7 @@ func TestMalformedResponseFieldPaths(t *testing.T) {
 			body += "}"
 			meta := &wire.ResponseMeta{Status: http.StatusOK, Header: headers("X-Typesafe-Request-Id", "req-123"), Body: []byte(body)}
 			var dst wire.SystemOneResult
-			err := decodeSystemOne(t.Context(), nil, meta, systemOneEndpoint, headerRedactor{}, noulQuestion(t), "jev-latest", &dst)
+			err := decodeSystemOneInto(t.Context(), nil, meta, systemOneEndpoint, headerRedactor{}, noulQuestion(t), "jev-latest", &dst, nil)
 			rve := validationError(t, err)
 			if rve.FieldPath != tt.path || rve.StatusCode != http.StatusOK || string(rve.Body) != body {
 				t.Errorf("field path %q status %d body %q, want %q 200 %q", rve.FieldPath, rve.StatusCode, rve.Body, tt.path, body)
@@ -132,7 +132,7 @@ func TestModelsMissingMemberPath(t *testing.T) {
 func TestFieldPathIsEscapedInError(t *testing.T) {
 	body := `{"model":"m","usage":{},"answers":{"a\nb\\":{"type":"noul"}}}`
 	var dst wire.SystemOneResult
-	rve := validationError(t, decodeSystemOne(t.Context(), nil, &wire.ResponseMeta{Status: 200, Body: []byte(body)}, "", headerRedactor{}, nil, "", &dst))
+	rve := validationError(t, decodeSystemOneInto(t.Context(), nil, &wire.ResponseMeta{Status: 200, Body: []byte(body)}, "", headerRedactor{}, nil, "", &dst, nil))
 	if want := `answers.a\nb\\.noul`; rve.FieldPath != want {
 		t.Errorf("FieldPath = %q, want %q", rve.FieldPath, want)
 	}
@@ -151,7 +151,7 @@ func TestUnknownAnswerTypeSkipped(t *testing.T) {
 	rec := testsupport.NewLogRecorder(slog.LevelDebug)
 	meta := &wire.ResponseMeta{Status: http.StatusOK, Header: headers("X-Typesafe-Request-Id", "req-9"), Body: body}
 	var dst wire.SystemOneResult
-	if err := decodeSystemOne(t.Context(), rec.Logger(), meta, systemOneEndpoint, headerRedactor{}, noulQuestion(t), "test", &dst); err != nil {
+	if err := decodeSystemOneInto(t.Context(), rec.Logger(), meta, systemOneEndpoint, headerRedactor{}, noulQuestion(t), "test", &dst, nil); err != nil {
 		t.Fatal(err)
 	}
 	want := []wire.AnswerEntry{{Name: "spam", Answer: wire.Answer{Kind: wire.KindNoul, Noul: wire.NoulAnswer{Noul: 0.9}}}}
@@ -209,7 +209,7 @@ func TestUnknownAnswerTypeWarnCap(t *testing.T) {
 			body := `{"model":"m","usage":{},"answers":{` + strings.Join(tt.answers, ",") + `}}`
 			rec := testsupport.NewLogRecorder(nil)
 			var dst wire.SystemOneResult
-			if err := decodeSystemOne(t.Context(), rec.Logger(), &wire.ResponseMeta{Status: 200, Body: []byte(body)}, "", headerRedactor{}, nil, "m", &dst); err != nil {
+			if err := decodeSystemOneInto(t.Context(), rec.Logger(), &wire.ResponseMeta{Status: 200, Body: []byte(body)}, "", headerRedactor{}, nil, "m", &dst, nil); err != nil {
 				t.Fatal(err)
 			}
 			var got []string
@@ -230,7 +230,7 @@ func TestSkippedAnswersLogWithoutALogger(t *testing.T) {
 	rec := testsupport.NewLogRecorder(slog.LevelError)
 	for _, logger := range []*slog.Logger{nil, rec.Logger(), slog.New(slog.DiscardHandler)} {
 		var dst wire.SystemOneResult
-		if err := decodeSystemOne(t.Context(), logger, &wire.ResponseMeta{Status: 200, Body: body}, "", headerRedactor{}, nil, "", &dst); err != nil {
+		if err := decodeSystemOneInto(t.Context(), logger, &wire.ResponseMeta{Status: 200, Body: body}, "", headerRedactor{}, nil, "", &dst, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -285,7 +285,7 @@ func TestMalformedFixturesRefused(t *testing.T) {
 			body := testsupport.Fixture(t, name)
 			meta := &wire.ResponseMeta{Status: http.StatusOK, Body: body}
 			var dst wire.SystemOneResult
-			err := decodeSystemOne(t.Context(), nil, meta, systemOneEndpoint, headerRedactor{}, nil, "", &dst)
+			err := decodeSystemOneInto(t.Context(), nil, meta, systemOneEndpoint, headerRedactor{}, nil, "", &dst, nil)
 			path, reject := want[name]
 			if !reject {
 				if err != nil {

@@ -49,7 +49,6 @@ Each reason starts with its class:
 | `errors.go` | `(*ConnectionError).typesafeError` | `{}` | 1 | Defensive: the unexported marker method that seals the `Error` interface; nothing calls it. |
 | `errors.go` | `(*TimeoutError).typesafeError` | `{}` | 1 | Defensive: the unexported marker method that seals the `Error` interface; nothing calls it. |
 | `errors.go` | `parsePythonFloat` | `return 0, false` | 1 | Defensive: the scan above admits only text that `strconv.ParseFloat` parses, and `ErrRange` is accepted. |
-| `questions.go` | `(*Questions).Prepare` | `return nil, newConfigError("Question set cannot be prepared: "+err.Error(), err)` | 1 | Defensive: the names were checked above, and `Finish` fails only on them. |
 | `retry.go` | `(*retryState).wait` | `return waitError(ctx)` | 0-1 | Race: a context that ends at the instant the backoff timer fires. |
 | `retry.go` | `roundMillis` | `return seconds` | 1 | Defensive: `'f'` formatting always parses back. |
 | `text.go` | `(*pathText).fixed` | `return` | 1 | Gap: a field path that is already cut when more of the SDK's own text follows. |

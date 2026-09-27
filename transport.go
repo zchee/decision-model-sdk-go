@@ -18,7 +18,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptrace"
@@ -333,8 +332,6 @@ func (t *transportOptions) build(api *url.URL, connectTimeout time.Duration, con
 			return nil, newConfigError("The round tripper passed to WithRoundTripper must not be nil.")
 		}
 		tr.RT = t.roundTripper
-		tr.Idler, _ = t.roundTripper.(interface{ CloseIdleConnections() })
-		tr.Closer, _ = t.roundTripper.(io.Closer)
 		return tr, nil
 	}
 	mode := defaultHTTPVersion(api.Scheme)

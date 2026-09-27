@@ -115,9 +115,7 @@ func questionsFor(tb testing.TB, res *wire.SystemOneResult) *wire.Prepared {
 		}
 	}
 	p := new(wire.Prepared)
-	if err := b.Finish(p); err != nil {
-		tb.Fatal(err)
-	}
+	b.Finish(p)
 	return p
 }
 
