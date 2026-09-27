@@ -21,9 +21,9 @@ import "unicode/utf8"
 // ValidString reports whether s is valid UTF-8 and free of the raw control
 // characters U+0000 to U+001F, which JSON forbids inside a string and the
 // Python SDK's parser rejects. sonic accepts both (invalid UTF-8 and raw
-// control characters pass every sonic path, port plan section 3.3), so the
-// response decoder runs this check on the strings it is handed. It makes one
-// pass over s and allocates nothing.
+// control characters pass every sonic path), so the response decoder runs
+// this check on the strings it is handed. It makes one pass over s and
+// allocates nothing.
 //
 // s must be the raw text between a JSON string's quotes, before escape
 // sequences are decoded. sonic's ast.Visitor delivers exactly that for a
@@ -50,9 +50,12 @@ func ValidString(s string) bool {
 	return true
 }
 
-// validUTF8Portable reports whether b is valid UTF-8 with Go's own
-// validator, utf8.Valid: the check of ruling R48 on every architecture but
-// amd64 (validate_arm64.go). It lives in a file of every architecture so
-// that amd64's tests hold sonic's validator to it (TestValidUTF8Parity,
-// FuzzValidUTF8).
+// validUTF8Portable reports whether b is valid UTF-8 with Go's own validator,
+// utf8.Valid. validUTF8, the check of an encoded state and of every other
+// member of a request body before the body leaves the process, is chosen per
+// architecture: on amd64 it is sonic's SIMD validator, 2 to 3 times
+// utf8.Valid's speed on ASCII and about 9 times on CJK text; on arm64 it is
+// this function, since sonic's validator reads ASCII 15 to 22 times slower
+// there. It lives in a file of every architecture so that amd64's tests hold
+// sonic's validator to it (TestValidUTF8Parity, FuzzValidUTF8).
 func validUTF8Portable(b []byte) bool { return utf8.Valid(b) }

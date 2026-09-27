@@ -18,14 +18,10 @@ package codec
 
 import sonicutf8 "github.com/bytedance/sonic/utf8"
 
-// validUTF8 reports whether b is valid UTF-8: the check of ruling R48 over
-// an encoded state and every other member of a request body, which
-// EncodeState and EncodeValue make before a body leaves the process. On
-// amd64 it is sonic's SIMD validator over the whole input (owner ruling
-// G8-b on R54: per architecture), which W5.3's probe measured at 2 to 3
-// times utf8.Valid's speed on ASCII and about 9 times on CJK text (ledger
-// W5.3-79); validate_arm64.go keeps utf8.Valid, where sonic's validator
-// reads ASCII 15 to 22 times slower (W5.3-80). TestValidUTF8Parity and
-// FuzzValidUTF8 hold it to validUTF8Portable, utf8.Valid itself, on every
-// string of up to three bytes and around sonic's 32-byte blocks.
+// validUTF8 reports whether b is valid UTF-8, the check that EncodeState and
+// EncodeValue make before a body leaves the process. On amd64 it is sonic's
+// SIMD validator over the whole input, faster than utf8.Valid there
+// (validate.go says by how much). TestValidUTF8Parity and FuzzValidUTF8 hold
+// it to validUTF8Portable, utf8.Valid itself, on every string of up to three
+// bytes and around sonic's 32-byte blocks.
 func validUTF8(b []byte) bool { return sonicutf8.Validate(b) }

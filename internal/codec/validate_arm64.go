@@ -16,11 +16,8 @@
 
 package codec
 
-// validUTF8 reports whether b is valid UTF-8: the check of ruling R48 over
-// an encoded state and every other member of a request body, which
-// EncodeState and EncodeValue make before a body leaves the process. On
-// arm64 it is utf8.Valid (validUTF8Portable): W5.3's probe measured
-// sonic's arm64 validator 15 to 22 times slower than utf8.Valid on ASCII
-// (ledger W5.3-80), so the owner's per-architecture choice (ruling G8-b on
-// R54) keeps Go's here and takes sonic's on amd64 (validate_amd64.go).
+// validUTF8 reports whether b is valid UTF-8, the check that EncodeState and
+// EncodeValue make before a body leaves the process. On arm64 it is
+// utf8.Valid (validUTF8Portable), since sonic's validator is slower there
+// (validate.go says by how much); amd64 takes sonic's (validate_amd64.go).
 func validUTF8(b []byte) bool { return validUTF8Portable(b) }

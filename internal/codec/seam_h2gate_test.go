@@ -16,12 +16,11 @@
 
 package codec
 
-// The internal/h2gate rows of the seam tests (W2.2), in their own file so the
-// wave does not edit seam_test.go, which W2.0 owns. TestSeamImports already
-// forbids root and internal/codec imports in internal/h2gate, and
-// TestSeamTransitiveImports keeps them out of its dependencies; these rows add
-// that the package itself is standard-library only (it runs on the gotip
-// canary, K5), and that its tests add only internal/testsupport and go-cmp.
+// The internal/h2gate rows of the seam tests. TestSeamImports already forbids
+// root and internal/codec imports in internal/h2gate, and
+// TestSeamTransitiveImports keeps them out of its dependencies; these rows
+// add that the package itself is standard-library only (it runs on the gotip
+// canary), and that its tests add only internal/testsupport and go-cmp.
 //
 // Mutation checks: each change below, planted in a copy of the tree, makes
 // the named test fail.

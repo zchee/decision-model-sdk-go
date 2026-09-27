@@ -16,17 +16,18 @@
 
 package codec
 
-// The raw control-character rule of ruling R23. sonic delivers a string
-// without escape sequences as the raw text between its quotes and a string
-// with one decoded, and it accepts a raw byte below 0x20 inside a string on
-// every path (Preorder, Skip, ValidString, UnmarshalString). A delivered
-// string holding such a byte therefore came either from a legal escape such
-// as \n, or from the raw byte, which JSON forbids and the Python SDK's parser
-// rejects. Only the body can tell the two apart, so the first delivered
-// string that holds one makes the decoder ask the body once: [hasControlByte]
-// finds whether the body holds any byte below 0x20 at all (a compact body
-// holds none, so a legal escape costs one word-at-a-time pass), and only then
-// [controlInString] tracks string boundaries to find one inside a string.
+// The rule that no string holds a raw control character. sonic delivers a
+// string without escape sequences as the raw text between its quotes and a
+// string with one decoded, and it accepts a raw byte below 0x20 inside a
+// string on every path (Preorder, Skip, ValidString, UnmarshalString). A
+// delivered string holding such a byte therefore came either from a legal
+// escape such as \n, or from the raw byte, which JSON forbids and the Python
+// SDK's parser rejects. Only the body can tell the two apart, so the first
+// delivered string that holds one makes the decoder ask the body once:
+// [hasControlByte] finds whether the body holds any byte below 0x20 at all (a
+// compact body holds none, so a legal escape costs one word-at-a-time pass),
+// and only then [controlInString] tracks string boundaries to find one inside
+// a string.
 
 const (
 	swarOnes = 0x0101010101010101

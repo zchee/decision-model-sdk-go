@@ -24,7 +24,7 @@ var structuredMark = make([]byte, 0)
 
 // linearFold is the number of entries up to which a fold scans what it has
 // kept instead of hashing the key. Past it, a scratch map keeps a legend or
-// a probability list of 10^4 entries linear in time (AC-P8).
+// a probability list of 10^4 entries linear in time.
 const linearFold = 16
 
 // linearSet is the number of answers up to which the answer set is searched
@@ -151,14 +151,15 @@ func (v *visitor) spellingFailure(n int, key func(int) string, bad func(int) boo
 // the value of its last (Python's dict, keyed by the parsed level). A
 // structured level holds structuredMark until the lazy pass.
 //
-// Keys that spell one level differently ("1" and "01") fold into one level
-// in wire order, while the Python SDK folds equal spellings first; the two
-// values differ only when both kinds of repeat meet in one legend (a W7
-// deviation row). The verdict and the path follow the Python SDK even then:
-// when a level has more than one spelling, spellingFailure validates each
-// spelling's last value, so a bad value under one spelling fails although
-// another spelling supersedes it, at the failing spelling (review W2.0
-// MINOR 2, ruling R73).
+// Keys that spell one level differently ("1" and "01") fold into one level in
+// wire order, while the Python SDK folds equal spellings first. The value
+// differs from the Python SDK's only when a legend repeats a spelling and
+// also spells that level another way (docs/deviations.md,
+// "one level under several spellings"); the position, the verdict and the
+// failing path are the Python SDK's: when a level has more than one
+// spelling, spellingFailure validates each spelling's last value, so a bad
+// value under one spelling fails although another spelling supersedes it, at
+// the failing spelling.
 func (v *visitor) foldLegend(e *entry) pend {
 	n := len(v.legend)
 	legend := make([]wire.LegendEntry, 0, n)
@@ -338,10 +339,10 @@ func (v *visitor) levelMap(n int) {
 	clear(v.lvlIdx)
 }
 
-// parseLevel parses a level key with the grammar [+]?[0-9]+ into a uint32
-// (plan 6.2.6): "1", "+1", "01" and "+01" are level 1; a sign other than a
-// leading "+", a space, an underscore, a point, an empty key and a value
-// past 2^32-1 fail. pydantic's lax int takes more (Appendix B).
+// parseLevel parses a level key with the grammar [+]?[0-9]+ into a uint32:
+// "1", "+1", "01" and "+01" are level 1; a sign other than a leading "+", a
+// space, an underscore, a point, an empty key and a value past 2^32-1 fail.
+// pydantic's lax int takes more (docs/deviations.md, "score level keys").
 func parseLevel(key string) (uint32, bool) {
 	s := key
 	if len(s) > 0 && s[0] == '+' {

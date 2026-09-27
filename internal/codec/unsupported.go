@@ -14,12 +14,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// This file is the SDK's deliberate compile error (decision D1 of the port
-// plan). The SDK's only JSON codec is github.com/bytedance/sonic, whose JIT
-// path compiles only for Go 1.17 to 1.27 on amd64 and arm64; anywhere else
-// sonic would fall back to encoding/json and print a warning at init, so the
-// SDK refuses to compile there instead of running on a codec it was never
-// measured with.
+// This file is the SDK's deliberate compile error, the D1 refusal that
+// docs/support.md describes. The SDK's only JSON codec is
+// github.com/bytedance/sonic, whose JIT path compiles only for
+// Go 1.17 to 1.27 on amd64 and arm64; anywhere else sonic would fall back to
+// encoding/json and print a warning at init, so the SDK refuses to compile
+// there instead of running on a codec it was never measured with.
 //
 // Off that matrix this is the only file of the package (every other file,
 // tests included, carries the complementary constraint
@@ -28,8 +28,8 @@
 //
 //	undefined: typesafe_sdk_go_requires_go1_17_to_go1_27_on_amd64_or_arm64
 //
-// On the Go 1.28 release both constraints move together (pre-mortem PM5): see
-// the bump procedure in docs/support.md.
+// On the Go 1.28 release both constraints move together: see the bump
+// procedure in docs/support.md.
 
 package codec
 

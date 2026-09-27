@@ -33,19 +33,18 @@ import (
 	"testing"
 )
 
-// rootStoreFile is the one non-test file of the root package that may
-// import unsafe (owner ruling R116): the typed decode's store, which writes
-// a decoded answer into T's field at the offset reflect gave it. Every other
-// file of the root package, and of each package the root package imports,
-// writes through no raw pointer by any route (K40).
+// rootStoreFile is the one non-test file of the root package that may import
+// unsafe: the typed decode's store, which writes a decoded answer into T's
+// field at the offset reflect gave it. Every other file of the root package,
+// and of each package the root package imports, writes through no raw pointer
+// by any route.
 const rootStoreFile = "decodeas_store.go"
 
 // rootCodeDirs are the directories of the root package's own code: the
-// package itself and internal/engine, which holds the stages of a call that
-// W6.5 moved out of it. Every rule the seam tests hold the root package to
-// holds internal/engine item for item (review V77 MINOR 1), except that no
-// file of internal/engine may import unsafe: rootStoreFile stays in the root
-// package (rulings R116 and D-W6.5-design 6.1, 6.2).
+// package itself and internal/engine, which holds the stages of a call. Every
+// rule the seam tests hold the root package to holds internal/engine item for
+// item, except that no file of internal/engine may import unsafe:
+// rootStoreFile stays in the root package.
 var rootCodeDirs = []string{".", "internal/engine"}
 
 // sourceExts are the extensions of the files, other than .go files, that the
@@ -53,7 +52,7 @@ var rootCodeDirs = []string{".", "internal/engine"}
 // SFiles, and the C, C++, Objective-C, Fortran, SWIG and syso files). A
 // function declared without a body in a Go file and defined in one of them
 // writes through whatever pointer it is handed, with no unsafe import and no
-// selector of rawPointerUses (review V77 NIT 2).
+// selector of rawPointerUses.
 var sourceExts = []string{".s", ".S", ".sx", ".c", ".cc", ".cpp", ".cxx", ".m", ".h", ".hh", ".hpp", ".hxx", ".f", ".F", ".for", ".f90", ".swig", ".swigcxx", ".syso"}
 
 // isSource reports whether the go command compiles a file named name, a Go
@@ -75,8 +74,8 @@ var rawPointerSelectors = []string{"UnsafePointer", "UnsafeAddr", "NewAt", "Slic
 // Pointer() result (reflect.Value.Pointer's uintptr) to a pointer type or to
 // unsafe.Pointer, and a function declared without a body, whose body is
 // assembly or another package's (go:linkname) and so out of every Go-level
-// check (review V77 NIT 2). A Pointer() result compared or printed is not a
-// route and passes (internal/h2gate compares two to recognise a function).
+// check. A Pointer() result compared or printed is not a route and passes
+// (internal/h2gate compares two to recognise a function).
 func rawPointerUses(fset *token.FileSet, f *ast.File) []string {
 	unsafeName := ""
 	for _, spec := range f.Imports {
@@ -119,33 +118,29 @@ func rawPointerUses(fset *token.FileSet, f *ast.File) []string {
 	return uses
 }
 
-// TestSeamCodecUnsafeIsNoCopyString bounds internal/codec's use of unsafe
-// to NoCopyString (critic-p5 m-2, condition C3; review V70 MINOR 1). The
-// raw-pointer rule of TestSeamRootRawPointers exempts internal/codec, and
-// TestSeamOneUnsafeFile counts the package's unsafe importers, one,
-// nocopy.go, but not what the package's files do: a raw-write helper added
-// to nocopy.go, or to another codec file through reflect with no unsafe
-// import at all (reflect.NewAt over a Value's UnsafePointer), and called
-// from the root package would write through a raw pointer outside
+// TestSeamCodecUnsafeIsNoCopyString bounds internal/codec's use of unsafe to
+// NoCopyString. The raw-pointer rule of TestSeamRootRawPointers exempts
+// internal/codec, and TestSeamOneUnsafeFile counts the package's unsafe
+// importers, one, nocopy.go, but not what the package's files do: a raw-write
+// helper added to nocopy.go, or to another codec file through reflect with no
+// unsafe import at all (reflect.NewAt over a Value's UnsafePointer), and
+// called from the root package would write through a raw pointer outside
 // decodeas_store.go and pass both. So nocopy.go must declare exactly one
 // thing, the function NoCopyString, and reach a raw pointer only through
 // unsafe.String and unsafe.SliceData; and every other non-test file of the
 // package, whatever its build constraints or GOARCH suffix, must import
 // unsafe under no name and use no raw-pointer route of rawPointerUses.
 //
-// The exemption is internal/codec itself, not what lies below it (review V77
-// MINOR 1 and NIT 2): the directory holds Go files only, since an assembly
-// or C file would give a body-less Go function a body that writes through
-// any pointer, and no sub-directory but testdata, since a package below
-// internal/codec is not internal/codec; testdata holds no file the go
-// command compiles. It runs in the lint job's internal/codec seam tests step
-// (go test -run 'Seam') on ubuntu-26.04 and in CI's -race test step on
-// ubuntu-26.04, xcode-27 and windows-2025.
+// The exemption is internal/codec itself, not what lies below it: the
+// directory holds Go files only, since an assembly or C file would give a
+// body-less Go function a body that writes through any pointer, and no
+// sub-directory but testdata, since a package below internal/codec is not
+// internal/codec; testdata holds no file the go command compiles.
 //
-// Mutation checks (V77): internal/codec/rawsub importing unsafe (S7d), the
-// same sub-package writing through reflect.NewAt with no unsafe import
-// (S7e), and a body-less RawStore with its body in rawasm_arm64.s and
-// rawasm_amd64.s (S7f), each referenced from the root package, fail it.
+// Mutation checks: internal/codec/rawsub importing unsafe, the same
+// sub-package writing through reflect.NewAt with no unsafe import, and a
+// body-less RawStore with its body in rawasm_arm64.s and rawasm_amd64.s, each
+// referenced from the root package, fail it.
 func TestSeamCodecUnsafeIsNoCopyString(t *testing.T) {
 	mod := findModule(t)
 	codecDir := filepath.Join(mod.root, "internal", "codec")
@@ -298,34 +293,36 @@ func TestSeamRawPointerDetector(t *testing.T) {
 	}
 }
 
-// TestSeamRootRawPointers checks the root package's raw-pointer rule (K40,
-// as the owner amended it in R116), over the NON-TEST files of every build
-// configuration, for each directory of rootCodeDirs, the root package and
-// internal/engine, item for item (review V77 MINOR 1, STANDING 3): of the
-// root package's files exactly one imports unsafe, rootStoreFile, and of
-// internal/engine's none; no file of either but that one, nor any file of a
-// package of this module that either imports directly or through others, nor
-// any file of any other package that go list ./... lists (internal/codec and
-// internal/testsupport/naive excepted, exactly, which hold the module's other
-// unsafe uses; a package below either is not excepted), uses a raw-pointer
-// route of rawPointerUses; each of those
-// packages holds no file other than Go files that the go command compiles
-// (sourceExts: an assembly body, say); and the walk reads a file of every
-// package it reaches, so a package the walk cannot read (under testdata, or
-// a directory starting with "_") fails instead of passing unread. Test files
-// are out of scope: errors_test.go compares two maps' identities with
-// UnsafePointer, which writes nothing. Packages outside the module are not
-// read.
+// TestSeamRootRawPointers checks the root package's raw-pointer rule over the
+// NON-TEST files of every build configuration, for each directory of
+// rootCodeDirs, the root package and internal/engine, item for item.
 //
-// Mutation check: reflect.ValueOf(t).UnsafePointer() added to decodeas.go,
-// an import of unsafe in any root file but rootStoreFile, or the store
-// moved to another file, fails it; so do (V77) a sub-package
-// internal/codec/rawsub imported by the root package that imports unsafe
-// (S7d) or writes through reflect.NewAt (S7e), a root file declared without
-// a body with its body in a .s file, and an internal/engine file that
-// imports unsafe or calls UnsafePointer; and (OQ2 of the W6.5 DONE report,
-// S7g) a package outside internal/codec that only internal/codec imports,
-// writing through reflect.NewAt over a field's UnsafePointer.
+// The rule: of the root package's files exactly one imports unsafe,
+// rootStoreFile, and of internal/engine's none; and no other file uses a
+// raw-pointer route of rawPointerUses, whether it is a file of either
+// directory, of a package of this module that either imports directly or
+// through others, or of any other package that go list ./... lists.
+//
+// The exemptions: internal/codec and internal/testsupport/naive, exactly,
+// which hold the module's other unsafe uses; a package below either is not
+// exempt. Test files are out of scope: errors_test.go compares two maps'
+// identities with UnsafePointer, which writes nothing. Packages outside the
+// module are not read.
+//
+// The guards: each package the rule covers holds no file other than Go files
+// that the go command compiles (sourceExts: an assembly body, say); and the
+// walk reads a file of every package it reaches, so a package the walk cannot
+// read (under testdata, or a directory starting with "_") fails instead of
+// passing unread.
+//
+// Mutation check: reflect.ValueOf(t).UnsafePointer() added to decodeas.go, an
+// import of unsafe in any root file but rootStoreFile, or the store moved to
+// another file, fails it; so do a sub-package internal/codec/rawsub imported
+// by the root package that imports unsafe or writes through reflect.NewAt, a
+// root file declared without a body with its body in a .s file, and an
+// internal/engine file that imports unsafe or calls UnsafePointer; and a
+// package outside internal/codec that only internal/codec imports, writing
+// through reflect.NewAt over a field's UnsafePointer.
 func TestSeamRootRawPointers(t *testing.T) {
 	mod := findModule(t)
 	files := moduleFiles(t, mod.root)
@@ -376,9 +373,8 @@ func TestSeamRootRawPointers(t *testing.T) {
 	// And every other package of the module the go command lists, whoever
 	// imports it: a package that only internal/codec imports is not reached
 	// from the root code, since the walk stops at internal/codec, and would
-	// otherwise write through a raw pointer unread (S7g; OQ2 of the W6.5 DONE
-	// report). A listed package whose files are all tests is out of scope, as
-	// every test file is.
+	// otherwise write through a raw pointer unread. A listed package whose
+	// files are all tests is out of scope, as every test file is.
 	walked := maps.Clone(dirs)
 	for line := range strings.Lines(goList(t, mod.root, "-e", "-f", "{{.ImportPath}}", "./...")) {
 		p := strings.TrimSpace(line)

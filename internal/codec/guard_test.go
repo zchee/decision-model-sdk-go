@@ -33,10 +33,9 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
-// sonicOverReads are the 31 inputs on which review W6.2 MIN-1 saw sonic
-// v1.15.4's advance_dword read past the input's end, on darwin/arm64 and on
-// linux/amd64 alike: every one shorter than 4 bytes, with a t, n or f where
-// sonic reads a literal.
+// sonicOverReads are the 31 inputs on which sonic v1.15.4's advance_dword
+// reads past the input's end, on darwin/arm64 and on linux/amd64 alike: every
+// one shorter than 4 bytes, with a t, n or f where sonic reads a literal.
 var sonicOverReads = []string{
 	"[f", "[fa", "[n", "[t", "f f", "f", "f+", "f0", "f2:", "f:", "fC3", "fE", "fF5", "fFA", "fa", "fal",
 	"fc2", "fcn", "fee", "fr", "n", "nB", "nE", "nl", "nt", "nu", "t", "t1", `t\`, "tf", "tr",
@@ -44,8 +43,8 @@ var sonicOverReads = []string{
 
 // cutOverReads are bodies of 4 bytes or more whose cut (cutPoint) was
 // shorter than 4 bytes, so that the one-scan traversal handed sonic a short
-// input inside the body and sonic read past the body's end (found while
-// fixing MIN-1): " f]}" cuts to " f]", whose false is read 2 bytes past.
+// input inside the body and sonic read past the body's end: " f]}" cuts to
+// " f]", whose false is read 2 bytes past.
 var cutOverReads = []string{" f]}", "\tf]}", "f]} ", "fa]}", " fa]}"}
 
 // guardEntries are the SDK's ways of handing sonic bytes that a server or a
@@ -55,7 +54,7 @@ var cutOverReads = []string{" f]}", "\tf]}", "f]} ", "fa]}", " fa]}"}
 // guard in its own right); and the request side's UTF-8 check, validUTF8,
 // which EncodeState and EncodeValue run over the bytes of a caller's state:
 // sonic's native validator (utf8.Validate) on amd64 and utf8.Valid on
-// arm64 (validate_amd64.go, validate_arm64.go; review of W6-fixes, MINOR 2).
+// arm64 (validate_amd64.go, validate_arm64.go).
 var guardEntries = []struct {
 	name string
 	run  func(b []byte)
@@ -110,12 +109,12 @@ func walkNode(n *ast.Node, depth int) {
 	}
 }
 
-// guardCorpus returns the inputs of TestGuardPage: MIN-1's 31 and the cut
-// shapes; every string of 1 to 4 bytes over an alphabet of JSON's
+// guardCorpus returns the inputs of TestGuardPage: the 31 of sonicOverReads
+// and the cut shapes; every string of 1 to 4 bytes over an alphabet of JSON's
 // structure, whitespace, the literals' first letters and a digit (30 940
 // inputs, the shapes that reach advance_dword with less than 4 bytes); every
 // prefix of four fixtures, the one that runs the lazy pass included; and the
-// K41 shapes around the 32-byte boundary.
+// shapes of TestK41ScannerBoundary around the 32-byte boundary.
 func guardCorpus(t *testing.T) [][]byte {
 	var corpus [][]byte
 	add := func(s string) { corpus = append(corpus, []byte(s)) }
@@ -154,21 +153,21 @@ func guardCorpus(t *testing.T) [][]byte {
 	return corpus
 }
 
-// TestGuardPage is review W6.2 MIN-1's regression test: every way the SDK
-// hands sonic bytes (guardEntries) runs over every input of guardCorpus
-// placed to end at a page no access may touch, and to start right after
-// one, and must not fault: sonic reads no byte of memory the SDK does not
-// own. padShort gives a body shorter than 4 bytes zeroed room and cutPoint
-// refuses a cut shorter than 4 bytes; without them MIN-1's inputs and the
-// cut shapes fault here.
+// TestGuardPage is the regression test of sonic's advance_dword reading past
+// an input shorter than 4 bytes: every way the SDK hands sonic bytes
+// (guardEntries) runs over every input of guardCorpus placed to end at a page
+// no access may touch, and to start right after one, and must not fault:
+// sonic reads no byte of memory the SDK does not own. padShort gives a body
+// shorter than 4 bytes zeroed room and cutPoint refuses a cut shorter than 4
+// bytes; without them sonicOverReads and the cut shapes fault here.
 //
 // Two controls keep the test from passing on a guard that is not there,
-// neither of them run by the SDK (STANDING 9): a one-byte read past each
-// edge of the guarded memory must fault, and sonic's own decoder.Skip, on
-// MIN-1's inputs placed at the end, must fault on every one of them: the
-// over-read the SDK guards against, as sonic v1.15.4 has it. Should a sonic
-// release fix advance_dword, that control fails first, and MIN-1's guard can
-// be reviewed.
+// neither of them run by the SDK: a one-byte read past each edge of the
+// guarded memory must fault, and sonic's own decoder.Skip, on sonicOverReads
+// placed at the end, must fault on every one of them: the over-read the SDK
+// guards against, as sonic v1.15.4 has it. Should a sonic release fix
+// advance_dword, that control fails first, and the SDK's guard can be
+// reviewed.
 //
 // The guard pages need mmap and mprotect, which the syscall package offers
 // on Linux and Darwin only; elsewhere (windows-2025 among the CI images)
@@ -230,11 +229,11 @@ func TestGuardPage(t *testing.T) {
 }
 
 // TestCutPointMinimumLength pins cutPoint's refusal of a cut shorter than
-// minSonicInput, the rule that keeps K36's one-scan traversal from handing
-// sonic a short prefix of a longer body (review W6.2 MIN-1): a 4-byte body
-// whose cut is 3 bytes goes to the whole-body path, a cut of exactly 4
-// bytes is taken, and a cut of 4 bytes of whitespace is refused. It runs on
-// every system, TestGuardPage's guard pages or not.
+// minSonicInput, the rule that keeps the one-scan traversal from handing
+// sonic a short prefix of a longer body: a 4-byte body whose cut is 3 bytes
+// goes to the whole-body path, a cut of exactly 4 bytes is taken, and a cut
+// of 4 bytes of whitespace is refused. It runs on every system,
+// TestGuardPage's guard pages or not.
 func TestCutPointMinimumLength(t *testing.T) {
 	tests := map[string]struct {
 		body string
@@ -258,15 +257,14 @@ func TestCutPointMinimumLength(t *testing.T) {
 	}
 }
 
-// TestPadShort pins padShort's contract (review of W6-secfix, MINOR 2): a
-// body sonic may read as it is, empty or at least minSonicInput bytes long,
-// comes back as it is, the same backing array; a body of 1 to 3 bytes comes
-// back as a copy in an array of its own whose room past the body holds at
-// least minSonicInput zero bytes, the room sonic's advance_dword reads. The
-// short inputs have readable non-zero bytes after them (the rest of a
-// literal, as []byte("true")[:1] has "rue"), which the copy must not carry.
-// TestGuardPage cannot see this room: padShort's copy is on the Go heap,
-// never next to its guard page.
+// TestPadShort pins padShort's contract: a body sonic may read as it is,
+// empty or at least minSonicInput bytes long, comes back as it is, the same
+// backing array; a body of 1 to 3 bytes comes back as a copy in an array of
+// its own whose room past the body holds at least minSonicInput zero bytes,
+// the room sonic's advance_dword reads. The short inputs have readable
+// non-zero bytes after them (the rest of a literal, as []byte("true")[:1] has
+// "rue"), which the copy must not carry. TestGuardPage cannot see this room:
+// padShort's copy is on the Go heap, never next to its guard page.
 func TestPadShort(t *testing.T) {
 	fixture := testsupport.Fixture(t, "result.json")
 	tests := map[string]struct {

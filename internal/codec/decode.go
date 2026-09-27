@@ -77,9 +77,9 @@ type FieldPath struct {
 }
 
 // String returns the path as the Python SDK spells field_path, except that
-// the root is "." where Python writes the empty string (Appendix B): for
-// example "answers.tone.confidence", "models[1].name" or ".". Name and Key
-// are written as they are.
+// the root is "." where Python writes the empty string (docs/deviations.md,
+// "root path"): for example "answers.tone.confidence", "models[1].name" or
+// ".". Name and Key are written as they are.
 func (p FieldPath) String() string {
 	if p.Top == "" {
 		return "."
@@ -177,12 +177,14 @@ func (s *Skipped) add(name, typ string) {
 	s.Count++
 }
 
-// stats describes the work of the last decode, for the tests.
+// stats counts the work of the last decode: the body scans and whole-body
+// traversals, the lazy passes and the members they visit, and the bytes
+// copied, which the tests hold to one scan and to the lazy pass's bound.
 type stats struct {
 	scans      int    // whole-body raw-control scans (0 or 1)
 	wholes     int    // traversals of the whole body, when the cut one declines (0 or 1)
 	lazyPasses int    // lazy passes (0 or 1)
-	members    uint64 // members the lazy pass iterated (AC-P8's "members visited")
+	members    uint64 // members the lazy pass iterated
 	arena      int    // bytes copied into the arena
 }
 
@@ -201,18 +203,18 @@ type decoder struct {
 	stats   stats
 }
 
-// DecoderCeiling is the most scratch, in bytes as scratchBytes bounds it, that
-// a decoder keeps when it goes back to the pool. A decode that grew the
+// DecoderCeiling is the most scratch, in bytes as scratchBytes bounds it,
+// that a decoder keeps when it goes back to the pool. A decode that grew the
 // scratch past it leaves the scratch to the garbage collector, and the
 // decoder goes back without it, as a request body's scratch past
-// [ScratchCeiling] does (plan section 6.1.3). Without the ceiling one body of
-// tiny answers inside the 16 MiB response cap left about 233 MiB in the pool,
-// kept for as long as later decodes reused that decoder (review W6.2 MAJ-1).
-// It is 4 MiB: 10^4 answer entries, the size of the largest collection a
-// decode budget pins (structured-legend-flood-10k's legend), take 2 880 000
-// bytes, and the next power of two is 4 MiB; the largest scratch a pinned
-// fixture leaves, that flood's, is 2 172 168 bytes by scratchBytes, so every
-// pinned decode keeps its warm decoder (docs/perf/frozen-budgets.md, AC-P5).
+// [ScratchCeiling] does. Without the ceiling, one body of tiny answers inside
+// the 16 MiB response cap can leave about 233 MiB in the pool, kept for as
+// long as later decodes reuse that decoder. It is 4 MiB: 10^4 answer entries,
+// the size of the largest collection a decode budget pins
+// (structured-legend-flood-10k's legend), take 2 880 000 bytes, and the next
+// power of two is 4 MiB; the largest scratch a pinned fixture leaves, that
+// flood's, is 2 172 168 bytes by scratchBytes, so every pinned decode keeps
+// its warm decoder (docs/perf/frozen-budgets.md).
 const DecoderCeiling = 4 << 20
 
 // mapEntryBytes bounds the heap one entry of a scratch index map takes. A Go
@@ -306,7 +308,7 @@ func (d *decoder) release() {
 //
 // The body is traversed once by sonic's ast.Preorder, which validates every
 // token, including those of members the SDK does not read; every string and
-// key must be valid UTF-8 without a raw control character (R23); only JSON
+// key must be valid UTF-8 without a raw control character; only JSON
 // whitespace may follow the top-level object. Unknown members are ignored.
 // A repeated member takes its last value at every level, and a repeated
 // answer name keeps the position of its first appearance (a Python dict). An
@@ -362,8 +364,8 @@ func DecodeModels(body []byte, dst *wire.ModelList) error {
 // checks a literal's room as src->len + dec - 4 in unsigned arithmetic:
 // for an input shorter than 4 bytes the check wraps, and it loads 4 bytes
 // from the literal's first byte ('t', 'n') or the one after it ('f'), up
-// to 4 bytes past the input's end, into whatever memory follows (review
-// W6.2 MIN-1). From 4 bytes on the check holds.
+// to 4 bytes past the input's end, into whatever memory follows. From 4
+// bytes on the check holds.
 const minSonicInput = 4
 
 // padShort returns body when sonic may read it as it is, empty or at least
@@ -497,7 +499,7 @@ func (d *decoder) traverseWhole(s string, body []byte, m mode) error {
 // whitespace when that byte is '}' and the traversal may run over the body
 // cut just before it, and -1 otherwise. sonic ends the cut traversal with
 // errCut, between two root members, in two other ways than at the root's
-// closing brace, each ruled out here (FuzzDecodeResponse found every one):
+// closing brace, each ruled out here:
 //
 //   - A scanner reaching the cut inside a token returns it as complete: a
 //     string cut open, which the brace would have continued. An even
@@ -609,8 +611,8 @@ func lastNonSpace(b []byte) int {
 // follow it. Skip returns a negative start for a body that holds no value at
 // all. body is padShort's output, as systemOne and models pass it: on a
 // shorter body Skip may read past it and, reading the bytes that follow,
-// return an end past it too (review W6.2 MIN-1 and MIN-2), which the check
-// refuses rather than slicing past the body.
+// return an end past it too, which the check refuses rather than slicing
+// past the body.
 func trailing(body []byte) error {
 	start, end := sonicdecoder.Skip(body)
 	if start < 0 || end > len(body) {
@@ -687,14 +689,13 @@ func (d *decoder) finish(src string, q *wire.Prepared, model string, dst *wire.S
 	return skipped, nil
 }
 
-// intern makes every string of the known answers, their structured levels
-// and the model the request's own when it is equal to one, and a copy
-// otherwise (plan 6.2.5), so that the result never aliases the body: a name
-// against the question set's names, a choice and its labels against the
-// question's options, a text level against the level's text and a
-// structured level's bytes against the level's compact JSON, the model
-// against the model the request named. The copies share one arena, so the
-// misses of one decode cost one allocation.
+// intern makes every string of the known answers, their structured levels and
+// the model the request's own when it is equal to one, and a copy otherwise,
+// so that the result never aliases the body: a name against the question
+// set's names, a choice and its labels against the question's options, a text
+// level against the level's text and a structured level's bytes against the
+// level's compact JSON, the model against the model the request named. The
+// copies share one arena, so the misses of one decode cost one allocation.
 func (d *decoder) intern(q *wire.Prepared, model string) {
 	v := &d.v
 	n := 0

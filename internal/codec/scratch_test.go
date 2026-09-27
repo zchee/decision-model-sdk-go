@@ -335,9 +335,9 @@ func reusedBody(t *testing.T) (stale, live Body) {
 }
 
 // TestBodyStaleHandle checks that a handle kept past its call cannot reach
-// the body of the next call that reuses its scratch: the review W0.2 repro
-// (A.Release; B := NewBody on the same scratch; A.Open read B's bytes, and a
-// second A.Release dropped B's reference).
+// the body of the next call that reuses its scratch: the repro (A.Release;
+// B := NewBody on the same scratch; A.Open read B's bytes, and a second
+// A.Release dropped B's reference).
 func TestBodyStaleHandle(t *testing.T) {
 	tests := map[string]struct {
 		run func(t *testing.T, stale, live Body, log *recycleLog)
@@ -432,10 +432,10 @@ func raceEnabled() bool {
 	return false
 }
 
-// TestNewBodyAllocations pins what taking a body costs (section 6.1.6 of the
-// port plan): nothing on a warm pool hit, and one allocation, the fresh
-// buffer, for the first body after a buffer past the ceiling was dropped
-// (call 23 of the AC-P1 sequence). Every count is the stable minimum of
+// TestNewBodyAllocations pins what taking a body costs: nothing on a warm
+// pool hit, and one allocation, the fresh buffer, for the first body after a
+// buffer past the ceiling was dropped (call 23 of internal/alloctest's
+// TestAllocScratchSequence). Every count is the stable minimum of
 // testsupport.AllocRuns runs.
 func TestNewBodyAllocations(t *testing.T) {
 	if raceEnabled() {

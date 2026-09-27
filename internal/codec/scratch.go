@@ -31,7 +31,7 @@ const (
 	// ScratchCeiling is the largest capacity a scratch buffer may have and
 	// still go back to the pool when its body is released. A body that grew
 	// past it is left to the garbage collector, so the pool never retains
-	// more than this per buffer (NF1).
+	// more than this per buffer.
 	ScratchCeiling = 8 << 20
 )
 
@@ -84,7 +84,7 @@ var testHookRecycle func(buf []byte, pooled bool)
 // the SDK call's own, which [Body.Release] drops when the call returns; each
 // [Body.Open] adds one for the returned reader, which the reader's Close
 // drops. The buffer goes back to the pool only when the count reaches zero,
-// so a retry never re-sends bytes that another call has overwritten (PM4). A
+// so a retry never re-sends bytes that another call has overwritten. A
 // reader the transport never closes (the HTTP/2 replay path may drop one)
 // keeps the count above zero: its buffer is then garbage-collected with it
 // and never reused.

@@ -142,8 +142,7 @@ func checkErr(t *testing.T, err error, want errKind, wantText string) {
 
 // TestEncodeState covers the state encoder: what it writes for each state
 // kind, which states it refuses and why, and that a failure leaves the bytes
-// before the state as they were (R34, R48, R49; Appendix B "`any` state" and
-// "NaN/Infinity written").
+// before the state as they were (docs/deviations.md, "`any` state").
 func TestEncodeState(t *testing.T) {
 	tests := map[string]struct {
 		state    any
@@ -292,7 +291,7 @@ func TestEncodeValue(t *testing.T) {
 	}
 }
 
-// TestAppendRawState covers R34's O(1) shape check on a raw state: the first
+// TestAppendRawState covers the O(1) shape check on a raw state: the first
 // byte other than JSON whitespace opens an object, an array or a string, and
 // the bytes are appended as they are, whitespace included; nothing else is
 // checked.
@@ -412,8 +411,7 @@ func TestBodyGetBodyAfterRelease(t *testing.T) {
 	}
 }
 
-// allocItem and allocState make a struct state of about 1 KiB, shaped like
-// spike S-E1's.
+// allocItem and allocState make a struct state of about 1 KiB.
 type allocItem struct {
 	ID    int64    `json:"id"`
 	Text  string   `json:"text"`
@@ -427,8 +425,8 @@ type allocState struct {
 	Items []allocItem `json:"items"`
 }
 
-// allocStates returns a state of each NF1 kind whose encoding is about 1 KiB:
-// the struct, a flat map of strings and its JSON as raw bytes.
+// allocStates returns a state of each pinned kind whose encoding is about
+// 1 KiB: the struct, a flat map of strings and its JSON as raw bytes.
 func allocStates() (st *allocState, flat map[string]any, raw []byte) {
 	st = &allocState{Name: "state", Items: make([]allocItem, 10)}
 	for i := range st.Items {
@@ -442,12 +440,12 @@ func allocStates() (st *allocState, flat map[string]any, raw []byte) {
 	return st, flat, raw
 }
 
-// TestEncodeStateAllocations pins NF1 for one pooled state encode of each
-// kind at 1 KiB on a warm pool (docs/perf/frozen-budgets.md, AC-P1): a bare
-// string 2 (sonic 1, plus boxing the string into the any parameter), a
-// boxed string 1, a boxed json.RawMessage 1, raw bytes 0, a *struct 1 and a
-// flat map 2 (1 + one map); every call at most 112 bytes. The body-level
-// counts of the same kinds are TestAllocEncode in the root package.
+// TestEncodeStateAllocations pins the allocations of one pooled state encode
+// of each kind at 1 KiB on a warm pool (docs/perf/frozen-budgets.md): a bare
+// string 2 (sonic 1, plus boxing the string into the any parameter), a boxed
+// string 1, a boxed json.RawMessage 1, raw bytes 0, a *struct 1 and a flat
+// map 2 (1 + one map); every call at most 112 bytes. The body-level counts of
+// the same kinds are TestAllocEncode in the root package.
 func TestEncodeStateAllocations(t *testing.T) {
 	if raceEnabled() {
 		t.Skip("allocation counts need a normal build: under -race sync.Pool.Put drops one value in four")
@@ -497,11 +495,11 @@ func TestEncodeStateAllocations(t *testing.T) {
 }
 
 // TestEncodeErrorHidesMarshalerOutput checks that the message of a
-// json.Marshaler's invalid output keeps only the position (ruling R58): sonic
-// quotes the whole output, the caller's data, in its own message, which
-// Unwrap still gives. It also pins the shape of sonic's message, so that a
-// sonic upgrade that rewords it fails here instead of letting the output
-// through. Any other sonic message is kept as it is.
+// json.Marshaler's invalid output keeps only the position: sonic quotes the
+// whole output, the caller's data, in its own message, which Unwrap still
+// gives. It also pins the shape of sonic's message, so that a sonic upgrade
+// that rewords it fails here instead of letting the output through. Any other
+// sonic message is kept as it is.
 func TestEncodeErrorHidesMarshalerOutput(t *testing.T) {
 	// sonic's position for a truncated output is not stable: 13 for this
 	// one in a normal build, other values under -race (it depends on the

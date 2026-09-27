@@ -27,8 +27,8 @@ import (
 
 // utf8Classes are the rune classes the UTF-8 parity checks place at every
 // offset around sonic's 32-byte blocks: valid runes of each width and the
-// invalid forms, among them R48's lone surrogate and a cut sequence (K41 is
-// a boundary bug of sonic's native code, so the offsets matter).
+// invalid forms, among them a lone surrogate and a cut sequence (sonic's
+// native scanner has a 32-byte boundary bug, so the offsets matter).
 var utf8Classes = map[string][]byte{
 	"two-byte rune":       []byte("é"),
 	"three-byte rune":     []byte("請"),
@@ -43,18 +43,15 @@ var utf8Classes = map[string][]byte{
 	"invalid lead":        {0xff},
 }
 
-// TestValidUTF8Parity holds validUTF8, the request body's UTF-8 check of
-// ruling R48, to validUTF8Portable, Go's utf8.Valid: on amd64 validUTF8 is
-// sonic's SIMD validator (validate_amd64.go) and this is the differential
-// that lets the owner's per-architecture choice (G8-b on R54) keep R48's
-// verdicts; on arm64 validUTF8 is validUTF8Portable itself
-// (validate_arm64.go) and the test pins that. The inputs: nil and empty,
-// every string of up to three bytes, the four-byte lead bytes with
-// continuation bytes at the edges of their ranges, and each rune class of
-// utf8Classes at every offset from 0 to 69 in ASCII, followed by nothing,
-// ASCII, CJK or more ASCII. It runs in CI's -race test step on every
-// image: ubuntu-26.04 and windows-2025 hold sonic's validator to Go's
-// (amd64), xcode-27 runs the arm64 identity.
+// TestValidUTF8Parity holds validUTF8, the request body's UTF-8 check, to
+// validUTF8Portable, Go's utf8.Valid: on amd64 validUTF8 is sonic's SIMD
+// validator (validate_amd64.go) and this is the differential that lets the
+// per-architecture choice keep the check's verdicts; on arm64 validUTF8 is
+// validUTF8Portable itself (validate_arm64.go) and the test pins that. The
+// inputs: nil and empty, every string of up to three bytes, the four-byte
+// lead bytes with continuation bytes at the edges of their ranges, and each
+// rune class of utf8Classes at every offset from 0 to 69 in ASCII, followed
+// by nothing, ASCII, CJK or more ASCII.
 func TestValidUTF8Parity(t *testing.T) {
 	t.Logf("GOARCH %s: validUTF8 is %s", runtime.GOARCH, map[bool]string{true: "sonic's utf8.Validate", false: "utf8.Valid"}[runtime.GOARCH == "amd64"])
 	checks := 0
@@ -107,8 +104,7 @@ func TestValidUTF8Parity(t *testing.T) {
 
 // FuzzValidUTF8 holds validUTF8 to validUTF8Portable on any input: on amd64,
 // sonic's SIMD validator against Go's utf8.Valid (TestValidUTF8Parity has
-// the exhaustive short inputs). It runs for 60 s in CI's fuzz job
-// (ubuntu-26.04, amd64), and its seeds as a test in every image's test job.
+// the exhaustive short inputs).
 func FuzzValidUTF8(f *testing.F) {
 	for _, seed := range []string{
 		"", "a", "é", "請求", "😀", "\xed\xa0\x80", "\xc0\xaf", "\xf4\x90\x80\x80", "\xe8\xab", "\x80", "\xff",

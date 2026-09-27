@@ -54,16 +54,16 @@ func lastMemberEnd(tb testing.TB, body []byte) byte {
 	return b[len(b)-1]
 }
 
-// TestLiveBodiesOneScan decodes every body of the live pass (critic-p5 C4)
-// with the one-scan traversal of K36 and with the whole-body one it
-// replaced: both give the same outcome, and the one-scan decode reads the
-// body once exactly when the root object's last member ends in '}', ']' or
-// '"' (a number or a literal there costs a second traversal). Each body's
-// ONESCAN line and the share are ledger rows; the verdict is asserted only
-// against the bytes, so the share itself is recorded, not gated. The error
-// bodies go through ReadErrorBody, which has no cut, and must name the
-// authentication failure. Three synthetic controls, whose last member is a
-// number or a literal, must take the second traversal.
+// TestLiveBodiesOneScan decodes every body of the live pass with the one-scan
+// traversal and with the whole-body one it replaced: both give the same
+// outcome, and the one-scan decode reads the body once exactly when the root
+// object's last member ends in '}', ']' or '"' (a number or a literal there
+// costs a second traversal). Each body's ONESCAN line and the share are
+// logged; the verdict is asserted only against the bytes, so the share itself
+// is recorded, not gated. The error bodies go through ReadErrorBody, which
+// has no cut, and must name the authentication failure. Three synthetic
+// controls, whose last member is a number or a literal, must take the second
+// traversal.
 func TestLiveBodiesOneScan(t *testing.T) {
 	names := testsupport.FixtureNames(t, "live/*.json")
 	if diff := gocmp.Diff(slices.Sorted(maps.Keys(liveBodies)), names); diff != "" {

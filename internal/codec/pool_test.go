@@ -47,14 +47,14 @@ func capsOf(d *decoder) scratchCaps {
 	}
 }
 
-// TestDecoderScratchCeiling checks the pool rule of review W6.2 MAJ-1 one
-// scratch at a time: a decoder whose scratch holds DecoderCeiling bytes goes
-// back to the pool with it, and one byte's worth of elements more drops every
-// scratch slice and index map, keeping the traversal's options. Each case
-// grows one slice, or one index map with the slice that bounds it, to the
-// ceiling by its own arithmetic, from unsafe.Sizeof and the 64 bytes an index
-// entry is charged (mapEntryBytes), not from scratchBytes: a term that
-// scratchBytes leaves out, or an off-by-one at the ceiling, fails its case.
+// TestDecoderScratchCeiling checks the decoder pool's ceiling one scratch at
+// a time: a decoder whose scratch holds DecoderCeiling bytes goes back to the
+// pool with it, and one byte's worth of elements more drops every scratch
+// slice and index map, keeping the traversal's options. Each case grows one
+// slice, or one index map with the slice that bounds it, to the ceiling by
+// its own arithmetic, from unsafe.Sizeof and the 64 bytes an index entry is
+// charged (mapEntryBytes), not from scratchBytes: a term that scratchBytes
+// leaves out, or an off-by-one at the ceiling, fails its case.
 func TestDecoderScratchCeiling(t *testing.T) {
 	const ceiling = DecoderCeiling
 	if ceiling != 4<<20 {
@@ -129,15 +129,15 @@ func TestDecoderScratchCeiling(t *testing.T) {
 }
 
 // TestDecoderKeepsFixtureScratch checks that the ceiling spares every
-// decode the budgets pin (AC-P2, AC-P8): after decoding any fixture of
-// testdata, as a System One body and as a models body, release keeps the
-// decoder's scratch, so the next decode of that shape starts warm and the
-// pinned allocation counts cannot move. Each line logs the fixture's scratch
-// as scratchBytes bounds it. The largest must be structured-legend-flood-10k's
-// (2 172 168 bytes at W6-secfix, the figure DecoderCeiling's derivation
-// quotes) and leave the ceiling at least 1.5 times its size, so that a
-// change in the decoder's scratch or in the runtime's growth that eats the
-// headroom fails here before the ceiling starts dropping a pinned decode.
+// decode the budgets of docs/perf/frozen-budgets.md pin: after decoding any
+// fixture of testdata, as a System One body and as a models body, release
+// keeps the decoder's scratch, so the next decode of that shape starts warm
+// and the pinned allocation counts cannot move. Each line logs the fixture's
+// scratch as scratchBytes bounds it. The largest must be
+// structured-legend-flood-10k's (2 172 168 bytes, the figure DecoderCeiling's
+// derivation quotes) and leave the ceiling at least 1.5 times its size, so
+// that a change in the decoder's scratch or in the runtime's growth that eats
+// the headroom fails here before the ceiling starts dropping a pinned decode.
 func TestDecoderKeepsFixtureScratch(t *testing.T) {
 	largest, largestName := 0, ""
 	for _, name := range testsupport.FixtureNames(t, "*.json") {
@@ -167,11 +167,11 @@ func TestDecoderKeepsFixtureScratch(t *testing.T) {
 	}
 }
 
-// TestDecoderPoolRetention is review W6.2 MAJ-1's pin: one decode of a
+// TestDecoderPoolRetention pins the decoder pool's ceiling: one decode of a
 // 15 MiB body of unknown answers inside the response cap, then ordinary
 // decodes with a collection after each, all on one P (GOMAXPROCS 1, so every
-// decode takes the same pool slot, the case in which the pool kept the
-// hostile scratch: about 233 MiB before the ceiling). The live heap after
+// decode takes the same pool slot, the case in which, without the ceiling,
+// the pool keeps the hostile scratch: about 233 MiB). The live heap after
 // each collection, against the heap before the hostile decode, must stay
 // within DecoderCeiling + 64 KiB, the fixed allowance for the runtime's and
 // the test's own small allocations; and the pooled decoder's scratch within

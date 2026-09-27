@@ -258,7 +258,7 @@ func TestDecodeDoesNotAliasBody(t *testing.T) {
 			}
 			for _, q := range []*wire.Prepared{nil, questionsFor(t, want)} {
 				// nil: the decode allocates the answers; a spare: they go
-				// into the caller's array, as a call's do (W5.3's N2).
+				// into the caller's array, as a call's do.
 				for _, spare := range [][]wire.AnswerEntry{nil, make([]wire.AnswerEntry, 0, 64)} {
 					body := testsupport.Fixture(t, name)
 					var got wire.SystemOneResult
@@ -277,10 +277,10 @@ func TestDecodeDoesNotAliasBody(t *testing.T) {
 	}
 }
 
-// TestInterningReturnsRequestStrings checks plan 6.2.5: a name, a choice and
-// its labels, a text level and a structured level equal to the question
-// set's own are the set's strings and bytes, and the model is the one the
-// request named.
+// TestInterningReturnsRequestStrings checks that a name, a choice and its
+// labels, a text level and a structured level equal to the question set's own
+// are the set's strings and bytes, and that the model is the one the request
+// named.
 func TestInterningReturnsRequestStrings(t *testing.T) {
 	for _, fixture := range []string{"result.json", "structured-legend.json", "result-20.json", "escaped-names.json"} {
 		t.Run(fixture, func(t *testing.T) {
@@ -342,9 +342,9 @@ func slicesIndex(s []string, v string) int {
 	return 0
 }
 
-// TestLastWins checks plan 6.2.4's one duplicate rule at every level: the
-// last occurrence wins, a repeated answer name keeps its first position, and
-// the lazy pass picks the same occurrence as the visitor.
+// TestLastWins checks the one duplicate rule at every level: the last
+// occurrence wins, a repeated answer name keeps its first position, and the
+// lazy pass picks the same occurrence as the visitor.
 func TestLastWins(t *testing.T) {
 	const head = `{"model":"m","usage":{"input_tokens":1,"output_tokens":1},`
 	noul := func(n string) string { return `{"type":"noul","noul":` + n + `}` }

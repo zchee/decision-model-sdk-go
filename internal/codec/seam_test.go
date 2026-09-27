@@ -16,9 +16,9 @@
 
 package codec
 
-// The seam tests hold the package boundaries of the port plan (section 4,
-// NF6, D1, PM1, PM5) over the whole module. CI runs them on their own with
-// go test -run Seam ./internal/codec/, and with every other test.
+// The seam tests hold the package boundaries over the whole module. CI runs
+// them on their own with go test -run Seam ./internal/codec/, and with every
+// other test.
 //
 // Mutation checks: each change below, planted in a copy of the tree, makes
 // the named test fail. Re-run them when a rule changes.
@@ -26,16 +26,14 @@ package codec
 //     internal/h2gate or by a root test file; encoding/json/v2 imported by an
 //     internal/codec file; internal/testsupport imported by a non-test file
 //     of the root package; unsafe or sonic imported by a package below
-//     internal/codec, which the exemptions of internal/codec do not cover
-//     (review V77 MINOR 1, S7d); "C" imported by a root or an
-//     internal/engine file whose C code writes through a reflect Pointer()
-//     passed as an integer (review V81 NIT 1, Rg and Eg). (internal/testsupport
+//     internal/codec, which the exemptions of internal/codec do not cover;
+//     "C" imported by a root or an internal/engine file whose C code writes
+//     through a reflect Pointer() passed as an integer. (internal/testsupport
 //     importing encoding/json passes by design.)
 //   - TestSeamOneUnsafeFile: a second codec file importing unsafe, or a
-//     package below internal/codec importing it (S7d).
+//     package below internal/codec importing it.
 //   - TestSeamImports, again: a package below internal/testsupport/naive
-//     importing unsafe, which the naive exemption no longer covers (OQ1 of
-//     the W6.5 DONE report).
+//     importing unsafe, which the naive exemption no longer covers.
 //   - TestSeamRootRawPointers and TestSeamCodecUnsafeIsNoCopyString
 //     (seam_rawptr_test.go) list theirs.
 //   - TestSeamTransitiveImports: encoding/json imported by a root test file,
@@ -87,7 +85,7 @@ const (
 	naiveDir = "internal/testsupport/naive"
 
 	// d1Cutoff is the first Go release on which the SDK refuses to compile,
-	// because sonic's JIT path does not support it yet (D1). The Go 1.28 bump
+	// because sonic's JIT path does not support it yet. The Go 1.28 bump
 	// procedure in docs/support.md moves it, together with the constraint
 	// line of every file of this package.
 	d1Cutoff = "go1.28"
@@ -254,7 +252,7 @@ func TestSeamImports(t *testing.T) {
 	}
 
 	// internal/codec and internal/testsupport/naive themselves, not a
-	// package below either (review V77 MINOR 1; OQ1 of the W6.5 DONE report).
+	// package below either.
 	confined := func(f goFile) bool {
 		return f.dir != "internal/codec" && f.dir != naiveDir
 	}
@@ -285,7 +283,7 @@ func TestSeamImports(t *testing.T) {
 				}
 				if f.dir == "internal/codec" {
 					// sonic is the codec; encoding/json only for the
-					// json.Number type of sonic's ast.Visitor (W2.0).
+					// json.Number type of sonic's ast.Visitor.
 					return !under(p, sonicPath) && p != "encoding/json"
 				}
 				return true
@@ -335,12 +333,11 @@ func TestSeamImports(t *testing.T) {
 	}
 }
 
-// TestSeamOneUnsafeFile checks NF6's "one unsafe.String bridge": of the
-// non-test files of internal/codec and of any package below it, exactly one
-// imports unsafe, nocopy.go, which holds NoCopyString. A second importer,
-// even one that only uses unsafe.Sizeof, fails, and so does one in a
-// sub-package (review V77 MINOR 1); test files may use unsafe to check
-// aliasing.
+// TestSeamOneUnsafeFile checks that internal/codec has one unsafe.String
+// bridge: of the non-test files of internal/codec and of any package below
+// it, exactly one imports unsafe, nocopy.go, which holds NoCopyString. A
+// second importer, even one that only uses unsafe.Sizeof, fails, and so does
+// one in a sub-package; test files may use unsafe to check aliasing.
 func TestSeamOneUnsafeFile(t *testing.T) {
 	mod := findModule(t)
 	var importers []string
@@ -380,16 +377,14 @@ func goList(t *testing.T, root string, args ...string) string {
 
 // TestSeamTransitiveImports checks that the packages the gotip canary builds
 // depend, through any chain and including their tests, on neither the root
-// package nor internal/codec, which do not compile on gotip by design (PM1).
+// package nor internal/codec, which do not compile on gotip by design.
 //
-// The root package left the canary list when it began to import
-// internal/codec for the request body (W1.2, ruling R41). Its row asserts
-// instead what section 4 asks of it: its files, tests included, import no
-// JSON library directly, in the build configuration of the host (where
-// TestSeamImports reads every file whatever its constraints); the JSON layer
-// is internal/codec's. internal/engine, which holds the call stages W6.5
-// moved out of the root package (rootCodeDirs), has the same row (review
-// V77 MINOR 1).
+// The root package is not on the canary list: it imports internal/codec for
+// the request body. Its row asserts instead that its files, tests included,
+// import no JSON library directly, in the build configuration of the host
+// (where TestSeamImports reads every file whatever its constraints); the JSON
+// layer is internal/codec's. internal/engine, which holds the root package's
+// call stages (rootCodeDirs), has the same row.
 func TestSeamTransitiveImports(t *testing.T) {
 	mod := findModule(t)
 	for _, dir := range rootCodeDirs {
@@ -451,16 +446,16 @@ func checkNoDirectJSON(t *testing.T, mod module, dir string) {
 			t.Errorf("%s imports %q directly; only internal/codec may import a JSON library", dir, p)
 		}
 	}
-	// The root package's types wrap internal/wire values (section 4),
-	// and internal/engine's state holds them: without it in the list the
-	// row would pass on an empty or mangled listing.
+	// The root package's types wrap internal/wire values, and
+	// internal/engine's state holds them: without it in the list the row
+	// would pass on an empty or mangled listing.
 	if !sawWire {
 		t.Errorf("go list does not show %s importing %s:\n%s", dir, wirePath, out)
 	}
 }
 
 // TestSeamD1IdentifierSites checks every site that the Go 1.28 bump edits
-// (ruling R10, docs/support.md): each names the D1 identifier, if at all, as
+// (docs/support.md): each names the D1 identifier, if at all, as
 // the one token the constraints imply, and carries the text derived from
 // d1Cutoff (the supported range, the refusal and issue titles, the stand-in
 // tag). The bump renames and rewrites them in several files at once; a site
@@ -913,14 +908,13 @@ func namesRelease(x constraint.Expr) bool {
 }
 
 // TestSeamSonicJITPath checks that sonic compiles its JIT path, not its
-// encoding/json fallback, wherever this package compiles (PM1). sonic keeps
-// the fallback in pairs of files per package: the root package (sonic.go and
-// compat.go), ast (api.go, api_compat.go), decoder and encoder
-// (*_native.go, *_compat.go) and internal/encoder/alg (spec.go,
-// spec_compat.go); isSonicFallback recognises the fallback side by its
-// import and build line, not by these names. For every sonic package that
-// internal/codec compiles and
-// that has a fallback file, the test requires, on this host, that no
+// encoding/json fallback, wherever this package compiles. sonic keeps the
+// fallback in pairs of files per package: the root package (sonic.go and
+// compat.go), ast (api.go, api_compat.go), decoder and encoder (*_native.go,
+// *_compat.go) and internal/encoder/alg (spec.go, spec_compat.go);
+// isSonicFallback recognises the fallback side by its import and build line,
+// not by these names. For every sonic package that internal/codec compiles
+// and that has a fallback file, the test requires, on this host, that no
 // fallback file is compiled and every file with a Go-release constraint (the
 // JIT side) is; and for every GOARCH and Go release from the go directive up
 // to the cutoff, comparing the build lines, that wherever internal/codec

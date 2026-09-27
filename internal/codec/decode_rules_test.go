@@ -34,10 +34,10 @@ import (
 // private spike archive; the opening section of docs/perf/ledger.md says what
 // such a citation tells a reader who cannot open the archive.
 
-// TestControlRule checks ruling R23: a raw control character anywhere inside
-// a string or a key is refused at the root, one that came from an escape is
-// accepted, and the body is scanned only when a delivered string holds a
-// control character.
+// TestControlRule checks the control-character rule: a raw control character
+// anywhere inside a string or a key is refused at the root, one that came
+// from an escape is accepted, and the body is scanned only when a delivered
+// string holds a control character.
 func TestControlRule(t *testing.T) {
 	const head = `{"model":"m","usage":{"input_tokens":1,"output_tokens":1},"answers":{"s":{"type":"score","score":0,"confidence":1,"probabilities":{"0":1},"legend":{"0":`
 	tests := map[string]struct {
@@ -85,13 +85,14 @@ func unescapeU(s string) string { return strings.ReplaceAll(s, "@U@", `\u`) }
 // TestDecodeFieldPaths checks where the decoder reports a failure against the
 // Python SDK 0.7.1 (probed on the upstream checkout's venv; the script and
 // its output are in spikes@815453827b43:w2.0/results/python-paths.txt): the eight rows of
-// test_malformed_response_raises_validation_error (R1), the order in which
-// the Python SDK reports a body with several faults (its answer-type
-// pre-pass, then model, usage and answers, then each answer's members in
-// schema order), and the documented deviations.
+// test_malformed_response_raises_validation_error (row R1 of
+// docs/port-test-matrix.md), the order in which the Python SDK reports a body
+// with several faults (its answer-type pre-pass, then model, usage and
+// answers, then each answer's members in schema order), and the documented
+// deviations.
 func TestDecodeFieldPaths(t *testing.T) {
-	// r1 builds R1's body: usage, answers, then model unless it is the row
-	// that leaves model out.
+	// r1 builds the upstream test's body: usage, answers, then model unless
+	// it is the row that leaves model out.
 	r1 := func(answers string, model bool) string {
 		b := `{"usage":{"input_tokens":1,"output_tokens":1},"answers":` + answers
 		if model {
@@ -106,7 +107,7 @@ func TestDecodeFieldPaths(t *testing.T) {
 		body string
 		want string // the field path, or "" for accepted
 	}{
-		// R1: tests/test_responses.py:29-40.
+		// tests/test_responses.py:29-40.
 		"error: R1 no model":                  {body: r1(`{}`, false), want: "model"},
 		"error: R1 noul missing":              {body: r1(`{"n":{"type":"noul"}}`, true), want: "answers.n.noul"},
 		"error: R1 noul a string":             {body: r1(`{"n":{"type":"noul","noul":"0.5"}}`, true), want: "answers.n.noul"},
@@ -149,10 +150,9 @@ func TestDecodeFieldPaths(t *testing.T) {
 		"success: an integer noul":                              {body: body(`{"n":{"type":"noul","noul":1}}`)},
 		"success: legend members of other kinds are not needed": {body: body(`{"n":{"type":"noul","noul":1,"choice":5,"legend":[]}}`)},
 
-		// Mixed spellings of one level (review W2.0 MINOR 2): every spelling
-		// is validated with its own last value, as pydantic does, and the
-		// path names the failing spelling (legend values lack pydantic's
-		// ".str" suffix, as above).
+		// Mixed spellings of one level: every spelling is validated with its
+		// own last value, as pydantic does, and the path names the failing
+		// spelling (legend values lack pydantic's ".str" suffix, as above).
 		"error: spelling, a bad 0 superseded by 00":            {body: body(`{"s":{"type":"score","score":1,"confidence":1,"legend":{"0":5,"1":"b","00":"a"},"probabilities":{}}}`), want: "answers.s.legend.0"},
 		"error: spelling, a bad 01 after 1":                    {body: body(`{"s":{"type":"score","score":1,"confidence":1,"legend":{"1":"a","01":5},"probabilities":{}}}`), want: "answers.s.legend.01"},
 		"error: spelling, a bad probability 0 superseded":      {body: body(`{"s":{"type":"score","score":1,"confidence":1,"legend":{},"probabilities":{"0":"x","00":1}}}`), want: "answers.s.probabilities.0"},
@@ -161,7 +161,7 @@ func TestDecodeFieldPaths(t *testing.T) {
 		"success: spelling, the same spelling repairs a value": {body: body(`{"s":{"type":"score","score":1,"confidence":1,"legend":{"0":5,"00":"a","0":"b"},"probabilities":{}}}`)},
 		"success: the same spelling repairs a value":           {body: body(`{"s":{"type":"score","score":1,"confidence":1,"legend":{"0":5,"0":"a"},"probabilities":{}}}`)},
 
-		// Deviations (Appendix B).
+		// Deviations (docs/deviations.md).
 		"error: deviation, a negative token count":         {body: `{"model":"m","usage":{"input_tokens":-1}}`, want: "usage.input_tokens"},
 		"success: a token count -0 is 0":                   {body: `{"model":"m","usage":{"input_tokens":-0}}`},
 		"error: a token count -0.0":                        {body: `{"model":"m","usage":{"input_tokens":-0.0}}`, want: "usage.input_tokens"},
@@ -189,9 +189,9 @@ func TestDecodeFieldPaths(t *testing.T) {
 }
 
 // TestModelsFieldPaths checks the list-models decoder's paths against the
-// Python SDK 0.7.1 (the same probe): R2's models[1].<missing> rows
-// (tests/test_responses.py:61-68), the first card first and each card's
-// members in schema order.
+// Python SDK 0.7.1 (the same probe): the models[1].<missing> rows of
+// tests/test_responses.py:61-68 (row R2 of docs/port-test-matrix.md), the
+// first card first and each card's members in schema order.
 func TestModelsFieldPaths(t *testing.T) {
 	const card = `{"name":"test","description":"Test model","release_date":"2026-09-14"}`
 	tests := map[string]struct {
@@ -231,10 +231,10 @@ func TestModelsFieldPaths(t *testing.T) {
 	}
 }
 
-// TestLevelKeys checks plan 6.2.6's level-key grammar [+]?[0-9]+ as a
-// uint32, on a legend key and on a probability key: 1, +1, 01 and +01 are
-// level 1, and every other spelling fails at the key (a deviation from
-// pydantic's lax int, which takes " 1", "1_0", "1.0" and "-1").
+// TestLevelKeys checks the level-key grammar [+]?[0-9]+ as a uint32, on a
+// legend key and on a probability key: 1, +1, 01 and +01 are level 1, and
+// every other spelling fails at the key (a deviation from pydantic's lax int,
+// which takes " 1", "1_0", "1.0" and "-1").
 func TestLevelKeys(t *testing.T) {
 	tests := map[string]struct {
 		key   string
@@ -301,8 +301,8 @@ func TestLevelKeys(t *testing.T) {
 	}
 }
 
-// TestUnknownMembersIgnored ports test_unknown_extra_fields_tolerated (R9,
-// tests/test_responses.py:140-154) to the decoder: members the schema does
+// TestUnknownMembersIgnored ports test_unknown_extra_fields_tolerated
+// (tests/test_responses.py:140-154) to the decoder: members the schema does
 // not name, in usage and in an answer, are read past and dropped.
 func TestUnknownMembersIgnored(t *testing.T) {
 	body := `{"model":"test","usage":{"input_tokens":1,"output_tokens":1,"reasoning_tokens":9,"billing_units":1},"answers":{"spam":{"type":"noul","noul":0.9,"explanation":"spammy"}}}`
@@ -320,9 +320,10 @@ func TestUnknownMembersIgnored(t *testing.T) {
 }
 
 // TestStructuredLegendExactBytes ports test_response_preserves_nested_json
-// (R11, tests/test_responses.py:178-215) to the decoder: a structured level
-// arrives as the exact bytes of the body, escapes and all, and a level
-// equal to the question's compact JSON is the question's bytes.
+// (row R11 of docs/port-test-matrix.md, tests/test_responses.py:178-215) to
+// the decoder: a structured level arrives as the exact bytes of the body,
+// escapes and all, and a level equal to the question's compact JSON is the
+// question's bytes.
 func TestStructuredLegendExactBytes(t *testing.T) {
 	tests := map[string]struct {
 		level string
@@ -360,8 +361,8 @@ func mustDecode(tb testing.TB, body string) *wire.SystemOneResult {
 }
 
 // TestPublicTypesIgnoreUnknownMembers ports
-// test_public_response_types_ignore_unknown_fields (R13,
-// tests/test_responses.py:234-249) to the decoder: an "unexpected" member in
+// test_public_response_types_ignore_unknown_fields
+// (tests/test_responses.py:234-249) to the decoder: an "unexpected" member in
 // each of the seven response types leaves the decoded value as it is
 // without it.
 func TestPublicTypesIgnoreUnknownMembers(t *testing.T) {
@@ -528,15 +529,15 @@ func TestDecodeErrorText(t *testing.T) {
 	}
 }
 
-// TestDecodeDepthBound checks the nesting cap of review W2.0 MAJOR 1 and
-// ruling R73: a body may nest 4096 containers in all, the root included,
-// as sonic's decoder.Skip takes, and a container past that is refused by the
-// visitor as it opens (errDepth at the root), so sonic's traversal, which
-// recurses once per level, never goes deeper. A body nested a million deep
-// is refused the same way, with the goroutine's stack growing by a few
-// hundred KiB rather than the 256 MiB it took before the cap (a body under
-// the 16 MiB size cap nested 4x10^6 deep killed the process). Objects stop
-// one level earlier, in Skip: it counts the innermost value of an object.
+// TestDecodeDepthBound checks the nesting cap: a body may nest 4096
+// containers in all, the root included, as sonic's decoder.Skip takes, and a
+// container past that is refused by the visitor as it opens (errDepth at the
+// root), so sonic's traversal, which recurses once per level, never goes
+// deeper. A body nested a million deep is refused the same way, with the
+// goroutine's stack growing by a few hundred KiB rather than the 256 MiB it
+// takes without the cap (without it, a body under the 16 MiB size cap nested
+// 4x10^6 deep kills the process). Objects stop one level earlier, in Skip: it
+// counts the innermost value of an object.
 func TestDecodeDepthBound(t *testing.T) {
 	arrays := func(n int) string { return strings.Repeat("[", n) + strings.Repeat("]", n) }
 	objects := func(n int) string { return strings.Repeat(`{"a":`, n) + "1" + strings.Repeat("}", n) }
@@ -631,12 +632,11 @@ func stackGrowth(f func()) (uint64, time.Duration) {
 	return after.StackInuse - before.StackInuse, elapsed
 }
 
-// TestNegativeZero checks how a zero with a sign is read (review W2.0 MINOR
-// 3 and NIT 4, ruling R73): a -0 token count is the count 0, as the Python
-// SDK reads it, and every float member reads -0 and -0.0 as a positive 0,
-// so the sign cannot reach sonic's encoder, which spells a negative zero by
-// architecture (K27). The Python SDK keeps -0.0 negative; that is the W7
-// deviation.
+// TestNegativeZero checks how a zero with a sign is read: a -0 token count
+// is the count 0, as the Python SDK reads it, and every float member reads
+// -0 and -0.0 as a positive 0, so the sign cannot reach sonic's encoder,
+// which spells a negative zero by architecture. The Python SDK keeps -0.0
+// negative (docs/deviations.md, "the sign of a zero in a response").
 func TestNegativeZero(t *testing.T) {
 	for _, zero := range []string{"-0", "-0.0", "-0e5", "-0.0E-3"} {
 		t.Run(zero, func(t *testing.T) {

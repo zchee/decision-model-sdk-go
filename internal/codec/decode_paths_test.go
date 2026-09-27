@@ -53,8 +53,9 @@ var (
 // and a repeated answer name, legend level or label keeps the position of
 // its first appearance, as the Python SDK reads it, except that a level
 // repeated under different spellings ("1", "01", "+1") folds in wire order:
-// that is the Go port's documented deviation (foldLegend in commit.go; the
-// Python SDK folds equal spellings first), not the Python SDK's reading.
+// that is the Go port's deviation (docs/deviations.md,
+// "one level under several spellings"; foldLegend in commit.go; the Python
+// SDK folds equal spellings first), not the Python SDK's reading.
 // Every choice takes the next input byte, or 0 once the input is used up, so
 // any input is a program and every program ends; choice 0 is the one the
 // differential is about (a score answer, a structured level), so a short
@@ -584,12 +585,6 @@ func (g *pathGen) labels() []wire.LabelProbability {
 // pass exactly when a known answer has a structured level. A decode against
 // the question set the result answers must give the same answers. Each
 // input runs within the per-input bound.
-//
-// The 66 seed programs run as a test in CI's -race test step (go test
-// -race with coverage) and its non-race allocation-tests step (go test
-// -count=1 ./internal/codec/ ./internal/wire/ ./internal/testsupport/), on
-// ubuntu-26.04, xcode-27 and windows-2025, and the fuzz job fuzzes it for
-// 60 s on ubuntu-26.04.
 func FuzzDecodePaths(f *testing.F) {
 	f.Add([]byte{})
 	ramp := make([]byte, 256)

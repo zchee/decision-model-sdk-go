@@ -33,8 +33,8 @@ import (
 // private spike archive; the opening section of docs/perf/ledger.md says what
 // such a citation tells a reader who cannot open the archive.
 
-// systemOneWhole is systemOne as it was before W5.3 (K36): the traversal
-// over the whole body, then the trailing-data scan with decoder.Skip.
+// systemOneWhole is systemOne with the traversal the one-scan traversal
+// replaced: the whole body, then the trailing-data scan with decoder.Skip.
 func (d *decoder) systemOneWhole(body []byte, q *wire.Prepared, model string, dst *wire.SystemOneResult) (Skipped, error) {
 	s := NoCopyString(body)
 	d.stats = stats{}
@@ -44,7 +44,7 @@ func (d *decoder) systemOneWhole(body []byte, q *wire.Prepared, model string, ds
 	return d.finish(s, q, model, dst, nil)
 }
 
-// modelsWhole is models as it was before W5.3, as systemOneWhole is.
+// modelsWhole is models with the whole-body traversal, as systemOneWhole is.
 func (d *decoder) modelsWhole(body []byte, dst *wire.ModelList) error {
 	s := NoCopyString(body)
 	d.stats = stats{}
@@ -117,15 +117,15 @@ func nested(n int, objects bool, inner string) string {
 	return strings.Repeat("[", n) + inner + strings.Repeat("]", n)
 }
 
-// TestOneScanMatchesWholeScan checks the one-scan traversal of K36 against
-// the traversal it replaced, the whole body and then decoder.Skip's
-// trailing-data scan: on every body below both give the same error (text,
-// path, depth mark) or the same result, and the same raw-control scans. The
-// bodies are every fixture, decoded as a System One and as a models
-// response; every prefix of three fixtures, with and without a closing
-// brace appended, which cuts a body in every state the traversal can stand
-// in; the valid bodies followed by every kind of tail; and bodies at the
-// depth where the visitor's cap and Skip's differ (skipDepth).
+// TestOneScanMatchesWholeScan checks the one-scan traversal against the
+// traversal it replaced, the whole body and then decoder.Skip's trailing-data
+// scan: on every body below both give the same error (text, path, depth mark)
+// or the same result, and the same raw-control scans. The bodies are every
+// fixture, decoded as a System One and as a models response; every prefix of
+// three fixtures, with and without a closing brace appended, which cuts a
+// body in every state the traversal can stand in; the valid bodies followed
+// by every kind of tail; and bodies at the depth where the visitor's cap and
+// Skip's differ (skipDepth).
 func TestOneScanMatchesWholeScan(t *testing.T) {
 	type tc struct {
 		body   []byte
@@ -180,11 +180,11 @@ func TestOneScanMatchesWholeScan(t *testing.T) {
 		`{"a":"` + strings.Repeat("0", 31) + `}}`, `{"a":"` + strings.Repeat("0", 63) + `]}`, `{"a":"` + strings.Repeat("0", 95) + `}}`,
 		`{"a":"` + strings.Repeat("x", 64) + `}}`, `{"a":"` + strings.Repeat("x", 64) + `]}`, `{"a":"` + strings.Repeat("x", 64) + `\"}`,
 		`{"model":"m","usage":{},"x":"` + strings.Repeat("x", 100) + `{}}`, `{"model":"m","usage":{},"x":"` + strings.Repeat("x", 100) + `\\\"}`,
-		// Slice 1's review (MINOR 1 and 2): a cut traversal that stops with
-		// another error than the cut's, here a bracket closing the root
-		// object, and a root key whose \u has three hex digits; each is
-		// refused by the whole-body path, and only the errCut test and the
-		// four-digit test of cutPoint keep the one scan from accepting it.
+		// A cut traversal that stops with another error than the cut's, here
+		// a bracket closing the root object, and a root key whose \u has
+		// three hex digits; each is refused by the whole-body path, and only
+		// the errCut test and the four-digit test of cutPoint keep the one
+		// scan from accepting it.
 		`{"model":"m","usage":{},"x":"y"]}`, `{"model":"m","usage":{},"\u123"}`,
 	} {
 		add(strconv.Quote(body), body)
@@ -281,14 +281,14 @@ func TestOneScanTakesValidBodies(t *testing.T) {
 	}
 }
 
-// TestK41ScannerBoundary pins what the decoder does with the shape of fuzz
-// finding 4 (c) (ruling K41; spikes@815453827b43:w5.3/k41 reproduces the scanner bug
-// with sonic alone): sonic's scanner takes a string that runs to the end of
-// its input without its closing quote as a complete string when the string's
-// content is a multiple of 32 bytes long. Every body here is refused, on the
-// whole-body path (cutPoint refuses the cut, or the body does not end in a
-// brace), with the whole-body decode's own error, at every such length from
-// 32 to 288 bytes.
+// TestK41ScannerBoundary pins what the decoder does with the shape of a fuzz
+// finding (spikes@815453827b43:w5.3/k41 reproduces the scanner bug with sonic
+// alone): sonic's scanner takes a string that runs to the end of its input
+// without its closing quote as a complete string when the string's content is
+// a multiple of 32 bytes long. Every body here is refused, on the whole-body
+// path (cutPoint refuses the cut, or the body does not end in a brace), with
+// the whole-body decode's own error, at every such length from 32 to 288
+// bytes.
 func TestK41ScannerBoundary(t *testing.T) {
 	zeros := func(n int) string { return strings.Repeat("0", n) }
 	tests := map[string]struct {
@@ -302,10 +302,10 @@ func TestK41ScannerBoundary(t *testing.T) {
 		"error: a top-level string of 32 bytes":                 {body: `"` + zeros(32), wantErr: "not a JSON object"},
 		"error: after the members a response has":               {body: `{"model":"m","answers":{},"x":"` + zeros(32) + `}`, wantErr: "eof"},
 	}
-	// Every length sonic takes as complete, 32·k for k = 1 to 9 (the
-	// reviewer's K41-corr probed 32 to 288 on darwin/arm64), in each shape:
-	// open at the body's end, with a brace last, open at the cut with a brace
-	// or a bracket before it, and the top-level string.
+	// Every length sonic takes as complete, 32·k for k = 1 to 9 (32 to 288
+	// were probed on darwin/arm64), in each shape: open at the body's end,
+	// with a brace last, open at the cut with a brace or a bracket before it,
+	// and the top-level string.
 	type k41case = struct {
 		body    string
 		wantErr string
@@ -334,18 +334,17 @@ func TestK41ScannerBoundary(t *testing.T) {
 	}
 }
 
-// TestTrailingEndPastInput pins the end-past-input guard of trailing
-// (review W6.2 MIN-2; mutant M13 drops it). sonic's decoder.Skip, handed a
-// body shorter than 4 bytes with readable memory after it, reads that
-// memory (MIN-1) and can report a value that ends past the body: the 1-byte
-// body []byte("true")[:1] is "t" followed in its array by "rue", which Skip
-// reads as true, ending at 4. trailing must refuse such a body as not JSON;
-// without the guard it slices body[4:] of a 1-byte body and panics. The
-// decoders never hand trailing such a body (systemOne and models pad a
-// short one first, padShort), so through them the guard is unreachable;
-// this test calls trailing directly, and first checks its premise, that
-// Skip still reads past the body. The last case is the control: the whole
-// literal ends inside its body and passes.
+// TestTrailingEndPastInput pins the end-past-input guard of trailing. sonic's
+// decoder.Skip, handed a body shorter than 4 bytes with readable memory after
+// it, reads that memory and can report a value that ends past the body: the
+// 1-byte body []byte("true")[:1] is "t" followed in its array by "rue", which
+// Skip reads as true, ending at 4. trailing must refuse such a body as not
+// JSON; without the guard it slices body[4:] of a 1-byte body and panics. The
+// decoders never hand trailing such a body (systemOne and models pad a short
+// one first, padShort), so through them the guard is unreachable; this test
+// calls trailing directly, and first checks its premise, that Skip still
+// reads past the body. The last case is the control: the whole literal ends
+// inside its body and passes.
 func TestTrailingEndPastInput(t *testing.T) {
 	tests := map[string]struct {
 		body    []byte

@@ -27,7 +27,8 @@ import (
 )
 
 // decodeBenchFixtures are the valid bodies every decode benchmark runs: the
-// AC-P2 fixtures, in the order of the frozen table.
+// fixtures whose decode budgets docs/perf/frozen-budgets.md pins, in the
+// order of its table.
 var decodeBenchFixtures = []string{
 	"result.json",
 	"type-last.json",
@@ -49,7 +50,7 @@ var decodeBenchFixtures = []string{
 // makes it: the pooled decoder is warm, the result is fresh each iteration,
 // and the question set and model are the ones the response answers, so every
 // string is interned. Its sub-benchmarks pair with BenchmarkDecodeNaiveSonic's
-// by name (G3: W5.1 reports the ratio).
+// by name, so that the two can be compared.
 func BenchmarkDecode(b *testing.B) {
 	for _, name := range decodeBenchFixtures {
 		body := testsupport.Fixture(b, name)
@@ -71,25 +72,24 @@ func BenchmarkDecode(b *testing.B) {
 	}
 }
 
-// BenchmarkDecodeNaiveSonic is B2's naive comparator of owner decision G3
-// (a): internal/testsupport/naive's decode with sonic, sonic.Unmarshal of
-// the same bodies into a map[string]any, which validates the JSON (less
-// strictly: it takes raw control characters and invalid UTF-8) and builds a
-// generic tree without the SDK's checks or types; call/naive decodes the
-// same way. A body the codec refuses has no row: decoding into a
-// map[string]any, sonic refuses 1e400 anywhere on both architectures
-// ("float infinity" on arm64, "float number is infinity" on amd64), so
+// BenchmarkDecodeNaiveSonic is the naive comparator of B2
+// (docs/perf/benchmarks.md): internal/testsupport/naive's decode with sonic,
+// sonic.Unmarshal of the same bodies into a map[string]any, which validates
+// the JSON (less strictly: it takes raw control characters and invalid UTF-8)
+// and builds a generic tree without the SDK's checks or types; call/naive
+// decodes the same way. A body the codec refuses has no row: decoding into a
+// map[string]any, sonic refuses 1e400 anywhere on both architectures ("float
+// infinity" on arm64, "float number is infinity" on amd64), so
 // parity-big-exp-unknown, which the SDK and the Python SDK accept, has no
-// naive row (ledger W2.0). AC-P2's "≤ 0.5 × naive" compares result's
-// allocations with BenchmarkDecode's (W5.1 reports it, W5.2 asserts it).
+// naive row. The decode budget "≤ 0.5 × naive" of docs/perf/frozen-budgets.md
+// compares result's allocations with BenchmarkDecode's.
 func BenchmarkDecodeNaiveSonic(b *testing.B) {
 	benchmarkDecodeNaive(b, naive.Sonic)
 }
 
 // BenchmarkDecodeNaiveJSON is BenchmarkDecodeNaiveSonic with encoding/json,
-// the second comparator of G3 (a), reported only. encoding/json also
-// refuses 1e400 into a float64, so parity-big-exp-unknown has no row here
-// either.
+// the second comparator, reported only. encoding/json also refuses 1e400 into
+// a float64, so parity-big-exp-unknown has no row here either.
 func BenchmarkDecodeNaiveJSON(b *testing.B) {
 	benchmarkDecodeNaive(b, naive.StdJSON)
 }
@@ -116,19 +116,20 @@ func benchmarkDecodeNaive(b *testing.B, cd naive.Codec) {
 	}
 }
 
-// TestLazyPassAllocations checks AC-P8's allocation clauses on the lazy pass
-// alone, as frozen at W0.6: at most 20 + ceil(members/15) + escaped keys + 1
-// allocations, where members is what the pass iterates (root members,
-// answers members, the marked answers' members and their legend levels) and
-// the one is the arena, which the lazy pass no longer allocates (the copies
-// moved to intern), and a 10^4 : 10^3 ratio of at most 12. Counts are
-// runtime.ReadMemStats deltas, the minimum that three of five runs share,
-// with the collector off; under -race the test is skipped, since a pooled
-// scratch is dropped one time in four. The members each fixture's pass visits
-// are pinned too (the floods' 1 011 and 10 011 are frozen-budgets.md's inputs
-// of the bound, which root's TestLinearityFlood counts from the fixture with
-// encoding/json), so a pass that visits more than the flagged answers fails
-// here, not only through the bound it computes from its own count.
+// TestLazyPassAllocations checks the allocation bound of
+// docs/perf/frozen-budgets.md on the lazy pass alone: at most
+// 20 + ceil(members/15) + escaped keys + 1 allocations, where members is what
+// the pass iterates (root members, answers members, the marked answers'
+// members and their legend levels) and the one is the budget's arena term,
+// and a 10^4 : 10^3 ratio of at most 12. Counts are runtime.ReadMemStats
+// deltas, the minimum that three of five runs share, with the collector off;
+// under -race the test is skipped, since a pooled scratch is dropped one time
+// in four.
+// The members each fixture's pass visits are pinned too (the floods' 1 011
+// and 10 011 are frozen-budgets.md's inputs of the bound, which root's
+// TestLinearityFlood counts from the fixture with encoding/json), so a pass
+// that visits more than the flagged answers fails here, not only through the
+// bound it computes from its own count.
 func TestLazyPassAllocations(t *testing.T) {
 	if raceEnabled() {
 		t.Skip("allocation counts need a build without -race")

@@ -50,7 +50,7 @@ type ErrorBody struct {
 
 // errorBodyAPI decodes an error body into generic values. Numbers stay text
 // (json.Number): a float out of range would make sonic's verdict depend on
-// the architecture (ledger W0.3), and the reader never computes with one.
+// the architecture, and the reader never computes with one.
 var errorBodyAPI = sonic.Config{UseNumber: true}.Froze()
 
 // ReadErrorBody reads the body of an unsuccessful response as the Python SDK
@@ -93,7 +93,7 @@ func ReadErrorBody(body []byte) ErrorBody {
 // generic values with errorBodyAPI. A literal of valid JSON has all of its 4
 // or 5 bytes, so sonic's advance_dword check holds on compact; padShort
 // keeps sonic's reads inside the SDK's own memory for a 1-to-3-byte body
-// all the same (review W6.2 MIN-1).
+// all the same.
 func decodeErrorJSON(compact []byte) (v any, err error) {
 	err = errorBodyAPI.UnmarshalFromString(NoCopyString(padShort(compact)), &v)
 	return v, err

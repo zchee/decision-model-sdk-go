@@ -18,11 +18,11 @@ package codec
 
 import "unsafe"
 
-// NoCopyString returns b viewed as a string, without copying it. It is one
-// of the module's two uses of unsafe (NF6), with the typed decode's field
-// store in the root package (ruling R116): the decoder hands a response
-// body to sonic's parser as a string, and sonic returns keys and strings
-// without escape sequences as substrings of it.
+// NoCopyString returns b viewed as a string, without copying it. It is one of
+// the module's two uses of unsafe, with the typed decode's field store in the
+// root package: the decoder hands a response body to sonic's parser as a
+// string, and sonic returns keys and strings without escape sequences as
+// substrings of it.
 //
 // The string aliases b. The aliasing contract is that b must not be modified
 // for as long as the string, or any substring of it, is reachable: a write to

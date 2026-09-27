@@ -24,14 +24,13 @@ import (
 )
 
 // lazy is the one second pass that reads structured legend levels as exact
-// bytes (plan 6.2.4). The visitor cannot capture a container's bytes, so it
-// marks each answer with structured levels, and this pass finds them in
-// src: the last "answers" member of the root, the last member of each
-// marked name, its last "legend" member, and each level's Raw(), last wins
-// throughout, as the visitor resolved the same duplicates. Every lookup
-// iterates the members, because Node.Get returns the first match, and
-// Properties() unescapes the names, so an escaped "answers" is the
-// same member it is to the visitor.
+// bytes. The visitor cannot capture a container's bytes, so it marks each
+// answer with structured levels, and this pass finds them in src: the last
+// "answers" member of the root, the last member of each marked name, its last
+// "legend" member, and each level's Raw(), last wins throughout, as the
+// visitor resolved the same duplicates. Every lookup iterates the members,
+// because Node.Get returns the first match, and Properties() unescapes the
+// names, so an escaped "answers" is the same member it is to the visitor.
 //
 // It leaves each marked answer's level bytes in d.raws, from d.rawBase[i]
 // on for answer i and indexed like its legend. The bytes are substrings of

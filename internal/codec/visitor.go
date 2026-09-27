@@ -78,12 +78,12 @@ const maxDepth = 4
 // maxNesting is the deepest nesting of containers a body may have, the root
 // included: sonic's decoder.Skip, which the trailing-data check runs, takes
 // 4096 and refuses more (skipDepth says where the two differ). The visitor
-// refuses a container past it as it
-// opens, so sonic's traversal, which recurses once per level on the
-// goroutine's stack, stops within that many frames: without the cap a body
-// of a few MiB nested millions deep exhausts the stack and kills the process
-// (review W2.0 MAJOR 1). The Python SDK refuses past 200 nested arrays; the
-// Go port is the more lenient (Appendix B).
+// refuses a container past it as it opens, so sonic's traversal, which
+// recurses once per level on the goroutine's stack, stops within that many
+// frames: without the cap a body of a few MiB nested millions deep exhausts
+// the stack and kills the process. The Python SDK refuses past 200 nested
+// arrays; the Go port is the more lenient (docs/deviations.md,
+// "nesting depth").
 const maxNesting = 4096
 
 // mode is the kind of body a traversal reads.
@@ -310,10 +310,10 @@ func (v *visitor) resetAnswers() {
 }
 
 // checkString is the per-string check of every string and key: valid UTF-8
-// and no raw control character (ruling R23). [ValidString] decides for a
-// string without a byte below 0x20; a valid string holding one came from a
-// legal escape unless the body holds a raw one inside a string, which the
-// body is asked once (control.go).
+// and no raw control character. [ValidString] decides for a string without a
+// byte below 0x20; a valid string holding one came from a legal escape unless
+// the body holds a raw one inside a string, which the body is asked once
+// (control.go).
 func (v *visitor) checkString(s string) error {
 	if ValidString(s) {
 		return nil
@@ -599,11 +599,11 @@ func (v *visitor) assign(isStr bool, s string, num json.Number) {
 }
 
 // parseCount parses a token count: a JSON integer from 0 to 2^64-1, -0
-// included, which is the integer 0 (review W2.0 MINOR 3). A negative or
-// larger integer, a number with a fraction or an exponent, a string and a
-// boolean fail (the Python SDK's Usage is strict; a negative count and one
-// past uint64 are Appendix B deviations). null never reaches it: OnNull
-// takes null as an absent count.
+// included, which is the integer 0. A negative or larger integer, a number
+// with a fraction or an exponent, a string and a boolean fail (the Python
+// SDK's Usage is strict; a negative count and one past uint64 are deviations,
+// docs/deviations.md, "usage counts"). null never reaches it: OnNull takes
+// null as an absent count.
 func parseCount(num json.Number) (uint64, bool) {
 	if num == "" {
 		return 0, false
@@ -617,12 +617,13 @@ func parseCount(num json.Number) (uint64, bool) {
 
 // parseFloat parses a JSON number that the traversal delivered as text
 // (OnlyNumber). A value out of float64's range (1e400) fails: the Go port
-// rejects it where the Python SDK takes infinity (Appendix B). A zero is
-// always positive: -0 is the integer 0, as the Python SDK reads it, and
-// -0.0, which the Python SDK keeps negative, is read as 0 too (a W7
-// deviation row), so that the sign of a zero cannot reach sonic's encoder,
-// which writes a negative zero differently on arm64 and amd64 (K27; review
-// W2.0 NIT 4).
+// rejects it where the Python SDK takes infinity (docs/deviations.md,
+// "non-finite numbers in a response"). A zero is always positive: -0 is the
+// integer 0, as the Python SDK reads it, and -0.0, which the Python SDK
+// keeps negative, is read as 0 too (docs/deviations.md,
+// "the sign of a zero in a response"), so that the sign of a zero cannot
+// reach sonic's encoder, which writes a negative zero differently on arm64
+// and amd64.
 func parseFloat(num json.Number) (float64, bool) {
 	if num == "" {
 		return 0, false

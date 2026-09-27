@@ -35,26 +35,20 @@ import (
 // body with both. Its seed corpus is the fixtures and rows below, the Rust
 // SDK's fuzz/corpus/decode_response byte for byte
 // (testdata/fuzz/FuzzDecodeResponse), and the inputs campaigns found.
-// Its seed corpus runs as a test in CI's -race test step (go test -race
-// with coverage) and its non-race allocation-tests step (go test -count=1
-// ./internal/codec/ ./internal/wire/ ./internal/testsupport/), on
-// ubuntu-26.04, xcode-27 and windows-2025, and the fuzz job fuzzes it for
-// 60 s on ubuntu-26.04.
 //
 // The models decoder never panics; it refuses with a *DecodeError or
 // accepts only valid JSON of valid UTF-8, decodes the same twice, and its
 // cards never alias the body.
 //
-// The System One decoder never
-// panics; it refuses with a *DecodeError, or accepts only a body that is one
-// valid JSON value of valid UTF-8 (encoding/json's json.Valid and
-// utf8.Valid, which are weaker than the decoder's rules); an accepted body
-// gives answers with unique labels and levels, structured levels that are
-// valid JSON, and the same result on a second decode and when decoded
-// against the question set it answers; the result never aliases the body;
-// and, decoded as a System One and as a models response, the body gives the
-// outcome of the whole-body traversal and decoder.Skip's trailing-data scan
-// that the one-scan traversal replaced (K36, W5.3).
+// The System One decoder never panics; it refuses with a *DecodeError, or
+// accepts only a body that is one valid JSON value of valid UTF-8
+// (encoding/json's json.Valid and utf8.Valid, which are weaker than the
+// decoder's rules); an accepted body gives answers with unique labels and
+// levels, structured levels that are valid JSON, and the same result on a
+// second decode and when decoded against the question set it answers; the
+// result never aliases the body; and, decoded as a System One and as a models
+// response, the body gives the outcome of the whole-body traversal and
+// decoder.Skip's trailing-data scan that the one-scan traversal replaced.
 func FuzzDecodeResponse(f *testing.F) {
 	for _, name := range testsupport.FixtureNames(f, "*.json") {
 		if strings.HasPrefix(name, "structured-legend-flood-10k") {
@@ -70,7 +64,7 @@ func FuzzDecodeResponse(f *testing.F) {
 		`{"model":"m","usage":{},"answers":{"c":{"type":"choice","choice":"a","confidence":1,"probabilities":{"a":1,"a":"x","b":0}}}}`,
 		`{"model":"m","usage":{},"answers":{"u":{"type":"aurora"},"c":7}}`,
 		unescapeU(`{"model":"m","usage":{},"@U@0061nswers":{"s":{"type":"score","score":0,"confidence":1,"legend":{"@U@0030":{"k":"@U@d800"}},"probabilities":{}}}}`),
-		// Root keys sonic fails to unquote (K36's one-scan traversal, W5.3).
+		// Root keys sonic fails to unquote, for the one-scan traversal.
 		`{"\u"}`, `{"0000000000000000000000000000000\0}`,
 		// A string value cut open where the root's brace was (the same;
 		// sonic takes a string cut open by the end of its input as whole

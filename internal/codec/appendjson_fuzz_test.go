@@ -26,11 +26,11 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
-// FuzzAppendJSON is the differential half of ruling R44: wire's scanner,
-// which the SDK uses to check and compact JSON content without a JSON
-// library, accepts exactly the inputs that encoding/json's json.Valid
-// accepts and that are valid UTF-8 (encoding/json does not check UTF-8),
-// and its output is encoding/json's json.Compact of the input. wire's own
+// FuzzAppendJSON is the differential half of the scanner's fuzzing: wire's
+// scanner, which the SDK uses to check and compact JSON content without a
+// JSON library, accepts exactly the inputs that encoding/json's json.Valid
+// accepts and that are valid UTF-8 (encoding/json does not check UTF-8), and
+// its output is encoding/json's json.Compact of the input. wire's own
 // FuzzAppendJSON checks the scanner's invariants.
 func FuzzAppendJSON(f *testing.F) {
 	for _, seed := range []string{

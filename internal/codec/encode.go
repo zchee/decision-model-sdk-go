@@ -30,11 +30,10 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
-// encodeOptions are the sonic options of every encode, the ones spike S-E1
-// froze NF1 with: none. Strings are neither HTML-escaped nor validated (the
-// state encoder checks UTF-8 itself, see [EncodeState]), map members are
-// written in Go's iteration order, and the output of a json.Marshaler is
-// validated but not compacted.
+// encodeOptions are the sonic options of every encode: none. Strings are
+// neither HTML-escaped nor validated (the state encoder checks UTF-8 itself,
+// see [EncodeState]), map members are written in Go's iteration order, and
+// the output of a json.Marshaler is validated but not compacted.
 const encodeOptions encoder.Options = 0
 
 var (
@@ -96,22 +95,19 @@ func (e *EncodeError) Unwrap() error { return e.Err }
 // the state is sent as a base64 string, as encoding/json does. A value sonic
 // cannot encode fails with an [*EncodeError].
 //
-// Floats keep sonic's spelling (ruling R46), which is encoding/json's except
-// that a negative zero loses its sign on arm64 (K27): 3.0 is written 3,
-// -0.0 as 0 on arm64 and as -0 on amd64, and 1e16 <= |x| < 1e21 and
-// 1e-6 <= |x| < 1e-5 in fixed digits. sonic's amd64 JIT encoder calls its
-// native float writer, which writes the sign; its VM encoder, which every
-// other GOARCH runs, writes any zero as 0 before reaching it. Raw JSON
-// appended with [AppendRawState], or a number carried as a string, keeps an
-// exact spelling. A map's members are written in Go's iteration order,
-// which changes from one encode to the next (ruling R55): a struct or raw
-// JSON gives stable bytes.
+// Floats keep sonic's spelling, which is encoding/json's except that a
+// negative zero loses its sign on arm64: 3.0 is written 3, -0.0 as 0 on
+// arm64 and as -0 on amd64, and 1e16 <= |x| < 1e21 and 1e-6 <= |x| < 1e-5 in
+// fixed digits. Raw JSON appended with [AppendRawState], or a number carried
+// as a string, keeps an exact spelling. A map's members are written in Go's
+// iteration order, which changes from one encode to the next: a struct or
+// raw JSON gives stable bytes.
 //
 // The output of a json.Marshaler in the state, such as a nested
 // json.RawMessage, is checked only by sonic, whose check does not refuse
-// every invalid output (K26); that it is valid JSON is the caller's
-// contract, as for raw JSON appended with [AppendRawState] (ruling R61). The
-// state is not scanned again as a whole.
+// every invalid output; that it is valid JSON is the caller's contract, as
+// for raw JSON appended with [AppendRawState]. The state is not scanned
+// again as a whole.
 //
 // On failure *buf keeps its length from before the call. The checks cost one
 // pass over the encoded bytes and allocate nothing.
@@ -142,20 +138,16 @@ func EncodeState(buf *[]byte, state any) error {
 }
 
 // EncodeValue appends the JSON encoding of v, any JSON value, to *buf with
-// sonic's encoder.EncodeInto, for a member of the request body other than
-// the state. Unlike [EncodeState] it takes null, booleans and numbers; the
-// output must still be valid UTF-8. A plain []byte, or a byte slice of a
-// named type (plainBytes), fails with [ErrPlainBytes], as for the state
-// (rulings R56 and R59b), and a []byte nested inside v is sent as a base64
-// string. A value sonic cannot encode fails with an
-// [*EncodeError]. On failure *buf keeps its length from before the call.
+// sonic's encoder.EncodeInto, for a member of the request body other than the
+// state. Unlike [EncodeState] it takes null, booleans and numbers; the output
+// must still be valid UTF-8. A plain []byte, or a byte slice of a named type
+// (plainBytes), fails with [ErrPlainBytes], as for the state, and a []byte
+// nested inside v is sent as a base64 string. A value sonic cannot encode
+// fails with an [*EncodeError]. On failure *buf keeps its length from before
+// the call.
 //
-// Floats and map members follow the state's rules (rulings R46, R55 and
-// R59): floats keep sonic's spelling, 3.0 written 3, -0.0 as 0 on arm64 and
-// as -0 on amd64 (K27), fixed digits for 1e16 <= |x| < 1e21 and
-// 1e-6 <= |x| < 1e-5; a map's members go out in Go's iteration order. Raw
-// JSON appended with [AppendRawValue], or a number carried as a string,
-// keeps an exact spelling.
+// Floats and map members follow [EncodeState]'s rules. Raw JSON appended with
+// [AppendRawValue], or a number carried as a string, keeps an exact spelling.
 func EncodeValue(buf *[]byte, v any) error {
 	if err := plainBytes(v, ErrRawValue); err != nil {
 		return err
@@ -221,7 +213,7 @@ var (
 // pointer to either (*[]byte, *blob) without such a method of its own. A nil
 // pointer to one is refused as holding no value, with nilErr: the state's
 // [ErrStateShape] or a member's [ErrRawValue]. It allocates nothing unless
-// it refuses (rulings R59b and R59c's NIT C).
+// it refuses.
 func plainBytes(v any, nilErr error) error {
 	if _, ok := v.([]byte); ok {
 		return ErrPlainBytes
