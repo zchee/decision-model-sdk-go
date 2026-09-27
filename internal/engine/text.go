@@ -312,7 +312,7 @@ func (c Credentials) Redact(s string) (string, bool) {
 // LogErrorText renders err, an error of the SDK's transport, for the
 // transport's DEBUG records "h2: gate error" and "h2: redial error"
 // (h2gate.Config.ErrorText, ruling R84): every credential of creds, the
-// call's (the root package's transport.credentials), and every URL userinfo
+// call's ([Transport.Credentials]), and every URL userinfo
 // replaced by "***" ([Credentials.Redact]), then escaped and cut at 200
 // characters ([SafeMessage]), as the text of a *ConnectionError is. The
 // transport calls it only for a record the logger keeps.

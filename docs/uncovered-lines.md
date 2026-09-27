@@ -55,7 +55,6 @@ Each reason starts with its class:
 | `text.go` | `(*pathText).fixed` | `t.b = append(t.b, "\u2026"...)` | 1 | Gap: a field path whose own text, not a name, crosses the path limit. |
 | `text.go` | `(*pathText).name` | `return` | 1 | Gap: a field path that is already cut when another name follows. |
 | `text.go` | `(*pathText).name` | `t.full = true` | 1 | Gap: a name cut by the room left in the path rather than by its own limit. |
-| `transport.go` | `var traceKeys` | `{}` | 1 | Defensive: a `ConnectStart` hook that exists only so that `httptrace` sets its net-level key; the context never dials. |
 | `typed.go` | `kindKeys` | `return "a choice takes kind, name, instructions, options and optional"` | 1 | Gap: a tag key outside its kind on a choice field; only the noul message is tested. |
 | `typed.go` | `kindKeys` | `return "a score takes kind, name, instructions, levels and optional"` | 1 | Gap: a tag key outside its kind on a score field; only the noul message is tested. |
 | `typed.go` | `lookupTag` | `break` | 2 | Gap: a struct tag that ends in spaces, and an unterminated value under a key other than `typesafe`. |
@@ -96,6 +95,7 @@ Each reason starts with its class:
 | `internal/engine/read.go` | `ReadBody` | `return nil, ErrTooLarge` | 1 | Gap: a body reader that returns the byte past the limit together with an error (`iotest.DataErrReader`); the readers in tests return `io.EOF` on a later call, so the full-buffer check refuses the body first. |
 | `internal/engine/text.go` | `Credentials.detail` | `continue` | 1 | Gap: a wrapped chain with a nil link (an `Unwrap` that returns nil); no error chain in tests has one. |
 | `internal/engine/text.go` | `Credentials.inChain` | `continue` | 1 | Gap: a wrapped chain with a nil link (an `Unwrap` that returns nil); no error chain in tests has one. |
+| `internal/engine/transport.go` | `var traceKeys` | `{}` | 1 | Defensive: a `ConnectStart` hook that exists only so that `httptrace` sets its net-level key; the context never dials. |
 | `internal/h2gate/config.go` | `alpnScope.String` | `return [...]string{"none", "every-handshake", "sni", "post-check-only"}[s]` | 1 | Defensive: called only when a failing test prints a scope. |
 | `internal/h2gate/config.go` | `proxyMayApply` | `return false, fmt.Errorf("%w: %w", ErrProxyEnvironment, err)` | 1 | Gap: `http.ProxyFromEnvironment` reads the environment once per process, so only a subprocess started with an invalid `HTTPS_PROXY` reaches it. |
 | `internal/h2gate/config.go` | `NewTransport` | `return nil, err` | 1 | Gap: the `proxyMayApply` failure above, which needs an invalid proxy environment in a subprocess. |

@@ -565,5 +565,5 @@ func coldBurst(ctx context.Context, opts []ClientOption, state any, qs *Prepared
 		})
 	}
 	wg.Wait()
-	return c.cfg.transport.stats(), first
+	return c.cfg.transport.Stats(), first
 }

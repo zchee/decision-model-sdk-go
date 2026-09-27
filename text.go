@@ -49,14 +49,6 @@ func safeMessage(s string) string { return engine.SafeMessage(s) }
 // requestCredentials is [engine.RequestCredentials].
 func requestCredentials(h http.Header) engine.Credentials { return engine.RequestCredentials(h) }
 
-// logErrorText renders err, an error of the SDK's transport for the request
-// req, for the transport's DEBUG records "h2: gate error" and "h2: redial
-// error" (h2gate.Config.ErrorText, ruling R84), scrubbed of every credential
-// of the call ([transport.credentials]; [engine.LogErrorText]).
-func (t *transport) logErrorText(req *http.Request, err error) string {
-	return engine.LogErrorText(t.credentials(req), err)
-}
-
 // renderFieldPath returns p as a *ResponseValidationError prints it: the
 // Python SDK's dotted field_path, "." for the root, with each name the server
 // chose (an answer name, a probability or legend key) escaped with its

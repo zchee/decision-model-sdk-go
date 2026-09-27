@@ -208,7 +208,7 @@ func measureCallItems(t *testing.T, c *Client, state any, qs *Prepared, prefix s
 			req = r.WithContext(actx)
 		})
 		sinkRequest = req
-		hresp, err := c.cfg.transport.roundTrip(req, s.timeout)
+		hresp, err := c.cfg.transport.RoundTrip(req)
 		if err != nil {
 			t.Fatal(err)
 		}

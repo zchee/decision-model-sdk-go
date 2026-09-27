@@ -39,12 +39,12 @@ const MaxProxyUserinfos = 16
 // func (h2gate, R19), and its error still holds the credential of the proxy
 // the dial chose. Every transport error of the client is scrubbed of every
 // credential in the set, whatever its length, each word of a password
-// among them (the root package's transport.credentials). The header of a
+// among them ([Transport.Credentials]). The header of a
 // response to a plain-HTTP request that went through a proxy, which the
 // proxy may have written itself, a 407 among them, is scanned for the whole
 // credentials alone, the Basic token and the password as it is and as the
-// URL escapes it, those of 8 bytes or more, as for the API key (the root
-// package's transport.responseRedactor, [HeaderRedactor.WithProxies],
+// URL escapes it, those of 8 bytes or more, as for the API key
+// ([Transport.ResponseRedactor], [HeaderRedactor.WithProxies],
 // [ProxyCreds.inHeader]; rulings D-W6-secfix-header-scope and -2): a word of
 // a password, or a short one, would match ordinary header values, a
 // Retry-After among them.

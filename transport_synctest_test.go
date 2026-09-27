@@ -26,6 +26,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
@@ -133,13 +134,13 @@ func countPings(base *http.Transport, pings *atomic.Int64) {
 func fakeConfig(t *testing.T, base *http.Transport) *config {
 	t.Helper()
 	c := mustResolve(t, noEnv, WithAPIKey(testKey), WithBaseURL("http://example.com"), WithHTTPVersion(HTTP2Only), WithHTTPTransport(base))
-	t.Cleanup(func() { _ = c.transport.close() })
+	t.Cleanup(func() { _ = c.transport.Close() })
 	return c
 }
 
 // fakeFan sends n GETs at once through tr, each within d, and returns them in
 // order.
-func fakeFan(t *testing.T, tr *transport, n int, prefix string, d time.Duration) []getResult {
+func fakeFan(t *testing.T, tr *engine.Transport, n int, prefix string, d time.Duration) []getResult {
 	t.Helper()
 	out := make([]getResult, n)
 	var wg sync.WaitGroup
@@ -185,7 +186,7 @@ func TestSynctestThroughWithHTTPTransport(t *testing.T) {
 			synctest.Wait()
 			afterIdle := getWithin(t, c.transport, "http://example.com/after-idle", 0, fakeDeadline)
 			accIdle := srv.Accepts()
-			st := c.transport.stats()
+			st := c.transport.Stats()
 			t.Logf("accepts cold %d, warm %d, after the ping %d, after the idle close %d; PINGs while busy %d, while idle %d; stats %+v",
 				accCold, accWarm, accPing, accIdle, pingsBusy, pingsIdle, st)
 			if pingsIdle < 1 {

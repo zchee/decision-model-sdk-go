@@ -295,7 +295,7 @@ func TestTransportDebugRecordsHoldNoCredential(t *testing.T) {
 				if _, err := c.Models().List(t.Context()); err != nil {
 					t.Fatalf("warm-up List: %v", err)
 				}
-				c.cfg.transport.gate.CloseIdleConnections() // the next call dials again
+				c.cfg.transport.Gate.CloseIdleConnections() // the next call dials again
 			}
 			_, err := callWithin(t, func(ctx context.Context) error {
 				_, err := c.Models().List(ctx, Retry(NoRetry()))
@@ -862,7 +862,7 @@ func TestProxyEchoConcurrentColdClient(t *testing.T) {
 				})
 			}
 			if !tt.plain {
-				gate := c.cfg.transport.gate
+				gate := c.cfg.transport.Gate
 				deadline := time.Now().Add(callBound)
 				for proxies[0].requests.Load() != 1 || gate.Parked() != n-1 {
 					if time.Now().After(deadline) {
@@ -922,7 +922,7 @@ func TestProxyCredentialSetEvictsTheOldest(t *testing.T) {
 	}
 	logs := testsupport.NewLogRecorder(slog.LevelDebug)
 	c := newCredentialClient(t, logs.Logger(), WithProxy(choose))
-	set := c.cfg.transport.proxies
+	set := c.cfg.transport.Proxies
 	// passwordsIn returns the passwords of urls the set holds, read through
 	// its needles (engine.ProxyCreds.Credentials), in urls' order; the
 	// engine's TestProxyCredsRecord pins the order within the set.
@@ -1352,7 +1352,7 @@ func TestProxyHeaderScanScope(t *testing.T) {
 		if _, ok := errors.AsType[*ConnectionError](listOnce(t, c)); !ok {
 			t.Fatal("the first call, through the proxy, did not fail as the proxy's malformed answer makes it")
 		}
-		if c.cfg.transport.proxies.Credentials() == nil {
+		if c.cfg.transport.Proxies.Credentials() == nil {
 			t.Fatal("the set holds no credential after the first call")
 		}
 		logs.Reset()

@@ -32,6 +32,7 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/h2gate"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
@@ -47,12 +48,12 @@ type getResult struct {
 
 // getVia sends GET rawURL through tr with the attempt timeout timeout, reads
 // the whole response body and closes it.
-func getVia(ctx context.Context, tr *transport, rawURL string, timeout time.Duration) getResult {
+func getVia(ctx context.Context, tr *engine.Transport, rawURL string, timeout time.Duration) getResult {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return getResult{err: err}
 	}
-	resp, err := tr.roundTrip(req, timeout)
+	resp, err := roundTrip(tr, req, timeout)
 	if err != nil {
 		return getResult{err: err}
 	}
@@ -62,7 +63,7 @@ func getVia(ctx context.Context, tr *transport, rawURL string, timeout time.Dura
 }
 
 // getWithin is getVia under a deadline of d.
-func getWithin(t *testing.T, tr *transport, rawURL string, timeout, d time.Duration) getResult {
+func getWithin(t *testing.T, tr *engine.Transport, rawURL string, timeout, d time.Duration) getResult {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), d)
 	defer cancel()
@@ -194,7 +195,7 @@ func TestTransportOptionsAreExclusive(t *testing.T) {
 			opts := append([]ClientOption{WithAPIKey(testKey)}, tt.opts...)
 			if tt.want == "" {
 				c := mustResolve(t, noEnv, opts...)
-				if c.transport == nil || c.transport.rt == nil {
+				if c.transport == nil || c.transport.RT == nil {
 					t.Fatalf("resolve built no transport")
 				}
 				return
@@ -233,19 +234,19 @@ func TestTransportKinds(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			c := mustResolve(t, noEnv, append([]ClientOption{WithAPIKey(testKey)}, tt.opts...)...)
-			if got := c.transport.gate != nil; got != tt.wantGate {
+			if got := c.transport.Gate != nil; got != tt.wantGate {
 				t.Fatalf("gate built: %t, want %t", got, tt.wantGate)
 			}
 			if tt.wantGate {
-				if c.transport.rt != c.transport.gate || c.transport.closer != nil {
-					t.Errorf("rt %T, closer %T; want the gate and no closer", c.transport.rt, c.transport.closer)
+				if c.transport.RT != c.transport.Gate || c.transport.Closer != nil {
+					t.Errorf("rt %T, closer %T; want the gate and no closer", c.transport.RT, c.transport.Closer)
 				}
 				return
 			}
-			if c.transport.rt != rt || c.transport.closer != rt {
-				t.Errorf("rt %T, closer %T; want the Recorder for both", c.transport.rt, c.transport.closer)
+			if c.transport.RT != rt || c.transport.Closer != rt {
+				t.Errorf("rt %T, closer %T; want the Recorder for both", c.transport.RT, c.transport.Closer)
 			}
-			if got := c.transport.stats(); got != (h2gate.Stats{}) {
+			if got := c.transport.Stats(); got != (h2gate.Stats{}) {
 				t.Errorf("stats() = %+v, want zero values without the SDK's transport", got)
 			}
 		})
@@ -678,7 +679,7 @@ func TestTransportClose(t *testing.T) {
 			l := &closeLog{err: boom}
 			c := mustResolve(t, noEnv, WithAPIKey(testKey), WithRoundTripper(tt.rt(l)))
 			for i := range 3 {
-				if err := c.transport.close(); err != tt.wantErr { //nolint:errorlint // identity is the assertion
+				if err := c.transport.Close(); err != tt.wantErr { //nolint:errorlint // identity is the assertion
 					t.Errorf("close #%d = %v, want %v", i+1, err, tt.wantErr)
 				}
 			}
@@ -694,7 +695,7 @@ func TestTransportClose(t *testing.T) {
 		if r := getWithin(t, c.transport, srv.URL()+"/v1/models", 0, 10*time.Second); r.err != nil || r.protoMajor != 2 {
 			t.Fatalf("GET = HTTP/%d %v", r.protoMajor, r.err)
 		}
-		if err := c.transport.close(); err != nil {
+		if err := c.transport.Close(); err != nil {
 			t.Errorf("close = %v, want nil", err)
 		}
 		deadline := time.Now().Add(5 * time.Second)
@@ -712,7 +713,7 @@ func TestTransportClose(t *testing.T) {
 			t.Fatalf("GET = HTTP/%d %v", r.protoMajor, r.err)
 		}
 		for range 2 {
-			if err := c.transport.close(); err != nil {
+			if err := c.transport.Close(); err != nil {
 				t.Errorf("close = %v, want nil", err)
 			}
 		}

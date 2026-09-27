@@ -25,6 +25,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 )
 
 // ClientOption configures a client.
@@ -269,7 +271,7 @@ type config struct {
 	modelsHeader    http.Header
 
 	// transport carries every request of the client.
-	transport *transport
+	transport *engine.Transport
 
 	// retry is the policy of a call that passes none ([Retry]).
 	retry RetryPolicy

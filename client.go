@@ -131,7 +131,7 @@ func (c *Client) Close() error {
 	if !c.closed.CompareAndSwap(false, true) {
 		return nil
 	}
-	return c.cfg.transport.close()
+	return c.cfg.transport.Close()
 }
 
 // built returns a *ConfigError for a Client that NewClient did not build.
@@ -173,7 +173,7 @@ func (c *Client) Stats() Stats {
 	if c.built() != nil {
 		return Stats{}
 	}
-	return Stats{Dials: c.cfg.transport.stats().Dials, Attempts: c.attempts.Load()}
+	return Stats{Dials: c.cfg.transport.Stats().Dials, Attempts: c.attempts.Load()}
 }
 
 // WarmUp lists the models once, so that the connection, and the HTTP/2
@@ -218,7 +218,7 @@ func (c *Client) SystemOne(ctx context.Context, state any, qs *Prepared, opts ..
 
 // systemOne is [Client.SystemOne], which also stores in *red, when red is
 // not nil, the redactor of the header of the response it returns
-// ([transport.responseRedactor]), for [Ask]'s decode.
+// ([engine.Transport.ResponseRedactor]), for [Ask]'s decode.
 func (c *Client) systemOne(ctx context.Context, state any, qs *Prepared, opts []CallOption, red *headerRedactor) (*SystemOneResponse, error) {
 	if err := c.usable(); err != nil {
 		return nil, err
@@ -382,7 +382,7 @@ func (m Models) List(ctx context.Context, opts ...CallOption) (*ModelsResponse, 
 // call: the last attempt's own, decode's for a response that arrived, or
 // the context's when it ended a wait (retryState.wait). Each attempt stores
 // its response's status, header and body in *meta, which decode reads with
-// the response's header redactor ([transport.responseRedactor]), which send
+// the response's header redactor ([engine.Transport.ResponseRedactor]), which send
 // also returns. One loop serves every endpoint (ruling R79 NIT 9). Neither
 // decode nor the policy, a copy on send's stack, escapes, so a first
 // attempt that succeeds allocates nothing here.
@@ -449,7 +449,7 @@ func (rq *request) attemptHeader(attempt int) http.Header {
 // outcome but a 2xx response read whole: an *APIError for another status, a
 // *ResponseTooLargeError for a 2xx body over the limit, and a transport
 // failure as a *ConnectionError or a *TimeoutError; and the redactor of
-// the response's header ([transport.responseRedactor]), which the errors,
+// the response's header ([engine.Transport.ResponseRedactor]), which the errors,
 // the records and decode redact it with.
 func (c *Client) attempt(ctx context.Context, rq *request, attempt int) (wire.ResponseMeta, headerRedactor, error) {
 	h := rq.attemptHeader(attempt)
@@ -490,13 +490,13 @@ func (c *Client) attempt(ctx context.Context, rq *request, attempt int) (wire.Re
 
 	start := time.Now()
 	c.attempts.Add(1)
-	resp, err := c.cfg.transport.roundTrip(req, rq.timeout)
+	resp, err := roundTrip(c.cfg.transport, req, rq.timeout)
 	if err != nil {
 		err = c.attemptError(ctx, actx, rq.timeout, req, err)
 		c.logFailure(ctx, rq, attempt, start, err)
 		return wire.ResponseMeta{}, headerRedactor{}, err
 	}
-	red := c.cfg.transport.responseRedactor(c.cfg.redactor(), resp)
+	red := c.cfg.transport.ResponseRedactor(c.cfg.redactor(), resp)
 	meta := wire.ResponseMeta{Status: resp.StatusCode, Header: resp.Header}
 	success := resp.StatusCode >= 200 && resp.StatusCode <= 299
 	raw, err := engine.ReadBody(resp.Body, resp.ContentLength, c.cfg.maxResponseBytes)
@@ -545,7 +545,7 @@ func (c *Client) attempt(ctx context.Context, rq *request, attempt int) (wire.Re
 //     *ConnectionError.
 //
 // A *ConnectionError's text is the transport error's, with every credential
-// of the call req made ([transport.credentials]) and every URL userinfo
+// of the call req made ([engine.Transport.Credentials]) and every URL userinfo
 // replaced by "***" ([engine.Credentials.Redact]); both types wrap the
 // transport's error, or a stand-in for it when its chain printed a
 // credential ([engine.Credentials.Cause]).
@@ -556,7 +556,7 @@ func (c *Client) attemptError(ctx, actx context.Context, timeout time.Duration, 
 	if _, ok := err.(Error); ok { //nolint:errorlint // only an error the transport returned as the SDK's own is kept.
 		return err
 	}
-	creds := c.cfg.transport.credentials(req)
+	creds := c.cfg.transport.Credentials(req)
 	var ne net.Error
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
