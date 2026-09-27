@@ -52,44 +52,11 @@ func TestAllocResponseJSON(t *testing.T) {
 		pin := jsonAllocs[name]
 		t.Run(name, func(t *testing.T) {
 			data := testsupport.Fixture(t, name)
-			var (
-				marshal, unmarshal testsupport.Allocs
-				payload            []byte
-				err                error
-			)
+			measure := measureJSON[typesafe.SystemOneResponse]
 			if name == "models.json" {
-				var resp typesafe.ModelsResponse
-				if err := resp.UnmarshalJSON(data); err != nil {
-					t.Fatal(err)
-				}
-				if payload, err = resp.MarshalJSON(); err != nil {
-					t.Fatal(err)
-				}
-				marshal = testsupport.MeasureMin(t, name+" marshal", func() *typesafe.ModelsResponse { return &resp }, func(r *typesafe.ModelsResponse) {
-					sinkPayload, _ = r.MarshalJSON()
-				})
-				unmarshal = testsupport.MeasureMin(t, name+" unmarshal", func() *typesafe.ModelsResponse { return new(typesafe.ModelsResponse) }, func(r *typesafe.ModelsResponse) {
-					if err := r.UnmarshalJSON(payload); err != nil {
-						t.Error(err)
-					}
-				})
-			} else {
-				var resp typesafe.SystemOneResponse
-				if err := resp.UnmarshalJSON(data); err != nil {
-					t.Fatal(err)
-				}
-				if payload, err = resp.MarshalJSON(); err != nil {
-					t.Fatal(err)
-				}
-				marshal = testsupport.MeasureMin(t, name+" marshal", func() *typesafe.SystemOneResponse { return &resp }, func(r *typesafe.SystemOneResponse) {
-					sinkPayload, _ = r.MarshalJSON()
-				})
-				unmarshal = testsupport.MeasureMin(t, name+" unmarshal", func() *typesafe.SystemOneResponse { return new(typesafe.SystemOneResponse) }, func(r *typesafe.SystemOneResponse) {
-					if err := r.UnmarshalJSON(payload); err != nil {
-						t.Error(err)
-					}
-				})
+				measure = measureJSON[typesafe.ModelsResponse]
 			}
+			marshal, unmarshal, payload := measure(t, name, data)
 			t.Logf("JSON %-32s payload=%-7d marshal allocs=%d bytes=%-7d unmarshal allocs=%d bytes=%d",
 				name, len(payload), marshal.Mallocs, marshal.Bytes, unmarshal.Mallocs, unmarshal.Bytes)
 			if marshal.Mallocs != pin.marshal || unmarshal.Mallocs != pin.unmarshal {
@@ -97,4 +64,32 @@ func TestAllocResponseJSON(t *testing.T) {
 			}
 		})
 	}
+}
+
+// measureJSON reads a response of type T from data with UnmarshalJSON,
+// writes it back with MarshalJSON, and measures each: the write of that
+// response, and the read of the payload it wrote into a new T.
+func measureJSON[T any, P interface {
+	*T
+	MarshalJSON() ([]byte, error)
+	UnmarshalJSON(data []byte) error
+}](t *testing.T, name string, data []byte) (marshal, unmarshal testsupport.Allocs, payload []byte) {
+	t.Helper()
+	var resp T
+	if err := P(&resp).UnmarshalJSON(data); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := P(&resp).MarshalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	marshal = testsupport.MeasureMin(t, name+" marshal", func() P { return &resp }, func(r P) {
+		sinkPayload, _ = r.MarshalJSON()
+	})
+	unmarshal = testsupport.MeasureMin(t, name+" unmarshal", func() P { return new(T) }, func(r P) {
+		if err := r.UnmarshalJSON(payload); err != nil {
+			t.Error(err)
+		}
+	})
+	return marshal, unmarshal, payload
 }
