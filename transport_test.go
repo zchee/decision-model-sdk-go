@@ -80,14 +80,6 @@ func loopbackConfig(t *testing.T, srv *testsupport.LoopbackServer, opts ...Clien
 	return mustResolve(t, noEnv, append(base, opts...)...)
 }
 
-// closedAddr returns a loopback address nothing listens on until the test
-// ends ([testsupport.RefusedAddr]: the address of a closed listener could be
-// taken by another listener before the dial, ruling K39).
-func closedAddr(t *testing.T) string {
-	t.Helper()
-	return testsupport.RefusedAddr(t)
-}
-
 // TestHTTPVersionString pins the names of the policies.
 func TestHTTPVersionString(t *testing.T) {
 	tests := map[string]struct {
@@ -444,7 +436,7 @@ func TestDialErrorsMapToSDKErrors(t *testing.T) {
 			t.Errorf("roundTrip error = %v, want the round tripper's own", r.err)
 		}
 	})
-	t.Run("loopback", func(t *testing.T) { testDialErrorsOverLoopback(t) })
+	t.Run("loopback", testDialErrorsOverLoopback)
 }
 
 // testDialErrorsOverLoopback drives each class of the mapping through the
@@ -496,7 +488,7 @@ func testDialErrorsOverLoopback(t *testing.T) {
 		}
 	})
 	t.Run("error: a refused API host", func(t *testing.T) {
-		addr := closedAddr(t)
+		addr := testsupport.RefusedAddr(t)
 		c := mustResolve(t, noEnv, WithAPIKey(testKey), WithBaseURL("https://"+addr), WithProxy(nil))
 		r := getWithin(t, c.Transport, "https://"+addr+"/v1/models", attempt, within)
 		var ce *ConnectionError
@@ -508,7 +500,7 @@ func testDialErrorsOverLoopback(t *testing.T) {
 		}
 	})
 	t.Run("error: a refused proxy with a password", func(t *testing.T) {
-		proxy := &url.URL{Scheme: "http", User: url.UserPassword("user", "hunter2"), Host: closedAddr(t)}
+		proxy := &url.URL{Scheme: "http", User: url.UserPassword("user", "hunter2"), Host: testsupport.RefusedAddr(t)}
 		c := mustResolve(t, noEnv, WithAPIKey(testKey), WithBaseURL("https://example.com"), WithProxy(http.ProxyURL(proxy)))
 		r := getWithin(t, c.Transport, "https://example.com/v1/models", attempt, within)
 		var ce *ConnectionError

@@ -26,6 +26,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -86,6 +87,44 @@ func writePartial(w http.ResponseWriter) {
 	w.(http.Flusher).Flush()
 }
 
+// loopback starts the loopback server with handler, which gets the server,
+// the request's position (from 0) and a channel closed when the test ends,
+// and returns the server and the options of a client that trusts it and
+// reaches it without a proxy.
+func loopback(t *testing.T, cfg testsupport.ServerConfig, handler func(srv *testsupport.LoopbackServer, seq int, release <-chan struct{}) http.HandlerFunc) (*testsupport.LoopbackServer, []ClientOption) {
+	release := make(chan struct{})
+	var srv *testsupport.LoopbackServer
+	var seq atomic.Int64
+	if handler != nil {
+		cfg.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handler(srv, int(seq.Add(1)-1), release)(w, r)
+		})
+	}
+	srv = testsupport.NewLoopbackServer(t, cfg)
+	// Registered after the server's own Close, so it runs first and no
+	// handler holds Close up.
+	t.Cleanup(func() { close(release) })
+	return srv, []ClientOption{WithRootCAs(testsupport.RootCAs(t)), WithProxy(nil)}
+}
+
+// hold keeps a handler until the client drops its request or the test ends.
+func hold(r *http.Request, release <-chan struct{}) {
+	select {
+	case <-r.Context().Done():
+	case <-release:
+	}
+}
+
+func goAwayAfterWrite(srv *testsupport.LoopbackServer, r *http.Request, release <-chan struct{}) {
+	_, _ = io.Copy(io.Discard, r.Body)
+	conn := srv.LiveH2Conns()[0]
+	// The request's stream is at or below LastStreamID, so it counts as
+	// processed and net/http cannot replay it.
+	_ = conn.GoAway(conn.ActiveStreams()[0], testsupport.CodeInternalError)
+	srv.CloseConns()
+	hold(r, release)
+}
+
 // TestTransportErrorsBecomeConnectionOrTimeout ports test_transport_errors
 // to failures of a real connection, through the client and the SDK's own
 // transport, against the loopback server and its knobs: every failure that
@@ -103,22 +142,6 @@ func TestTransportErrorsBecomeConnectionOrTimeout(t *testing.T) {
 		opts []ClientOption
 		// after checks what the server saw, when set.
 		after func(t *testing.T)
-	}
-	// loopback serves handler over the loopback server, trusted and reached
-	// without a proxy; the handler gets the server and a channel closed when
-	// the test ends.
-	loopback := func(t *testing.T, cfg testsupport.ServerConfig, handler func(srv *testsupport.LoopbackServer, release <-chan struct{}) http.HandlerFunc) (*testsupport.LoopbackServer, target) {
-		release := make(chan struct{})
-		var srv *testsupport.LoopbackServer
-		if handler != nil {
-			h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { handler(srv, release)(w, r) })
-			cfg.Handler = h
-		}
-		srv = testsupport.NewLoopbackServer(t, cfg)
-		// Registered after the server's own Close, so it runs first and no
-		// handler holds Close up.
-		t.Cleanup(func() { close(release) })
-		return srv, target{base: srv.URL(), opts: []ClientOption{WithRootCAs(testsupport.RootCAs(t)), WithProxy(nil)}}
 	}
 	// servedOnce checks that the server saw the one request once: no replay.
 	servedOnce := func(srv *testsupport.LoopbackServer) func(t *testing.T) {
@@ -140,7 +163,7 @@ func TestTransportErrorsBecomeConnectionOrTimeout(t *testing.T) {
 		return func(t *testing.T) {
 			servedOnce(srv)(t)
 			var ci testsupport.ConnInfo
-			waitFor(t, 5*time.Second, "the server to close the connection", func() bool {
+			waitFor(t, "the server to close the connection", func() bool {
 				conns := srv.Conns()
 				if len(conns) != 1 {
 					return false
@@ -156,12 +179,6 @@ func TestTransportErrorsBecomeConnectionOrTimeout(t *testing.T) {
 				t.Errorf("close records %+v, want GOAWAY (when sent) < close_notify and FIN < the client's close < the socket's close", ci)
 			}
 			t.Logf("close records %+v", ci)
-		}
-	}
-	hold := func(r *http.Request, release <-chan struct{}) {
-		select {
-		case <-r.Context().Done():
-		case <-release:
 		}
 	}
 	tests := map[string]struct {
@@ -189,7 +206,7 @@ func TestTransportErrorsBecomeConnectionOrTimeout(t *testing.T) {
 		},
 		"error: a refused connection is a *ConnectionError (ConnectError)": {
 			target: func(t *testing.T) target {
-				return target{base: "https://" + closedAddr(t), opts: []ClientOption{WithProxy(nil)}}
+				return target{base: "https://" + testsupport.RefusedAddr(t), opts: []ClientOption{WithProxy(nil)}}
 			},
 			check: func(t *testing.T, err error) {
 				ce, ok := errors.AsType[*ConnectionError](err)
@@ -200,15 +217,14 @@ func TestTransportErrorsBecomeConnectionOrTimeout(t *testing.T) {
 		},
 		"error: a connection reset mid-body is a *ConnectionError (ReadError)": {
 			target: func(t *testing.T) target {
-				srv, tg := loopback(t, testsupport.ServerConfig{}, func(srv *testsupport.LoopbackServer, release <-chan struct{}) http.HandlerFunc {
+				srv, opts := loopback(t, testsupport.ServerConfig{}, func(srv *testsupport.LoopbackServer, _ int, release <-chan struct{}) http.HandlerFunc {
 					return func(w http.ResponseWriter, r *http.Request) {
 						writePartial(w)
 						srv.LiveH2Conns()[0].Reset()
 						hold(r, release)
 					}
 				})
-				tg.after = servedOnce(srv)
-				return tg
+				return target{base: srv.URL(), opts: opts, after: servedOnce(srv)}
 			},
 			check: func(t *testing.T, err error) {
 				ce, ok := errors.AsType[*ConnectionError](err)
@@ -220,15 +236,14 @@ func TestTransportErrorsBecomeConnectionOrTimeout(t *testing.T) {
 		},
 		"error: a clean close mid-body is a *ConnectionError wrapping io.ErrUnexpectedEOF (RemoteProtocolError)": {
 			target: func(t *testing.T) target {
-				srv, tg := loopback(t, testsupport.ServerConfig{}, func(srv *testsupport.LoopbackServer, release <-chan struct{}) http.HandlerFunc {
+				srv, opts := loopback(t, testsupport.ServerConfig{}, func(srv *testsupport.LoopbackServer, _ int, release <-chan struct{}) http.HandlerFunc {
 					return func(w http.ResponseWriter, r *http.Request) {
 						writePartial(w)
 						srv.CloseConns()
 						hold(r, release)
 					}
 				})
-				tg.after = closedGracefully(srv, false)
-				return tg
+				return target{base: srv.URL(), opts: opts, after: closedGracefully(srv, false)}
 			},
 			check: func(t *testing.T, err error) {
 				ce, ok := errors.AsType[*ConnectionError](err)
@@ -239,19 +254,10 @@ func TestTransportErrorsBecomeConnectionOrTimeout(t *testing.T) {
 		},
 		"error: GOAWAY after the request was written is a *ConnectionError": {
 			target: func(t *testing.T) target {
-				srv, tg := loopback(t, testsupport.ServerConfig{}, func(srv *testsupport.LoopbackServer, release <-chan struct{}) http.HandlerFunc {
-					return func(_ http.ResponseWriter, r *http.Request) {
-						_, _ = io.Copy(io.Discard, r.Body)
-						conn := srv.LiveH2Conns()[0]
-						// The request's stream is at or below LastStreamID, so it
-						// counts as processed and net/http cannot replay it.
-						_ = conn.GoAway(conn.ActiveStreams()[0], testsupport.CodeInternalError)
-						srv.CloseConns()
-						hold(r, release)
-					}
+				srv, opts := loopback(t, testsupport.ServerConfig{}, func(srv *testsupport.LoopbackServer, _ int, release <-chan struct{}) http.HandlerFunc {
+					return func(_ http.ResponseWriter, r *http.Request) { goAwayAfterWrite(srv, r, release) }
 				})
-				tg.after = closedGracefully(srv, true)
-				return tg
+				return target{base: srv.URL(), opts: opts, after: closedGracefully(srv, true)}
 			},
 			check: func(t *testing.T, err error) {
 				ce, ok := errors.AsType[*ConnectionError](err)
@@ -262,7 +268,7 @@ func TestTransportErrorsBecomeConnectionOrTimeout(t *testing.T) {
 		},
 		"error: a refused proxy is a proxy *ConnectionError": {
 			target: func(t *testing.T) target {
-				proxy := &url.URL{Scheme: "http", Host: closedAddr(t)}
+				proxy := &url.URL{Scheme: "http", Host: testsupport.RefusedAddr(t)}
 				return target{base: "https://example.com", opts: []ClientOption{WithProxy(http.ProxyURL(proxy))}}
 			},
 			check: func(t *testing.T, err error) {
@@ -293,14 +299,13 @@ func TestTransportErrorsBecomeConnectionOrTimeout(t *testing.T) {
 		},
 		"error: the attempt's deadline before the response is a *TimeoutError (ReadTimeout)": {
 			target: func(t *testing.T) target {
-				srv, tg := loopback(t, testsupport.ServerConfig{OnStream: func(*testsupport.Stream) testsupport.Action { return testsupport.ActionHold }}, nil)
-				tg.after = func(t *testing.T) {
-					waitFor(t, 5*time.Second, "the server sees the held stream reset", func() bool {
+				srv, opts := loopback(t, testsupport.ServerConfig{OnStream: func(*testsupport.Stream) testsupport.Action { return testsupport.ActionHold }}, nil)
+				return target{base: srv.URL(), opts: opts, after: func(t *testing.T) {
+					waitFor(t, "the server sees the held stream reset", func() bool {
 						reqs := srv.Requests()
 						return len(reqs) == 1 && reqs[0].Dropped
 					})
-				}
-				return tg
+				}}
 			},
 			call: []CallOption{Timeout(span)}, minElapsed: span,
 			check: func(t *testing.T, err error) {
@@ -312,14 +317,13 @@ func TestTransportErrorsBecomeConnectionOrTimeout(t *testing.T) {
 		},
 		"error: the attempt's deadline while the body is read is a *TimeoutError (ReadTimeout)": {
 			target: func(t *testing.T) target {
-				srv, tg := loopback(t, testsupport.ServerConfig{}, func(_ *testsupport.LoopbackServer, release <-chan struct{}) http.HandlerFunc {
+				srv, opts := loopback(t, testsupport.ServerConfig{}, func(_ *testsupport.LoopbackServer, _ int, release <-chan struct{}) http.HandlerFunc {
 					return func(w http.ResponseWriter, r *http.Request) {
 						writePartial(w)
 						hold(r, release)
 					}
 				})
-				tg.after = servedOnce(srv)
-				return tg
+				return target{base: srv.URL(), opts: opts, after: servedOnce(srv)}
 			},
 			call: []CallOption{Timeout(span)}, minElapsed: span,
 			check: func(t *testing.T, err error) {
@@ -331,7 +335,7 @@ func TestTransportErrorsBecomeConnectionOrTimeout(t *testing.T) {
 		},
 		"success: WithNoTimeout outlasts a slow server": {
 			target: func(t *testing.T) target {
-				_, tg := loopback(t, testsupport.ServerConfig{}, func(_ *testsupport.LoopbackServer, release <-chan struct{}) http.HandlerFunc {
+				srv, opts := loopback(t, testsupport.ServerConfig{}, func(_ *testsupport.LoopbackServer, _ int, release <-chan struct{}) http.HandlerFunc {
 					return func(w http.ResponseWriter, _ *http.Request) {
 						select {
 						case <-time.After(span):
@@ -342,7 +346,7 @@ func TestTransportErrorsBecomeConnectionOrTimeout(t *testing.T) {
 						_, _ = io.WriteString(w, `{"models":[]}`)
 					}
 				})
-				return tg
+				return target{base: srv.URL(), opts: opts}
 			},
 			client: []ClientOption{WithNoTimeout()}, minElapsed: span,
 			check: func(t *testing.T, err error) {
@@ -420,7 +424,7 @@ func TestTransportErrorsHoldNoCredential(t *testing.T) {
 	}
 	failures := []string{"round trip", "round trip timeout", "body 200", "body 400", "body 429"}
 	tests := map[string]test{}
-	for _, header := range []string{"Authorization", "Proxy-Authorization", "X-API-Key", "API-Key", "Cookie", "Set-Cookie", "X-Access-Token", "X-Client-Secret", "x-MiXeD-ToKeN"} {
+	for _, header := range secretSpellings {
 		for keyName, key := range map[string]string{"plain key": "auth-credential", "quirky key": quirkyKey} {
 			for _, failure := range failures {
 				tests["error: "+header+"/"+keyName+"/"+failure] = test{header: header, key: key, failure: failure}
@@ -526,7 +530,7 @@ func TestTransportErrorsHoldNoCredentialOverTheNetwork(t *testing.T) {
 			},
 		},
 		"error: a refused proxy whose URL holds a password": {
-			opts: []ClientOption{WithBaseURL("https://example.com"), WithProxy(http.ProxyURL(&url.URL{Scheme: "http", User: url.UserPassword("user", "hunter2"), Host: closedAddr(t)}))},
+			opts: []ClientOption{WithBaseURL("https://example.com"), WithProxy(http.ProxyURL(&url.URL{Scheme: "http", User: url.UserPassword("user", "hunter2"), Host: testsupport.RefusedAddr(t)}))},
 			check: func(t *testing.T, err error) {
 				ce, ok := errors.AsType[*ConnectionError](err)
 				if !ok || !ce.Proxy() {

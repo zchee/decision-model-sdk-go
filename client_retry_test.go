@@ -32,7 +32,6 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
-	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
@@ -45,11 +44,7 @@ func fastRetry() RetryPolicy { return DefaultRetry().Backoff(time.Millisecond, t
 func serverCounts(srv *testsupport.LoopbackServer) []string {
 	var out []string
 	for _, r := range srv.Requests() {
-		v := absent
-		if vs := r.Header.Values(engine.HeaderRetryCount); len(vs) > 0 {
-			v = strings.Join(vs, ",")
-		}
-		out = append(out, v)
+		out = append(out, retryCount(r.Header))
 	}
 	return out
 }
@@ -123,47 +118,10 @@ func TestConnectionErrorsRetried(t *testing.T) {
 
 	t.Run("loopback", func(t *testing.T) {
 		const models = `{"models":[]}`
-		// hold keeps a handler until the client drops its request or the
-		// test ends.
-		hold := func(r *http.Request, release <-chan struct{}) {
-			select {
-			case <-r.Context().Done():
-			case <-release:
-			}
-		}
 		// serveModels answers the models list.
 		serveModels := func(w http.ResponseWriter) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = io.WriteString(w, models)
-		}
-		type target struct {
-			srv  *testsupport.LoopbackServer
-			opts []ClientOption
-		}
-		// loopback starts the server with handler, which gets the server, the
-		// request's position (from 0) and a channel closed when the test
-		// ends; the client trusts it and reaches it without a proxy.
-		loopback := func(t *testing.T, cfg testsupport.ServerConfig, handler func(srv *testsupport.LoopbackServer, seq int, release <-chan struct{}) http.HandlerFunc) target {
-			release := make(chan struct{})
-			var srv *testsupport.LoopbackServer
-			var seq atomic.Int64
-			if handler != nil {
-				cfg.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					handler(srv, int(seq.Add(1)-1), release)(w, r)
-				})
-			}
-			srv = testsupport.NewLoopbackServer(t, cfg)
-			t.Cleanup(func() { close(release) })
-			return target{srv: srv, opts: []ClientOption{WithRootCAs(testsupport.RootCAs(t)), WithProxy(nil)}}
-		}
-		goAwayAfterWrite := func(srv *testsupport.LoopbackServer, r *http.Request, release <-chan struct{}) {
-			_, _ = io.Copy(io.Discard, r.Body)
-			conn := srv.LiveH2Conns()[0]
-			// The request's stream is at or below LastStreamID, so it counts
-			// as processed and net/http cannot replay it.
-			_ = conn.GoAway(conn.ActiveStreams()[0], testsupport.CodeInternalError)
-			srv.CloseConns()
-			hold(r, release)
 		}
 		// closedAfterGoAway checks the close records of the first n
 		// connections, each ended by goAwayAfterWrite, by the server's
@@ -181,7 +139,7 @@ func TestConnectionErrorsRetried(t *testing.T) {
 		closedAfterGoAway := func(t *testing.T, srv *testsupport.LoopbackServer, n int) {
 			t.Helper()
 			var conns []testsupport.ConnInfo
-			waitFor(t, 5*time.Second, "the server to close the connections", func() bool {
+			waitFor(t, "the server to close the connections", func() bool {
 				conns = srv.Conns()
 				if len(conns) < n {
 					return false
@@ -202,7 +160,7 @@ func TestConnectionErrorsRetried(t *testing.T) {
 			}
 		}
 		tests := map[string]struct {
-			target   func(t *testing.T) target
+			target   func(t *testing.T) (*testsupport.LoopbackServer, []ClientOption)
 			policy   RetryPolicy
 			call     []CallOption
 			attempts int
@@ -212,11 +170,11 @@ func TestConnectionErrorsRetried(t *testing.T) {
 			check   func(t *testing.T, err error)
 		}{
 			"success: a refused connection twice, then served (ConnectError)": {
-				target: func(t *testing.T) target {
-					tg := loopback(t, testsupport.ServerConfig{}, func(*testsupport.LoopbackServer, int, <-chan struct{}) http.HandlerFunc {
+				target: func(t *testing.T) (*testsupport.LoopbackServer, []ClientOption) {
+					srv, _ := loopback(t, testsupport.ServerConfig{}, func(*testsupport.LoopbackServer, int, <-chan struct{}) http.HandlerFunc {
 						return func(w http.ResponseWriter, _ *http.Request) { serveModels(w) }
 					})
-					refused := closedAddr(t)
+					refused := testsupport.RefusedAddr(t)
 					var dials atomic.Int32
 					dialer := &net.Dialer{Timeout: 5 * time.Second}
 					tr := &http.Transport{
@@ -229,23 +187,19 @@ func TestConnectionErrorsRetried(t *testing.T) {
 						},
 					}
 					t.Cleanup(tr.CloseIdleConnections)
-					tg.opts = []ClientOption{WithHTTPTransport(tr)}
-					return tg
+					return srv, []ClientOption{WithHTTPTransport(tr)}
 				},
 				policy: fastRetry(), attempts: 3,
 			},
 			"success: a connection reset mid-body twice, then served (ReadError)": {
-				target: func(t *testing.T) target {
+				target: func(t *testing.T) (*testsupport.LoopbackServer, []ClientOption) {
 					return loopback(t, testsupport.ServerConfig{}, func(srv *testsupport.LoopbackServer, seq int, release <-chan struct{}) http.HandlerFunc {
 						return func(w http.ResponseWriter, r *http.Request) {
 							if seq >= 2 {
 								serveModels(w)
 								return
 							}
-							w.Header().Set("Content-Type", "application/json")
-							w.WriteHeader(http.StatusOK)
-							_, _ = io.WriteString(w, `{"models":[`)
-							w.(http.Flusher).Flush()
+							writePartial(w)
 							srv.LiveH2Conns()[0].Reset()
 							hold(r, release)
 						}
@@ -254,7 +208,7 @@ func TestConnectionErrorsRetried(t *testing.T) {
 				policy: fastRetry(), attempts: 3,
 			},
 			"success: the attempt's deadline twice, then served (ReadTimeout)": {
-				target: func(t *testing.T) target {
+				target: func(t *testing.T) (*testsupport.LoopbackServer, []ClientOption) {
 					return loopback(t, testsupport.ServerConfig{OnStream: func(s *testsupport.Stream) testsupport.Action {
 						if s.Seq < 2 {
 							return testsupport.ActionHold
@@ -267,7 +221,7 @@ func TestConnectionErrorsRetried(t *testing.T) {
 				policy: fastRetry(), call: []CallOption{Timeout(span)}, attempts: 3,
 			},
 			"success: GOAWAY after the request was written, then served (S-T4)": {
-				target: func(t *testing.T) target {
+				target: func(t *testing.T) (*testsupport.LoopbackServer, []ClientOption) {
 					return loopback(t, testsupport.ServerConfig{}, func(srv *testsupport.LoopbackServer, seq int, release <-chan struct{}) http.HandlerFunc {
 						return func(w http.ResponseWriter, r *http.Request) {
 							if seq >= 1 {
@@ -281,7 +235,7 @@ func TestConnectionErrorsRetried(t *testing.T) {
 				policy: fastRetry(), attempts: 2, goAways: 1,
 			},
 			"error: GOAWAY after the request was written every time is the last *ConnectionError": {
-				target: func(t *testing.T) target {
+				target: func(t *testing.T) (*testsupport.LoopbackServer, []ClientOption) {
 					return loopback(t, testsupport.ServerConfig{}, func(srv *testsupport.LoopbackServer, _ int, release <-chan struct{}) http.HandlerFunc {
 						return func(_ http.ResponseWriter, r *http.Request) { goAwayAfterWrite(srv, r, release) }
 					})
@@ -297,10 +251,10 @@ func TestConnectionErrorsRetried(t *testing.T) {
 		}
 		for name, tt := range tests {
 			t.Run(name, func(t *testing.T) {
-				tg := tt.target(t)
+				srv, opts := tt.target(t)
 				clearEnv(t)
-				c := mustClient(t, append([]ClientOption{WithAPIKey(testKey), WithBaseURL(tg.srv.URL()), WithRetry(tt.policy)}, tg.opts...)...)
-				_, err := callWithinBound(t, func(ctx context.Context) error { return listCall(ctx, c, tt.call...) })
+				c := mustClient(t, append([]ClientOption{WithAPIKey(testKey), WithBaseURL(srv.URL()), WithRetry(tt.policy)}, opts...)...)
+				_, err := callWithin(t, func(ctx context.Context) error { return listCall(ctx, c, tt.call...) })
 				if tt.check != nil {
 					tt.check(t, err)
 				} else if err != nil {
@@ -310,45 +264,18 @@ func TestConnectionErrorsRetried(t *testing.T) {
 				// A refused dial never reaches the server: it sees the last
 				// attempt alone.
 				want := wantCounts(tt.attempts)
-				if got := serverCounts(tg.srv); len(got) < len(want) {
+				if got := serverCounts(srv); len(got) < len(want) {
 					want = want[len(want)-len(got):]
 				}
-				if diff := gocmp.Diff(want, serverCounts(tg.srv)); diff != "" {
+				if diff := gocmp.Diff(want, serverCounts(srv)); diff != "" {
 					t.Errorf("X-TypeSafe-Retry-Count the server saw (-want +got):\n%s", diff)
 				}
 				if tt.goAways > 0 {
-					closedAfterGoAway(t, tg.srv, tt.goAways)
+					closedAfterGoAway(t, srv, tt.goAways)
 				}
 			})
 		}
 	})
-}
-
-// callWithinBound runs call on its own goroutine under a context that ends
-// after 15 s and returns how long it took and its error, failing the test
-// when it has not returned 5 s after that (K29, K30).
-func callWithinBound(t *testing.T, call func(ctx context.Context) error) (time.Duration, error) {
-	t.Helper()
-	const bound = 15 * time.Second
-	ctx, cancel := context.WithTimeout(t.Context(), bound)
-	defer cancel()
-	type result struct {
-		err     error
-		elapsed time.Duration
-	}
-	done := make(chan result, 1)
-	go func() {
-		start := time.Now()
-		err := call(ctx)
-		done <- result{err: err, elapsed: time.Since(start)}
-	}()
-	select {
-	case r := <-done:
-		return r.elapsed, r.err
-	case <-time.After(bound + 5*time.Second):
-		t.Fatalf("the call did not return within %v", bound+5*time.Second)
-		return 0, nil
-	}
 }
 
 // uploadCall is one System One call of TestEarlyAnswerToLargeUpload: its
@@ -532,7 +459,7 @@ func TestEarlyAnswerToLargeUpload(t *testing.T) {
 			var wg sync.WaitGroup
 			for _, call := range calls {
 				wg.Go(func() {
-					_, err := callWithinBound(t, func(ctx context.Context) error {
+					_, err := callWithin(t, func(ctx context.Context) error {
 						_, err := c.SystemOne(ctx, call.state, qs, Header("X-Call", call.name))
 						return err
 					})

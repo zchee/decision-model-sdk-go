@@ -104,12 +104,7 @@ func renderers() map[string]func(log func(*slog.Logger)) string {
 		"LogRecorder": func(log func(*slog.Logger)) string {
 			rec := testsupport.NewLogRecorder(nil)
 			log(rec.Logger())
-			var sb strings.Builder
-			for _, r := range rec.Records() {
-				sb.WriteString(r.String())
-				sb.WriteByte('\n')
-			}
-			return sb.String()
+			return recordsText(rec)
 		},
 	}
 }

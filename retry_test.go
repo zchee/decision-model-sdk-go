@@ -58,23 +58,9 @@ func bubbleCtx(t *testing.T) context.Context {
 	return ctx
 }
 
-// rtHeader returns an http.Header with the pairs kv (name, value, ...) added
-// as a server sends them.
-func rtHeader(kv ...string) http.Header {
-	h := http.Header{}
-	for i := 0; i+1 < len(kv); i += 2 {
-		h.Add(kv[i], kv[i+1])
-	}
-	return h
-}
-
 // rtReply returns a JSON reply with status, body and the header pairs kv.
 func rtReply(status int, body string, kv ...string) testsupport.Reply {
-	r := testsupport.JSON(status, []byte(body))
-	for i := 0; i+1 < len(kv); i += 2 {
-		r.Header.Add(kv[i], kv[i+1])
-	}
-	return r
+	return withHeader(testsupport.JSON(status, []byte(body)), kv...)
 }
 
 // seenAttempt is what attemptLog saw of one attempt, besides what its
@@ -134,15 +120,21 @@ func waits(seen []seenAttempt, took time.Duration) []time.Duration {
 	return out
 }
 
-// retryCounts returns the X-TypeSafe-Retry-Count of each request, absent
-// where it has none and every value joined by "," where it has several.
+// retryCount returns the X-TypeSafe-Retry-Count of a request's header h,
+// absent where it has none and every value joined by "," where it has
+// several.
+func retryCount(h http.Header) string {
+	if v := h.Values(engine.HeaderRetryCount); len(v) > 0 {
+		return strings.Join(v, ",")
+	}
+	return absent
+}
+
+// retryCounts returns the retryCount of each request.
 func retryCounts(reqs []testsupport.RecordedRequest) []string {
 	out := make([]string, len(reqs))
 	for i, r := range reqs {
-		out[i] = absent
-		if v := r.Header.Values(engine.HeaderRetryCount); len(v) > 0 {
-			out[i] = strings.Join(v, ",")
-		}
+		out[i] = retryCount(r.Header)
 	}
 	return out
 }
@@ -231,6 +223,15 @@ func assertAccepted(t *testing.T, policy RetryPolicy) {
 	}
 }
 
+func assertPolicy(t *testing.T, policy RetryPolicy, want string) {
+	t.Helper()
+	if want != "" {
+		assertRefused(t, policy, want)
+		return
+	}
+	assertAccepted(t, policy)
+}
+
 // TestRetryPolicyInvalidBudget ports test_retry_policy_invalid_timeout: a
 // budget that is not positive is refused with the Python SDK's
 // message. Python's inf and nan are not a time.Duration (a partial
@@ -251,11 +252,7 @@ func TestRetryPolicyInvalidBudget(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if tt.want != "" {
-				assertRefused(t, tt.policy, tt.want)
-				return
-			}
-			assertAccepted(t, tt.policy)
+			assertPolicy(t, tt.policy, tt.want)
 		})
 	}
 }
@@ -283,11 +280,7 @@ func TestRetryPolicyInvalidBackoff(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if tt.want != "" {
-				assertRefused(t, tt.policy, tt.want)
-				return
-			}
-			assertAccepted(t, tt.policy)
+			assertPolicy(t, tt.policy, tt.want)
 		})
 	}
 }
@@ -312,11 +305,7 @@ func TestRetryPolicyInvalidJitter(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			p := DefaultRetry().Backoff(500*time.Millisecond, 5*time.Second, tt.jitter)
-			if tt.want != "" {
-				assertRefused(t, p, tt.want)
-				return
-			}
-			assertAccepted(t, p)
+			assertPolicy(t, p, tt.want)
 		})
 	}
 }
@@ -338,11 +327,7 @@ func TestRetryPolicyInvalidMaxRetries(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			p := DefaultRetry().MaxRetries(tt.n)
-			if tt.want != "" {
-				assertRefused(t, p, tt.want)
-				return
-			}
-			assertAccepted(t, p)
+			assertPolicy(t, p, tt.want)
 		})
 	}
 }
@@ -720,7 +705,7 @@ func TestParseRetryAfterTable(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				got, ok := retryAfter(rtHeader(tt.header...), time.Now())
+				got, ok := retryAfter(headers(tt.header...), time.Now())
 				if got != tt.want || ok != tt.ok {
 					t.Errorf("retryAfter = %v, %t, want %v, %t", got, ok, tt.want, tt.ok)
 				}
@@ -755,10 +740,10 @@ func TestBackoffScheduleAndDates(t *testing.T) {
 		now := time.Now()
 		future := now.Add(10 * time.Second).UTC().Format(http.TimeFormat)
 		past := now.Add(-10 * time.Second).UTC().Format(http.TimeFormat)
-		if d, ok := retryAfter(rtHeader("Retry-After", future), now); !ok || d != 10*time.Second {
+		if d, ok := retryAfter(headers("Retry-After", future), now); !ok || d != 10*time.Second {
 			t.Errorf("a date 10 s ahead = %v, %t; want 10s", d, ok)
 		}
-		if d, ok := retryAfter(rtHeader("Retry-After", past), now); !ok || d != 0 {
+		if d, ok := retryAfter(headers("Retry-After", past), now); !ok || d != 0 {
 			t.Errorf("a date 10 s behind = %v, %t; want 0", d, ok)
 		}
 
@@ -783,7 +768,7 @@ func TestBackoffScheduleAndDates(t *testing.T) {
 			"a date 10 s ahead":    {header: []string{"Retry-After", future}, want: 10 * time.Second},
 			"Retry-After bad":      {header: []string{"Retry-After", "bad"}, want: 375 * time.Millisecond},
 		} {
-			err := &APIError{StatusCode: 429, Header: rtHeader(tt.header...)}
+			err := &APIError{StatusCode: 429, Header: headers(tt.header...)}
 			if got := one.delay(1, err); got != tt.want {
 				t.Errorf("%s: wait = %v, want %v", name, got, tt.want)
 			}
@@ -876,7 +861,7 @@ func TestConcurrentCallsCountTheirOwnRetries(t *testing.T) {
 		rec := &testsupport.Recorder{Respond: func(r testsupport.RecordedRequest) testsupport.Reply {
 			key := r.Header.Get("X-Call")
 			mu.Lock()
-			seen[key] = append(seen[key], retryCounts([]testsupport.RecordedRequest{r})[0])
+			seen[key] = append(seen[key], retryCount(r.Header))
 			first := len(seen[key]) == 1
 			mu.Unlock()
 			if first {
@@ -1011,10 +996,7 @@ func TestConcurrentCallsKeepTheirOverrides(t *testing.T) {
 		rec := &testsupport.Recorder{Replies: []testsupport.Reply{rtReply(429, `{"message": "retry"}`, "Retry-After-Ms", "0")}}
 		rt := testsupport.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
 			dl, _ := req.Context().Deadline()
-			a := attempt{timeout: time.Until(dl), count: absent}
-			if v := req.Header.Values(engine.HeaderRetryCount); len(v) > 0 {
-				a.count = strings.Join(v, ",")
-			}
+			a := attempt{timeout: time.Until(dl), count: retryCount(req.Header)}
 			rc, err := req.GetBody()
 			if err != nil {
 				return nil, err
@@ -1073,14 +1055,6 @@ func TestConcurrentCallsKeepTheirOverrides(t *testing.T) {
 	})
 }
 
-// timeoutText is a network timeout (net.Error with Timeout true) with the
-// text an attempt's transport wrote.
-type timeoutText string
-
-func (e timeoutText) Error() string { return string(e) }
-func (timeoutText) Timeout() bool   { return true }
-func (timeoutText) Temporary() bool { return true }
-
 // TestExhaustedTransportRetryReturnsLastError ports
 // test_exhausted_transport_retry: when every attempt fails without a
 // response, the call returns the third attempt's error, classified as that
@@ -1093,7 +1067,7 @@ func TestExhaustedTransportRetryReturnsLastError(t *testing.T) {
 		check func(t *testing.T, err error)
 	}{
 		"error: a read timeout every time": {
-			fail: func(n int) error { return timeoutText("attempt " + strconv.Itoa(n)) },
+			fail: func(n int) error { return echoTimeout{msg: "attempt " + strconv.Itoa(n)} },
 			check: func(t *testing.T, err error) {
 				if te, ok := errors.AsType[*TimeoutError](err); !ok || te.Timeout != 2*time.Second {
 					t.Errorf("error = %T %v, want a *TimeoutError of the call's 2s", err, err)
@@ -1455,6 +1429,11 @@ func TestPerCallMaxRetries(t *testing.T) {
 	}
 }
 
+func is404(err error) bool {
+	ae, ok := errors.AsType[*APIError](err)
+	return ok && ae.StatusCode == http.StatusNotFound
+}
+
 // TestPredicateOptsIn is the Go half of
 // test_retry_policy_exceptions_and_predicate (a partial deviation: the
 // Python SDK's exceptions setting is dropped, and a Predicate that tests
@@ -1463,10 +1442,6 @@ func TestPerCallMaxRetries(t *testing.T) {
 // validate in, which a 2xx in the status set never does, and cannot make a
 // call retry a cancellation.
 func TestPredicateOptsIn(t *testing.T) {
-	is404 := func(err error) bool {
-		ae, ok := errors.AsType[*APIError](err)
-		return ok && ae.StatusCode == http.StatusNotFound
-	}
 	anyAPIError := func(err error) bool { _, ok := errors.AsType[*APIError](err); return ok }
 	anyValidation := func(err error) bool { _, ok := errors.AsType[*ResponseValidationError](err); return ok }
 	anyTooLarge := func(err error) bool { _, ok := errors.AsType[*ResponseTooLargeError](err); return ok }
@@ -1568,10 +1543,6 @@ func TestPredicateOptsIn(t *testing.T) {
 // HTTP/2, a *ConfigError wrapping ErrHTTP2NotNegotiated, is
 // never retried under the production policy.
 func TestRetryClassSwitches(t *testing.T) {
-	is404 := func(err error) bool {
-		ae, ok := errors.AsType[*APIError](err)
-		return ok && ae.StatusCode == http.StatusNotFound
-	}
 	connection := testsupport.Reply{Err: errors.New("connection refused")}
 	timeout := testsupport.Reply{Err: netTimeout{}}
 	tests := map[string]struct {
@@ -1652,7 +1623,7 @@ func TestWaitOptions(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			p := tt.policy
 			r := retryState{policy: &p, random: fixedRandom(0)}
-			if got := r.delay(1, &APIError{StatusCode: 429, Header: rtHeader("Retry-After", "5")}); got != tt.want {
+			if got := r.delay(1, &APIError{StatusCode: 429, Header: headers("Retry-After", "5")}); got != tt.want {
 				t.Errorf("delay = %v, want %v", got, tt.want)
 			}
 			synctest.Test(t, func(t *testing.T) {

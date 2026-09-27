@@ -53,49 +53,14 @@ func newModelsServer(t *testing.T) *testsupport.LoopbackServer {
 	})})
 }
 
-// refusingProxy is an HTTP/1.1 proxy on 127.0.0.1 that answers every
-// CONNECT with "502 <reason>", a status line whose text net/http returns as
-// the dial's error without its proxyconnect wrap; the SDK's transport adds
-// it. The answer carries a body, which reaches neither the error nor a log
-// record.
-type refusingProxy struct {
-	ln net.Listener
-	wg sync.WaitGroup
+// refusal is the answer of a proxy that refuses every CONNECT with
+// "502 <reason>", a status line whose text net/http returns as the dial's
+// error without its proxyconnect wrap; the SDK's transport adds it. The
+// answer carries body, which reaches neither the error nor a log record.
+func refusal(reason, body string) func(password, auth string) string {
+	answer := "HTTP/1.1 502 " + reason + "\r\nContent-Length: " + strconv.Itoa(len(body)) + "\r\nConnection: close\r\n\r\n" + body
+	return func(string, string) string { return answer }
 }
-
-// newRefusingProxy starts a refusingProxy that answers with reason and body;
-// it stops when the test ends.
-func newRefusingProxy(t *testing.T, reason, body string) *refusingProxy {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	p := &refusingProxy{ln: ln}
-	p.wg.Go(func() {
-		for {
-			conn, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			p.wg.Go(func() {
-				defer conn.Close()
-				if _, err := http.ReadRequest(bufio.NewReader(conn)); err != nil {
-					return
-				}
-				_, _ = io.WriteString(conn, "HTTP/1.1 502 "+reason+"\r\nContent-Length: "+strconv.Itoa(len(body))+"\r\nConnection: close\r\n\r\n"+body)
-			})
-		}
-	})
-	t.Cleanup(func() {
-		_ = ln.Close()
-		p.wg.Wait()
-	})
-	return p
-}
-
-// URL returns the proxy's URL.
-func (p *refusingProxy) URL() *url.URL { return &url.URL{Scheme: "http", Host: p.ln.Addr().String()} }
 
 // echoStatusLine is the answer of an echoing proxy that refuses the CONNECT
 // with a well-formed status line, "407 denied <password>
@@ -106,28 +71,31 @@ func echoStatusLine(password, auth string) string {
 
 // echoingProxy is an HTTP/1.1 proxy on 127.0.0.1 that answers every request
 // it reads, a CONNECT or a plain-HTTP request forwarded to it, with
-// answer(password, auth), which repeats the credential the request carried:
-// auth is the Proxy-Authorization value net/http sent for the proxy URL's
-// userinfo and password the password it decodes to. A
-// held proxy answers once open has run; requests counts the requests read.
+// answer(password, auth), which may repeat the credential the request
+// carried: auth is the Proxy-Authorization value net/http sent for the proxy
+// URL's userinfo and password the password it decodes to. A held proxy
+// answers once open has run. A keep-alive proxy answers every request a
+// connection carries and keeps the connection open; any other answers one
+// and closes it. accepts and requests count the connections and the
+// requests read.
 type echoingProxy struct {
-	ln       net.Listener
-	release  chan struct{}
-	open     func()
-	requests atomic.Int64
-	wg       sync.WaitGroup
+	ln                net.Listener
+	release           chan struct{}
+	open              func()
+	accepts, requests atomic.Int64
+	wg                sync.WaitGroup
 }
 
-// newEchoingProxy starts an echoingProxy that answers at once. It stops when
-// the test ends.
+// newEchoingProxy starts an echoingProxy that answers at once, one request
+// per connection. It stops when the test ends.
 func newEchoingProxy(t *testing.T, answer func(password, auth string) string) *echoingProxy {
 	t.Helper()
-	return newHeldEchoingProxy(t, answer, false)
+	return startProxy(t, answer, false, false)
 }
 
-// newHeldEchoingProxy starts an echoingProxy, held until its open runs when
-// held is true. It stops when the test ends.
-func newHeldEchoingProxy(t *testing.T, answer func(password, auth string) string, held bool) *echoingProxy {
+// startProxy starts an echoingProxy, held until its open runs when held is
+// true, and keep-alive when keepAlive is true. It stops when the test ends.
+func startProxy(t *testing.T, answer func(password, auth string) string, held, keepAlive bool) *echoingProxy {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -144,22 +112,31 @@ func newHeldEchoingProxy(t *testing.T, answer func(password, auth string) string
 			if err != nil {
 				return
 			}
+			p.accepts.Add(1)
 			p.wg.Go(func() {
 				defer conn.Close()
-				req, err := http.ReadRequest(bufio.NewReader(conn))
-				if err != nil {
-					return
-				}
-				p.requests.Add(1)
-				auth := req.Header.Get("Proxy-Authorization")
-				var password string
-				if b64, ok := strings.CutPrefix(auth, "Basic "); ok {
-					if raw, err := base64.StdEncoding.DecodeString(b64); err == nil {
-						_, password, _ = strings.Cut(string(raw), ":")
+				br := bufio.NewReader(conn)
+				for {
+					req, err := http.ReadRequest(br)
+					if err != nil {
+						return
+					}
+					if keepAlive {
+						_, _ = io.Copy(io.Discard, req.Body)
+					}
+					p.requests.Add(1)
+					auth := req.Header.Get("Proxy-Authorization")
+					var password string
+					if b64, ok := strings.CutPrefix(auth, "Basic "); ok {
+						if raw, err := base64.StdEncoding.DecodeString(b64); err == nil {
+							_, password, _ = strings.Cut(string(raw), ":")
+						}
+					}
+					<-p.release
+					if _, err := io.WriteString(conn, answer(password, auth)); err != nil || !keepAlive {
+						return
 					}
 				}
-				<-p.release
-				_, _ = io.WriteString(conn, answer(password, auth))
 			})
 		}
 	})
@@ -174,12 +151,23 @@ func newHeldEchoingProxy(t *testing.T, answer func(password, auth string) string
 // URL returns the proxy's URL, without userinfo.
 func (p *echoingProxy) URL() *url.URL { return &url.URL{Scheme: "http", Host: p.ln.Addr().String()} }
 
-// proxySecrets returns what of the credential of a proxy URL with user and
-// password an error or a record must not show: the password as it is, as
+func listOnce(t *testing.T, c *Client) error {
+	t.Helper()
+	_, err := callWithin(t, func(ctx context.Context) error {
+		_, err := c.Models().List(ctx, Retry(NoRetry()))
+		return err
+	})
+	return err
+}
+
+const proxyUser = "proxy-user"
+
+// proxySecrets returns what of the credential of a proxy URL with proxyUser
+// and password an error or a record must not show: the password as it is, as
 // the URL escapes it and each of its words between single spaces, and the
 // Basic token net/http sends for it.
-func proxySecrets(user, password string) []string {
-	out := []string{password, base64.StdEncoding.EncodeToString([]byte(user + ":" + password)), strings.TrimPrefix(url.UserPassword("", password).String(), ":")}
+func proxySecrets(password string) []string {
+	out := []string{password, base64.StdEncoding.EncodeToString([]byte(proxyUser + ":" + password)), strings.TrimPrefix(url.UserPassword("", password).String(), ":")}
 	for word := range strings.SplitSeq(password, " ") {
 		if word != "" && !slices.Contains(out, word) {
 			out = append(out, word)
@@ -206,7 +194,7 @@ func TestTransportDebugRecordsHoldNoCredential(t *testing.T) {
 	// neither the error nor a record.
 	const proxyBody = "PROXYBODYMARKER"
 	// The echoing proxy's credential, in its URL's userinfo.
-	const proxyUser, proxyPassword = "proxy-user", "hunter2-proxy-password"
+	const proxyPassword = "hunter2-proxy-password"
 	errDial := errors.New(failure)
 	type scenario struct {
 		// client builds the client with its logger.
@@ -250,7 +238,7 @@ func TestTransportDebugRecordsHoldNoCredential(t *testing.T) {
 		},
 		"a proxy's 502 answer to the CONNECT (K16)": {
 			client: func(t *testing.T, logger *slog.Logger) *Client {
-				proxy := newRefusingProxy(t, failure, proxyBody+" "+failure)
+				proxy := newEchoingProxy(t, refusal(failure, proxyBody+" "+failure))
 				return newCredentialClient(t, logger, WithBaseURL("https://example.com"), WithProxy(http.ProxyURL(proxy.URL())))
 			},
 			record: "DEBUG h2: gate error reason=proxy waiters=0 error=proxyconnect tcp: 502 " + scrubbed,
@@ -269,7 +257,7 @@ func TestTransportDebugRecordsHoldNoCredential(t *testing.T) {
 			record:  "DEBUG h2: gate error reason=proxy waiters=0 error=proxyconnect tcp: 407 denied *** (Proxy-Authorization: Basic ***)",
 			error:   "Connection error: proxyconnect tcp: 407 denied *** (Proxy-Authorization: Basic ***)",
 			proxy:   true,
-			secrets: []string{proxyPassword, base64.StdEncoding.EncodeToString([]byte(proxyUser + ":" + proxyPassword))},
+			secrets: proxySecrets(proxyPassword),
 		},
 	}
 	tests := map[string]struct {
@@ -296,10 +284,7 @@ func TestTransportDebugRecordsHoldNoCredential(t *testing.T) {
 				}
 				c.cfg().Transport.Gate.CloseIdleConnections() // the next call dials again
 			}
-			_, err := callWithin(t, func(ctx context.Context) error {
-				_, err := c.Models().List(ctx, Retry(NoRetry()))
-				return err
-			})
+			err := listOnce(t, c)
 			if ce, ok := errors.AsType[*ConnectionError](err); !ok || ce.Proxy() != tt.proxy || ce.Error() != tt.error {
 				t.Fatalf("List error = %T %v, want the *ConnectionError %q with Proxy() %t", err, err, tt.error, tt.proxy)
 			}
@@ -642,9 +627,11 @@ func TestLogWarnCapThroughClient(t *testing.T) {
 // the first where the status code is, or the second where the status code is
 // when the first is read as the version, alone or glued to it.
 func TestProxyEchoHoldsNoCredential(t *testing.T) {
-	const user, defaultPassword = "proxy-user", "hunter2@proxy-password"
+	const defaultPassword = "hunter2@proxy-password"
 	escaped := strings.TrimPrefix(url.UserPassword("", defaultPassword).String(), ":") // hunter2%40proxy-password
 	const twoWords = "alpha7 bravo9"
+	malformedStatusCode := func(pw, _ string) string { return "HTTP/1.1 " + pw + "\r\n\r\n" }
+	malformedVersion := func(pw, _ string) string { return pw + " 407 denied\r\n\r\n" }
 	shapes := map[string]struct {
 		answer   func(password, auth string) string
 		password string // the proxy URL's password; empty for defaultPassword
@@ -652,58 +639,39 @@ func TestProxyEchoHoldsNoCredential(t *testing.T) {
 		plain    bool // a plain-HTTP API URL: no CONNECT, no gate error
 	}{
 		"a refusal whose status line repeats the password and the token": {answer: echoStatusLine, proxy: true},
-		"a malformed HTTP response (net/http quotes the status line)": {answer: func(pw, _ string) string {
-			return "HTTP/1.1_" + pw + "\r\n\r\n"
-		}},
+		"a malformed HTTP response (net/http quotes the status line)":    {answer: malformedEcho},
 		"a malformed HTTP response that repeats the token": {answer: func(_, auth string) string {
 			return "HTTP/1.1_" + auth + "\r\n\r\n"
 		}},
 		"a malformed HTTP response that repeats the password as the URL escapes it": {answer: func(string, string) string {
 			return "HTTP/1.1_" + escaped + "\r\n\r\n"
 		}},
-		"a malformed HTTP status code": {answer: func(pw, _ string) string {
-			return "HTTP/1.1 " + pw + "\r\n\r\n"
-		}},
-		"a malformed HTTP version": {answer: func(pw, _ string) string {
-			return pw + " 407 denied\r\n\r\n"
-		}},
+		"a malformed HTTP status code": {answer: malformedStatusCode},
+		"a malformed HTTP version":     {answer: malformedVersion},
 		"a malformed MIME header (a line without a colon)": {answer: func(pw, _ string) string {
 			return "HTTP/1.1 407 denied\r\n" + pw + "\r\n\r\n"
 		}},
-		"a malformed HTTP response to a plain-HTTP request": {answer: func(pw, _ string) string {
-			return "HTTP/1.1_" + pw + "\r\n\r\n"
-		}, plain: true},
-		"a malformed HTTP response that repeats a 3-byte password": {answer: func(pw, _ string) string {
-			return "HTTP/1.1_" + pw + "\r\n\r\n"
-		}, password: "p1x"},
-		"the first word of a two-word password where the status code is": {answer: func(pw, _ string) string {
-			return "HTTP/1.1 " + pw + "\r\n\r\n" // malformed HTTP status code "alpha7"
-		}, password: twoWords},
-		"the second word of a two-word password where the status code is, the first as the version": {answer: func(pw, _ string) string {
-			return pw + " 407 denied\r\n\r\n" // malformed HTTP status code "bravo9"
-		}, password: twoWords},
-		"the second word of a two-word password where the status code is, the first glued to the version": {answer: func(pw, _ string) string {
-			return "HTTP/1.1_" + pw + "\r\n\r\n" // malformed HTTP status code "bravo9"
-		}, password: twoWords},
+		"a malformed HTTP response to a plain-HTTP request":                                               {answer: malformedEcho, plain: true},
+		"a malformed HTTP response that repeats a 3-byte password":                                        {answer: malformedEcho, password: "p1x"},
+		"the first word of a two-word password where the status code is":                                  {answer: malformedStatusCode, password: twoWords}, // malformed HTTP status code "alpha7"
+		"the second word of a two-word password where the status code is, the first as the version":       {answer: malformedVersion, password: twoWords},    // malformed HTTP status code "bravo9"
+		"the second word of a two-word password where the status code is, the first glued to the version": {answer: malformedEcho, password: twoWords},       // malformed HTTP status code "bravo9"
 	}
 	levels := map[string]slog.Level{"DEBUG": slog.LevelDebug, "LevelTrace": LevelTrace}
 	for shape, sh := range shapes {
 		for levelName, level := range levels {
 			t.Run("error: "+shape+" at "+levelName, func(t *testing.T) {
 				password := cmp.Or(sh.password, defaultPassword)
-				secrets := proxySecrets(user, password)
+				secrets := proxySecrets(password)
 				proxyURL := newEchoingProxy(t, sh.answer).URL()
-				proxyURL.User = url.UserPassword(user, password)
+				proxyURL.User = url.UserPassword(proxyUser, password)
 				logs := testsupport.NewLogRecorder(level)
 				base := "https://example.com"
 				if sh.plain {
 					base = "http://example.com"
 				}
 				c := newCredentialClient(t, logs.Logger(), WithBaseURL(base), WithProxy(http.ProxyURL(proxyURL)))
-				_, err := callWithin(t, func(ctx context.Context) error {
-					_, err := c.Models().List(ctx, Retry(NoRetry()))
-					return err
-				})
+				err := listOnce(t, c)
 				ce, ok := errors.AsType[*ConnectionError](err)
 				if !ok {
 					t.Fatalf("List error = %T %v, want a *ConnectionError", err, err)
@@ -723,13 +691,7 @@ func TestProxyEchoHoldsNoCredential(t *testing.T) {
 					wantRecords = wantRecords[:1]
 				}
 				for _, want := range wantRecords {
-					line := ""
-					for l := range strings.Lines(records) {
-						if strings.Contains(l, want) {
-							line = l
-							break
-						}
-					}
+					line := recordLine(records, want)
 					if !strings.Contains(line, engine.Redacted) {
 						t.Errorf("the %q record %q lacks %q:\n%s", want, line, engine.Redacted, records)
 					}
@@ -747,6 +709,15 @@ func TestProxyEchoHoldsNoCredential(t *testing.T) {
 // malformedEcho is an echoing proxy's answer that net/http cannot parse and
 // quotes: `malformed HTTP response "HTTP/1.1_<password>"`.
 func malformedEcho(password, _ string) string { return "HTTP/1.1_" + password + "\r\n\r\n" }
+
+func recordLine(records, msg string) string {
+	for l := range strings.Lines(records) {
+		if strings.Contains(l, msg) {
+			return l
+		}
+	}
+	return ""
+}
 
 // assertRecordsScrubbed checks that the records hold none of secrets and
 // that each of the want INFO "request failed" records shows "***".
@@ -788,14 +759,11 @@ func assertRecordsScrubbed(t *testing.T, logs *testsupport.LogRecorder, secrets 
 // The func is asked exactly as often as the proxy is sent a request: none
 // on the error path.
 func TestProxyEchoConcurrentColdClient(t *testing.T) {
-	const (
-		n    = 12
-		user = "proxy-user"
-	)
+	const n = 12
 	passwords := [2]string{"alpha@proxy-password", "bravo@proxy-password"}
 	var secrets []string
 	for _, pw := range passwords {
-		secrets = append(secrets, proxySecrets(user, pw)...)
+		secrets = append(secrets, proxySecrets(pw)...)
 	}
 	tests := map[string]struct {
 		rotate bool
@@ -820,9 +788,9 @@ func TestProxyEchoConcurrentColdClient(t *testing.T) {
 			var proxies [2]*echoingProxy
 			var urls [2]*url.URL
 			for i, pw := range passwords {
-				proxies[i] = newHeldEchoingProxy(t, malformedEcho, !tt.plain)
+				proxies[i] = startProxy(t, malformedEcho, !tt.plain, false)
 				urls[i] = proxies[i].URL()
-				urls[i].User = url.UserPassword(user, pw)
+				urls[i].User = url.UserPassword(proxyUser, pw)
 			}
 			var calls atomic.Int64
 			choose := func(*http.Request) (*url.URL, error) {
@@ -890,12 +858,11 @@ func TestProxyEchoConcurrentColdClient(t *testing.T) {
 // error and records scrubbed of its own proxy's password; a proxy chosen
 // again comes back as the most recent, forgetting the then oldest.
 func TestProxyCredentialSetEvictsTheOldest(t *testing.T) {
-	const user = "proxy-user"
 	const n = engine.MaxProxyUserinfos + 1
 	urls := make([]*url.URL, n)
 	for i := range n {
 		urls[i] = newEchoingProxy(t, malformedEcho).URL()
-		urls[i].User = url.UserPassword(user, "proxy-password-"+strconv.Itoa(i)+"-of-17")
+		urls[i].User = url.UserPassword(proxyUser, "proxy-password-"+strconv.Itoa(i)+"-of-17")
 	}
 	var calls atomic.Int64
 	choose := func(*http.Request) (*url.URL, error) {
@@ -925,11 +892,8 @@ func TestProxyCredentialSetEvictsTheOldest(t *testing.T) {
 	for i := range n + 1 {
 		u := urls[i%n]
 		pw, _ := u.User.Password()
-		secrets = append(secrets, proxySecrets(user, pw)...)
-		_, err := callWithin(t, func(ctx context.Context) error {
-			_, err := c.Models().List(ctx, Retry(NoRetry()))
-			return err
-		})
+		secrets = append(secrets, proxySecrets(pw)...)
+		err := listOnce(t, c)
 		if _, ok := errors.AsType[*ConnectionError](err); !ok {
 			t.Fatalf("call %d: error = %T %v, want a *ConnectionError", i, err, err)
 		}
@@ -959,14 +923,11 @@ func TestProxyCredentialSetEvictsTheOldest(t *testing.T) {
 // anything it unwraps to, nor any record at the level holds either
 // password, its token or its escaped form.
 func TestProxyFuncAskedOncePerAttempt(t *testing.T) {
-	const (
-		user     = "proxy-user"
-		attempts = 3
-	)
+	const attempts = 3
 	passwords := [2]string{"alpha@proxy-password", "bravo@proxy-password"}
 	var secrets []string
 	for _, pw := range passwords {
-		secrets = append(secrets, proxySecrets(user, pw)...)
+		secrets = append(secrets, proxySecrets(pw)...)
 	}
 	tests := map[string]struct {
 		plain bool // a plain-HTTP API URL: no CONNECT, no gate error
@@ -984,7 +945,7 @@ func TestProxyFuncAskedOncePerAttempt(t *testing.T) {
 			var urls [2]*url.URL
 			for i, pw := range passwords {
 				urls[i] = newEchoingProxy(t, malformedEcho).URL()
-				urls[i].User = url.UserPassword(user, pw)
+				urls[i].User = url.UserPassword(proxyUser, pw)
 			}
 			var calls atomic.Int64
 			var mu sync.Mutex
@@ -1039,8 +1000,8 @@ func TestProxyFuncAskedOncePerAttempt(t *testing.T) {
 // record (engine.NewRedactedHeaders). The body is shown as the proxy wrote
 // it, by design; this one is empty.
 func TestProxyAnswerHeadersRedacted(t *testing.T) {
-	const user, password = "proxy-user", "hunter2@proxy-password"
-	secrets := proxySecrets(user, password)
+	const password = "hunter2@proxy-password"
+	secrets := proxySecrets(password)
 	proxyURL := newEchoingProxy(t, func(pw, auth string) string {
 		return "HTTP/1.1 407 Proxy Authentication Required\r\n" +
 			"X-Proxy-Echo: " + auth + "\r\n" +
@@ -1048,13 +1009,10 @@ func TestProxyAnswerHeadersRedacted(t *testing.T) {
 			"X-Typesafe-Request-Id: req-" + strings.TrimPrefix(auth, "Basic ") + "\r\n" +
 			"Content-Length: 0\r\nConnection: close\r\n\r\n"
 	}).URL()
-	proxyURL.User = url.UserPassword(user, password)
+	proxyURL.User = url.UserPassword(proxyUser, password)
 	logs := testsupport.NewLogRecorder(slog.LevelDebug)
 	c := newCredentialClient(t, logs.Logger(), WithBaseURL("http://example.com"), WithProxy(http.ProxyURL(proxyURL)))
-	_, err := callWithin(t, func(ctx context.Context) error {
-		_, err := c.Models().List(ctx, Retry(NoRetry()))
-		return err
-	})
+	err := listOnce(t, c)
 	ae, ok := errors.AsType[*APIError](err)
 	if !ok || ae.StatusCode != http.StatusProxyAuthRequired {
 		t.Fatalf("List error = %T %v, want the proxy's 407 as an *APIError", err, err)
@@ -1063,14 +1021,6 @@ func TestProxyAnswerHeadersRedacted(t *testing.T) {
 		testsupport.AssertNotPrinted(t, err, secret)
 	}
 	records := recordsText(logs)
-	recordWith := func(msg string) string {
-		for l := range strings.Lines(records) {
-			if strings.Contains(l, msg) {
-				return l
-			}
-		}
-		return ""
-	}
 
 	t.Run("error: the error's Header (headerRedactor.header)", func(t *testing.T) {
 		for _, name := range []string{"X-Proxy-Echo", "X-Proxy-Password", "X-Typesafe-Request-Id"} {
@@ -1080,7 +1030,7 @@ func TestProxyAnswerHeadersRedacted(t *testing.T) {
 		}
 	})
 	t.Run("error: the request id (headerRedactor.requestID)", func(t *testing.T) {
-		if line := recordWith("INFO response"); !strings.Contains(line, "request_id="+engine.Redacted) {
+		if line := recordLine(records, "INFO response"); !strings.Contains(line, "request_id="+engine.Redacted) {
 			t.Errorf("the INFO response record %q lacks request_id=%s", line, engine.Redacted)
 		}
 		if got, ok := ae.RequestID(); !ok || got != engine.Redacted {
@@ -1088,7 +1038,7 @@ func TestProxyAnswerHeadersRedacted(t *testing.T) {
 		}
 	})
 	t.Run("error: the DEBUG response headers record (engine.NewRedactedHeaders)", func(t *testing.T) {
-		line := recordWith("DEBUG response headers")
+		line := recordLine(records, "DEBUG response headers")
 		for _, name := range []string{"X-Proxy-Echo", "X-Proxy-Password", "X-Typesafe-Request-Id"} {
 			if !strings.Contains(line, name+"="+engine.Redacted) {
 				t.Errorf("the record %q lacks %s=%s", line, name, engine.Redacted)
@@ -1116,7 +1066,7 @@ func TestProxyCredentialParityWithAPIKey(t *testing.T) {
 	// The two secrets are of one length, so that the two answers differ in
 	// the secret alone.
 	const key = "ts_live_QzXjWvKpYbNmHgFd"
-	const user, proxyPassword = "proxy-user", "hunter2@proxy-password12"
+	const proxyPassword = "hunter2@proxy-password12"
 	const placeholder = "<SECRET>"
 	duration := regexp.MustCompile(`duration=\S+`)
 	render := func(t *testing.T, secret string) map[string]string {
@@ -1127,14 +1077,11 @@ func TestProxyCredentialParityWithAPIKey(t *testing.T) {
 				"X-Echo: seen " + secret + "\r\nX-Typesafe-Request-Id: req-" + secret + "\r\n" +
 				"Content-Length: " + strconv.Itoa(len(body)) + "\r\nConnection: close\r\n\r\n" + body
 		}).URL()
-		proxyURL.User = url.UserPassword(user, proxyPassword)
+		proxyURL.User = url.UserPassword(proxyUser, proxyPassword)
 		logs := testsupport.NewLogRecorder(LevelTrace)
 		clearEnv(t)
 		c := mustClient(t, WithAPIKey(key), WithBaseURL("http://example.com"), WithProxy(http.ProxyURL(proxyURL)), WithLogger(logs.Logger()))
-		_, err := callWithin(t, func(ctx context.Context) error {
-			_, err := c.Models().List(ctx, Retry(NoRetry()))
-			return err
-		})
+		err := listOnce(t, c)
 		ae, ok := errors.AsType[*APIError](err)
 		if !ok || ae.StatusCode != http.StatusProxyAuthRequired {
 			t.Fatalf("List error = %T %v, want the proxy's 407 as an *APIError", err, err)
@@ -1190,19 +1137,11 @@ func assertHeaderShown(t *testing.T, err error, logs *testsupport.LogRecorder, w
 		t.Fatalf("error = %T %v, want an *APIError", err, err)
 	}
 	records := recordsText(logs)
-	line := func(msg string) string {
-		for l := range strings.Lines(records) {
-			if strings.Contains(l, msg) {
-				return l
-			}
-		}
-		return ""
-	}
 	for name, value := range want {
 		if got := ae.Header.Get(name); got != value {
 			t.Errorf("Header[%s] = %q, want %q as it arrived", name, got, value)
 		}
-		if l := line("DEBUG response headers"); !strings.Contains(l, name+"="+value) {
+		if l := recordLine(records, "DEBUG response headers"); !strings.Contains(l, name+"="+value) {
 			t.Errorf("the DEBUG response headers record %q lacks %s=%s", l, name, value)
 		}
 	}
@@ -1210,7 +1149,7 @@ func assertHeaderShown(t *testing.T, err error, logs *testsupport.LogRecorder, w
 	if got, _ := ae.RequestID(); got != id {
 		t.Errorf("RequestID() = %q, want %q", got, id)
 	}
-	if l := line("INFO response"); !strings.Contains(l, "request_id="+id) {
+	if l := recordLine(records, "INFO response"); !strings.Contains(l, "request_id="+id) {
 		t.Errorf("the INFO response record %q lacks request_id=%s", l, id)
 	}
 }
@@ -1231,7 +1170,6 @@ func assertHeaderShown(t *testing.T, err error, logs *testsupport.LogRecorder, w
 // password of 8 bytes or more in a plain-HTTP proxy's own answer is "***"
 // (TestProxyAnswerHeadersRedacted).
 func TestProxyHeaderScanScope(t *testing.T) {
-	const user = "proxy-user"
 	const long = "hunter2@proxy-password"
 	apiAnswer := func(id, ordinary string) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -1242,20 +1180,12 @@ func TestProxyHeaderScanScope(t *testing.T) {
 			_, _ = io.WriteString(w, `{"message":"no such model"}`)
 		})
 	}
-	listOnce := func(t *testing.T, c *Client) error {
-		t.Helper()
-		_, err := callWithin(t, func(ctx context.Context) error {
-			_, err := c.Models().List(ctx, Retry(NoRetry()))
-			return err
-		})
-		return err
-	}
 	overHTTPS := func(t *testing.T, password string, want map[string]string) {
 		t.Helper()
 		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: apiAnswer(want["X-Typesafe-Request-Id"], want["X-Ordinary"])})
 		p := testsupport.NewProxy(t, testsupport.ProxyPlain, testsupport.Routes{"example.com:443": srv.Addr()})
 		pu := p.URL()
-		pu.User = url.UserPassword(user, password)
+		pu.User = url.UserPassword(proxyUser, password)
 		logs := testsupport.NewLogRecorder(slog.LevelDebug)
 		c := newCredentialClient(t, logs.Logger(), WithBaseURL("https://example.com"), WithRootCAs(testsupport.RootCAs(t)), WithProxy(http.ProxyURL(pu)))
 		assertHeaderShown(t, listOnce(t, c), logs, want)
@@ -1274,7 +1204,7 @@ func TestProxyHeaderScanScope(t *testing.T) {
 		pu := newEchoingProxy(t, func(pw, _ string) string {
 			return "HTTP/1.1 407 Proxy Authentication Required\r\nX-Echo: seen " + pw + "\r\nX-Typesafe-Request-Id: req_" + pw + "12\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
 		}).URL()
-		pu.User = url.UserPassword(user, "ab")
+		pu.User = url.UserPassword(proxyUser, "ab")
 		logs := testsupport.NewLogRecorder(slog.LevelDebug)
 		c := newCredentialClient(t, logs.Logger(), WithBaseURL("http://example.com"), WithProxy(http.ProxyURL(pu)))
 		assertHeaderShown(t, listOnce(t, c), logs, want)
@@ -1286,7 +1216,7 @@ func TestProxyHeaderScanScope(t *testing.T) {
 			return "HTTP/1.1 407 Proxy Authentication Required\r\nX-Word: seen sesame-street\r\nX-Whole: seen " + pw +
 				"\r\nX-Typesafe-Request-Id: req_plain\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
 		}).URL()
-		pu.User = url.UserPassword(user, words)
+		pu.User = url.UserPassword(proxyUser, words)
 		logs := testsupport.NewLogRecorder(slog.LevelDebug)
 		c := newCredentialClient(t, logs.Logger(), WithBaseURL("http://example.com"), WithProxy(http.ProxyURL(pu)))
 		err := listOnce(t, c)
@@ -1301,7 +1231,7 @@ func TestProxyHeaderScanScope(t *testing.T) {
 			pu := newEchoingProxy(t, func(string, string) string {
 				return "HTTP/1.1 429 Too Many Requests\r\nRetry-After: 2\r\nX-Typesafe-Request-Id: req-2026-x12\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
 			}).URL()
-			pu.User = url.UserPassword(user, password)
+			pu.User = url.UserPassword(proxyUser, password)
 			logs := testsupport.NewLogRecorder(slog.LevelDebug)
 			c := newCredentialClient(t, logs.Logger(), WithBaseURL("http://example.com"), WithProxy(http.ProxyURL(pu)))
 			err := listOnce(t, c)
@@ -1319,7 +1249,7 @@ func TestProxyHeaderScanScope(t *testing.T) {
 		api := httptest.NewServer(apiAnswer(want["X-Typesafe-Request-Id"], want["X-Ordinary"]))
 		t.Cleanup(api.Close)
 		pu := newEchoingProxy(t, malformedEcho).URL()
-		pu.User = url.UserPassword(user, long)
+		pu.User = url.UserPassword(proxyUser, long)
 		var calls atomic.Int64
 		choose := func(*http.Request) (*url.URL, error) {
 			if calls.Add(1) == 1 {
@@ -1375,7 +1305,7 @@ func TestProxyRetryAfterSurvivesOverHTTPS(t *testing.T) {
 			})})
 			p := testsupport.NewProxy(t, testsupport.ProxyPlain, testsupport.Routes{"example.com:443": srv.Addr()})
 			pu := p.URL()
-			pu.User = url.UserPassword("proxy-user", tt.password)
+			pu.User = url.UserPassword(proxyUser, tt.password)
 			logs := testsupport.NewLogRecorder(slog.LevelDebug)
 			c := newCredentialClient(t, logs.Logger(), WithBaseURL("https://example.com"), WithRootCAs(testsupport.RootCAs(t)), WithProxy(http.ProxyURL(pu)))
 			policy := NoRetry()
@@ -1411,62 +1341,6 @@ func TestProxyRetryAfterSurvivesOverHTTPS(t *testing.T) {
 	}
 }
 
-// keepAliveProxy is an HTTP/1.1 proxy on 127.0.0.1 that answers every
-// request a connection carries with answer(password, auth), keeping the
-// connection open, as newEchoingProxy's proxy answers one; accepts and
-// requests count the connections and the requests.
-type keepAliveProxy struct {
-	ln                net.Listener
-	accepts, requests atomic.Int64
-	wg                sync.WaitGroup
-}
-
-// newKeepAliveProxy starts a keepAliveProxy; it stops when the test ends.
-func newKeepAliveProxy(t *testing.T, answer func(password, auth string) string) *keepAliveProxy {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	p := &keepAliveProxy{ln: ln}
-	p.wg.Go(func() {
-		for {
-			conn, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			p.accepts.Add(1)
-			p.wg.Go(func() {
-				defer conn.Close()
-				br := bufio.NewReader(conn)
-				for {
-					req, err := http.ReadRequest(br)
-					if err != nil {
-						return
-					}
-					_, _ = io.Copy(io.Discard, req.Body)
-					p.requests.Add(1)
-					auth := req.Header.Get("Proxy-Authorization")
-					var password string
-					if b64, ok := strings.CutPrefix(auth, "Basic "); ok {
-						if raw, err := base64.StdEncoding.DecodeString(b64); err == nil {
-							_, password, _ = strings.Cut(string(raw), ":")
-						}
-					}
-					if _, err := io.WriteString(conn, answer(password, auth)); err != nil {
-						return
-					}
-				}
-			})
-		}
-	})
-	t.Cleanup(func() {
-		_ = ln.Close()
-		p.wg.Wait()
-	})
-	return p
-}
-
 // TestProxyKeepAliveSecondRequestHidden pins the keep-alive case: a
 // plain-HTTP request through a proxy whose connection net/http keeps and
 // reuses for the next request, which it sends without dialing. net/http
@@ -1477,21 +1351,19 @@ func newKeepAliveProxy(t *testing.T, answer func(password, auth string) string) 
 // hidden on the second request as on the first, and the message shown on
 // both, as the API key would be.
 func TestProxyKeepAliveSecondRequestHidden(t *testing.T) {
-	const user, password = "proxy-user", "hunter2@proxy-password"
-	p := newKeepAliveProxy(t, func(pw, auth string) string {
+	const password = "hunter2@proxy-password"
+	p := startProxy(t, func(pw, auth string) string {
 		body := `{"message":"denied ` + pw + `"}`
 		return "HTTP/1.1 407 Proxy Authentication Required\r\nContent-Type: application/json\r\n" +
 			"X-Echo: seen " + auth + "\r\nX-Password: seen " + pw + "\r\nX-Typesafe-Request-Id: req-" + strings.TrimPrefix(auth, "Basic ") + "\r\n" +
 			"Content-Length: " + strconv.Itoa(len(body)) + "\r\n\r\n" + body
-	})
-	pu := &url.URL{Scheme: "http", User: url.UserPassword(user, password), Host: p.ln.Addr().String()}
+	}, false, true)
+	pu := p.URL()
+	pu.User = url.UserPassword(proxyUser, password)
 	logs := testsupport.NewLogRecorder(slog.LevelDebug)
 	c := newCredentialClient(t, logs.Logger(), WithBaseURL("http://example.com"), WithProxy(http.ProxyURL(pu)))
 	for i := range 2 {
-		_, err := callWithin(t, func(ctx context.Context) error {
-			_, err := c.Models().List(ctx, Retry(NoRetry()))
-			return err
-		})
+		err := listOnce(t, c)
 		ae, ok := errors.AsType[*APIError](err)
 		if !ok || ae.StatusCode != http.StatusProxyAuthRequired {
 			t.Fatalf("request %d: error = %T %v, want the proxy's 407 as an *APIError", i+1, err, err)

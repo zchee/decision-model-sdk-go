@@ -88,7 +88,6 @@ func TestClientTraceDialPhaseBound(t *testing.T) {
 		grace   = 100 * time.Millisecond // internal/h2gate's dialGrace, past the connect timeout
 		slack   = 2 * time.Second
 		hold    = 10 * time.Second
-		coarse  = 20 * time.Millisecond
 	)
 	tests := map[string]struct {
 		hook, host string
@@ -147,7 +146,7 @@ func TestClientTraceDialPhaseBound(t *testing.T) {
 			if !errors.As(err, &te) || te.Timeout != 0 || te.Proxy() || !errors.Is(err, context.DeadlineExceeded) {
 				t.Fatalf("List = %T %v, want a *TimeoutError without an attempt timeout", err, err)
 			}
-			if elapsed < tt.bound-coarse || elapsed > tt.bound+slack || !blocking() {
+			if elapsed < tt.bound-coarseTick || elapsed > tt.bound+slack || !blocking() {
 				t.Errorf("List failed after %v, the hook still blocking: %t; want %v (+%v slack) while it blocks", elapsed, blocking(), tt.bound, slack)
 			}
 			var failed, bounded bool
@@ -171,7 +170,7 @@ func TestClientTraceDialPhaseBound(t *testing.T) {
 			switch {
 			case tt.redials && (err != nil || runs.Load() != 2 || !blocking()):
 				t.Errorf("a List while the hook blocks: %v, the hook run %d times, still blocking: %t; want a success on a dial of its own that ran the hook again beside the blocked run", err, runs.Load(), blocking())
-			case !tt.redials && (!errors.As(err, &te) || elapsed < 2*connect-coarse || elapsed > 2*connect+slack || runs.Load() != 1 || !blocking()):
+			case !tt.redials && (!errors.As(err, &te) || elapsed < 2*connect-coarseTick || elapsed > 2*connect+slack || runs.Load() != 1 || !blocking()):
 				t.Errorf("a List while the hook blocks: %v after %v, the hook run %d times; want a *TimeoutError at the %v wait bound behind the held dial", err, elapsed, runs.Load(), 2*connect)
 			}
 

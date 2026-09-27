@@ -57,6 +57,11 @@ func resultWith(members ...string) []byte {
 	return []byte(`{"model":"jev-latest","usage":{"input_tokens":12,"output_tokens":3},"answers":{` + strings.Join(members, ",") + `}}`)
 }
 
+func spamPrepared(t *testing.T) *Prepared {
+	t.Helper()
+	return mustPrepared(t, NewQuestions().Noul("spam", Noul{}))
+}
+
 // knownResponse is the Go form of the upstream KnownResponse
 // (tests/test_pydantic_response_models.py:19-25): the one answer spam. The
 // name is tagged, since a field's question name is otherwise the field's
@@ -109,7 +114,7 @@ func TestDecodeAsWithSeparateQuestions(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			rec := replying(http.StatusOK, resultWith(tt.spam, toneJSON, qualityJSON))
 			c := newTestClient(t, rec)
-			resp, err := c.SystemOne(t.Context(), "x", mustPrepared(t, NewQuestions().Noul("spam", Noul{})))
+			resp, err := c.SystemOne(t.Context(), "x", spamPrepared(t))
 			if err != nil {
 				t.Fatalf("SystemOne: %v", err)
 			}
@@ -138,7 +143,7 @@ func TestDecodeAsWithSeparateQuestions(t *testing.T) {
 func TestSystemOneDefaultResponse(t *testing.T) {
 	body := testsupport.Fixture(t, "result.json")
 	c := newTestClient(t, replying(http.StatusOK, body, "x-typesafe-request-id", "req-default"))
-	resp, err := c.SystemOne(t.Context(), "x", mustPrepared(t, NewQuestions().Noul("spam", Noul{})))
+	resp, err := c.SystemOne(t.Context(), "x", spamPrepared(t))
 	if err != nil {
 		t.Fatalf("SystemOne: %v", err)
 	}
@@ -167,7 +172,7 @@ func TestDecodeAsOptionalFieldAndUnknownAnswer(t *testing.T) {
 	logs := testsupport.NewLogRecorder(slog.LevelWarn)
 	c := newTestClient(t, replying(http.StatusOK, body, "x-typesafe-request-id", "req-pydantic"), WithLogger(logs.Logger()))
 
-	resp, err := c.SystemOne(t.Context(), "x", mustPrepared(t, NewQuestions().Noul("spam", Noul{})))
+	resp, err := c.SystemOne(t.Context(), "x", spamPrepared(t))
 	if err != nil {
 		t.Fatalf("SystemOne: %v", err)
 	}
@@ -583,7 +588,7 @@ func TestAskValidationFieldPaths(t *testing.T) {
 			if tt.decode == nil {
 				return
 			}
-			resp, err := c.SystemOne(t.Context(), "x", mustPrepared(t, NewQuestions().Noul("spam", Noul{})))
+			resp, err := c.SystemOne(t.Context(), "x", spamPrepared(t))
 			if err != nil {
 				t.Fatalf("SystemOne: %v", err)
 			}
@@ -770,7 +775,7 @@ func TestTypedErrorRedactsHeader(t *testing.T) {
 	path := "tone.probabilities." + testKey
 	liveResponse := func(t *testing.T, c *Client) *SystemOneResponse {
 		t.Helper()
-		resp, err := c.SystemOne(t.Context(), "x", mustPrepared(t, NewQuestions().Noul("spam", Noul{})))
+		resp, err := c.SystemOne(t.Context(), "x", spamPrepared(t))
 		if err != nil {
 			t.Fatalf("SystemOne: %v", err)
 		}
@@ -860,7 +865,6 @@ func TestTypedErrorRedactsHeader(t *testing.T) {
 // credentials as they were when its call returned. The typed decode fails
 // at a label T does not list, so each call yields a validation error.
 func TestDecodeAsProxyParity(t *testing.T) {
-	const user = "proxy-user"
 	path := "tone.probabilities.sneaky"
 	body := resultWith(spamJSON, `"tone":{"type":"choice","choice":"friendly","confidence":0.9,"probabilities":{"friendly":0.9,"sneaky":0.1}}`)
 	// proxyAnswer is a plain-HTTP proxy's own 200: the typed body, and the
@@ -892,7 +896,7 @@ func TestDecodeAsProxyParity(t *testing.T) {
 	}
 	live := func(t *testing.T, c *Client) *SystemOneResponse {
 		t.Helper()
-		resp, err := c.SystemOne(t.Context(), "x", mustPrepared(t, NewQuestions().Noul("spam", Noul{})), Retry(NoRetry()))
+		resp, err := c.SystemOne(t.Context(), "x", spamPrepared(t), Retry(NoRetry()))
 		if err != nil {
 			t.Fatalf("SystemOne: %v", err)
 		}
@@ -907,7 +911,7 @@ func TestDecodeAsProxyParity(t *testing.T) {
 
 	t.Run("error: plain HTTP through a proxy: DecodeAs redacts the proxy's answer as Ask does", func(t *testing.T) {
 		pu := newEchoingProxy(t, proxyAnswer).URL()
-		pu.User = url.UserPassword(user, "hunter2@proxy-password")
+		pu.User = url.UserPassword(proxyUser, "hunter2@proxy-password")
 		c := newCredentialClient(t, slog.New(slog.DiscardHandler), WithBaseURL("http://example.com"), WithProxy(http.ProxyURL(pu)))
 		byAsk, byDecodeAs := ask(t, c), decodeAs(t, live(t, c))
 		if diff := gocmp.Diff(hidden, byAsk); diff != "" {
@@ -928,7 +932,7 @@ func TestDecodeAsProxyParity(t *testing.T) {
 		})})
 		p := testsupport.NewProxy(t, testsupport.ProxyPlain, testsupport.Routes{"example.com:443": srv.Addr()})
 		pu := p.URL()
-		pu.User = url.UserPassword(user, password)
+		pu.User = url.UserPassword(proxyUser, password)
 		c := newCredentialClient(t, slog.New(slog.DiscardHandler), WithBaseURL("https://example.com"), WithRootCAs(testsupport.RootCAs(t)), WithProxy(http.ProxyURL(pu)))
 		shown := view{FieldPath: path, Password: "seen " + password, RequestID: "req-" + password, Error: "200 Invalid response data at '" + path + "'. (request_id=req-" + password + ")"}
 		byAsk, byDecodeAs := ask(t, c), decodeAs(t, live(t, c))
@@ -942,11 +946,11 @@ func TestDecodeAsProxyParity(t *testing.T) {
 
 	t.Run("error: a response kept while the client goes through 16 other proxies still redacts its own", func(t *testing.T) {
 		first := newEchoingProxy(t, proxyAnswer).URL()
-		first.User = url.UserPassword(user, "proxy-password-kept")
+		first.User = url.UserPassword(proxyUser, "proxy-password-kept")
 		others := make([]*url.URL, engine.MaxProxyUserinfos)
 		for i := range others {
 			others[i] = newEchoingProxy(t, malformedEcho).URL()
-			others[i].User = url.UserPassword(user, "proxy-password-"+strconv.Itoa(i)+"-of-16")
+			others[i].User = url.UserPassword(proxyUser, "proxy-password-"+strconv.Itoa(i)+"-of-16")
 		}
 		var calls atomic.Int64
 		choose := func(*http.Request) (*url.URL, error) {
@@ -989,7 +993,7 @@ func TestDecodeAsProxyParity(t *testing.T) {
 // each behind a plain pointer to a redactor that holds it or in its proxy
 // set's credentials.
 func TestResponseNeverPrintsKey(t *testing.T) {
-	const user, password = "proxy-user", "hunter2@proxy-password"
+	const password = "hunter2@proxy-password"
 	body := resultWith(spamJSON)
 	tests := map[string]struct {
 		key      string
@@ -1000,7 +1004,7 @@ func TestResponseNeverPrintsKey(t *testing.T) {
 			key: testKey,
 			response: func(t *testing.T) (*SystemOneResponse, *engine.ProxyCreds) {
 				c := newTestClient(t, replying(http.StatusOK, body))
-				resp, err := c.SystemOne(t.Context(), "x", mustPrepared(t, NewQuestions().Noul("spam", Noul{})))
+				resp, err := c.SystemOne(t.Context(), "x", spamPrepared(t))
 				if err != nil {
 					t.Fatalf("SystemOne: %v", err)
 				}
@@ -1015,15 +1019,15 @@ func TestResponseNeverPrintsKey(t *testing.T) {
 					return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " + strconv.Itoa(len(body)) +
 						"\r\nConnection: close\r\n\r\n" + string(body)
 				}).URL()
-				pu.User = url.UserPassword(user, password)
+				pu.User = url.UserPassword(proxyUser, password)
 				c := newCredentialClient(t, slog.New(slog.DiscardHandler), WithBaseURL("http://example.com"), WithProxy(http.ProxyURL(pu)))
-				resp, err := c.SystemOne(t.Context(), "x", mustPrepared(t, NewQuestions().Noul("spam", Noul{})), Retry(NoRetry()))
+				resp, err := c.SystemOne(t.Context(), "x", spamPrepared(t), Retry(NoRetry()))
 				if err != nil {
 					t.Fatalf("SystemOne: %v", err)
 				}
 				return resp, c.cfg().Transport.Proxies
 			},
-			secrets: []string{quirkyKey, password, proxySecrets(user, password)[1]},
+			secrets: []string{quirkyKey, password, proxySecrets(password)[1]},
 		},
 	}
 	for name, tt := range tests {

@@ -330,9 +330,10 @@ func assertCancelled(t *testing.T, err error) {
 }
 
 // waitFor polls cond until it holds, failing the test when it does not
-// within d.
-func waitFor(t *testing.T, d time.Duration, what string, cond func() bool) {
+// within 5 s.
+func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
+	const d = 5 * time.Second
 	deadline := time.Now().Add(d)
 	for !cond() {
 		if time.Now().After(deadline) {
@@ -385,7 +386,7 @@ func TestCancelInFlightRequest(t *testing.T) {
 				})})
 				c := newLoopbackClient(t, srv, nil)
 				return setup{c: c, after: func(t *testing.T) {
-					waitFor(t, 5*time.Second, "the server sees the stream dropped", func() bool {
+					waitFor(t, "the server sees the stream dropped", func() bool {
 						reqs := srv.Requests()
 						return len(reqs) == 1 && reqs[0].Dropped
 					})

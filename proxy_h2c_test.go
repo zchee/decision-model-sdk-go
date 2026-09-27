@@ -74,7 +74,7 @@ func TestProxyH2CEchoRedactedOnEveryCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse the proxy's URL: %v", err)
 	}
-	pu.User = url.UserPassword("proxy-user", password)
+	pu.User = url.UserPassword(proxyUser, password)
 
 	var asked atomic.Int64
 	choose := func(*http.Request) (*url.URL, error) {
