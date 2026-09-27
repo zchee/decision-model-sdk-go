@@ -53,11 +53,12 @@ func validationError(t *testing.T, err error) *ResponseValidationError {
 }
 
 // TestMalformedResponseFieldPaths ports
-// test_malformed_response_raises_validation_error (R1,
-// tests/test_responses.py:29-58) to the decode of a 200 response with its
+// test_malformed_response_raises_validation_error
+// (tests/test_responses.py:29-58) to the decode of a 200 response with its
 // request id: the eight bodies fail at the Python SDK's field paths, and the
 // error keeps the status, request id and body and renders as the Python
-// SDK's str(). The call through the client is re-asserted by W2.3.
+// SDK's str(). The call through the client is re-asserted by
+// TestMalformedResponseThroughClient.
 func TestMalformedResponseFieldPaths(t *testing.T) {
 	tests := map[string]struct {
 		answers string
@@ -100,8 +101,8 @@ func TestMalformedResponseFieldPaths(t *testing.T) {
 	}
 }
 
-// TestModelsMissingMemberPath ports test_nested_missing_field_path (R2,
-// tests/test_responses.py:61-68): a model card without one of its three
+// TestModelsMissingMemberPath ports test_nested_missing_field_path
+// (tests/test_responses.py:61-68): a model card without one of its three
 // members fails at models[1].<member>, rendered as the Python SDK's str() of
 // an error without an endpoint.
 func TestModelsMissingMemberPath(t *testing.T) {
@@ -127,8 +128,8 @@ func TestModelsMissingMemberPath(t *testing.T) {
 	}
 }
 
-// TestFieldPathIsEscapedInError checks NF7 on a failing path that holds a
-// name the server chose: it is escaped in FieldPath and in Error().
+// TestFieldPathIsEscapedInError checks the escaping of a failing path that
+// holds a name the server chose: it is escaped in FieldPath and in Error().
 func TestFieldPathIsEscapedInError(t *testing.T) {
 	body := `{"model":"m","usage":{},"answers":{"a\nb\\":{"type":"noul"}}}`
 	var dst wire.SystemOneResult
@@ -141,11 +142,11 @@ func TestFieldPathIsEscapedInError(t *testing.T) {
 	}
 }
 
-// TestUnknownAnswerTypeSkipped ports test_unknown_answer_type_ignored (R10,
-// tests/test_responses.py:157-175) to the decode: an answer of a type this
+// TestUnknownAnswerTypeSkipped ports test_unknown_answer_type_ignored
+// (tests/test_responses.py:157-175) to the decode: an answer of a type this
 // version does not model is dropped with one WARN line naming it and its
 // type, and the body keeps it. The call through the client is re-asserted
-// by W2.3.
+// by TestUnknownAnswerTypeThroughClient.
 func TestUnknownAnswerTypeSkipped(t *testing.T) {
 	body := testsupport.Fixture(t, "unknown-answer-type.json")
 	rec := testsupport.NewLogRecorder(slog.LevelDebug)
@@ -167,9 +168,10 @@ func TestUnknownAnswerTypeSkipped(t *testing.T) {
 	}
 }
 
-// TestUnknownAnswerTypeWarnCap checks the bound on the WARN lines (Appendix
-// B: at most eight per response, then one counting the rest) and that the
-// names and types in them are escaped and cut at 128 characters.
+// TestUnknownAnswerTypeWarnCap checks the bound on the WARN lines, at most
+// eight per response, then one counting the rest (docs/deviations.md,
+// "unknown answers logged at most 8 times"), and that the names and types in
+// them are escaped and cut at 128 characters.
 func TestUnknownAnswerTypeWarnCap(t *testing.T) {
 	long := strings.Repeat("t", 300)
 	var answers []string
@@ -239,10 +241,10 @@ func TestSkippedAnswersLogWithoutALogger(t *testing.T) {
 	}
 }
 
-// TestMalformedFixturesRefused checks AC-F7 through the root package: every
+// TestMalformedFixturesRefused checks through the root package that every
 // testdata/malformed-*.json, and deviation-big-exp-noul.json, is refused with
 // a *ResponseValidationError at the field path testdata/README.md names, the
-// body and status kept, and every other System One fixture is accepted.
+// body and status kept, and that every other System One fixture is accepted.
 func TestMalformedFixturesRefused(t *testing.T) {
 	want := map[string]string{
 		"malformed-empty.json":              ".",

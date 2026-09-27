@@ -37,9 +37,8 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
-// errSentinel stands for a sentinel error that a later wave may wrap in a
-// *ConfigError next to the cause (the port plan's section 6.3 pattern, W2.0
-// decides): Unwrap() []error must reach both.
+// errSentinel stands for a sentinel a *ConfigError wraps next to its cause:
+// Unwrap() []error must reach both.
 var errSentinel = errors.New("sentinel")
 
 // causeError is a cause with a type of its own, reached with errors.As.
@@ -139,9 +138,9 @@ func headers(kv ...string) http.Header {
 }
 
 // TestAPIErrorStatusRows checks the rendering half of test_error_mapping
-// (tests/test_clients.py:287-317, AC-F3): the kind each of the eleven
-// statuses maps to, the exact Error() text, the request id and the
-// retry-after-ms wait. The call through the client is W2.3's (C11).
+// (tests/test_clients.py:287-317): the kind each of the eleven statuses maps
+// to, the exact Error() text, the request id and the retry-after-ms wait.
+// TestAPIErrorMapping makes the call through the client.
 func TestAPIErrorStatusRows(t *testing.T) {
 	const body = `{"detail":{"message":"Server explanation"}}`
 	tests := map[string]struct {
@@ -186,9 +185,9 @@ func TestAPIErrorStatusRows(t *testing.T) {
 }
 
 // TestAPIErrorMessageRows checks the rendering half of test_error_messages
-// (tests/test_clients.py:320-339, AC-F3): the message the Python SDK finds
-// in each of the eight bodies, exactly. The call through the client is
-// W2.3's (C12).
+// (tests/test_clients.py:320-339): the message the Python SDK finds in each
+// of the eight bodies, exactly. TestAPIErrorMessages makes the call through
+// the client.
 func TestAPIErrorMessageRows(t *testing.T) {
 	tests := map[string]struct {
 		body string
@@ -215,7 +214,7 @@ func TestAPIErrorMessageRows(t *testing.T) {
 }
 
 // TestAPIErrorRendersEndpointStatusMessageRequestID ports
-// test_api_error_request_context (E3, tests/test_errors.py:83-101): the
+// test_api_error_request_context (tests/test_errors.py:83-101): the
 // endpoint of either resource under a base URL with a path prefix, the
 // status, the message and the request id, in one line, and nothing of the
 // request's credentials in any rendering of the error.
@@ -252,9 +251,10 @@ func TestAPIErrorRendersEndpointStatusMessageRequestID(t *testing.T) {
 }
 
 // TestEndpointOmitsCredentialsQueryFragment ports
-// test_api_error_endpoint_omits_url_credentials (E4,
-// tests/test_errors.py:104-110): the endpoint keeps the method, scheme, host
-// and path, and drops the userinfo, query and fragment.
+// test_api_error_endpoint_omits_url_credentials (row E4 of
+// docs/port-test-matrix.md, tests/test_errors.py:104-110): the endpoint keeps
+// the method, scheme, host and path, and drops the userinfo, query and
+// fragment.
 func TestEndpointOmitsCredentialsQueryFragment(t *testing.T) {
 	tests := map[string]struct {
 		method, raw string
@@ -284,8 +284,8 @@ func TestEndpointOmitsCredentialsQueryFragment(t *testing.T) {
 	}
 }
 
-// TestAPIErrorMessageOverride ports test_message_override (E5,
-// tests/test_errors.py:113-137): a message set by the caller replaces the
+// TestAPIErrorMessageOverride ports test_message_override
+// (tests/test_errors.py:113-137): a message set by the caller replaces the
 // body's, an empty one leaves the status alone, and the status, body and
 // headers are the ones given. The Python SDK reads retry_after_ms on its
 // rate-limit class only; RetryAfter answers for every kind (as the Rust
@@ -326,10 +326,11 @@ func TestAPIErrorMessageOverride(t *testing.T) {
 	}
 }
 
-// TestAPIErrorBodyEdgeCases ports test_error_body_edge_cases (E6,
-// tests/test_errors.py:140-158): eight of the nine rows render exactly as
+// TestAPIErrorBodyEdgeCases ports test_error_body_edge_cases
+// (tests/test_errors.py:140-158): eight of the nine rows render exactly as
 // the Python SDK's; long-plain-message is cut at 200 characters, where the
-// Python SDK never cuts a body that is not JSON (Appendix B, NF7).
+// Python SDK never cuts a body that is not JSON (docs/deviations.md,
+// "plain-text body cut at 200").
 func TestAPIErrorBodyEdgeCases(t *testing.T) {
 	x := strings.Repeat("x", 201)
 	tests := map[string]struct {
@@ -360,10 +361,10 @@ func TestAPIErrorBodyEdgeCases(t *testing.T) {
 	}
 }
 
-// TestAPIErrorMessageIsBounded checks NF7 on a server's message: control and
-// format characters are escaped and the message is cut at 200 characters
-// after escaping, whichever member it came from; the request id is escaped
-// and cut at 128.
+// TestAPIErrorMessageIsBounded checks the bound on a server's message: control
+// and format characters are escaped and the message is cut at 200 characters
+// after escaping, whichever member it came from; the request id is escaped and
+// cut at 128.
 func TestAPIErrorMessageIsBounded(t *testing.T) {
 	long := strings.Repeat("y", 500)
 	tests := map[string]struct {
@@ -423,7 +424,7 @@ func TestRetryAfter(t *testing.T) {
 	future := now.Add(10 * time.Second).UTC().Format(http.TimeFormat)
 	past := now.Add(-10 * time.Second).UTC().Format(http.TimeFormat)
 	// RFC 2822 spellings the Python SDK's parsedate_to_datetime takes and
-	// http.ParseTime does not (ruling R73: no answer, W3 may widen).
+	// http.ParseTime does not, which give no answer.
 	numericZone := now.Add(10 * time.Second).UTC().Format(time.RFC1123Z)
 	eastZone := now.Add(10 * time.Second).In(time.FixedZone("JST", 9*3600)).Format(time.RFC1123Z)
 	noWeekday := now.Add(10 * time.Second).UTC().Format("02 Jan 2006 15:04:05 GMT")
@@ -564,7 +565,7 @@ var sdkErrors = [...]Error{
 // errorView is everything a caller can read from an SDK error: its text, its
 // exported fields, its accessors and what it unwraps to. What a type does not
 // have is zero. It leaves out Header and Body, whose secret-named headers are
-// redacted at construction (R87) and are the redaction tests' to check.
+// redacted at construction and are the redaction tests' to check.
 type errorView struct {
 	Type          string
 	Text          string
@@ -682,13 +683,12 @@ func responseValidationError(status int, header http.Header, err error) *Respons
 }
 
 // TestErrorsAsRoundTrip is the Go half of test_exception_reconstruction
-// (E1, tests/test_errors.py:30-59, AC-F3) and what E2
-// (test_api_error_from_process_pool) leaves of it: errors are values, so where
-// Python rebuilds an exception from its args and copies and unpickles it, a Go
-// error is matched with errors.As through any wrapping, copied by value with
-// the same rendering, accessors and Unwrap chain, read from another goroutine
-// as it is, and each of the seven types is a [Error] that errors.As tells apart
-// from the other six.
+// (tests/test_errors.py:30-59) and what test_api_error_from_process_pool
+// leaves of it: errors are values, so where Python rebuilds an exception from
+// its args and copies and unpickles it, a Go error is matched with errors.As
+// through any wrapping, copied by value with the same rendering, accessors and
+// Unwrap chain, read from another goroutine as it is, and each of the seven
+// types is a [Error] that errors.As tells apart from the other six.
 //
 // The rows, by upstream row: 1 TypeSafeError is "*ConfigError"; 2
 // TypeSafeAPIConnectionError is "*ConnectionError"; 3 to 11 are the status
@@ -697,9 +697,9 @@ func responseValidationError(status int, header http.Header, err error) *Respons
 // second time through the client; 12 is "row 12" (and
 // "*ResponseValidationError", with a request id, which upstream's row lacks);
 // 13 is "*TimeoutError"; 14, whose httpx Timeout object has no Go counterpart
-// (one deadline per attempt, Appendix B), is "row 14", the deadline that came
-// from the caller's context alone. The other rows are the Go types with no
-// upstream row and the fields no upstream row sets.
+// (docs/deviations.md, "one deadline per attempt"), is "row 14", the deadline
+// that came from the caller's context alone. The other rows are the Go types
+// with no upstream row and the fields no upstream row sets.
 func TestErrorsAsRoundTrip(t *testing.T) {
 	decodeErr := &codec.DecodeError{Path: codec.FieldPath{Top: "answers", Name: "q", HasName: true, Member: "noul"}, Err: errors.New("missing")}
 	cause := errors.New("proxyconnect tcp: connection refused")
@@ -893,7 +893,7 @@ func TestErrorsAsRoundTrip(t *testing.T) {
 				t.Errorf("the copy reads differently (-want +got):\n%s", diff)
 			}
 			// The copy shares the Header map and the Body array, as the godoc says;
-			// only their identity is checked, not their values (R87).
+			// only their identity is checked, not their values.
 			header, body := storageOf(tt.err)
 			copyHeader, copyBody := storageOf(c)
 			if reflect.ValueOf(header).UnsafePointer() != reflect.ValueOf(copyHeader).UnsafePointer() {
@@ -909,7 +909,7 @@ func TestErrorsAsRoundTrip(t *testing.T) {
 // TestErrorInterfaceExcludesForeignErrors checks that errors.As with a
 // typesafe.Error target finds an SDK error and nothing else: a cancellation,
 // a context deadline and the errors of other packages are not SDK errors,
-// wrapped or not (R81 (1)).
+// wrapped or not.
 func TestErrorInterfaceExcludesForeignErrors(t *testing.T) {
 	tests := map[string]error{
 		"error: context.Canceled":         context.Canceled,
@@ -936,10 +936,10 @@ type refusingMarshaler struct{}
 
 func (refusingMarshaler) MarshalJSON() ([]byte, error) { return nil, errMarshal }
 
-// TestInvalidRequestErrorChain pins ruling R53's decision: the chain of an
-// *InvalidRequestError is not cut at the codec, so the error a caller's own
-// MarshalJSON returned stays reachable with errors.Is, while the message
-// carries the escaped, cut text.
+// TestInvalidRequestErrorChain pins that the chain of an *InvalidRequestError
+// is not cut at the codec, so the error a caller's own MarshalJSON returned
+// stays reachable with errors.Is, while the message carries the escaped, cut
+// text.
 func TestInvalidRequestErrorChain(t *testing.T) {
 	qs, err := NewQuestions().Noul("q", Noul{Instructions: Text("?")}).Prepare()
 	if err != nil {

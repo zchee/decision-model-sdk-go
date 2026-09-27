@@ -127,9 +127,9 @@ func TestPreparedBytesMatchPython(t *testing.T) {
 			want: `{"raw":{"type":"noul","criteria":{"future":"kept"},"instructions":"Spam?","weight":3},` +
 				`"future":{"type":"future","nested":{"k":null}},"nulls":{"type":"noul","criteria":null,"instructions":null}}`,
 		},
-		// R42: every float the lead's and the reviewer's sweeps named, laid
-		// out as pydantic-core writes them (zmij: fixed notation for
-		// exponents -5 to 15 with ".0" when integral, else e+NN / e-N).
+		// Every float of the probe's sweeps, laid out as pydantic-core
+		// writes them (zmij: fixed notation for exponents -5 to 15 with
+		// ".0" when integral, else e+NN / e-N).
 		"success: raw floats": {
 			questions: NewQuestions().Raw("floats", RawQuestion{Type: "future", Fields: map[string]any{"f": []any{
 				1e-05, 9.99e-06, 0.0001, 0.1, 1.5, 3.0, -7.0, 123456789.0, 9999999999999998.0, 1e+16,
@@ -318,11 +318,12 @@ func TestRawQuestionStructuralChecks(t *testing.T) {
 }
 
 // TestUnsetMembersLeftOffWire ports
-// test_direct_encoding_omits_only_default_fields: an unset member is left
-// off, a member set to empty text or an empty array is sent. The Python SDK
-// also sends an empty criteria object and a null outcome, which a typed Noul
-// leaves off (Appendix B: "Typed noul sends null outcomes / empty criteria":
-// left out, same meaning; a RawQuestion sends those shapes).
+// test_direct_encoding_omits_only_default_fields: an unset member is left off,
+// a member set to empty text or an empty array is sent. The Python SDK also
+// sends an empty criteria object and a null outcome, which a typed Noul leaves
+// off (docs/deviations.md,
+// "Typed noul sends `null` outcomes / empty criteria": left out, same
+// meaning; a RawQuestion sends those shapes).
 func TestUnsetMembersLeftOffWire(t *testing.T) {
 	tests := map[string]struct {
 		add    func(qs *Questions) *Questions
@@ -431,12 +432,13 @@ func TestEachKindWritesItsTypeTag(t *testing.T) {
 }
 
 // TestNoulCriteriaShapes ports test_optional_noul_criteria: six criteria
-// shapes, each as a typed Noul and as a raw question. A typed Noul cannot
-// send an empty criteria object (Appendix B: "Typed noul sends null
-// outcomes / empty criteria": left out, same meaning), so the typed {} case
-// sends none; the raw case sends it. Raw fields are sent in sorted key order,
-// so "criteria" precedes "instructions" there, and the structured outcome's
-// members are sorted too; the upstream test compares parsed JSON.
+// shapes, each as a typed Noul and as a raw question. A typed Noul cannot send
+// an empty criteria object (docs/deviations.md,
+// "Typed noul sends `null` outcomes / empty criteria": left out, same
+// meaning), so the typed {} case sends none; the raw case sends it. Raw
+// fields are sent in sorted key order, so "criteria" precedes "instructions"
+// there, and the structured outcome's members are sorted too; the upstream
+// test compares parsed JSON.
 func TestNoulCriteriaShapes(t *testing.T) {
 	structured := `{"summary":"Unsolicited","examples":["Buy now"]}`
 	tests := map[string]struct {
@@ -619,7 +621,7 @@ func TestRawScoreCriteriaThatAreNotEmpty(t *testing.T) {
 // (typed, raw, read-only, mixed) all type-check as questions and are sent;
 // Go has one builder that takes every kind, so each of the nine sets is built
 // with it and prepared, and the question values it was given stay unchanged.
-// Sending them is the client's part (W2.3).
+// Sending them is the client's part (TestSystemOneRoundTrip).
 func TestMixedQuestionMapsThroughOneBuilder(t *testing.T) {
 	noul := Noul{Instructions: Text("Spam?")}
 	choice := Choice{Instructions: Text("Tone?"), Options: Options{{Label: "calm"}}}
@@ -707,12 +709,12 @@ func TestRawQuestionKeepsExplicitNull(t *testing.T) {
 	}
 }
 
-// TestArrayContentEverywhere ports test_array_inputs (T3): arrays with nested
-// nulls as instructions, as an outcome or option description and as a score
-// level, typed and raw, and as the state, which the request body sends as is
-// next to the typed set. A typed Noul leaves the null "false" outcome off
-// (Appendix B: "Typed noul sends null outcomes / empty criteria"); the raw
-// form sends it.
+// TestArrayContentEverywhere ports test_array_inputs: arrays with nested nulls
+// as instructions, as an outcome or option description and as a score level,
+// typed and raw, and as the state, which the request body sends as is next to
+// the typed set. A typed Noul leaves the null "false" outcome off
+// (docs/deviations.md, "Typed noul sends `null` outcomes / empty criteria");
+// the raw form sends it.
 func TestArrayContentEverywhere(t *testing.T) {
 	const (
 		instructions = `["Read the message",{"context":null}]`
@@ -775,9 +777,9 @@ func TestArrayContentEverywhere(t *testing.T) {
 	}
 }
 
-// TestNullInsideContentSurvives ports test_explicitly_nullable_json_values
-// (T5): a null nested inside structured content is sent, in the questions
-// and in the state.
+// TestNullInsideContentSurvives ports test_explicitly_nullable_json_values:
+// a null nested inside structured content is sent, in the questions and in
+// the state.
 func TestNullInsideContentSurvives(t *testing.T) {
 	const instructions = `{"text":"Classify","extra":null}`
 	tests := map[string]struct {
@@ -843,11 +845,11 @@ func TestNullInsideContentSurvives(t *testing.T) {
 	}
 }
 
-// TestPrepareRejects covers the failures Prepare adds to the Python SDK's
-// four rules: a repeated name (Appendix B: "Duplicate question names keep
-// the last": a Go set rejects the repeat), a repeated option label, an unset
-// level, and content or values that cannot be written. The first problem in
-// the order the questions were added is the one reported.
+// TestPrepareRejects covers the failures Prepare adds to the Python SDK's four
+// rules: a repeated name (a Go set rejects the repeat, where the Python SDK
+// keeps the last), a repeated option label, an unset level, and content or
+// values that cannot be written. The first problem in the order the questions
+// were added is the one reported.
 func TestPrepareRejects(t *testing.T) {
 	many := func(n, repeatAt int) *Questions {
 		qs := NewQuestions()

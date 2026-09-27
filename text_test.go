@@ -94,10 +94,9 @@ func jsonQuoted(t *testing.T, v string) string {
 	return string(b[1 : len(b)-1])
 }
 
-// TestRenderFieldPath checks how a field path is printed (NF7): the Python
-// SDK's dotted field_path, "." for the root, each name the server chose
-// escaped with its backslashes doubled and cut at 128 characters, and the
-// whole cut at 320.
+// TestRenderFieldPath checks how a field path is printed: the Python SDK's
+// dotted field_path, "." for the root, each name the server chose escaped with
+// its backslashes doubled and cut at 128 characters, and the whole cut at 320.
 func TestRenderFieldPath(t *testing.T) {
 	const ell = "…"
 	long := strings.Repeat("n", 300)
@@ -147,8 +146,8 @@ func TestRenderFieldPath(t *testing.T) {
 const quirkyKey = `ts_live_quo'te"slash\tail`
 
 // TestRedactionKeepsCleanChains ports
-// test_exception_redaction_preserves_network_diagnostics (L6,
-// tests/test_logging.py:176-184) through the client: a transport error that
+// test_exception_redaction_preserves_network_diagnostics
+// (tests/test_logging.py:176-184) through the client: a transport error that
 // shows no credential passes the scrub unchanged, so its diagnostics
 // survive: the cause an SDK error unwraps to is the transport's error
 // itself, with its type, text and chain, and errors.As reaches the
@@ -238,13 +237,11 @@ func (e plusOnly) Format(f fmt.State, verb rune) {
 	_, _ = io.WriteString(f, e.msg)
 }
 
-// TestScrubbedErrorFormat pins ruling R95 through the client, for the key
-// across the cut (review W3.3 MINOR 1, the class of R82 MINOR 1 at 1024
-// characters): the credentials are replaced before the stand-in's rendering
-// of the transport error's chain is cut, so no piece of the key that is long
-// enough to be one of its needles is left at the edge of the cause's %+v or
-// %#v. internal/engine's TestScrubbedErrorFormat pins the rendering at the
-// scrub.
+// TestScrubbedErrorFormat pins, through the client, for a key across the cut,
+// that the credentials are replaced before the stand-in's rendering of the
+// transport error's chain is cut, so no piece of the key that is long enough
+// to be one of its needles is left at the edge of the cause's %+v or %#v.
+// internal/engine's TestScrubbedErrorFormat pins the rendering at the scrub.
 func TestScrubbedErrorFormat(t *testing.T) {
 	const longKey = "ts_live_0123456789abcdefghij"
 	prefixes := func(t *testing.T, what, out string) {

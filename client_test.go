@@ -37,14 +37,14 @@ func mustClient(tb testing.TB, opts ...ClientOption) *Client {
 }
 
 // newTestClient builds a client over rt, the test's transport
-// (WithRoundTripper), with testKey (the upstream tests' key, 8 bytes long,
-// so the checks that look for the key inside other text apply to it, ruling
-// R68) and opts, after clearing the variables a client reads, so a
-// developer's TYPESAFE_API_KEY never reaches a test. The client is closed
-// when the test ends.
+// (WithRoundTripper), with testKey (the upstream tests' key, 8 bytes long, so
+// the checks that look for the key inside other text apply to it) and opts,
+// after clearing the variables a client reads, so a developer's
+// TYPESAFE_API_KEY never reaches a test. The client is closed when the test
+// ends.
 //
 // Its calls make one attempt each (NoRetry), as the upstream tests' clients
-// do unless a test asks for retries (tests/conftest.py:34-35, ruling R88b);
+// do unless a test asks for retries (tests/conftest.py:34-35);
 // a test that wants the production policy passes WithRetry(DefaultRetry())
 // in opts, which comes later and wins.
 func newTestClient(t *testing.T, rt http.RoundTripper, opts ...ClientOption) *Client {
@@ -84,8 +84,8 @@ func mustPrepared(t testing.TB, qs *Questions) *Prepared {
 	return p
 }
 
-// q3Questions is the NF3 question set: the three questions of the upstream
-// round-trip test (tests/test_clients.py:60-80), which result.json answers.
+// q3Questions is the question set of the upstream round-trip test
+// (tests/test_clients.py:60-80): three questions, which result.json answers.
 func q3Questions(t testing.TB) *Prepared {
 	t.Helper()
 	return mustPrepared(t, NewQuestions().
@@ -147,13 +147,13 @@ var upstreamAnswers = map[string]answerView{
 	},
 }
 
-// TestSystemOneRoundTrip ports test_round_trip (C1, AC-F2): the three
-// questions of the upstream test, built as typed questions, as raw ones and
-// mixed, are posted to /v1/systemone with the state and the default model
-// as a JSON body, and the upstream RESULT comes back as the answers, the
-// model and the usage. Upstream compares the parsed body; the bytes are
-// compared here, since the SDK writes the members of a typed question in its
-// field order and a raw question's after "type" in key order (ruling R38).
+// TestSystemOneRoundTrip ports test_round_trip: the three questions of the
+// upstream test, built as typed questions, as raw ones and mixed, are posted
+// to /v1/systemone with the state and the default model as a JSON body, and
+// the upstream RESULT comes back as the answers, the model and the usage.
+// Upstream compares the parsed body; the bytes are compared here, since the
+// SDK writes the members of a typed question in its field order and a raw
+// question's after "type" in key order.
 func TestSystemOneRoundTrip(t *testing.T) {
 	criteria := []Content{Text("bad"), Text("ok"), Text("great")}
 	rawSpam := RawQuestion{Type: "noul", Fields: map[string]any{"instructions": "Spam?"}}

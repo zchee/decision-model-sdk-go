@@ -90,9 +90,9 @@ func resolveError(t *testing.T, getenv func(string) string, opts ...ClientOption
 	return ce
 }
 
-// TestMissingAPIKey ports test_missing_key (F4): no key from any source, an
-// empty variable and a blank one are the same error, which names the
-// variable to set.
+// TestMissingAPIKey ports test_missing_key: no key from any source, an empty
+// variable and a blank one are the same error, which names the variable to
+// set.
 func TestMissingAPIKey(t *testing.T) {
 	tests := map[string]struct {
 		set   bool
@@ -118,10 +118,10 @@ func TestMissingAPIKey(t *testing.T) {
 	}
 }
 
-// TestAPIKeyTrimmed ports test_api_key_whitespace (F5): a key from either
-// source is trimmed as Python's str.strip() trims it before it is sent. The
-// last two paddings go past upstream's four: the ASCII separators Python
-// trims and Go's unicode.IsSpace does not, and Unicode spaces.
+// TestAPIKeyTrimmed ports test_api_key_whitespace: a key from either source is
+// trimmed as Python's str.strip() trims it before it is sent. The last two
+// paddings go past upstream's four: the ASCII separators Python trims and Go's
+// unicode.IsSpace does not, and Unicode spaces.
 func TestAPIKeyTrimmed(t *testing.T) {
 	paddings := map[string]string{
 		"none":             "",
@@ -164,9 +164,9 @@ func TestAPIKeyTrimmed(t *testing.T) {
 }
 
 // TestInvalidExplicitKeyDoesNotFallBack ports
-// test_invalid_explicit_key_does_not_fall_back_to_env (F6): a key given
-// with WithAPIKey is the key, even when it is unusable; the environment's
-// usable key is not taken in its place.
+// test_invalid_explicit_key_does_not_fall_back_to_env: a key given with
+// WithAPIKey is the key, even when it is unusable; the environment's usable
+// key is not taken in its place.
 func TestInvalidExplicitKeyDoesNotFallBack(t *testing.T) {
 	tests := map[string]struct {
 		key  string
@@ -202,10 +202,10 @@ func TestInvalidExplicitKeyDoesNotFallBack(t *testing.T) {
 	}
 }
 
-// TestInvalidAPIKeyNeverEchoed ports test_invalid_api_key (F7): a key with
-// a character outside printable ASCII without whitespace is refused from
-// either source, by an error that names the source and never prints the
-// key, in any form, through any error it wraps.
+// TestInvalidAPIKeyNeverEchoed ports test_invalid_api_key: a key with a
+// character outside printable ASCII without whitespace is refused from either
+// source, by an error that names the source and never prints the key, in any
+// form, through any error it wraps.
 func TestInvalidAPIKeyNeverEchoed(t *testing.T) {
 	const credential = "ts_live_private"
 	characters := map[string]string{
@@ -265,10 +265,10 @@ func TestInvalidAPIKeyNeverEchoed(t *testing.T) {
 	}
 }
 
-// TestBlankEnvIsUnset ports test_empty_env_unset (F8): a variable that is
-// blank once trimmed counts as unset, so the defaults apply.
-// TYPESAFE_LOG_LEVEL is set as upstream sets it, and is not read at all
-// (Appendix B, "TYPESAFE_LOG_LEVEL not read").
+// TestBlankEnvIsUnset ports test_empty_env_unset: a variable that is blank
+// once trimmed counts as unset, so the defaults apply. TYPESAFE_LOG_LEVEL is
+// set as upstream sets it, and is not read at all (docs/deviations.md,
+// "`TYPESAFE_LOG_LEVEL` not read").
 func TestBlankEnvIsUnset(t *testing.T) {
 	tests := map[string]struct {
 		blank string
@@ -293,12 +293,12 @@ func TestBlankEnvIsUnset(t *testing.T) {
 	}
 }
 
-// TestInvalidTimeout ports test_invalid_timeout (F9) for the client half:
-// a timeout that is not positive is refused when the client is built.
-// Upstream's float("inf") and float("nan") rows have no time.Duration to
-// stand for them; WithNoTimeout is how a caller asks for no deadline, and
-// asking for both a timeout and none is refused too. The per-call half
-// (a call's Timeout option) belongs to the request path.
+// TestInvalidTimeout ports test_invalid_timeout for the client half: a timeout
+// that is not positive is refused when the client is built. Upstream's
+// float("inf") and float("nan") rows have no time.Duration to stand for them;
+// WithNoTimeout is how a caller asks for no deadline, and asking for both a
+// timeout and none is refused too. The per-call half (a call's Timeout option)
+// belongs to the request path.
 func TestInvalidTimeout(t *testing.T) {
 	const (
 		notPositive = "The timeout passed to WithTimeout must be positive; use WithNoTimeout for no deadline."
@@ -335,10 +335,10 @@ func TestInvalidTimeout(t *testing.T) {
 	}
 }
 
-// TestTimeoutSettings pins what the accepted timeout options resolve to.
-// The "per-phase" case is the Go form of test_timeout_object (F10,
-// Appendix B "one deadline per attempt"): httpx.Timeout(7.0, connect=1.0)
-// becomes one deadline per attempt plus a connect deadline inside it.
+// TestTimeoutSettings pins what the accepted timeout options resolve to. The
+// "per-phase" case is the Go form of test_timeout_object (docs/deviations.md,
+// "one deadline per attempt"): httpx.Timeout(7.0, connect=1.0) becomes one
+// deadline per attempt plus a connect deadline inside it.
 func TestTimeoutSettings(t *testing.T) {
 	tests := map[string]struct {
 		opts        []ClientOption
@@ -375,10 +375,10 @@ func TestTimeoutSettings(t *testing.T) {
 	}
 }
 
-// TestConfigResolutionOrder is the configuration half of test_resolution
-// (F3): each setting comes from its option, else from its trimmed
-// variable, else from the default, independently of the others. Whether
-// the resolved values reach the wire is the client's test.
+// TestConfigResolutionOrder is the configuration half of test_resolution: each
+// setting comes from its option, else from its trimmed variable, else from the
+// default, independently of the others. Whether the resolved values reach the
+// wire is the client's test.
 func TestConfigResolutionOrder(t *testing.T) {
 	env := map[string]string{ //nolint:gosec // G101: test values, not credentials.
 		APIKeyEnv:       "  env-key  ",
@@ -447,10 +447,10 @@ func TestConfigResolutionOrder(t *testing.T) {
 }
 
 // TestBaseURL pins how a base URL becomes the two endpoints (the base URL
-// half of C15: trailing slashes removed, a path prefix kept) and which base
-// URLs are refused when the client is built rather than at the first
-// request (Appendix B, "Base URL checked at first request"). No error
-// prints the URL: hunter2 stands for a credential that must never show.
+// half of test_headers_timeout_and_logging: trailing slashes removed, a path
+// prefix kept) and which base URLs are refused when the client is built
+// rather than at the first request. No error prints the URL: hunter2 stands
+// for a credential that must never show.
 func TestBaseURL(t *testing.T) {
 	tests := map[string]struct {
 		env           map[string]string
@@ -646,10 +646,9 @@ func TestLogEndpointHost(t *testing.T) {
 	}
 }
 
-// TestModel pins the default model's sources beyond the resolution table:
-// an empty or blank WithModel is refused rather than sent (Appendix B,
-// "Empty explicit default model sent"), and a model that is not UTF-8 is
-// refused when the client is built.
+// TestModel pins the default model's sources beyond the resolution table: an
+// empty or blank WithModel is refused rather than sent, and a model that is
+// not UTF-8 is refused when the client is built.
 func TestModel(t *testing.T) {
 	const empty = "The model passed to WithModel is empty; leave WithModel out to use TYPESAFE_DEFAULT_MODEL or jev-latest."
 	tests := map[string]struct {
@@ -757,14 +756,15 @@ func TestLogger(t *testing.T) {
 	}
 }
 
-// TestHeaderTemplate pins the headers every request carries, built once
-// when the client is built: the caller's headers under canonical names,
-// without the ones the SDK sets (dropped as py:_core/transport.py:116-127
-// overwrites them; test_clients.py:383-409 asserts the same protected set),
-// without X-TypeSafe-Retry-Count (py:_core/transport.py:118) and without the
-// framing headers (Appendix B, "Caller framing headers sent"); then the
-// SDK's own. POST /v1/systemone adds Content-Type; GET /v1/models has none.
-// The client half of C15 (the request on the wire) is the client's test.
+// TestHeaderTemplate pins the headers every request carries, built once when
+// the client is built: the caller's headers under canonical names, without the
+// ones the SDK sets (dropped as py:_core/transport.py:116-127 overwrites them;
+// test_clients.py:383-409 asserts the same protected set), without
+// X-TypeSafe-Retry-Count (py:_core/transport.py:118) and without the framing
+// headers, which the Python SDK sends; then the SDK's own. POST /v1/systemone
+// adds Content-Type; GET /v1/models has none. The client half of
+// test_headers_timeout_and_logging (the request on the wire) is the client's
+// test.
 func TestHeaderTemplate(t *testing.T) {
 	sdk := "typesafe-sdk-go/" + Version
 	base := func(extra map[string]string) http.Header {
@@ -863,13 +863,13 @@ func TestHeaderTemplate(t *testing.T) {
 	}
 }
 
-// TestHeaderDropsLogged pins every header a caller cannot set: each of the
-// 16 names is dropped from both templates or overwritten by the SDK's own
-// value, and its drop is one debug record with the canonical name and the
-// reason, never the value, while a header that is kept leaves no record. The
-// names and reasons are written out here rather than read from
-// sdkOwnedHeaders, and the map is compared with them whole, so removing a
-// name from it, adding one or changing a reason fails (review W2.1 MINOR 4).
+// TestHeaderDropsLogged pins every header a caller cannot set: each of the 16
+// names is dropped from both templates or overwritten by the SDK's own value,
+// and its drop is one debug record with the canonical name and the reason,
+// never the value, while a header that is kept leaves no record. The names and
+// reasons are written out here rather than read from sdkOwnedHeaders, and the
+// map is compared with them whole, so removing a name from it, adding one or
+// changing a reason fails.
 func TestHeaderDropsLogged(t *testing.T) {
 	const (
 		sdk       = "set by the SDK"
@@ -987,12 +987,12 @@ func TestInvalidHeader(t *testing.T) {
 	}
 }
 
-// TestHeaderNameHoldingKey pins the refusal of a WithHeader name that
-// contains the API key, compared without regard to case (review W2.1
-// NIT 3): with the arguments swapped, WithHeader(key, "Bearer") would send
-// and log a header named after the key, since names are neither redacted
-// nor hidden. The error shows neither the name nor the key, whichever source
-// the key came from, and wins over the name's and the value's own checks.
+// TestHeaderNameHoldingKey pins the refusal of a WithHeader name that contains
+// the API key, compared without regard to case: with the arguments swapped,
+// WithHeader(key, "Bearer") would send and log a header named after the key,
+// since names are neither redacted nor hidden. The error shows neither the
+// name nor the key, whichever source the key came from, and wins over the
+// name's and the value's own checks.
 func TestHeaderNameHoldingKey(t *testing.T) {
 	const key = "ts_live_zzprivate"
 	refused := func(call int) string {

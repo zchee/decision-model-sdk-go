@@ -49,9 +49,9 @@ func cardsOf(resp *ModelsResponse) []cardView {
 	return views
 }
 
-// TestModelsListShape ports test_models_shape (C7): the list-models call is a
-// GET of /v1/models without a body or a Content-Type, and the response's
-// cards come back in order.
+// TestModelsListShape ports test_models_shape: the list-models call is a GET
+// of /v1/models without a body or a Content-Type, and the response's cards
+// come back in order.
 func TestModelsListShape(t *testing.T) {
 	rec := replying(http.StatusOK, testsupport.Fixture(t, "models.json"))
 	c := newTestClient(t, rec)
@@ -70,9 +70,9 @@ func TestModelsListShape(t *testing.T) {
 	}
 }
 
-// TestModelsIgnoreUnknownFields ports test_models_ignore_unknown_fields (C8):
-// members of a card the SDK does not model are dropped from the card and
-// stay in the raw body.
+// TestModelsIgnoreUnknownFields ports test_models_ignore_unknown_fields:
+// members of a card the SDK does not model are dropped from the card and stay
+// in the raw body.
 func TestModelsIgnoreUnknownFields(t *testing.T) {
 	body := []byte(`{"models":[{"name":"jev-latest","description":"Fast model","release_date":"2026-08-01","context_window":128000,"pricing":null}]}`)
 	c := newTestClient(t, replying(http.StatusOK, body))
@@ -88,7 +88,7 @@ func TestModelsIgnoreUnknownFields(t *testing.T) {
 	}
 }
 
-// TestModelsInvalidBodies ports test_invalid_models_response (C9): a 200
+// TestModelsInvalidBodies ports test_invalid_models_response: a 200
 // list-models body that is null, has no models, has models of the wrong kind
 // or a card without its members fails with *ResponseValidationError.
 func TestModelsInvalidBodies(t *testing.T) {
@@ -114,11 +114,10 @@ func TestModelsInvalidBodies(t *testing.T) {
 	}
 }
 
-// TestAPIErrorMapping ports test_error_mapping (C11, AC-F3): every status
-// outside 2xx is an *APIError whose kind the status alone decides, which
-// keeps the status, the body, the headers and the request id, and renders
-// as the Python SDK's str(); a 429's Retry-After-Ms is its RetryAfter. A 302
-// is not followed.
+// TestAPIErrorMapping ports test_error_mapping: every status outside 2xx is an
+// *APIError whose kind the status alone decides, which keeps the status, the
+// body, the headers and the request id, and renders as the Python SDK's str();
+// a 429's Retry-After-Ms is its RetryAfter. A 302 is not followed.
 func TestAPIErrorMapping(t *testing.T) {
 	const body = `{"detail":{"message":"Server explanation"}}`
 	tests := map[string]struct {
@@ -167,9 +166,9 @@ func TestAPIErrorMapping(t *testing.T) {
 	}
 }
 
-// TestAPIErrorMessages ports test_error_messages (C12, AC-F3): the message
-// of a 400 is found in the body as the Python SDK finds it, and the error
-// renders as "<endpoint>: 400 <message>".
+// TestAPIErrorMessages ports test_error_messages: the message of a 400 is
+// found in the body as the Python SDK finds it, and the error renders as
+// "<endpoint>: 400 <message>".
 func TestAPIErrorMessages(t *testing.T) {
 	tests := map[string]struct {
 		body    string
@@ -202,9 +201,9 @@ func TestAPIErrorMessages(t *testing.T) {
 }
 
 // TestMalformedResponseThroughClient re-asserts
-// test_malformed_response_raises_validation_error (R1, AC-F6) through the
-// client: the eight bodies fail at the Python SDK's field paths, with the
-// status, the request id and the body, rendered as the Python SDK's str().
+// test_malformed_response_raises_validation_error through the client: the
+// eight bodies fail at the Python SDK's field paths, with the status, the
+// request id and the body, rendered as the Python SDK's str().
 // TestMalformedResponseFieldPaths checks the decode itself.
 func TestMalformedResponseThroughClient(t *testing.T) {
 	tests := map[string]struct {
@@ -240,8 +239,8 @@ func TestMalformedResponseThroughClient(t *testing.T) {
 	}
 }
 
-// TestResponseRequestID ports test_response_carries_request_id (R3): the
-// response's x-typesafe-request-id is Meta().RequestID().
+// TestResponseRequestID ports test_response_carries_request_id: the response's
+// x-typesafe-request-id is Meta().RequestID().
 func TestResponseRequestID(t *testing.T) {
 	c := newTestClient(t, replying(http.StatusOK, testsupport.Fixture(t, "result.json"), "X-Typesafe-Request-Id", "req-42"))
 	resp, err := c.SystemOne(t.Context(), "text", noulQuestion(t))
@@ -253,8 +252,8 @@ func TestResponseRequestID(t *testing.T) {
 	}
 }
 
-// TestResponseMeta ports test_response_carries_raw_http_response (R4): the
-// response keeps the status, the headers and the exact body it arrived with.
+// TestResponseMeta ports test_response_carries_raw_http_response: the response
+// keeps the status, the headers and the exact body it arrived with.
 func TestResponseMeta(t *testing.T) {
 	body := testsupport.Fixture(t, "result.json")
 	c := newTestClient(t, replying(http.StatusOK, body, "X-Typesafe-Request-Id", "req-42"))
@@ -269,10 +268,10 @@ func TestResponseMeta(t *testing.T) {
 	}
 }
 
-// TestResponseCopyKeepsMeta ports test_copied_response_preserves_metadata
-// (R6) to the deviation "responses are values": a copy of a response holds
-// the same answers, request id and body, and its views agree with each
-// other. Go has no pickle; a copy is an assignment.
+// TestResponseCopyKeepsMeta ports test_copied_response_preserves_metadata to
+// the deviation "responses are values": a copy of a response holds the same
+// answers, request id and body, and its views agree with each other. Go has no
+// pickle; a copy is an assignment.
 func TestResponseCopyKeepsMeta(t *testing.T) {
 	body := testsupport.Fixture(t, "result.json")
 	c := newTestClient(t, replying(http.StatusOK, body, "X-Typesafe-Request-Id", "req-copy"))
@@ -307,9 +306,9 @@ func TestResponseCopyKeepsMeta(t *testing.T) {
 	}
 }
 
-// TestZeroResponseHasEmptyMeta pins the deviation "empty Meta()" (R7): a
-// response that did not come from a request has an empty Meta, where the
-// Python SDK raises on access.
+// TestZeroResponseHasEmptyMeta pins the deviation "empty Meta()": a response
+// that did not come from a request has an empty Meta, where the Python SDK
+// raises on access.
 func TestZeroResponseHasEmptyMeta(t *testing.T) {
 	var resp SystemOneResponse
 	id, ok := resp.Meta().RequestID()
@@ -323,7 +322,7 @@ func TestZeroResponseHasEmptyMeta(t *testing.T) {
 	}
 }
 
-// TestRequestIDAbsent ports test_missing_request_id_raises_on_access (R8): a
+// TestRequestIDAbsent ports test_missing_request_id_raises_on_access: a
 // response without x-typesafe-request-id reports none, where the Python SDK
 // raises.
 func TestRequestIDAbsent(t *testing.T) {
@@ -338,9 +337,9 @@ func TestRequestIDAbsent(t *testing.T) {
 }
 
 // TestUnknownMembersIgnoredThroughClient re-asserts
-// test_unknown_extra_fields_tolerated (R9) through the client: members the
-// SDK does not model, in the usage and in an answer, are ignored, and stay
-// in the raw body.
+// test_unknown_extra_fields_tolerated through the client: members the SDK does
+// not model, in the usage and in an answer, are ignored, and stay in the raw
+// body.
 func TestUnknownMembersIgnoredThroughClient(t *testing.T) {
 	body := []byte(`{"model":"test","usage":{"input_tokens":1,"output_tokens":1,"reasoning_tokens":9,"billing_units":1},"answers":{"spam":{"type":"noul","noul":0.9,"explanation":"spammy"}}}`)
 	c := newTestClient(t, replying(http.StatusOK, body))
@@ -357,9 +356,10 @@ func TestUnknownMembersIgnoredThroughClient(t *testing.T) {
 	}
 }
 
-// TestUnknownAnswerTypeThroughClient re-asserts test_unknown_answer_type_ignored
-// (R10) through the client: an answer of a type this version does not model
-// is dropped and logged once at WARN, and stays in the raw body.
+// TestUnknownAnswerTypeThroughClient re-asserts
+// test_unknown_answer_type_ignored through the client: an answer of a type
+// this version does not model is dropped and logged once at WARN, and stays in
+// the raw body.
 func TestUnknownAnswerTypeThroughClient(t *testing.T) {
 	body := []byte(`{"model":"test","usage":{"input_tokens":1,"output_tokens":1},"answers":{"spam":{"type":"noul","noul":0.9},"mystery":{"type":"aurora","value":3}}}`)
 	logs := testsupport.NewLogRecorder(slog.LevelWarn)
@@ -390,10 +390,10 @@ func TestUnknownAnswerTypeThroughClient(t *testing.T) {
 }
 
 // TestPublicTypesIgnoreUnknownMembersThroughClient re-asserts
-// test_public_response_types_ignore_unknown_fields (R13) through the client
-// for its seven types: an unknown member in a noul, a choice and a score
-// answer, in the usage, at the top of a System One response, in a model card
-// and at the top of a list-models response is ignored.
+// test_public_response_types_ignore_unknown_fields through the client for its
+// seven types: an unknown member in a noul, a choice and a score answer, in
+// the usage, at the top of a System One response, in a model card and at the
+// top of a list-models response is ignored.
 func TestPublicTypesIgnoreUnknownMembersThroughClient(t *testing.T) {
 	systemOne := []byte(`{"unexpected":true,"model":"test","usage":{"unexpected":true},"answers":{` +
 		`"n":{"type":"noul","noul":0.5,"unexpected":true},` +
@@ -431,7 +431,7 @@ func TestPublicTypesIgnoreUnknownMembersThroughClient(t *testing.T) {
 	}
 }
 
-// TestResponseSizeLimit checks NF5 through the client (section 6.2.1): a
+// TestResponseSizeLimit checks the response size limit through the client: a
 // 2xx body over WithMaxResponseBytes, declared or not, fails with a
 // *ResponseTooLargeError naming the limit, before a declared one is read; a
 // body of exactly the limit is read; a failure status over the limit is an
@@ -542,13 +542,14 @@ func TestResponsesKeepTheirOwnBodies(t *testing.T) {
 }
 
 // TestAPIErrorRequestContextThroughClient ports test_api_error_request_context
-// (E3) through the client: an error response of a list-models call and of a
+// through the client: an error response of a list-models call and of a
 // System One call names its endpoint, under the base URL's prefix, with the
 // status, the message and the request id, and no printed form holds the API
 // key. TestAPIErrorRendersEndpointStatusMessageRequestID checks the
-// rendering itself. (E4's base URL with credentials is refused when the
-// client is built, R63, and E5 builds its error directly: neither has a
-// through-the-client form.)
+// rendering itself. (The base URL with credentials of
+// test_api_error_endpoint_omits_url_credentials is refused when the client
+// is built, and test_message_override builds its error directly: neither
+// has a through-the-client form.)
 func TestAPIErrorRequestContextThroughClient(t *testing.T) {
 	const key = "private-api-key"
 	tests := map[string]struct {
@@ -591,9 +592,9 @@ func TestAPIErrorRequestContextThroughClient(t *testing.T) {
 }
 
 // TestAPIErrorBodyEdgeCasesThroughClient ports test_error_body_edge_cases
-// (E6) through the client, with each body declared and undeclared: eight
-// rows render exactly as the Python SDK's, and long-plain-message is cut at
-// 200 characters (Appendix B "plain-text body cut at 200");
+// through the client, with each body declared and undeclared: eight rows
+// render exactly as the Python SDK's, and long-plain-message is cut at 200
+// characters (docs/deviations.md, "plain-text body cut at 200");
 // TestAPIErrorBodyEdgeCases checks the reader itself.
 func TestAPIErrorBodyEdgeCasesThroughClient(t *testing.T) {
 	x := strings.Repeat("x", 201)
@@ -644,11 +645,11 @@ func TestAPIErrorBodyEdgeCasesThroughClient(t *testing.T) {
 }
 
 // TestSystemOneAnswersInline checks the answer entries a call allocates with
-// its response (W5.3, engine.NewSystemOneAlloc): each call's answers live
-// in an array of their own, so a later call changes no earlier response's
-// answers; and a response with more answers than the questions asked, or a
-// question set past engine.MaxInlineAnswers, whose entries the decode
-// allocates, decodes the same.
+// its response (engine.NewSystemOneAlloc): each call's answers live in an
+// array of their own, so a later call changes no earlier response's answers;
+// and a response with more answers than the questions asked, or a question set
+// past engine.MaxInlineAnswers, whose entries the decode allocates, decodes
+// the same.
 func TestSystemOneAnswersInline(t *testing.T) {
 	body := testsupport.Fixture(t, "result.json")
 	one := mustPrepared(t, NewQuestions().Noul("spam", Noul{Instructions: Text("Spam?")}))
@@ -690,10 +691,9 @@ func TestSystemOneAnswersInline(t *testing.T) {
 }
 
 // TestAnswersOutliveTheirResponse checks the lifetime of answers whose
-// entries live in the call's allocation (W5.3's N2): an Answers taken from a
-// response keeps that allocation reachable after the caller drops the
-// response, through collections and reuse of freed memory, as it kept the
-// response and the decode's own array before. It holds for a set within
+// entries live in the call's allocation: an Answers taken from a response
+// keeps that allocation reachable after the caller drops the response,
+// through collections and reuse of freed memory. It holds for a set within
 // engine.MaxInlineAnswers and for one past it.
 func TestAnswersOutliveTheirResponse(t *testing.T) {
 	body := testsupport.Fixture(t, "result.json")

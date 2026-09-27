@@ -65,10 +65,10 @@ func newEnvClient(t *testing.T, rt http.RoundTripper, opts ...ClientOption) *Cli
 	return mustClient(t, append([]ClientOption{WithRoundTripper(rt), WithRetry(NoRetry())}, opts...)...)
 }
 
-// TestClientExtraBodyShallowOverride re-asserts test_extra_body_shallow_override
-// (C2) through the client: an ExtraBody member named "model" replaces the
-// call's model where it stands, and the others are appended in order, nil as
-// null.
+// TestClientExtraBodyShallowOverride re-asserts
+// test_extra_body_shallow_override through the client: an ExtraBody member
+// named "model" replaces the call's model where it stands, and the others are
+// appended in order, nil as null.
 func TestClientExtraBodyShallowOverride(t *testing.T) {
 	rec := replying(http.StatusOK, testsupport.Fixture(t, "result.json"))
 	c := newTestClient(t, rec)
@@ -84,10 +84,11 @@ func TestClientExtraBodyShallowOverride(t *testing.T) {
 }
 
 // TestClientUnencodableBodyFailsBeforeNetwork re-asserts
-// test_unserializable_request_body_raises (C3) and the scalar-state refusal
-// (T2) through the client: a body that cannot be encoded fails with
-// *InvalidRequestError, "could not be encoded as JSON", and the transport
-// sees nothing.
+// test_unserializable_request_body_raises and the scalar-state refusal of
+// test_json_value_and_state_exclude_top_level_none (row T2 of
+// docs/port-test-matrix.md) through the client: a body that cannot be encoded
+// fails with *InvalidRequestError, "could not be encoded as JSON", and the
+// transport sees nothing.
 func TestClientUnencodableBodyFailsBeforeNetwork(t *testing.T) {
 	tests := map[string]struct {
 		state any
@@ -122,15 +123,14 @@ func TestClientUnencodableBodyFailsBeforeNetwork(t *testing.T) {
 	}
 }
 
-// TestClientInvalidUTF8StateFailsBeforeNetwork re-asserts ruling R48
-// through the client on each architecture's validator (owner ruling G8-b on
-// R54: sonic's on amd64, utf8.Valid on arm64): a state holding invalid
-// UTF-8, R48's lone surrogate (Python's only analogue, a TypeSafeError) and
-// a cut multi-byte rune among the forms, anywhere in the state and on
-// either side of sonic's 32-byte blocks, fails with *InvalidRequestError
-// wrapping wire.ErrInvalidUTF8 and the transport sees nothing; valid text
-// of every rune width is sent. It runs in CI's -race test step on
-// ubuntu-26.04 and windows-2025 (amd64) and xcode-27 (arm64).
+// TestClientInvalidUTF8StateFailsBeforeNetwork checks through the client,
+// on each architecture's validator (sonic's on amd64, utf8.Valid on arm64),
+// that a state holding invalid UTF-8, a lone surrogate (Python's only
+// analogue, a TypeSafeError) and a cut multi-byte rune among the forms,
+// anywhere in the state and on either side of sonic's 32-byte blocks, fails
+// with *InvalidRequestError wrapping wire.ErrInvalidUTF8 and the transport
+// sees nothing; valid text of every rune width is sent. CI runs it under
+// -race on amd64 and on arm64.
 func TestClientInvalidUTF8StateFailsBeforeNetwork(t *testing.T) {
 	t.Logf("GOARCH %s", runtime.GOARCH)
 	cjk := strings.Repeat("請求", 1024)
@@ -181,8 +181,10 @@ func TestClientInvalidUTF8StateFailsBeforeNetwork(t *testing.T) {
 	}
 }
 
-// TestClientStateForms re-asserts T1 and T6 through the client: a named
-// string type is sent as text, and a map, a slice and a struct as JSON.
+// TestClientStateForms re-asserts test_str_subclasses_fallback_to_strings
+// (row T1 of docs/port-test-matrix.md) and
+// test_abstract_input_containers_encode through the client: a named string
+// type is sent as text, and a map, a slice and a struct as JSON.
 func TestClientStateForms(t *testing.T) {
 	type ticketID string
 	type ticket struct {
@@ -214,9 +216,9 @@ func TestClientStateForms(t *testing.T) {
 	}
 }
 
-// TestRawQuestionPassthrough ports test_raw_question_passthrough (C4): the
-// members of a raw question that the SDK does not model are sent as given,
-// nested nulls included, after "type" in key order (ruling R38).
+// TestRawQuestionPassthrough ports test_raw_question_passthrough: the members
+// of a raw question that the SDK does not model are sent as given, nested
+// nulls included, after "type" in key order.
 func TestRawQuestionPassthrough(t *testing.T) {
 	rec := replying(http.StatusOK, testsupport.Fixture(t, "result.json"))
 	c := newTestClient(t, rec)
@@ -237,9 +239,9 @@ func TestRawQuestionPassthrough(t *testing.T) {
 }
 
 // TestRawQuestionSchemaLeftToAPI ports
-// test_question_schema_validation_is_left_to_api (C5): a raw question whose
-// members the API would refuse is sent as it is, and the API's 422 comes
-// back as an *APIError of the unprocessable-entity kind with its message.
+// test_question_schema_validation_is_left_to_api: a raw question whose members
+// the API would refuse is sent as it is, and the API's 422 comes back as an
+// *APIError of the unprocessable-entity kind with its message.
 func TestRawQuestionSchemaLeftToAPI(t *testing.T) {
 	tests := map[string]struct {
 		question RawQuestion
@@ -274,10 +276,10 @@ func TestRawQuestionSchemaLeftToAPI(t *testing.T) {
 	}
 }
 
-// TestStructuredContentRoundTrip ports test_rich_descriptions (C6): JSON
-// content in a raw question's instructions and criteria, in a choice
-// option's description and in a score level is sent as JSON, and a legend
-// level that echoes the JSON comes back with its exact bytes.
+// TestStructuredContentRoundTrip ports test_rich_descriptions: JSON content in
+// a raw question's instructions and criteria, in a choice option's description
+// and in a score level is sent as JSON, and a legend level that echoes the
+// JSON comes back with its exact bytes.
 func TestStructuredContentRoundTrip(t *testing.T) {
 	const criteria = `{"summary":"duplicated","examples":["charged twice"]}`
 	reply := `{"model":"custom","usage":{"input_tokens":1,"output_tokens":1},"answers":{"risk":{"type":"score","score":0,"confidence":1,"legend":{"0":` + criteria + `},"probabilities":{"0":1}}}}`
@@ -314,9 +316,9 @@ func TestStructuredContentRoundTrip(t *testing.T) {
 	}
 }
 
-// TestQuestionValidationBeforeNetwork ports test_validation_before_network
-// (C10): no question at all, and a score question without levels, fail with
-// a *ConfigError before anything is sent. The Go port refuses the second at
+// TestQuestionValidationBeforeNetwork ports test_validation_before_network: no
+// question at all, and a score question without levels, fail with a
+// *ConfigError before anything is sent. The Go port refuses the second at
 // Prepare, where the question set is built, so it never reaches the client.
 func TestQuestionValidationBeforeNetwork(t *testing.T) {
 	rec := replying(http.StatusOK, testsupport.Fixture(t, "result.json"))
@@ -341,8 +343,8 @@ func TestQuestionValidationBeforeNetwork(t *testing.T) {
 	}
 }
 
-// TestModelOverridePerCall ports test_model_override (F2): the call's Model
-// wins over the client's WithModel, which applies when the call names none.
+// TestModelOverridePerCall ports test_model_override: the call's Model wins
+// over the client's WithModel, which applies when the call names none.
 func TestModelOverridePerCall(t *testing.T) {
 	tests := map[string]struct {
 		opts []CallOption
@@ -367,11 +369,11 @@ func TestModelOverridePerCall(t *testing.T) {
 	}
 }
 
-// TestConfigResolutionOnTheWire ports test_resolution's wire half (F3): the
-// key, the base URL and the model come from the options, else from the
-// environment (trimmed, trailing slashes dropped), else from the defaults,
-// and each attempt has the default 10 s deadline. TestConfigResolutionOrder
-// checks the resolution itself.
+// TestConfigResolutionOnTheWire ports test_resolution's wire half: the key,
+// the base URL and the model come from the options, else from the environment
+// (trimmed, trailing slashes dropped), else from the defaults, and each
+// attempt has the default 10 s deadline. TestConfigResolutionOrder checks the
+// resolution itself.
 func TestConfigResolutionOnTheWire(t *testing.T) {
 	tests := map[string]struct {
 		env                       map[string]string
@@ -429,9 +431,9 @@ func assertDeadline(t *testing.T, cp *capture, i int, before time.Time, d time.D
 	}
 }
 
-// TestAPIKeyTrimmedOnTheWire is test_api_key_whitespace's wire half (F5):
-// a key padded with whitespace, from the environment or from WithAPIKey,
-// reaches Authorization trimmed. TestAPIKeyTrimmed checks the resolution.
+// TestAPIKeyTrimmedOnTheWire is test_api_key_whitespace's wire half: a key
+// padded with whitespace, from the environment or from WithAPIKey, reaches
+// Authorization trimmed. TestAPIKeyTrimmed checks the resolution.
 func TestAPIKeyTrimmedOnTheWire(t *testing.T) {
 	// The upstream parametrize grid, 4 paddings x 2 sources, as a map.
 	type test struct {
@@ -470,11 +472,10 @@ func TestAPIKeyTrimmedOnTheWire(t *testing.T) {
 	}
 }
 
-// TestBlankEnvIsUnsetOnTheWire is test_empty_env_unset's wire half (F8): a
-// blank TYPESAFE_BASE_URL and TYPESAFE_DEFAULT_MODEL count as unset, so the
-// request goes to the default URL with the default model;
-// TYPESAFE_LOG_LEVEL is not read at all. TestBlankEnvIsUnset checks the
-// resolution.
+// TestBlankEnvIsUnsetOnTheWire is test_empty_env_unset's wire half: a blank
+// TYPESAFE_BASE_URL and TYPESAFE_DEFAULT_MODEL count as unset, so the request
+// goes to the default URL with the default model; TYPESAFE_LOG_LEVEL is not
+// read at all. TestBlankEnvIsUnset checks the resolution.
 func TestBlankEnvIsUnsetOnTheWire(t *testing.T) {
 	clearEnv(t)
 	for _, name := range []string{BaseURLEnv, DefaultModelEnv, "TYPESAFE_LOG_LEVEL"} {
@@ -493,15 +494,15 @@ func TestBlankEnvIsUnsetOnTheWire(t *testing.T) {
 	}
 }
 
-// TestProtectedHeadersAndPrefixBaseURL ports test_headers_timeout_and_logging
-// (C15): a base URL with a path prefix and trailing slashes posts under the
-// prefix; the SDK's own headers win over the caller's, both the client's
-// (WithHeader) and the call's (Header); a call header replaces a client
-// header of the same name whatever its case; X-TypeSafe-Retry-Count is
-// never sent on a first attempt, even when a call sets it; the call's
-// Timeout is the attempt's deadline. The records, down to LevelTrace, hold
-// the request id and the state and none of the credentials: the key, the
-// injected Authorization, X-API-Key, Cookie and the response's Set-Cookie.
+// TestProtectedHeadersAndPrefixBaseURL ports test_headers_timeout_and_logging:
+// a base URL with a path prefix and trailing slashes posts under the prefix;
+// the SDK's own headers win over the caller's, both the client's (WithHeader)
+// and the call's (Header); a call header replaces a client header of the same
+// name whatever its case; X-TypeSafe-Retry-Count is never sent on a first
+// attempt, even when a call sets it; the call's Timeout is the attempt's
+// deadline. The records, down to LevelTrace, hold the request id and the state
+// and none of the credentials: the key, the injected Authorization, X-API-Key,
+// Cookie and the response's Set-Cookie.
 func TestProtectedHeadersAndPrefixBaseURL(t *testing.T) {
 	protected := [][2]string{
 		{"authorization", "injected-secret"},
@@ -581,9 +582,10 @@ func TestProtectedHeadersAndPrefixBaseURL(t *testing.T) {
 }
 
 // TestCallOptionsRefused checks that a call option the call cannot use fails
-// the call with a *ConfigError before anything is encoded or sent (F9's
-// per-call half among them: a zero or negative Timeout), and that no error
-// repeats a header value or a name that holds the key.
+// the call with a *ConfigError before anything is encoded or sent (the
+// per-call half of test_invalid_timeout, row F9 of docs/port-test-matrix.md,
+// among them: a zero or negative Timeout), and that no error repeats a header
+// value or a name that holds the key.
 func TestCallOptionsRefused(t *testing.T) {
 	const longKey = "ts_live_0123456789abcdef"
 	tests := map[string]struct {
@@ -637,11 +639,11 @@ func TestCallOptionsRefused(t *testing.T) {
 	}
 }
 
-// TestPerCallTimeoutOverride ports test_system_one_timeout_override (C14)
-// to the deviation "one deadline per attempt": a call's Timeout is the
-// deadline of its attempt and does not stay with the client; without one,
-// the client's WithTimeout applies, and WithNoTimeout leaves the attempt
-// with the caller's context alone.
+// TestPerCallTimeoutOverride ports test_system_one_timeout_override to the
+// deviation "one deadline per attempt": a call's Timeout is the deadline of
+// its attempt and does not stay with the client; without one, the client's
+// WithTimeout applies, and WithNoTimeout leaves the attempt with the caller's
+// context alone.
 func TestPerCallTimeoutOverride(t *testing.T) {
 	tests := map[string]struct {
 		client []ClientOption
@@ -690,10 +692,11 @@ func clientTimeout(opts []ClientOption) (time.Duration, bool) {
 	return d, err == nil && d > 0
 }
 
-// TestRequestBodyIdenticalAcrossReaders checks PM4 through the client with
-// one attempt: every GetBody reader of a request reads the bytes its Body
-// sent, the length is ContentLength, and GetBody is set so a replay can
-// read them again. W3.2 extends the check across retries.
+// TestRequestBodyIdenticalAcrossReaders checks through the client, with one
+// attempt, that every GetBody reader of a request reads the bytes its Body
+// sent, that the length is ContentLength, and that GetBody is set so a
+// replay can read them again. TestRetryRecoversWithOverrides extends the
+// check across retries.
 func TestRequestBodyIdenticalAcrossReaders(t *testing.T) {
 	rec := replying(http.StatusOK, testsupport.Fixture(t, "result.json"))
 	var sums []testsupport.BodySum
@@ -731,9 +734,9 @@ func TestRequestBodyIdenticalAcrossReaders(t *testing.T) {
 	}
 }
 
-// TestClientNeverPrintsKey pins ruling R66: no fmt verb applied to a Client
-// or a *Client, over the SDK's own transport or a caller's, prints the API
-// key or the Authorization header's "Bearer " value.
+// TestClientNeverPrintsKey pins that no fmt verb applied to a Client or a
+// *Client, over the SDK's own transport or a caller's, prints the API key or
+// the Authorization header's "Bearer " value.
 func TestClientNeverPrintsKey(t *testing.T) {
 	const longKey = "ts_live_0123456789abcdef"
 	clearEnv(t)
@@ -756,10 +759,10 @@ func TestClientNeverPrintsKey(t *testing.T) {
 	}
 }
 
-// TestBaseURLDefaultPortDropped checks ruling R70 Q2: an explicit default
-// port in the base URL (:443 on https, :80 on http) is dropped when the
-// client is built, as httpx drops it, so the request URL, the Host it sends
-// and the endpoint an error names carry none; any other port is kept.
+// TestBaseURLDefaultPortDropped checks that an explicit default port in the
+// base URL (:443 on https, :80 on http) is dropped when the client is built,
+// as httpx drops it, so the request URL, the Host it sends and the endpoint an
+// error names carry none; any other port is kept.
 func TestBaseURLDefaultPortDropped(t *testing.T) {
 	tests := map[string]struct {
 		base, wantURL, wantHost string
@@ -837,10 +840,10 @@ func TestWithPretouch(t *testing.T) {
 	}
 }
 
-// TestRequestURLIsCopied pins ruling R66 NIT 5: every request carries its
-// own copy of the endpoint URL, so a RoundTripper that rewrites req.URL,
-// which the RoundTripper contract forbids, changes neither the next
-// request's URL nor the client's.
+// TestRequestURLIsCopied pins that every request carries its own copy of the
+// endpoint URL, so a RoundTripper that rewrites req.URL, which the
+// RoundTripper contract forbids, changes neither the next request's URL nor
+// the client's.
 func TestRequestURLIsCopied(t *testing.T) {
 	rec := replying(http.StatusOK, []byte(`{"models":[]}`))
 	var sent []string
@@ -865,13 +868,13 @@ func TestRequestURLIsCopied(t *testing.T) {
 	}
 }
 
-// TestRetryURLIsCopied pins ruling R66 NIT 5 within one call (W5.3): the
-// first attempt's copy of the endpoint URL lives in the call's own
-// allocation, and a retry gets a fresh one, so a RoundTripper that rewrites
-// the first request's URL changes neither the retry's nor the next call's,
-// and no request's URL is rewritten by a later attempt, which a transport
-// may still be reading: every request has a URL of its own. Both endpoints
-// are checked, each over two calls of two attempts.
+// TestRetryURLIsCopied pins the copies of the endpoint URL within a call: the
+// first attempt's copy of the endpoint URL lives in the call's own allocation,
+// and a retry gets a fresh one, so a RoundTripper that rewrites the first
+// request's URL changes neither the retry's nor the next call's, and no
+// request's URL is rewritten by a later attempt, which a transport may still
+// be reading: every request has a URL of its own. Both endpoints are checked,
+// each over two calls of two attempts.
 func TestRetryURLIsCopied(t *testing.T) {
 	tests := map[string]struct {
 		call func(t *testing.T, c *Client) error

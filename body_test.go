@@ -198,31 +198,31 @@ func TestBodyBytesMatchPython(t *testing.T) {
 	}
 }
 
-// TestBodyDeviationsFromPython pins the two ruled differences between the
-// state bytes sonic writes and Python's, with Python's bytes from the same
-// probe (2026-09-25 21:50:14 JST) next to them; sonic's own bytes for the
-// values are in the files sonic-*-M.txt (arm64) and sonic-*-L.txt (amd64)
-// of spikes@815453827b43:w1.2/results/. A sonic upgrade that changes either
-// spelling fails here.
+// TestBodyDeviationsFromPython pins the two differences between the state
+// bytes sonic writes and Python's (docs/deviations.md, "state encoding"),
+// with Python's bytes from the same probe (2026-09-25 21:50:14 JST) next to
+// them; sonic's own bytes for the values are in the files sonic-*-M.txt
+// (arm64) and sonic-*-L.txt (amd64) of spikes@815453827b43:w1.2/results/. A
+// sonic upgrade that changes either spelling fails here.
 //
-//   - R47: sonic escapes U+0008 and U+000C as \u0008 and \u000c where Python
+//   - sonic escapes U+0008 and U+000C as \u0008 and \u000c where Python
 //     writes \b and \f; the other 30 control characters, DEL, the HTML
 //     characters, U+2028, U+2029 and non-ASCII text are byte-equal, and both
 //     strings decode to the same value.
-//   - R46: sonic spells floats as encoding/json does, except for the sign of
-//     a negative zero on arm64: integral floats without ".0", -0.0 as 0 on
-//     arm64 and as -0 on amd64 (K27), fixed digits for 1e-6 <= |x| < 1e-5
-//     and for 1e16 <= |x| < 1e21. Every number reads back as the same
-//     float64, except that -0.0 loses its sign on arm64. R59 extends this to
+//   - sonic spells floats as encoding/json does, except for the sign of a
+//     negative zero on arm64: integral floats without ".0", -0.0 as 0 on
+//     arm64 and as -0 on amd64, fixed digits for 1e-6 <= |x| < 1e-5 and for
+//     1e16 <= |x| < 1e21. Every number reads back as the same float64,
+//     except that -0.0 loses its sign on arm64. The same holds for
 //     extra-body values, which take the same sonic path (the extra cases are
 //     from the probe run of 2026-09-25 22:53:56 JST).
 //
-// K27: on amd64 sonic's JIT encoder calls its native float writer, which
-// writes the sign of a negative zero; on every other GOARCH sonic's VM
-// encoder writes any zero as 0 before reaching it. The cases whose bytes
-// hold a negative zero are therefore pinned per GOARCH (wantByArch), and a
-// GOARCH without a pin skips them. That skip is not reached today: codec's
-// build line (D1) refuses every GOARCH but amd64 and arm64.
+// On amd64 sonic's JIT encoder calls its native float writer, which writes
+// the sign of a negative zero; on arm64 sonic's VM encoder writes any zero
+// as 0 before reaching it. The cases whose bytes hold a negative zero are
+// therefore pinned per GOARCH (wantByArch), and a GOARCH without a pin
+// skips them. That skip is not reached today: codec's build line (D1)
+// refuses every GOARCH but amd64 and arm64.
 func TestBodyDeviationsFromPython(t *testing.T) {
 	tail := `,"model":"jev-latest","questions":` + probeQuestions + `}`
 	var ctl strings.Builder
@@ -241,7 +241,7 @@ func TestBodyDeviationsFromPython(t *testing.T) {
 		extra      []bodyMember
 		python     string            // what the Python SDK sends
 		want       string            // what sonic sends on every GOARCH
-		wantByArch map[string]string // what sonic sends, by GOARCH, where it differs (K27)
+		wantByArch map[string]string // what sonic sends, by GOARCH, where it differs
 		check      func(t *testing.T, python, got string)
 	}{
 		"deviation: control character escapes": {
@@ -325,12 +325,13 @@ func TestBodyDeviationsFromPython(t *testing.T) {
 	}
 }
 
-// TestExtraBodyShallowOverride ports test_extra_body_shallow_override (C2):
+// TestExtraBodyShallowOverride ports test_extra_body_shallow_override:
 // extra members are merged over the body as Python's dict.update does. A
 // member named state, model or questions replaces that member's value where
 // it stands, other members follow in the order they were first given, and a
 // repeated member keeps its first position and its last value. The body's
-// bytes here are re-asserted through the client in W2.3.
+// bytes here are re-asserted through the client by
+// TestClientExtraBodyShallowOverride.
 func TestExtraBodyShallowOverride(t *testing.T) {
 	const questions = `"questions":` + probeQuestions
 	many := make([]bodyMember, 0, repeatScanLimit+10)
@@ -448,7 +449,7 @@ func TestExtraBodyShallowOverride(t *testing.T) {
 }
 
 // blob is a named byte slice without a marshaler: sonic would send it as
-// base64 (R59b).
+// base64.
 type blob []byte
 
 // requestReaders returns what an http.Request carries to send body: a reader
@@ -467,7 +468,8 @@ func requestReaders(body codec.Body) (io.ReadCloser, func() (io.ReadCloser, erro
 
 // send does what a call does with a body, in its order: encode, then build
 // the request over the body's readers and hand it to rt. An encoding failure
-// returns before rt sees anything. W2.3's client re-asserts the same through
+// returns before rt sees anything.
+// TestClientUnencodableBodyFailsBeforeNetwork re-asserts the same through
 // SystemOne.
 func send(t *testing.T, rt http.RoundTripper, state any, extra ...bodyMember) error {
 	t.Helper()
@@ -493,12 +495,11 @@ func send(t *testing.T, rt http.RoundTripper, state any, extra ...bodyMember) er
 }
 
 // TestUnencodableBodyFailsBeforeNetwork ports
-// test_unserializable_request_body_raises (C3): a body that cannot be encoded
+// test_unserializable_request_body_raises: a body that cannot be encoded
 // fails with *InvalidRequestError, whose message starts with Python's "The
 // request body could not be encoded as JSON", and nothing reaches the
 // network. Python's object() has no JSON form; a channel is Go's nearest
-// counterpart. The rest are the Go values with no JSON form (Appendix B
-// "NaN/Infinity written"; R48; R49).
+// counterpart. The rest are the Go values with no JSON form.
 func TestUnencodableBodyFailsBeforeNetwork(t *testing.T) {
 	cycle := map[string]any{}
 	cycle["self"] = cycle
@@ -631,11 +632,11 @@ func TestUnencodableBodyFailsBeforeNetwork(t *testing.T) {
 }
 
 // TestScalarStatesRefused is the Go half of
-// test_json_value_and_state_exclude_top_level_none (T2; Appendix B "`any`
-// state"): Python's JSONContent type admits text, a mapping or a sequence and
-// no top-level None; Go's state is any, so a state that encodes as null, a
-// boolean or a number fails with *InvalidRequestError before any network,
-// whatever its Go type, and text, objects and arrays pass.
+// test_json_value_and_state_exclude_top_level_none (docs/deviations.md,
+// "`any` state"): Python's JSONContent type admits text, a mapping or a
+// sequence and no top-level None; Go's state is any, so a state that encodes
+// as null, a boolean or a number fails with *InvalidRequestError before any
+// network, whatever its Go type, and text, objects and arrays pass.
 func TestScalarStatesRefused(t *testing.T) {
 	type celsius float64
 	tests := map[string]struct {
@@ -688,9 +689,9 @@ func TestScalarStatesRefused(t *testing.T) {
 	}
 }
 
-// TestNamedStringStateEncodesAsString is the evidence for T1's deviation
-// (test_str_subclasses_fallback_to_strings; Appendix B "`any` state"): Go has
-// no str subclasses, and a value of a named string type, the nearest Go
+// TestNamedStringStateEncodesAsString is the evidence for the deviation of
+// test_str_subclasses_fallback_to_strings (docs/deviations.md, "`any` state"):
+// Go has no str subclasses, and a value of a named string type, the nearest Go
 // counterpart, is sent as a plain JSON string wherever it appears.
 func TestNamedStringStateEncodesAsString(t *testing.T) {
 	type subject string
@@ -715,7 +716,7 @@ func TestNamedStringStateEncodesAsString(t *testing.T) {
 	}
 }
 
-// TestMapSliceStructStates ports test_abstract_input_containers_encode (T6):
+// TestMapSliceStructStates ports test_abstract_input_containers_encode:
 // Python accepts any Mapping or Sequence (a MappingProxyType holding a
 // tuple); Go's counterparts are every map, slice, array and struct kind,
 // which encode like map[string]any and []any. The full-body case is the
@@ -774,9 +775,9 @@ func TestMapSliceStructStates(t *testing.T) {
 }
 
 // TestEncodeBodyChecksConfigurationFirst covers the *ConfigError cases of the
-// body entry point: a question set that Prepare did not return (review W1.1
-// NIT 6, R45: Python's message for an empty set), and a model name that is
-// not valid UTF-8. They are reported before any member is encoded.
+// body entry point: a question set that Prepare did not return (Python's
+// message for an empty set), and a model name that is not valid UTF-8. They
+// are reported before any member is encoded.
 func TestEncodeBodyChecksConfigurationFirst(t *testing.T) {
 	noSet := func(*testing.T) *Prepared { return nil }
 	tests := map[string]struct {
@@ -820,8 +821,8 @@ func TestEncodeBodyModel(t *testing.T) {
 
 // TestRequestReaders checks what a request carries to send a body: a reader
 // for Body, GetBody for a replay or a retry, and ContentLength. Every reader
-// reads the same bytes (PM4, by digest), each holds the body until it is
-// closed, and GetBody fails once the body is gone.
+// reads the same bytes (by digest), each holds the body until it is closed,
+// and GetBody fails once the body is gone.
 func TestRequestReaders(t *testing.T) {
 	body, err := encodeBody(map[string]any{"k": "v"}, "jev-latest", probeSet(t), []bodyMember{{Key: "n", Value: 1}})
 	if err != nil {
@@ -906,13 +907,12 @@ func TestInvalidRequestError(t *testing.T) {
 	}
 }
 
-// TestNestedContentEncodesAsContent checks rulings R52 and R60: Content
-// nested in a state or in a body member's value, where sonic writes it
-// through Content.MarshalJSON, is sent as content, never as the empty object
-// its unexported fields would give: text escaped as the questions are (\b as
-// Python writes it), JSON content checked by wire's scanner and compacted,
-// unset Content as null. Invalid nested content fails before any network, in
-// every build.
+// TestNestedContentEncodesAsContent checks that Content nested in a state or
+// in a body member's value, where sonic writes it through Content.MarshalJSON,
+// is sent as content, never as the empty object its unexported fields would
+// give: text escaped as the questions are (\b as Python writes it), JSON
+// content checked by wire's scanner and compacted, unset Content as null.
+// Invalid nested content fails before any network, in every build.
 func TestNestedContentEncodesAsContent(t *testing.T) {
 	type holder struct {
 		C Content  `json:"c"`
@@ -960,8 +960,8 @@ func TestNestedContentEncodesAsContent(t *testing.T) {
 		},
 		// Under -race, sonic's own check of a MarshalJSON output accepts
 		// a few complete but invalid outputs ({"a":}, [1 2], a trailing
-		// comma: K26, spikes@815453827b43:w1.2/validrace); wire's scanner refuses them
-		// first, in every build (R60).
+		// comma: spikes@815453827b43:w1.2/validrace); wire's scanner refuses them
+		// first, in every build.
 		"error: complete but invalid JSON content nested in the state": {
 			state:   map[string]any{"c": JSON([]byte(`{"a":}`))},
 			wantErr: `state: invalid JSON at byte 5: unexpected "}", want a value`,
@@ -1028,12 +1028,12 @@ func closest(want []string, got string) string {
 	return want[0]
 }
 
-// TestNestedRawJSONEncodesAsJSON checks rulings R57 and R60: RawJSON nested in
-// a state or in a body member's value, where sonic writes it through
-// RawJSON.MarshalJSON, is sent as the JSON it holds (checked by wire's
-// scanner and compacted), never as the base64 string a plain byte slice
-// would give; a nil one is null. A top-level *RawJSON takes the verbatim path
-// of the RawJSON it points to, whitespace kept, and a nil one is refused.
+// TestNestedRawJSONEncodesAsJSON checks that RawJSON nested in a state or in a
+// body member's value, where sonic writes it through RawJSON.MarshalJSON, is
+// sent as the JSON it holds (checked by wire's scanner and compacted), never
+// as the base64 string a plain byte slice would give; a nil one is null. A
+// top-level *RawJSON takes the verbatim path of the RawJSON it points to,
+// whitespace kept, and a nil one is refused.
 func TestNestedRawJSONEncodesAsJSON(t *testing.T) {
 	type holder struct {
 		R RawJSON  `json:"r"`
@@ -1090,7 +1090,7 @@ func TestNestedRawJSONEncodesAsJSON(t *testing.T) {
 			syntax:  true,
 		},
 		// The complete but invalid outputs sonic's own check lets through
-		// under -race (K26): wire's scanner refuses them first (R60).
+		// under -race: wire's scanner refuses them first.
 		"error: complete but invalid RawJSON nested in the state": {
 			state:   holder{R: RawJSON(`[1 2]`)},
 			wantErr: `state: invalid JSON at byte 3: unexpected "2", want ',' or a closing bracket`,
@@ -1166,7 +1166,7 @@ type failingMarshaler struct{ msg string }
 
 func (f failingMarshaler) MarshalJSON() ([]byte, error) { return nil, errors.New(f.msg) }
 
-// TestEncodeErrorMessageIsBounded checks ruling R58: however large or
+// TestEncodeErrorMessageIsBounded checks that, however large or
 // unprintable the caller's data, an *InvalidRequestError's message stays
 // short and printable, and carries no state for a json.Marshaler's invalid
 // output, while the whole cause stays behind Unwrap.
@@ -1181,8 +1181,8 @@ func TestEncodeErrorMessageIsBounded(t *testing.T) {
 		cut      bool   // the message ends with the cut's U+2026
 		inCause  bool   // the payload is in the cause, which Unwrap keeps whole
 	}{
-		// Nested JSON Content and RawJSON fail in wire's scanner (R60),
-		// whose message names a position and at most one byte of the input.
+		// Nested JSON Content and RawJSON fail in wire's scanner, whose
+		// message names a position and at most one byte of the input.
 		"error: 1 MiB of truncated JSON content nested in the state": {
 			state:    map[string]any{"c": JSON([]byte(`{"k":"` + payload + `"`))},
 			want:     "state: invalid JSON at byte 1048579: unexpected end of input, want ',' or a closing bracket",
@@ -1255,7 +1255,7 @@ var jsonNumber = regexp.MustCompile(`-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?`)
 
 // sameNumbers checks that the numbers of Python's body and Go's, in order,
 // read back as the same float64, their spelling aside; -0.0 loses its sign
-// on arm64 and keeps it on amd64 (R46, K27).
+// on arm64 and keeps it on amd64.
 func sameNumbers(t *testing.T, python, got string) {
 	t.Helper()
 	py, gonums := jsonNumber.FindAllString(python, -1), jsonNumber.FindAllString(got, -1)

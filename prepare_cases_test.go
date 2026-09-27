@@ -14,7 +14,7 @@
 
 package typesafe
 
-// The question sets whose Prepare cost the ledger records (section W1.3):
+// The question sets whose Prepare cost docs/perf/ledger.md records:
 // TestAllocPrepare pins their allocations and BenchmarkPrepare
 // (bench_internal_test.go) times them, so both read this one table.
 
@@ -27,18 +27,17 @@ import (
 // drop or stack-allocate what Prepare builds.
 var prepareSink *Prepared
 
-// prepareCases are the question sets whose Prepare cost the performance
-// ledger records (docs/perf/ledger.md, section W1.3), keyed by the name of
-// their sub-benchmark; the name starts with the ledger's case number. Each
-// function builds a fresh set, so that a measured section never includes
-// building it.
+// prepareCases are the question sets whose Prepare cost the performance ledger
+// records (docs/perf/ledger.md), keyed by the name of their sub-benchmark; the
+// name starts with the ledger's case number. Each function builds a fresh set,
+// so that a measured section never includes building it.
 //
 // The n8 sets measure the falsiness check of a raw "score" question's JSON
 // criteria (engine.FalsyJSON): each is paired with a control that differs
 // only in the type string, "Score" instead of "score", so that the check
 // does not run while the writer does the same work.
 var prepareCases = map[string]func() *Questions{
-	// The API sketch of the port plan's section 5.
+	// The sketch set (billing, tone, urgency, spam).
 	"c1-sketch": func() *Questions {
 		return sketchQuestions("")
 	},
@@ -104,7 +103,7 @@ var prepareCases = map[string]func() *Questions{
 	},
 }
 
-// sketchQuestions returns the question set of the port plan's API sketch,
+// sketchQuestions returns the sketch set (billing, tone, urgency and spam),
 // with suffix appended to every name and text.
 func sketchQuestions(suffix string) *Questions {
 	return NewQuestions().

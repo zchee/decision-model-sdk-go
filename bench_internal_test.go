@@ -14,17 +14,15 @@
 
 package typesafe
 
-// The benchmarks that stay in the root package (owner directive G5 moved the
-// others to internal/benchmark; docs/perf/benchmarks.md lists both). Each
-// times, or builds its case from, what only the root package can reach:
+// The benchmarks that stay in the root package (the others are in
+// internal/benchmark; docs/perf/benchmarks.md lists both). Each times, or
+// builds its case from, what only the root package can reach:
 //
 //   - BenchmarkPrepare: its case table (prepare_cases_test.go) is the one
-//     TestAllocPrepare pins, which internal/alloctest runs from a copy since
-//     W6.5.
+//     TestAllocPrepare pins, which internal/alloctest runs from a copy.
 //   - BenchmarkFalsyJSON: the falsiness check of a raw score question's
-//     criteria, internal/engine's FalsyJSON since W6.5 (unexported in the
-//     root package before it), measured here so that its rows keep their
-//     package.
+//     criteria, internal/engine's FalsyJSON, measured here so that its rows
+//     keep their package.
 //   - BenchmarkEncodeBody (B1): its sdk arm times the unexported encodeBody;
 //     the naive arms stay beside it so that the three encoders are compared
 //     on the same states in one run.
@@ -33,9 +31,9 @@ package typesafe
 //   - BenchmarkLoopback/cold-fanout-64 (B6's cold burst): its gate counters
 //     come from the client's unexported transport.
 //
-// None of them needs a production change to move; each would need an
-// exported hook that exists only for a benchmark, which the directive rules
-// out.
+// None of them can move without a production change: each would need an
+// exported hook that exists only for a benchmark, and the SDK adds no
+// production code for a benchmark alone.
 
 import (
 	"context"
@@ -67,8 +65,8 @@ var naiveCodecs = []struct {
 	{name: "naive-json", codec: naive.StdJSON},
 }
 
-// newCallState returns the NF3 state: 1 KiB of text once encoded, boxed in
-// an any before the call.
+// newCallState returns a text state of 1 KiB once encoded, boxed in an any
+// before the call.
 func newCallState() any { return strings.Repeat("s", 1<<10-2) }
 
 // newBenchClient builds a client over rt with every setting an option
@@ -130,19 +128,18 @@ func BenchmarkFalsyJSON(b *testing.B) {
 //     into a pooled scratch, then the model and the prepared question bytes
 //     are spliced in; the scratch goes back to the pool after each call.
 //   - naive: sonic.Marshal of internal/testsupport/naive's plain Body with
-//     the same state, model and question bytes (G3 (a)); a fresh buffer
-//     every call.
+//     the same state, model and question bytes; a fresh buffer every call.
 //   - naive-json: the same with encoding/json, reported only.
 //
-// The kinds are what a caller sends: text (a string boxed in an any, the
-// NF3 kind), rawjson (a RawJSON object, which the SDK appends as it is and
-// both codecs validate through its MarshalJSON), struct (a *struct with one
-// large text member) and map (a map[string]any with the same members). The
-// text holds quotes, tabs, newlines and multi-byte characters, so the
-// escaper does real work; a state of one repeated letter would flatter
-// every encoder. The body is byte for byte the same for all three encoders
-// for text, rawjson and struct (TestEncodeBodyMatchesNaive); a map's members
-// come out in each encoder's own order.
+// The kinds are what a caller sends: text (a string boxed in an any), rawjson
+// (a RawJSON object, which the SDK appends as it is and both codecs validate
+// through its MarshalJSON), struct (a *struct with one large text member) and
+// map (a map[string]any with the same members). The text holds quotes, tabs,
+// newlines and multi-byte characters, so the escaper does real work; a state
+// of one repeated letter would flatter every encoder. The body is byte for
+// byte the same for all three encoders for text, rawjson and struct
+// (TestEncodeBodyMatchesNaive); a map's members come out in each encoder's own
+// order.
 //
 // How this can mislead: the scratch is warm after the first call, so these
 // are steady-state numbers; a scratch's growth and its drop past the 8 MiB
@@ -187,7 +184,7 @@ var encodeKinds = map[string]func(n int) any{
 	},
 }
 
-// BenchmarkEncodeBody is B1; see the comment at the top of this file.
+// BenchmarkEncodeBody is B1; see the comment above.
 func BenchmarkEncodeBody(b *testing.B) {
 	qs := q3Questions(b)
 	for _, kind := range slices.Sorted(maps.Keys(encodeKinds)) {
@@ -265,14 +262,14 @@ func TestEncodeBodyMatchesNaive(t *testing.T) {
 	}
 }
 
-// B3 (docs/perf/benchmarks.md): request assembly, everything the first
-// attempt of a SystemOne call does before the transport is called: the body
-// encode, the GetBody a replay would use, the attempt's header (the
-// client's template itself, ruling R28), its copy of the endpoint URL, its
-// deadline, the body reader and the *http.Request.
+// B3 (docs/perf/benchmarks.md): request assembly, everything the first attempt
+// of a SystemOne call does before the transport is called: the body encode,
+// the GetBody a replay would use, the attempt's header (the client's template
+// itself), its copy of the endpoint URL, its deadline, the body reader and the
+// *http.Request.
 //
-//   - request: the port plan's section 5 question set (sketchQuestions),
-//     prepared once, and the 1 KiB boxed-string state of NF3.
+//   - request: the sketch question set (sketchQuestions), prepared once,
+//     and newCallState's 1 KiB boxed-string state.
 //   - prepare-and-request: the same with Questions.Prepare inside the loop,
 //     as a caller that prepares on every call pays it.
 //
@@ -348,7 +345,7 @@ func assembleRequest(ctx context.Context, c *Client, state any, qs *Prepared) (a
 	return assembled{req: r.WithContext(actx), cancel: cancel, body: body}, nil
 }
 
-// BenchmarkAssembly is B3; see the comment at the top of this file.
+// BenchmarkAssembly is B3; see the comment above.
 func BenchmarkAssembly(b *testing.B) {
 	c := newBenchClient(b, &testsupport.Recorder{Discard: true})
 	state := newCallState()
@@ -464,13 +461,11 @@ func TestAssemblyMatchesCall(t *testing.T) {
 // pure float64 arithmetic and one format-and-parse round trip, the one that
 // rounds as Python's round(x, 3) does; it runs once per retry, next to a
 // wait of hundreds of milliseconds, so the rows are recorded, not targets.
-// B4's Retry-After parse moved to internal/benchmark.
 
 // sinkDelay keeps BenchmarkBackoff's result alive.
 var sinkDelay time.Duration
 
-// BenchmarkBackoff is B4's backoff delay; see the comment at the top of
-// this file.
+// BenchmarkBackoff is B4's backoff delay; see the comment above.
 func BenchmarkBackoff(b *testing.B) {
 	random := func() float64 { return 0.5 }
 	for _, retry := range []int{1, 6, 1000} {
@@ -493,23 +488,22 @@ func BenchmarkBackoff(b *testing.B) {
 	})
 }
 
-// B6's cold burst (docs/perf/benchmarks.md): a fresh client over the
-// default transport (internal/h2gate) and a loopback HTTP/2 server over TLS,
-// then 64 q3 calls started at once, until the last answers, then the client
-// is closed; the cold burst of AC-P4 and K22 (the waiters wait for the
-// leader's response headers, so a burst pays two round trips of the
-// server). Each burst runs under a 30 s deadline besides each attempt's
-// own. Three metrics are recorded, never asserted. conns/op, the
-// connections each burst opened, is a sanity count only: on loopback the
-// stock HTTP/2 pool alone also puts a cold burst on one connection (review
-// W5.1 MINOR 1, with the gate bypassed), so AC-P4's evidence stays
-// internal/h2gate's TestFanOut. leaders/op and firstholds/op are the gate's
-// own counters (h2gate.Stats: cold dials led, and first requests on a new
-// connection that held the header-write token until their response
-// headers), 1 each for a burst the gate ran; the exported Client.Stats
-// carries neither, which is why this arm stays here while B6's warm call
-// moved to internal/benchmark. The server is testsupport.NewFixtureServer;
-// wall clock only, with the server's allocations in B/op and allocs/op.
+// B6's cold burst (docs/perf/benchmarks.md): a fresh client over the default
+// transport (internal/h2gate) and a loopback HTTP/2 server over TLS, then 64
+// q3 calls started at once, until the last answers, then the client is closed;
+// the gate's cold burst (the waiters wait for the leader's response headers,
+// so a burst pays two round trips of the server). Each burst runs under a 30 s
+// deadline besides each attempt's own. Three metrics are recorded, never
+// asserted. conns/op, the connections each burst opened, is a sanity count
+// only: on loopback the stock HTTP/2 pool alone also puts a cold burst on one
+// connection (with the gate bypassed), so the evidence for the gate's cold
+// burst stays internal/h2gate's TestFanOut. leaders/op and firstholds/op are
+// the gate's own counters (h2gate.Stats: cold dials led, and first requests on
+// a new connection that held the header-write token until their response
+// headers), 1 each for a burst the gate ran; the exported Client.Stats carries
+// neither, which is why this arm stays here while B6's warm call is in
+// internal/benchmark. The server is testsupport.NewFixtureServer; wall clock
+// only, with the server's allocations in B/op and allocs/op.
 
 // fanOut is how many calls cold-fanout-64 starts at once.
 const fanOut = 64
