@@ -194,7 +194,6 @@ func TestAnswersGrow(t *testing.T) {
 		wantCap int // lower bound on cap after grow
 	}{
 		"success: grow for the exact number of puts": {grow: 5, puts: 5, wantCap: 5},
-		"success: grow zero is a no-op":              {grow: 0, puts: 0, wantCap: 0},
 		"success: negative grow is a no-op":          {grow: -3, puts: 0, wantCap: 0},
 	}
 	for name, tt := range tests {

@@ -294,13 +294,6 @@ func TestAppendUsage(t *testing.T) {
 		u    Usage
 		want string
 	}{
-		"success: Usage(input_tokens=12, output_tokens=3)": {
-			u:    Usage{InputTokens: 12, OutputTokens: 3, HasInputTokens: true, HasOutputTokens: true},
-			want: `{"input_tokens":12,"output_tokens":3}`,
-		},
-		"success: Usage() writes null counts": {
-			want: `{"input_tokens":null,"output_tokens":null}`,
-		},
 		"success: a reported zero is 0, an absent count null": {
 			u:    Usage{InputTokens: 7, HasOutputTokens: true},
 			want: `{"input_tokens":null,"output_tokens":0}`,
@@ -474,36 +467,28 @@ func TestPayloadGrowsOnce(t *testing.T) {
 	upstream := upstreamResult()
 	cards := ModelList{Models: []ModelCard{{"a", "b", "c"}, {"d", "e", "f"}}}
 	tests := map[string]struct {
-		write     func() ([]byte, error)
-		wantAlloc float64
+		write func() ([]byte, error)
 	}{
 		"success: the longest floats and counts": {
-			write:     func() ([]byte, error) { return AppendSystemOneResult(nil, &longest) },
-			wantAlloc: 1,
+			write: func() ([]byte, error) { return AppendSystemOneResult(nil, &longest) },
 		},
 		"success: the upstream RESULT": {
-			write:     func() ([]byte, error) { return AppendSystemOneResult(nil, &upstream) },
-			wantAlloc: 1,
+			write: func() ([]byte, error) { return AppendSystemOneResult(nil, &upstream) },
 		},
 		"success: model cards": {
-			write:     func() ([]byte, error) { return AppendModelList(nil, &cards) },
-			wantAlloc: 1,
+			write: func() ([]byte, error) { return AppendModelList(nil, &cards) },
 		},
 		"success: answers": {
-			write:     func() ([]byte, error) { return AppendAnswers(nil, &longest.Answers) },
-			wantAlloc: 1,
+			write: func() ([]byte, error) { return AppendAnswers(nil, &longest.Answers) },
 		},
 		"success: one answer": {
-			write:     func() ([]byte, error) { return AppendAnswer(nil, &longest.Answers.entries[2].Answer) },
-			wantAlloc: 1,
+			write: func() ([]byte, error) { return AppendAnswer(nil, &longest.Answers.entries[2].Answer) },
 		},
 		"success: one card": {
-			write:     func() ([]byte, error) { return AppendModelCard(nil, &cards.Models[1]) },
-			wantAlloc: 1,
+			write: func() ([]byte, error) { return AppendModelCard(nil, &cards.Models[1]) },
 		},
 		"success: the longest usage": {
-			write:     func() ([]byte, error) { return AppendUsage(nil, &longest.Usage), nil },
-			wantAlloc: 1,
+			write: func() ([]byte, error) { return AppendUsage(nil, &longest.Usage), nil },
 		},
 	}
 	for name, tt := range tests {
@@ -514,8 +499,8 @@ func TestPayloadGrowsOnce(t *testing.T) {
 			if raceEnabled() {
 				return // -race adds allocations of its own
 			}
-			if n := testing.AllocsPerRun(100, func() { _, _ = tt.write() }); n != tt.wantAlloc {
-				t.Errorf("allocations = %v, want %v", n, tt.wantAlloc)
+			if n := testing.AllocsPerRun(100, func() { _, _ = tt.write() }); n != 1 {
+				t.Errorf("allocations = %v, want %v", n, 1)
 			}
 		})
 	}

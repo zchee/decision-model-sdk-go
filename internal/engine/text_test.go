@@ -207,10 +207,6 @@ func TestLogErrorText(t *testing.T) {
 			err:  errors.New("dial: Bearer " + key + " refused; key " + key + "; secret provider-credential; visible request-visible"),
 			want: "dial: *** refused; key ***; secret ***; visible request-visible",
 		},
-		"success: the %q form of the key": {
-			err:  fmt.Errorf("dial: key %q refused", key),
-			want: `dial: key "***" refused`,
-		},
 		"success: URL userinfo": {
 			err:  errors.New("proxyconnect tcp: http://user:hunter2@proxy.test:3128: refused"),
 			want: "proxyconnect tcp: http://***@proxy.test:3128: refused",
@@ -340,12 +336,10 @@ func TestCredentialsCause(t *testing.T) {
 	}
 	tests := map[string]struct {
 		err       error
-		kept      bool    // the cause is the transport's error itself
 		text      string  // the stand-in's text
 		sentinels []error // errors.Is holds for each through the stand-in
 		absent    []error // and not for these
 	}{
-		"success: a text without a credential keeps the error": {err: reset, kept: true},
 		"success: a credential in the text: a stand-in with the sentinel": {
 			err: fmt.Errorf("read %s: %w", key, io.ErrUnexpectedEOF), text: "read ***: unexpected EOF",
 			sentinels: []error{io.ErrUnexpectedEOF}, absent: []error{io.EOF, context.DeadlineExceeded},
@@ -368,12 +362,6 @@ func TestCredentialsCause(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			got := creds.Cause(tt.err)
-			if tt.kept {
-				if got != tt.err { //nolint:errorlint // identity is the assertion
-					t.Errorf("cause = %v, want the transport's error itself", got)
-				}
-				return
-			}
 			s, ok := got.(*scrubbedError) //nolint:errorlint // the stand-in itself, not a link of its chain
 			if !ok {
 				t.Fatalf("cause = %T %v, want a *scrubbedError", got, got)

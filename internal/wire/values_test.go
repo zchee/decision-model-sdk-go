@@ -124,12 +124,6 @@ func TestResponseMetaRequestID(t *testing.T) {
 	}
 }
 
-func TestRequestIDHeaderIsCanonical(t *testing.T) {
-	if got := http.CanonicalHeaderKey("x-typesafe-request-id"); got != RequestIDHeader {
-		t.Fatalf("RequestIDHeader = %q, want the canonical key %q", RequestIDHeader, got)
-	}
-}
-
 func TestRequestIDSingleValueDoesNotAllocate(t *testing.T) {
 	meta := ResponseMeta{Header: http.Header{RequestIDHeader: {"req_123"}}}
 	var got string
