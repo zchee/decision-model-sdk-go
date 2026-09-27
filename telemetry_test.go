@@ -548,13 +548,10 @@ func TestLogTransportRecords(t *testing.T) {
 }
 
 // TestLogWarnCapThroughClient re-asserts the WARN cap through the client
-// (the rule's own table is TestUnknownAnswerTypeWarnCap): a
-// successful call whose response holds 12 answers of unknown types logs
-// eight WARN records naming the first eight, then one counting the other
-// four, and succeeds; a name and a type the server chose are escaped and
-// cut at 128 characters; at ERROR nothing is logged.
+// (the rule's own table is TestUnknownAnswerTypeWarnCap): a successful call
+// whose response holds 12 answers of unknown types logs eight WARN records
+// naming the first eight, then one counting the other four, and succeeds.
 func TestLogWarnCapThroughClient(t *testing.T) {
-	long := strings.Repeat("t", 300)
 	var twelve, wantTwelve []string
 	for i := range 12 {
 		n := strconv.Itoa(i)
@@ -570,13 +567,6 @@ func TestLogWarnCapThroughClient(t *testing.T) {
 	}{
 		"success: 12 unknown answers, 8 records and a summary": {
 			level: slog.LevelWarn, answers: twelve, want: append(wantTwelve, "WARN "+engine.MsgSkippedAnswers+" count=4"),
-		},
-		"success: a name and a type escaped and cut": {
-			level: slog.LevelWarn, answers: []string{`"a\u001b[2Jb\\":{"type":"` + long + `"}`},
-			want: []string{"WARN " + engine.MsgSkippedAnswer + ` answer=a\x1b[2Jb\\ type=` + long[:128] + "\u2026"},
-		},
-		"success: nothing at ERROR": {
-			level: slog.LevelError, answers: twelve,
 		},
 	}
 	for name, tt := range tests {

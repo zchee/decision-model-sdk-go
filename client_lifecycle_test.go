@@ -291,30 +291,6 @@ func TestCloseClosesOwnedTransport(t *testing.T) {
 	}
 }
 
-// TestCloseAfterFailedCall ports test_exceptional_context_closes_http_client
-// (C19): a call whose transport fails returns an error that wraps the
-// transport's own (a caller's error, and a cancellation), and Close then
-// closes the supplied transport once.
-func TestCloseAfterFailedCall(t *testing.T) {
-	failure := errors.New("original failure")
-	for name, cause := range map[string]error{"error: a transport failure": failure, "error: a cancellation": context.Canceled} {
-		t.Run(name, func(t *testing.T) {
-			rec := &testsupport.Recorder{Replies: []testsupport.Reply{{Err: cause}}}
-			c := newTestClient(t, rec)
-			_, err := c.Models().List(t.Context())
-			if !errors.Is(err, cause) {
-				t.Fatalf("List error = %v, want one wrapping %v", err, cause)
-			}
-			if err := c.Close(); err != nil {
-				t.Fatalf("Close: %v", err)
-			}
-			if rec.Closes() != 1 {
-				t.Errorf("the transport was closed %d times, want 1", rec.Closes())
-			}
-		})
-	}
-}
-
 // assertCancelled checks that err is the cancelled context's own error,
 // context.Canceled, and not an SDK error: typesafe-sdk-python maps only
 // httpx's RequestError (py:_core/transport.py:79), so a cancellation reaches

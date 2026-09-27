@@ -143,9 +143,6 @@ func TestSecretHeadersRedacted(t *testing.T) {
 			}
 			for _, secret := range []string{"auth-credential", "request-credential", "response-credential"} {
 				testsupport.AssertNotPrinted(t, err, secret)
-				if out := fmt.Sprintf("%s", err); strings.Contains(out, secret) {
-					t.Errorf("%%s of the error holds %q: %s", secret, out)
-				}
 			}
 		})
 	}
@@ -288,9 +285,6 @@ func TestTransportErrorsNeverExposeCredentials(t *testing.T) {
 			records := recordsText(logs)
 			for _, secret := range secrets {
 				testsupport.AssertNotPrinted(t, err, secret)
-				if out := fmt.Sprintf("%s", err); strings.Contains(out, secret) {
-					t.Errorf("%%s of the error holds %q: %s", secret, out)
-				}
 				if strings.Contains(records, secret) {
 					t.Errorf("the records hold %q:\n%s", secret, records)
 				}

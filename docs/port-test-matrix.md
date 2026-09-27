@@ -70,7 +70,7 @@ Rows by status: 35 deviation, 94 ported.
 | C16 | `test_http_client_settings` | `TestCallerTransportKeepsItsSettings` | ported |
 | C17 | `test_supplied_network_resources_closed` | `TestCloseClosesSuppliedTransport` + `TestCloseIdlesSuppliedHTTPTransport` (a `*http.Transport` through `WithRoundTripper`, R79) | ported |
 | C18 | `test_owned_http_client_closed` | `TestCloseClosesOwnedTransport` | ported |
-| C19 | `test_exceptional_context_closes_http_client` | `TestCloseAfterFailedCall` | ported |
+| C19 | `test_exceptional_context_closes_http_client` | `TestCloseClosesSuppliedTransport` + `TestCancelInFlightRequest` + `TestExhaustedTransportRetryReturnsLastError` + `TestCancelledContextMakesOneAttempt` | ported |
 | C20 | `test_task_cancellation_closes_context` | `TestCancelInFlightRequest` (one attempt; `context.Canceled` itself, not an SDK error, as upstream lets `CancelledError` through; the loopback server sees the stream reset) | ported |
 | C21 | `test_cancellation_propagates` | `TestCancelledContextMakesOneAttempt` (one attempt under the production policy: the transport's `context.Canceled`, upstream's shape, is a `*ConnectionError` that only the never-retry-a-cancellation rule keeps to one attempt; a cancelled context returns `context.Canceled` itself) | ported |
 
