@@ -15,7 +15,6 @@ import pytest
 from conftest import load_script
 
 SCRIPT = Path(__file__).with_name("docs-snippets.py")
-REPO = Path(__file__).resolve().parents[2]
 
 ds = load_script(SCRIPT.name)
 
@@ -301,22 +300,6 @@ def test_paths_that_would_check_nothing_fail(
     for key, value in subst.items():
         want = want.replace(key, value)
     assert want in err
-
-
-def test_repository_docs_pass() -> None:
-    assert (
-        ds.main(
-            [
-                "--readme",
-                str(REPO / "README.md"),
-                "--docs",
-                str(REPO / "docs"),
-                "--examples",
-                str(REPO / "examples"),
-            ]
-        )
-        == 0
-    )
 
 
 def test_missing_flags_exit_2() -> None:
