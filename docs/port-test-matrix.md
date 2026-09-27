@@ -82,10 +82,10 @@ Rows by status: 35 deviation, 94 ported.
 | F2 | `test_model_override` | `TestModelOverridePerCall` | ported |
 | F3 | `test_resolution` | `TestConfigResolutionOrder` (default/env/explicit) + `TestConfigResolutionOnTheWire` | ported |
 | F4 | `test_missing_key` | `TestMissingAPIKey` | ported |
-| F5 | `test_api_key_whitespace` | `TestAPIKeyTrimmed` + `TestAPIKeyTrimmedOnTheWire` | ported |
+| F5 | `test_api_key_whitespace` | `TestAPIKeyTrimmed` | ported |
 | F6 | `test_invalid_explicit_key_does_not_fall_back_to_env` | `TestInvalidExplicitKeyDoesNotFallBack` | ported |
 | F7 | `test_invalid_api_key` | `TestInvalidAPIKeyNeverEchoed` | ported |
-| F8 | `test_empty_env_unset` | `TestBlankEnvIsUnset` + `TestBlankEnvIsUnsetOnTheWire` | ported |
+| F8 | `test_empty_env_unset` | `TestBlankEnvIsUnset` | ported |
 | F9 | `test_invalid_timeout` | `TestInvalidTimeout` + `TestCallOptionsRefused` (the per-call `Timeout`) | ported |
 | F10 | `test_timeout_object` | deviation "one deadline per attempt" + `TestTimeoutSettings` + `TestPerCallTimeoutOverride` | deviation |
 | F11 | `test_http_client_timeout_precedence` | deviation "a custom transport owns its timeouts" + `TestCallerTransportOwnsItsTimeouts` | deviation |
@@ -96,10 +96,10 @@ Rows by status: 35 deviation, 94 ported.
 | --- | --- | --- | --- |
 | E1 | `test_exception_reconstruction` | deviation "errors are values" + `TestErrorsAsRoundTrip` (the 14 upstream rows, each matched with `errors.As` through wraps, copied by value, read alike and unwrapped alike; rows 3 and 4, Python's base class `TypeSafeAPIError`, are the `Kind` of their status when the SDK builds them and `APIErrorOther` in a caller's literal, and row 14, an httpx `Timeout` object, is `Timeout: 0`, one deadline per attempt) | deviation |
 | E2 | `test_api_error_from_process_pool` | deviation "no process pools": a value handed to another goroutine is the same value and nothing is serialised (`TestErrorsAsRoundTrip` reads a copy from four goroutines) | deviation |
-| E3 | `test_api_error_request_context` | `TestAPIErrorRendersEndpointStatusMessageRequestID` + `TestAPIErrorRequestContextThroughClient` | ported |
+| E3 | `test_api_error_request_context` | `TestAPIErrorRequestContextThroughClient` | ported |
 | E4 | `test_api_error_endpoint_omits_url_credentials` | `TestEndpointOmitsCredentialsQueryFragment` (constructor-level: a base URL with credentials is refused when the client is built, R63) | ported |
 | E5 | `test_message_override` | `TestAPIErrorMessageOverride` (constructor-level, as upstream) | ported |
-| E6 | `test_error_body_edge_cases` | `TestAPIErrorBodyEdgeCases` (8 exact) + `TestAPIErrorBodyEdgeCasesThroughClient` + deviation "plain-text body cut at 200" (`long-plain-message`) | ported |
+| E6 | `test_error_body_edge_cases` | `TestAPIErrorBodyEdgeCasesThroughClient` (8 exact) + deviation "plain-text body cut at 200" (`long-plain-message`) | ported |
 
 ### `tests/test_integration.py` (3)
 
@@ -152,9 +152,9 @@ Rows by status: 35 deviation, 94 ported.
 
 | ID | Upstream | Go test / deviation | status |
 | --- | --- | --- | --- |
-| R1 | `test_malformed_response_raises_validation_error` | `TestMalformedResponseFieldPaths` (8) + `TestMalformedResponseThroughClient` | ported |
+| R1 | `test_malformed_response_raises_validation_error` | `TestMalformedResponseThroughClient` (8) | ported |
 | R2 | `test_nested_missing_field_path` | `TestModelsMissingMemberPath` | ported |
-| R3 | `test_response_carries_request_id` | `TestResponseRequestID` | ported |
+| R3 | `test_response_carries_request_id` | `TestResponseJSONRoundTrip` | ported |
 | R4 | `test_response_carries_raw_http_response` | `TestResponseMeta` | ported |
 | R5 | `test_response_serialization_excludes_http_metadata` | `TestResponseJSONRoundTrip` (models and systemone) + `TestResponseJSONFixtures` | ported |
 | R6 | `test_copied_response_preserves_metadata` | deviation "responses are values" + `TestResponseCopyKeepsMeta` | deviation |

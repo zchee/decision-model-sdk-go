@@ -200,11 +200,11 @@ func TestAPIErrorMessages(t *testing.T) {
 	}
 }
 
-// TestMalformedResponseThroughClient re-asserts
+// TestMalformedResponseThroughClient ports
 // test_malformed_response_raises_validation_error through the client: the
 // eight bodies fail at the Python SDK's field paths, with the status, the
-// request id and the body, rendered as the Python SDK's str().
-// TestMalformedResponseFieldPaths checks the decode itself.
+// request id and the body, rendered as the Python SDK's str(), and the error
+// unwraps to the decoder's failure.
 func TestMalformedResponseThroughClient(t *testing.T) {
 	tests := map[string]struct {
 		answers string
@@ -235,20 +235,10 @@ func TestMalformedResponseThroughClient(t *testing.T) {
 			if diff := gocmp.Diff(want, got); diff != "" {
 				t.Errorf("path, status, request id, body, Error() (-want +got):\n%s", diff)
 			}
+			if rve.Unwrap() == nil {
+				t.Error("Unwrap() = nil, want the decoder's failure")
+			}
 		})
-	}
-}
-
-// TestResponseRequestID ports test_response_carries_request_id: the response's
-// x-typesafe-request-id is Meta().RequestID().
-func TestResponseRequestID(t *testing.T) {
-	c := newTestClient(t, replying(http.StatusOK, testsupport.Fixture(t, "result.json"), "X-Typesafe-Request-Id", "req-42"))
-	resp, err := c.SystemOne(t.Context(), "text", noulQuestion(t))
-	if err != nil {
-		t.Fatalf("SystemOne: %v", err)
-	}
-	if id, ok := resp.Meta().RequestID(); !ok || id != "req-42" {
-		t.Errorf("Meta().RequestID() = %q, %t, want \"req-42\", true", id, ok)
 	}
 }
 
@@ -545,8 +535,7 @@ func TestResponsesKeepTheirOwnBodies(t *testing.T) {
 // through the client: an error response of a list-models call and of a
 // System One call names its endpoint, under the base URL's prefix, with the
 // status, the message and the request id, and no printed form holds the API
-// key. TestAPIErrorRendersEndpointStatusMessageRequestID checks the
-// rendering itself. (The base URL with credentials of
+// key. (The base URL with credentials of
 // test_api_error_endpoint_omits_url_credentials is refused when the client
 // is built, and test_message_override builds its error directly: neither
 // has a through-the-client form.)
@@ -594,8 +583,7 @@ func TestAPIErrorRequestContextThroughClient(t *testing.T) {
 // TestAPIErrorBodyEdgeCasesThroughClient ports test_error_body_edge_cases
 // through the client, with each body declared and undeclared: eight rows
 // render exactly as the Python SDK's, and long-plain-message is cut at 200
-// characters (docs/deviations.md, "plain-text body cut at 200");
-// TestAPIErrorBodyEdgeCases checks the reader itself.
+// characters (docs/deviations.md, "plain-text body cut at 200").
 func TestAPIErrorBodyEdgeCasesThroughClient(t *testing.T) {
 	x := strings.Repeat("x", 201)
 	rows := map[string]struct {

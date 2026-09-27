@@ -52,55 +52,6 @@ func validationError(t *testing.T, err error) *ResponseValidationError {
 	return rve
 }
 
-// TestMalformedResponseFieldPaths ports
-// test_malformed_response_raises_validation_error
-// (tests/test_responses.py:29-58) to the decode of a 200 response with its
-// request id: the eight bodies fail at the Python SDK's field paths, and the
-// error keeps the status, request id and body and renders as the Python
-// SDK's str(). The call through the client is re-asserted by
-// TestMalformedResponseThroughClient.
-func TestMalformedResponseFieldPaths(t *testing.T) {
-	tests := map[string]struct {
-		answers string
-		path    string
-	}{
-		"error: no model":                  {answers: `{}`, path: "model"},
-		"error: noul missing":              {answers: `{"n":{"type":"noul"}}`, path: "answers.n.noul"},
-		"error: noul a string":             {answers: `{"n":{"type":"noul","noul":"0.5"}}`, path: "answers.n.noul"},
-		"error: choice without confidence": {answers: `{"c":{"type":"choice","choice":"a","probabilities":{}}}`, path: "answers.c.confidence"},
-		"error: choice without choice":     {answers: `{"c":{"type":"choice","confidence":0.5,"probabilities":{}}}`, path: "answers.c.choice"},
-		"error: legend an array":           {answers: `{"s":{"type":"score","score":1.0,"confidence":1.0,"legend":[],"probabilities":{}}}`, path: "answers.s.legend"},
-		"error: legend key not a level":    {answers: `{"s":{"type":"score","score":1.0,"confidence":1.0,"legend":{"x":"bad"},"probabilities":{}}}`, path: "answers.s.legend.x"},
-		"error: answer not a mapping":      {answers: `{"c":"not-a-mapping"}`, path: "answers.c.type"},
-	}
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			body := `{"usage":{"input_tokens":1,"output_tokens":1},"answers":` + tt.answers
-			if tt.path != "model" {
-				body += `,"model":"test"`
-			}
-			body += "}"
-			meta := &wire.ResponseMeta{Status: http.StatusOK, Header: headers("X-Typesafe-Request-Id", "req-123"), Body: []byte(body)}
-			var dst wire.SystemOneResult
-			err := decodeSystemOneInto(t.Context(), nil, meta, systemOneEndpoint, engine.HeaderRedactor{}, noulQuestion(t), "jev-latest", &dst, nil)
-			rve := validationError(t, err)
-			if rve.FieldPath != tt.path || rve.StatusCode != http.StatusOK || string(rve.Body) != body {
-				t.Errorf("field path %q status %d body %q, want %q 200 %q", rve.FieldPath, rve.StatusCode, rve.Body, tt.path, body)
-			}
-			if id, ok := rve.RequestID(); !ok || id != "req-123" {
-				t.Errorf("RequestID() = %q, %t", id, ok)
-			}
-			want := systemOneEndpoint + ": 200 Invalid response data at '" + tt.path + "'. (request_id=req-123)"
-			if diff := gocmp.Diff(want, rve.Error()); diff != "" {
-				t.Errorf("Error() (-want +got):\n%s", diff)
-			}
-			if rve.Unwrap() == nil {
-				t.Error("Unwrap() = nil, want the decoder's failure")
-			}
-		})
-	}
-}
-
 // TestModelsMissingMemberPath ports test_nested_missing_field_path
 // (tests/test_responses.py:61-68): a model card without one of its three
 // members fails at models[1].<member>, rendered as the Python SDK's str() of

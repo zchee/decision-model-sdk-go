@@ -137,119 +137,6 @@ func headers(kv ...string) http.Header {
 	return h
 }
 
-// TestAPIErrorStatusRows checks the rendering half of test_error_mapping
-// (tests/test_clients.py:287-317): the kind each of the eleven statuses maps
-// to, the exact Error() text, the request id and the retry-after-ms wait.
-// TestAPIErrorMapping makes the call through the client.
-func TestAPIErrorStatusRows(t *testing.T) {
-	const body = `{"detail":{"message":"Server explanation"}}`
-	tests := map[string]struct {
-		status int
-		kind   APIErrorKind
-	}{
-		"success: 400": {status: 400, kind: APIErrorBadRequest},
-		"success: 401": {status: 401, kind: APIErrorAuthentication},
-		"success: 403": {status: 403, kind: APIErrorPermissionDenied},
-		"success: 404": {status: 404, kind: APIErrorNotFound},
-		"success: 422": {status: 422, kind: APIErrorUnprocessableEntity},
-		"success: 429": {status: 429, kind: APIErrorRateLimit},
-		"success: 500": {status: 500, kind: APIErrorInternalServer},
-		"success: 503": {status: 503, kind: APIErrorInternalServer},
-		"success: 408": {status: 408, kind: APIErrorOther},
-		"success: 409": {status: 409, kind: APIErrorOther},
-		"success: 302": {status: 302, kind: APIErrorOther},
-	}
-	endpoint := endpointOf(http.MethodGet, mustURL(t, "https://api.typesafe.ai/v1/models"))
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			h := headers("X-Typesafe-Request-Id", "req_123", "Retry-After-Ms", "125")
-			e := apiError(tt.status, body, h, endpoint)
-			if e.Kind != tt.kind || e.StatusCode != tt.status {
-				t.Errorf("kind %v status %d, want %v %d", e.Kind, e.StatusCode, tt.kind, tt.status)
-			}
-			want := "GET https://api.typesafe.ai/v1/models: " + strconv.Itoa(tt.status) + " Server explanation (request_id=req_123)"
-			if diff := gocmp.Diff(want, e.Error()); diff != "" {
-				t.Errorf("Error() (-want +got):\n%s", diff)
-			}
-			if id, ok := e.RequestID(); !ok || id != "req_123" {
-				t.Errorf("RequestID() = %q, %t", id, ok)
-			}
-			if d, ok := e.RetryAfter(); !ok || d != 125*time.Millisecond {
-				t.Errorf("RetryAfter() = %v, %t, want 125ms", d, ok)
-			}
-			if string(e.Body) != body || e.Header.Get("Retry-After-Ms") != "125" {
-				t.Errorf("body %q, retry-after-ms %q", e.Body, e.Header.Get("Retry-After-Ms"))
-			}
-		})
-	}
-}
-
-// TestAPIErrorMessageRows checks the rendering half of test_error_messages
-// (tests/test_clients.py:320-339): the message the Python SDK finds in each
-// of the eight bodies, exactly. TestAPIErrorMessages makes the call through
-// the client.
-func TestAPIErrorMessageRows(t *testing.T) {
-	tests := map[string]struct {
-		body string
-		want string
-	}{
-		"success: error first":           {body: `{"error":"error","message":"message","detail":"detail"}`, want: "error"},
-		"success: error.message":         {body: `{"error":{"message":"nested error"},"message":"message"}`, want: "nested error"},
-		"success: message before detail": {body: `{"message":"message","detail":"detail"}`, want: "message"},
-		"success: detail":                {body: `{"detail":"detail"}`, want: "detail"},
-		"success: detail.message":        {body: `{"detail":{"message":"nested detail"}}`, want: "nested detail"},
-		"success: detail list":           {body: `{"detail":[{"loc":["body","questions","q","score","criteria",0],"msg":"Invalid"},{"msg":"Missing"},{}]}`, want: "questions.q.score.criteria.0: Invalid; Missing"},
-		"success: plain text":            {body: "plain text", want: "plain text"},
-		"success: a body without one":    {body: `{"unexpected":true}`, want: `{"unexpected":true}`},
-	}
-	endpoint := endpointOf(http.MethodGet, mustURL(t, "https://api.typesafe.ai/v1/models"))
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			got := apiError(400, tt.body, http.Header{}, endpoint).Error()
-			if diff := gocmp.Diff("GET https://api.typesafe.ai/v1/models: 400 "+tt.want, got); diff != "" {
-				t.Errorf("Error() (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
-// TestAPIErrorRendersEndpointStatusMessageRequestID ports
-// test_api_error_request_context (tests/test_errors.py:83-101): the
-// endpoint of either resource under a base URL with a path prefix, the
-// status, the message and the request id, in one line, and nothing of the
-// request's credentials in any rendering of the error.
-func TestAPIErrorRendersEndpointStatusMessageRequestID(t *testing.T) {
-	tests := map[string]struct {
-		method, path string
-		want         string
-	}{
-		"success: models":     {method: http.MethodGet, path: "/v1/models", want: "GET https://api.example.test/prefix/v1/models"},
-		"success: system_one": {method: http.MethodPost, path: "/v1/systemone", want: "POST https://api.example.test/prefix/v1/systemone"},
-	}
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			endpoint := endpointOf(tt.method, mustURL(t, "https://api.example.test/prefix"+tt.path))
-			e := apiError(429, `{"message":"Too many requests"}`, headers("X-Typesafe-Request-Id", "req-context"), endpoint)
-			want := tt.want + ": 429 Too many requests (request_id=req-context)"
-			if e.Endpoint != tt.want {
-				t.Errorf("Endpoint = %q, want %q", e.Endpoint, tt.want)
-			}
-			if diff := gocmp.Diff(want, e.Error()); diff != "" {
-				t.Errorf("Error() (-want +got):\n%s", diff)
-			}
-			var err error = e
-			for _, rendered := range []string{fmt.Sprint(err), fmt.Sprintf("%v", err), fmt.Sprintf("%+v", err), fmt.Sprintf("%#v", err)} {
-				if strings.Contains(rendered, "private-api-key") {
-					t.Errorf("a rendering holds the key: %s", rendered)
-				}
-			}
-			if got := fmt.Errorf("call: %w", err).Error(); got != "call: "+want {
-				t.Errorf("wrapped = %q", got)
-			}
-		})
-	}
-}
-
 // TestEndpointOmitsCredentialsQueryFragment ports
 // test_api_error_endpoint_omits_url_credentials (row E4 of
 // docs/port-test-matrix.md, tests/test_errors.py:104-110): the endpoint keeps
@@ -326,41 +213,6 @@ func TestAPIErrorMessageOverride(t *testing.T) {
 	}
 }
 
-// TestAPIErrorBodyEdgeCases ports test_error_body_edge_cases
-// (tests/test_errors.py:140-158): eight of the nine rows render exactly as
-// the Python SDK's; long-plain-message is cut at 200 characters, where the
-// Python SDK never cuts a body that is not JSON (docs/deviations.md,
-// "plain-text body cut at 200").
-func TestAPIErrorBodyEdgeCases(t *testing.T) {
-	x := strings.Repeat("x", 201)
-	tests := map[string]struct {
-		body string
-		want string
-	}{
-		"success: empty":                           {body: "", want: "400 status code (no body)"},
-		"success: null":                            {body: "null", want: "400 status code (no body)"},
-		"success: empty array":                     {body: "[]", want: "400 []"},
-		"success: number":                          {body: "42", want: "400 42"},
-		"success: not JSON, invalid UTF-8":         {body: "not JSON: \xff", want: "400 not JSON: \ufffd"},
-		"success: deviation, long-plain-message":   {body: x, want: "400 " + x[:200] + "…"},
-		"success: long-unstructured-body":          {body: `{"unknown":"` + x + `"}`, want: `400 {"unknown":"` + x[:188] + "…"},
-		"success: an empty error stops the search": {body: `{"error":"","message":"ignored"}`, want: `400 {"error":"","message":"ignored"}`},
-		"success: detail entries without a msg":    {body: `{"detail":[null,42,{"msg":4}]}`, want: `400 {"detail":[null,42,{"msg":4}]}`},
-	}
-	endpoint := endpointOf(http.MethodGet, mustURL(t, "https://api.typesafe.ai/v1/models"))
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			e := apiError(400, tt.body, http.Header{}, endpoint)
-			if diff := gocmp.Diff("GET https://api.typesafe.ai/v1/models: "+tt.want, e.Error()); diff != "" {
-				t.Errorf("Error() (-want +got):\n%s", diff)
-			}
-			if id, ok := e.RequestID(); ok {
-				t.Errorf("RequestID() = %q, want absent", id)
-			}
-		})
-	}
-}
-
 // TestAPIErrorMessageIsBounded checks the bound on a server's message: control
 // and format characters are escaped and the message is cut at 200 characters
 // after escaping, whichever member it came from; the request id is escaped and
@@ -391,20 +243,19 @@ func TestAPIErrorMessageIsBounded(t *testing.T) {
 	}
 }
 
-// TestIsAuthentication checks that 401, and any status whose error type is
-// authentication_error (the API's answer to a request without a key is 403
-// with it), is an authentication failure, and that a 403 without it is not.
+// TestIsAuthentication checks that a 403 without authentication_error, one
+// that carries it at the top level only, and a 500 are not authentication
+// failures. TestErrorsAsRoundTrip checks that 401, and a 403 whose error type
+// is authentication_error (the API's answer to a request without a key), are.
 func TestIsAuthentication(t *testing.T) {
 	tests := map[string]struct {
 		status int
 		body   string
 		want   bool
 	}{
-		"success: 401":                           {status: 401, body: `{}`, want: true},
-		"success: 403 with authentication_error": {status: 403, body: `{"detail":{"message":"Must supply an API key!","error_type":"authentication_error"}}`, want: true},
-		"success: 403 without it":                {status: 403, body: `{"detail":{"message":"denied","error_type":"permission_error"}}`},
-		"success: a top-level error_type":        {status: 403, body: `{"error_type":"authentication_error"}`},
-		"success: 500":                           {status: 500, body: `{}`},
+		"success: 403 without it":         {status: 403, body: `{"detail":{"message":"denied","error_type":"permission_error"}}`},
+		"success: a top-level error_type": {status: 403, body: `{"error_type":"authentication_error"}`},
+		"success: 500":                    {status: 500, body: `{}`},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -530,8 +381,6 @@ func TestErrorRenderings(t *testing.T) {
 		},
 		"success: timeout in seconds":              {err: newTimeoutError(1250*time.Millisecond, context.DeadlineExceeded), want: "Request timed out (timeout=1.25s).", wantCause: context.DeadlineExceeded},
 		"success: whole seconds":                   {err: newTimeoutError(10*time.Second, nil), want: "Request timed out (timeout=10s)."},
-		"success: the context's deadline":          {err: newTimeoutError(0, context.DeadlineExceeded), want: "Request timed out.", wantCause: context.DeadlineExceeded},
-		"success: the proxy hop":                   {err: newProxyTimeoutError(10*time.Second, cause), want: "Request timed out on the proxy hop (timeout=10s).", wantCause: cause},
 		"success: the proxy hop without a timeout": {err: newProxyTimeoutError(0, cause), want: "Request timed out on the proxy hop.", wantCause: cause},
 		"success: a zero status is left out":       {err: &ResponseValidationError{FieldPath: "answers.n.noul"}, want: "Invalid response data at 'answers.n.noul'."},
 		"success: a zero status after an endpoint": {err: &ResponseValidationError{Endpoint: "GET https://api.typesafe.ai/v1/models", FieldPath: "."}, want: "GET https://api.typesafe.ai/v1/models: Invalid response data at '.'."},

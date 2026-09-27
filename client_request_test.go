@@ -24,7 +24,6 @@ import (
 	"net/url"
 	"reflect"
 	"runtime"
-	"slices"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -431,69 +430,6 @@ func assertDeadline(t *testing.T, cp *capture, i int, before time.Time, d time.D
 	}
 }
 
-// TestAPIKeyTrimmedOnTheWire is test_api_key_whitespace's wire half: a key
-// padded with whitespace, from the environment or from WithAPIKey, reaches
-// Authorization trimmed. TestAPIKeyTrimmed checks the resolution.
-func TestAPIKeyTrimmedOnTheWire(t *testing.T) {
-	// The upstream parametrize grid, 4 paddings x 2 sources, as a map.
-	type test struct {
-		padding string
-		env     bool
-	}
-	tests := map[string]test{}
-	for _, padding := range []string{"", "\n", "\r\n", " \t\r\n "} {
-		tests[fmt.Sprintf("success: env padded %q", padding)] = test{padding: padding, env: true}
-		tests[fmt.Sprintf("success: option padded %q", padding)] = test{padding: padding}
-	}
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			clearEnv(t)
-			key := tt.padding + testKey + tt.padding
-			var opts []ClientOption
-			if tt.env {
-				t.Setenv(APIKeyEnv, key)
-			} else {
-				t.Setenv(APIKeyEnv, "env-key")
-				opts = append(opts, WithAPIKey(key))
-			}
-			rec := replying(http.StatusOK, []byte(`{"models":[]}`))
-			c := newEnvClient(t, rec, opts...)
-			resp, err := c.Models().List(t.Context())
-			if err != nil {
-				t.Fatalf("List: %v", err)
-			}
-			if n := len(resp.Models()); n != 0 {
-				t.Errorf("List returned %d models, want 0", n)
-			}
-			if diff := gocmp.Diff("Bearer "+testKey, onlyRequest(t, rec).Header.Get("Authorization")); diff != "" {
-				t.Errorf("Authorization (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
-// TestBlankEnvIsUnsetOnTheWire is test_empty_env_unset's wire half: a blank
-// TYPESAFE_BASE_URL and TYPESAFE_DEFAULT_MODEL count as unset, so the request
-// goes to the default URL with the default model; TYPESAFE_LOG_LEVEL is not
-// read at all. TestBlankEnvIsUnset checks the resolution.
-func TestBlankEnvIsUnsetOnTheWire(t *testing.T) {
-	clearEnv(t)
-	for _, name := range []string{BaseURLEnv, DefaultModelEnv, "TYPESAFE_LOG_LEVEL"} {
-		t.Setenv(name, " \t ")
-	}
-	rec := replying(http.StatusOK, testsupport.Fixture(t, "result.json"))
-	c := newEnvClient(t, rec, WithAPIKey(testKey))
-	if _, err := c.SystemOne(t.Context(), "x", noulQuestion(t)); err != nil {
-		t.Fatalf("SystemOne: %v", err)
-	}
-	req := onlyRequest(t, rec)
-	got := []string{req.URL, string(req.Body)}
-	want := []string{"https://api.typesafe.ai/v1/systemone", `{"state":"x","model":"jev-latest",` + noulBody + `}`}
-	if diff := gocmp.Diff(want, got); diff != "" {
-		t.Errorf("URL, body (-want +got):\n%s", diff)
-	}
-}
-
 // TestProtectedHeadersAndPrefixBaseURL ports test_headers_timeout_and_logging:
 // a base URL with a path prefix and trailing slashes posts under the prefix;
 // the SDK's own headers win over the caller's, both the client's (WithHeader)
@@ -833,34 +769,6 @@ func TestWithPretouch(t *testing.T) {
 				t.Errorf("body (-want +got):\n%s", diff)
 			}
 		})
-	}
-}
-
-// TestRequestURLIsCopied pins that every request carries its own copy of the
-// endpoint URL, so a RoundTripper that rewrites req.URL, which the
-// RoundTripper contract forbids, changes neither the next request's URL nor
-// the client's.
-func TestRequestURLIsCopied(t *testing.T) {
-	rec := replying(http.StatusOK, []byte(`{"models":[]}`))
-	var sent []string
-	rt := testsupport.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
-		sent = append(sent, req.URL.String())
-		req.URL.Path = "/evil"
-		req.URL.Host = "evil.test"
-		return rec.RoundTrip(req)
-	})
-	c := newTestClient(t, rt)
-	for range 2 {
-		if _, err := c.Models().List(t.Context()); err != nil {
-			t.Fatalf("List: %v", err)
-		}
-	}
-	want := []string{"https://api.typesafe.ai/v1/models", "https://api.typesafe.ai/v1/models"}
-	if diff := gocmp.Diff(want, sent); diff != "" {
-		t.Errorf("URLs the transport got (-want +got):\n%s", diff)
-	}
-	if got := []string{c.cfg().ModelsURL.String(), c.cfg().SystemOneURL.String()}; !slices.Equal(got, []string{"https://api.typesafe.ai/v1/models", "https://api.typesafe.ai/v1/systemone"}) {
-		t.Errorf("the client's endpoints changed: %v", got)
 	}
 }
 

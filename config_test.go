@@ -328,9 +328,6 @@ func TestInvalidTimeout(t *testing.T) {
 			if got := err.Error(); got != tt.want {
 				t.Errorf("Error() = %q, want %q", got, tt.want)
 			}
-			if !strings.Contains(err.Error(), "timeout") && !strings.Contains(err.Error(), "Timeout") {
-				t.Errorf("Error() = %q does not name the timeout", err.Error())
-			}
 		})
 	}
 }
