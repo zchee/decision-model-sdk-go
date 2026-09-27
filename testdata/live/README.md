@@ -35,9 +35,9 @@ decode in 4 allocations, as `result.json` does.
 | `unauthenticated.json` | `TestLiveUnauthenticated`, a request carrying no credential | `GET /v1/models` without `Authorization` | 403 | 118 |
 | `wrong-key.json` | `TestLiveUnauthenticated`, a key the API did not issue | `GET /v1/models` | 401 | 138 |
 
-The first three were recorded at 2026-09-27 02:41:00 JST (the pass's start,
-from `date`) on 47d2521, the last two at 02:42:13 JST on 47d2521's tree with
-`TestLiveUnauthenticated` as committed beside these files.
+The first three were recorded at 2026-09-27 02:41:00 JST on 47d2521, the last
+two at 02:42:13 JST on 47d2521's tree with `TestLiveUnauthenticated` as
+committed beside these files.
 
 Two tests read them on every `go test` run, without the live tag:
 `livetest.TestRecordedBodiesHoldNoCredentials` (exactly these files, no

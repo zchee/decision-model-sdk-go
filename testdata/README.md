@@ -142,9 +142,9 @@ before its traversal recurses further. `malformed-too-deep.json` sits past
 both limits.
 
 The faults inside an unknown member sit in a top-level member, `meta`, that a
-decoder has no reason to read. They are the reason the decoder skips nothing:
-sonic's skip path accepts the five syntax faults, and every sonic path accepts
-a raw control character in a string value. The invalid-UTF-8 and
+decoder has no reason to read. They are the reason the decoder reads every
+member: sonic's skip path accepts the five syntax faults, and every sonic path
+accepts a raw control character in a string value. The invalid-UTF-8 and
 control-character faults come in pairs, one in a string value and one in a
 member name: a decoder that checks only values, or only names, accepts one
 file of each pair, and the `malformed-*.json` loops catch it. A duplicate

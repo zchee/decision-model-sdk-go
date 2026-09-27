@@ -335,11 +335,11 @@ one worker per core).
   SystemOneResponse engine.Response`): the conversion is free, the public
   method set is the root package's, and the engine's accessors do not join
   it. The other public types are wrapper structs over `internal/wire`
-  values, as before; no type is an alias.
+  values; no type is an alias.
 - `internal/alloctest` (test files only) holds the root package's
   allocation budgets; CI runs them without `-race`.
-- Of the SDK's own files, only `internal/codec/nocopy.go` and the root
-  package's typed store, `decodeas_store.go`, import `unsafe`;
+- Of the SDK's own non-test files, only `internal/codec/nocopy.go` and the
+  root package's typed store, `decodeas_store.go`, import `unsafe`;
   `internal/engine` imports no `unsafe` and uses no raw-pointer route, and
   no file of the module imports `"C"`. The seam tests enforce it (they
   also permit `unsafe` in the tests of `internal/codec` and in
