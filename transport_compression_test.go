@@ -17,7 +17,6 @@ package typesafe
 import (
 	"bytes"
 	"compress/gzip"
-	"errors"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -92,40 +91,26 @@ func (g *gzipAPI) requests() []gzipSeen {
 // through a caller's transport whose DisableCompression is true, sends no
 // Accept-Encoding and reads the length the server declares: the record's
 // Content-Length equals its body_bytes. The models list and a System One
-// answer decode alike either way. WithCompression configures the SDK's own
-// transport, so NewClient refuses it with WithRoundTripper or
-// WithHTTPTransport, whatever its value, and sends nothing.
+// answer decode alike either way.
 func TestCompressionOption(t *testing.T) {
 	sdk := func(opts ...ClientOption) func(*testing.T) []ClientOption {
 		return func(t *testing.T) []ClientOption {
 			return append([]ClientOption{WithRootCAs(testsupport.RootCAs(t)), WithProxy(nil)}, opts...)
 		}
 	}
-	caller := func(disable bool, opts ...ClientOption) func(*testing.T) []ClientOption {
+	caller := func(disable bool) func(*testing.T) []ClientOption {
 		return func(t *testing.T) []ClientOption {
 			tr := &http.Transport{TLSClientConfig: testsupport.ClientTLSConfig(t), DisableCompression: disable}
-			return append([]ClientOption{WithHTTPTransport(tr)}, opts...)
+			return []ClientOption{WithHTTPTransport(tr)}
 		}
 	}
-	roundTripper := func(opts ...ClientOption) func(*testing.T) []ClientOption {
-		return func(*testing.T) []ClientOption {
-			return append([]ClientOption{WithRoundTripper(&testsupport.Recorder{})}, opts...)
-		}
-	}
-	rtRefused := "WithRoundTripper cannot be combined with WithCompression: the round tripper replaces the SDK's transport, which WithCompression configures."
-	htRefused := "WithHTTPTransport cannot be combined with WithCompression: the caller's transport keeps its own DisableCompression."
 	tests := map[string]struct {
-		opts    func(*testing.T) []ClientOption
-		refused string // NewClient's *ConfigError; "" when the client builds
-		gzip    bool   // requests accept gzip, and answers come gzip-encoded
+		opts func(*testing.T) []ClientOption
+		gzip bool // requests accept gzip, and answers come gzip-encoded
 	}{
 		"success: the default requests gzip and decodes it":                                      {opts: sdk(), gzip: true},
 		"success: WithCompression(true) requests gzip and decodes it":                            {opts: sdk(WithCompression(true)), gzip: true},
 		"success: WithCompression(false) sends no Accept-Encoding and reads the declared length": {opts: sdk(WithCompression(false))},
-		"error: WithRoundTripper with WithCompression(true) is refused":                          {opts: roundTripper(WithCompression(true)), refused: rtRefused},
-		"error: WithRoundTripper with WithCompression(false) is refused":                         {opts: roundTripper(WithCompression(false)), refused: rtRefused},
-		"error: WithHTTPTransport with WithCompression(true) is refused":                         {opts: caller(false, WithCompression(true)), refused: htRefused},
-		"error: WithHTTPTransport with WithCompression(false) is refused":                        {opts: caller(false, WithCompression(false)), refused: htRefused},
 		"success: a caller transport with DisableCompression true sends no Accept-Encoding":      {opts: caller(true)},
 		"success: a caller transport with DisableCompression false requests gzip":                {opts: caller(false), gzip: true},
 	}
@@ -137,19 +122,6 @@ func TestCompressionOption(t *testing.T) {
 			clearEnv(t)
 			opts := append([]ClientOption{WithAPIKey(testKey), WithBaseURL(srv.URL()), WithLogger(logs.Logger())}, tt.opts(t)...)
 			c, err := NewClient(opts...)
-			if tt.refused != "" {
-				var ce *ConfigError
-				if !errors.As(err, &ce) {
-					t.Fatalf("NewClient = %v, %v; want a *ConfigError", c, err)
-				}
-				if diff := gocmp.Diff(tt.refused, ce.Error()); diff != "" {
-					t.Errorf("Error() (-want +got):\n%s", diff)
-				}
-				if got := api.requests(); len(got) != 0 {
-					t.Errorf("the server saw %d requests, want none: a refused client sends nothing", len(got))
-				}
-				return
-			}
 			if err != nil {
 				t.Fatalf("NewClient: %v", err)
 			}

@@ -965,10 +965,12 @@ type (
 	}
 )
 
-// TestPreparedForOptional covers the three optional cases at the plan's
-// level: the flag is recorded when given and absent when not, and changes
-// nothing on the wire. What it means for decoding (an absent answer leaves
-// Present false) is TestDecodeAsOptional's.
+// TestPreparedForOptional covers two of the three optional cases at the
+// plan's level: the flag is recorded when given and absent when not, and
+// changes nothing on the wire. The third, optional on a field that is not an
+// answer field, is rejection 12 of TestPreparedForRejections. What it means
+// for decoding (an absent answer leaves Present false) is
+// TestDecodeAsOptional's.
 func TestPreparedForOptional(t *testing.T) {
 	tests := map[string]struct {
 		plan         *typedPlan
@@ -1001,13 +1003,6 @@ func TestPreparedForOptional(t *testing.T) {
 		opt, req := typedPlanFor[optionalSet](), typedPlanFor[requiredSet]()
 		if diff := gocmp.Diff(string(req.prepared.wirePrepared().Questions), string(opt.prepared.wirePrepared().Questions)); diff != "" {
 			t.Errorf("optional changed the wire bytes (-required +optional):\n%s", diff)
-		}
-	})
-	t.Run("error: (12) optional on a non-answer field", func(t *testing.T) {
-		// The third case is rejection 12 of TestPreparedForRejections.
-		_, err := PreparedFor[rejOptionalString]()
-		if _, ok := errors.AsType[*ConfigError](err); !ok {
-			t.Fatalf("PreparedFor[rejOptionalString] error = %#v, want a *ConfigError", err)
 		}
 	})
 }

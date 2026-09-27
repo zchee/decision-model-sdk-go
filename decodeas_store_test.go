@@ -49,9 +49,10 @@ import (
 //   - the bound removed, or reduced to one of its three comparisons:
 //     TestStoreRefusesOutsideField;
 //   - the write at another offset than the one the bound checked, such as
-//     unsafe.Add(b.p, off+1): TestStoreWritesTyped;
+//     unsafe.Add(b.p, off+1): checkStoreShape, which TestMain runs before
+//     every test;
 //   - the answer copied as bytes, without the typed assignment (and so
-//     without write barriers): TestStoreWritesTyped.
+//     without write barriers): checkStoreShape, as above.
 
 // embeddedJSON is an answer for storeKinds's embedded answer field.
 const embeddedJSON = `"embedded":{"type":"noul","noul":0.25}`
@@ -419,27 +420,12 @@ func TestDecodeTypedPlanMismatch(t *testing.T) {
 	t.Error("decodeTyped with the plan of another type returned")
 }
 
-// TestStoreWritesTyped checks invariants 4 and 6 of decodeas_store.go on its
-// source: the file imports unsafe alone, uses only unsafe.Pointer,
-// unsafe.Sizeof and unsafe.Add, has no compiler directive, no array type and
-// no call of copy or append, and writes only by one typed assignment through
-// *F, where F is a type parameter constrained to the three answer types, of
-// an unsafe.Add result. A copy of the answer's bytes would carry pointers
-// past the write barriers. The offset that unsafe.Add takes is a plain name
-// that the condition of an earlier if statement, whose body is a panic,
-// uses, and which is defined once, from the offset the plan recorded for the
-// field, and never assigned again: the store writes at the offset its bound
-// checked. TestMain runs the same check before any test.
-func TestStoreWritesTyped(t *testing.T) {
-	checkStoreShape(t)
-}
-
-// TestMain runs TestStoreWritesTyped's check of decodeas_store.go before
-// any test of the package. A store that writes past the offset its bound
-// checked, such as *(*F)(unsafe.Add(b.p, off+8)) = v, corrupts memory in
-// the first test that decodes a typed answer, and that test hangs until
-// the binary's timeout before TestStoreWritesTyped runs; checked first, the
-// package fails at once and names the test.
+// TestMain runs checkStoreShape before any test of the package. A store that
+// writes past the offset its bound checked, such as
+// *(*F)(unsafe.Add(b.p, off+8)) = v, corrupts memory in the first test that
+// decodes a typed answer, and that test hangs until the binary's timeout;
+// checked first, the package fails at once, with a failure line that names
+// the check TestStoreWritesTyped.
 func TestMain(m *testing.M) {
 	var failures shapeFailures
 	checkStoreShape(&failures)
@@ -454,8 +440,8 @@ func TestMain(m *testing.M) {
 	m.Run()
 }
 
-// shapeReporter receives the failures of checkStoreShape: the test's
-// *testing.T, or TestMain's shapeFailures.
+// shapeReporter receives the failures of checkStoreShape: TestMain's
+// shapeFailures.
 type shapeReporter interface {
 	Helper()
 	Errorf(format string, args ...any)
@@ -472,8 +458,18 @@ func (f *shapeFailures) Errorf(format string, args ...any) {
 	*f = append(*f, fmt.Sprintf(format, args...))
 }
 
-// checkStoreShape reports to t every way decodeas_store.go departs from
-// the shape TestStoreWritesTyped states.
+// checkStoreShape checks invariants 4 and 6 of decodeas_store.go on its
+// source, and reports to t every way the file departs from them: the file
+// imports unsafe alone, uses only unsafe.Pointer, unsafe.Sizeof and
+// unsafe.Add, has no compiler directive, no array type and no call of copy
+// or append, and writes only by one typed assignment through *F, where F is
+// a type parameter constrained to the three answer types, of an unsafe.Add
+// result. A copy of the answer's bytes would carry pointers past the write
+// barriers. The offset that unsafe.Add takes is a plain name that the
+// condition of an earlier if statement, whose body is a panic, uses, and
+// which is defined once, from the offset the plan recorded for the field,
+// and never assigned again: the store writes at the offset its bound
+// checked.
 func checkStoreShape(t shapeReporter) {
 	t.Helper()
 	fset := token.NewFileSet()

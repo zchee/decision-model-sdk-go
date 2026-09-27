@@ -39,8 +39,8 @@ package typesafe
 //     alignment, and never a neighbour.
 //  4. The write is a typed assignment through *F, never a copy of bytes:
 //     the compiler emits the write barriers F's pointer fields need, so the
-//     collector sees every pointer stored (TestStoreWritesTyped checks the
-//     shape of this file).
+//     collector sees every pointer stored (TestMain checks the shape of
+//     this file before every test).
 //  5. The pointer is not kept: a fieldBase lives on the caller's stack for
 //     one decode, and nothing here stores it.
 //  6. Invariants 2 and 3 are checked before every write, not only trusted (the
