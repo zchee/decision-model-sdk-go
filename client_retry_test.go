@@ -54,8 +54,8 @@ func serverCounts(srv *testsupport.LoopbackServer) []string {
 	return out
 }
 
-// TestConnectionErrorsRetried ports test_connection_retry_recovers (RT9):
-// an attempt that fails without a response, as a *ConnectionError or a
+// TestConnectionErrorsRetried ports test_connection_retry_recovers: an
+// attempt that fails without a response, as a *ConnectionError or a
 // *TimeoutError, is retried under the production policy, and the third
 // attempt recovers. Through the Recorder, inside a bubble, the four upstream
 // kinds (ConnectError, ReadTimeout, ReadError, LocalProtocolError) and the
@@ -64,10 +64,9 @@ func serverCounts(srv *testsupport.LoopbackServer) []string {
 // connection reset mid-body and the attempt's deadline, each twice before
 // the server answers; and a GOAWAY after the request was written, which
 // net/http cannot replay: the *ConnectionError it makes, which names the
-// GOAWAY, is retried by the policy with X-TypeSafe-Retry-Count: 1 (S-T4's
-// "failure after write" clause, deferred from W2.2), and each connection the
-// server closed that way closed in the order the K33 rows of
-// TestTransportErrorsBecomeConnectionOrTimeout pin.
+// GOAWAY, is retried by the policy with X-TypeSafe-Retry-Count: 1, and each
+// connection the server closed that way closed in the order that
+// TestTransportErrorsBecomeConnectionOrTimeout's closedGracefully pins.
 func TestConnectionErrorsRetried(t *testing.T) {
 	t.Run("recorder", func(t *testing.T) {
 		tests := map[string]struct {
@@ -168,16 +167,16 @@ func TestConnectionErrorsRetried(t *testing.T) {
 		}
 		// closedAfterGoAway checks the close records of the first n
 		// connections, each ended by goAwayAfterWrite, by the server's
-		// sequence numbers (K29), in the terms of internal/h2gate's
-		// closedGracefully (rulings K33, K34, R100): the GOAWAY frame, then
-		// the server's close_notify and FIN, then the reader's read of the
-		// end of the client's side, then the socket's close (0 < GoAwaySeq <
-		// CloseWriteSeq < PeerClosedSeq < ClosedSeq). The server necessarily
-		// closes first on this path, so client-first is not allowed: the
-		// GOAWAY's LastStreamID is the held stream, which net/http leaves
-		// open, and a connection with an open stream is never closed as
-		// idle, so the client waits for the response until CloseConns ends
-		// the call in flight, as in the K33 row of
+		// sequence numbers, in the terms of internal/h2gate's
+		// closedGracefully: the GOAWAY frame, then the server's close_notify
+		// and FIN, then the reader's read of the end of the client's side,
+		// then the socket's close (0 < GoAwaySeq < CloseWriteSeq <
+		// PeerClosedSeq < ClosedSeq). The server necessarily closes first on
+		// this path, so client-first is not allowed: the GOAWAY's
+		// LastStreamID is the held stream, which net/http leaves open, and a
+		// connection with an open stream is never closed as idle, so the
+		// client waits for the response until CloseConns ends the call in
+		// flight, as in the GOAWAY row of
 		// TestTransportErrorsBecomeConnectionOrTimeout.
 		closedAfterGoAway := func(t *testing.T, srv *testsupport.LoopbackServer, n int) {
 			t.Helper()
@@ -377,7 +376,7 @@ func uploadCalls(n int) []uploadCall {
 }
 
 // sumPerAttempt is a RoundTripper that hashes a fresh GetBody read of every
-// attempt (PM4) before rt sends it, keyed by the call's X-Call header.
+// attempt before rt sends it, keyed by the call's X-Call header.
 type sumPerAttempt struct {
 	rt   http.RoundTripper
 	mu   sync.Mutex
@@ -431,11 +430,11 @@ func (l *lingeringTransport) RoundTrip(req *http.Request) (*http.Response, error
 }
 
 // TestEarlyAnswerToLargeUpload pins the pooled request body's lifetime
-// against a transport that still reads it after the answer came (K14, PM4;
-// ruling R92 m-2): each call sends 6 MiB, the answer is a 403 that comes
-// before any of it is read, and the policy retries it (Statuses(403)), so
-// every attempt leaves a reader open when the call returns and drops its
-// own reference. The scratch must not be recycled, and so reused by the
+// against a transport that still reads it after the answer came: each call
+// sends 6 MiB, the answer is a 403 that comes before any of it is read,
+// and the policy retries it (Statuses(403)), so every attempt leaves a
+// reader open when the call returns and drops its own reference. The
+// scratch must not be recycled, and so reused by the
 // next call's encoding, while a reader is open.
 //
 // With the lingering transport the readers read only after the next call

@@ -58,7 +58,7 @@ func dialPhaseTrace(t *testing.T, hook string, release <-chan struct{}, late boo
 	}
 }
 
-// TestClientTraceDialPhaseBound pins the K28d bound (owner decision G11 (5))
+// TestClientTraceDialPhaseBound pins the dial-phase bound
 // through the public options, on the SDK's default transport and the real
 // net.Dialer over loopback TLS: a WithClientTrace hook that blocks the first
 // connection's DNS lookup (a localhost base URL), TCP connect or TLS
@@ -78,12 +78,10 @@ func dialPhaseTrace(t *testing.T, hook string, release <-chan struct{}, late boo
 // returns, the next call succeeds.
 //
 // The bounds are the configured connect timeout and the dial bound's grace
-// past it, not a measurement (STANDING 9): a call the bound did not end
-// waits until the watchdog frees its hook, hold after the start, beyond the
-// upper limit. The clock is real: the lower limit allows one coarse tick
-// (K29), and the upper one slack for a slow -race runner, far below hold. It
-// runs in CI's -race test step (go test -race with coverage) on
-// ubuntu-26.04, xcode-27 and windows-2025.
+// past it, not a measurement: a call the bound did not end waits until the
+// watchdog frees its hook, hold after the start, beyond the upper limit. The
+// clock is real: the lower limit allows one coarse tick, and the upper one
+// slack for a slow -race runner, far below hold.
 func TestClientTraceDialPhaseBound(t *testing.T) {
 	const (
 		connect = 250 * time.Millisecond
@@ -186,15 +184,14 @@ func TestClientTraceDialPhaseBound(t *testing.T) {
 }
 
 // TestClientTraceDialPhaseBoundLatePanic pins what becomes of a hook the
-// K28d bound left running that then panics: the bound has ended its call
-// with a *TimeoutError and the call has returned, so the panic is not raised
-// on the caller; the shield recovers it on the goroutine the hook runs on
-// (the transport's dial for ConnectStart, net/http's handshake for
+// dial-phase bound left running that then panics: the bound has ended its
+// call with a *TimeoutError and the call has returned, so the panic is not
+// raised on the caller; the shield recovers it on the goroutine the hook
+// runs on (the transport's dial for ConnectStart, net/http's handshake for
 // TLSHandshakeStart) and logs the WARN record of a hook that panicked after
-// its request returned, naming the hook and its stack, and the client's
-// next call succeeds. A shield that did not recover it would crash the test
-// binary. It runs in CI's -race test step (go test -race with coverage) on
-// ubuntu-26.04, xcode-27 and windows-2025.
+// its request returned, naming the hook and its stack, and the client's next
+// call succeeds. A shield that did not recover it would crash the test
+// binary.
 func TestClientTraceDialPhaseBoundLatePanic(t *testing.T) {
 	const connect = 250 * time.Millisecond
 	tests := map[string]struct{ hook string }{

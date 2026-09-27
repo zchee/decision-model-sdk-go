@@ -56,8 +56,8 @@ func newModelsServer(t *testing.T) *testsupport.LoopbackServer {
 // refusingProxy is an HTTP/1.1 proxy on 127.0.0.1 that answers every
 // CONNECT with "502 <reason>", a status line whose text net/http returns as
 // the dial's error without its proxyconnect wrap; the SDK's transport adds
-// it (K16). The answer carries a body, which reaches neither the error nor a
-// log record (review SLICE3 NIT 1).
+// it. The answer carries a body, which reaches neither the error nor a log
+// record.
 type refusingProxy struct {
 	ln net.Listener
 	wg sync.WaitGroup
@@ -108,7 +108,7 @@ func echoStatusLine(password, auth string) string {
 // it reads, a CONNECT or a plain-HTTP request forwarded to it, with
 // answer(password, auth), which repeats the credential the request carried:
 // auth is the Proxy-Authorization value net/http sent for the proxy URL's
-// userinfo and password the password it decodes to (review W6.2 MIN-4). A
+// userinfo and password the password it decodes to. A
 // held proxy answers once open has run; requests counts the requests read.
 type echoingProxy struct {
 	ln       net.Listener
@@ -188,15 +188,14 @@ func proxySecrets(user, password string) []string {
 	return out
 }
 
-// TestTransportDebugRecordsHoldNoCredential pins ruling R84 (verifier
-// finding F-1) through the client: the transport's DEBUG records that print
-// an error, "h2: gate error" for a cold dial that failed and "h2: redial
-// error" for a dial that failed after the gate was warm, print it through
-// the credential scrub, escaped, as the SDK error does, at DEBUG and at
-// LevelTrace. The errors come from a caller dialer (WithHTTPTransport) and
-// from a proxy that answers the CONNECT with 502 and a reason of its own
-// (K16), and each repeats the request's Authorization value, the API key
-// quoted and an X-Client-Secret value the call sent.
+// TestTransportDebugRecordsHoldNoCredential pins, through the client, that
+// the transport's DEBUG records that print an error, "h2: gate error" for a
+// cold dial that failed and "h2: redial error" for a dial that failed after
+// the gate was warm, print it through the credential scrub, escaped, as the
+// SDK error does, at DEBUG and at LevelTrace. The errors come from a caller
+// dialer (WithHTTPTransport) and from a proxy that answers the CONNECT with
+// 502 and a reason of its own, and each repeats the request's Authorization
+// value, the API key quoted and an X-Client-Secret value the call sent.
 func TestTransportDebugRecordsHoldNoCredential(t *testing.T) {
 	const secret = "provider-credential"
 	// failure is the text every failure writes, with an escape to show the
@@ -259,7 +258,7 @@ func TestTransportDebugRecordsHoldNoCredential(t *testing.T) {
 			proxy:  true,
 		},
 		// A proxy that repeats the credential its CONNECT carried, which the
-		// request's own credentials do not name (review W6.2 MIN-4): the
+		// request's own credentials do not name: the
 		// SDK's transport replaces it where the refusal becomes an error.
 		"a proxy's 407 that repeats its own credential": {
 			client: func(t *testing.T, logger *slog.Logger) *Client {
@@ -337,7 +336,7 @@ func newCredentialClient(t *testing.T, logger *slog.Logger, opts ...ClientOption
 }
 
 // TestLogLevelEnvNotRead pins the deviation "`TYPESAFE_LOG_LEVEL` not read"
-// (L8, test_setup_logging_from_env, tests/test_logging.py:213-231): the SDK
+// (test_setup_logging_from_env, tests/test_logging.py:213-231): the SDK
 // never configures a logger, so each value the upstream test sets, "debug",
 // "info", "off", "bogus" and "", leaves a call's records as they are without
 // the variable: at INFO the one "response" record, at DEBUG the DEBUG
@@ -397,13 +396,13 @@ func TestLogLevelEnvNotRead(t *testing.T) {
 	})
 }
 
-// TestLogLevelsPerAttempt ports test_logger_level_controls_output (L7,
-// tests/test_logging.py:187-210) and pins the section 9 observability rows
-// for one attempt: the logger's level decides which records a call makes,
-// exactly {DEBUG, INFO} at DEBUG, {INFO} at INFO and none at WARN; each
-// attempt makes one INFO record, "response" naming the method and the
-// endpoint (or "request failed" for an attempt without a response); the
-// DEBUG records carry the headers, redacted; no record above DEBUG carries
+// TestLogLevelsPerAttempt ports test_logger_level_controls_output
+// (tests/test_logging.py:187-210) and pins, for one attempt: the logger's
+// level decides which records a call makes, exactly {DEBUG, INFO} at
+// DEBUG, {INFO} at INFO and none at WARN; each attempt makes one INFO
+// record, "response" naming the method and the endpoint (or "request
+// failed" for an attempt without a response); the DEBUG records carry the
+// headers, redacted; no record above DEBUG carries
 // a header, and none above LevelTrace a body. Each call makes one attempt.
 func TestLogLevelsPerAttempt(t *testing.T) {
 	const endpoint = "https://api.typesafe.ai/v1/models"
@@ -497,15 +496,15 @@ func newLoopbackClient(t *testing.T, srv *testsupport.LoopbackServer, logger *sl
 	return mustClient(t, append([]ClientOption{WithAPIKey(testKey), WithBaseURL(srv.URL()), WithRootCAs(testsupport.RootCAs(t)), WithProxy(nil), WithLogger(logger)}, opts...)...)
 }
 
-// TestLogTransportRecords pins the section 9 rows that need the SDK's own
+// TestLogTransportRecords pins the records that need the SDK's own
 // transport: a cold call logs "h2: dial" at DEBUG, with h2=true, and the
 // gate's release, and Stats().Dials counts the one connection; a warm call
 // dials nothing; and, for a call that succeeds, WithLogEndpointHost(false)
 // keeps the host out of every record down to LevelTrace, the transport's
 // included, where the default names the full URL. A call that fails can
 // still name the host: the text of a dial or DNS error, which the network
-// stack writes, goes into the error and its records as it is (review W3.3
-// MINOR 2; the option names only the endpoint attribute).
+// stack writes, goes into the error and its records as it is (the option
+// names only the endpoint attribute).
 func TestLogTransportRecords(t *testing.T) {
 	t.Run("success: a cold call dials once and logs it", func(t *testing.T) {
 		srv := newModelsServer(t)
@@ -563,9 +562,8 @@ func TestLogTransportRecords(t *testing.T) {
 	}
 }
 
-// TestLogWarnCapThroughClient re-asserts AC-F7's WARN cap through the client
-// (Appendix B "Unknown-answer WARN per answer → ≤ 8 per response +
-// summary"; the rule's own table is TestUnknownAnswerTypeWarnCap): a
+// TestLogWarnCapThroughClient re-asserts the WARN cap through the client
+// (the rule's own table is TestUnknownAnswerTypeWarnCap): a
 // successful call whose response holds 12 answers of unknown types logs
 // eight WARN records naming the first eight, then one counting the other
 // four, and succeeds; a name and a type the server chose are escaped and
@@ -620,31 +618,29 @@ func TestLogWarnCapThroughClient(t *testing.T) {
 }
 
 // TestProxyEchoHoldsNoCredential checks that no answer of a proxy repeating
-// its own credential gets it past the SDK (review W6.2 MIN-4 and MINOR 1 of
-// its review): a well-formed refusal, whose status line refusedConnect
-// scrubs, and every answer net/http cannot parse, from which it builds an
-// error quoting the answer before the SDK's transport sees a response. The
-// proxy URL holds a password of 22 bytes, and each answer repeats it, or
-// the Basic token of the Proxy-Authorization value the CONNECT carried, or
-// the password as the proxy URL escapes it (its "@" is %40). No
-// rendering of the SDK error, of anything it unwraps to, nor any record at
-// DEBUG or LevelTrace holds either, and "***" stands for them in Error(), in
-// the INFO "request failed" record and in the DEBUG "h2: gate error" record.
-// A refusal is a proxy failure (Proxy() true, K16); an answer net/http
-// cannot parse comes back from it as a failure of the dial, not of the
-// proxy, and Proxy() is false (the reviewer's K16 residual). The last shape
+// its own credential gets it past the SDK: a well-formed refusal, whose
+// status line refusedConnect scrubs, and every answer net/http cannot parse,
+// from which it builds an error quoting the answer before the SDK's
+// transport sees a response. The proxy URL holds a password of 22 bytes, and
+// each answer repeats it, or the Basic token of the Proxy-Authorization
+// value the CONNECT carried, or the password as the proxy URL escapes it
+// (its "@" is %40). No rendering of the SDK error, of anything it unwraps
+// to, nor any record at DEBUG or LevelTrace holds either, and "***" stands
+// for them in Error(), in the INFO "request failed" record and in the DEBUG
+// "h2: gate error" record. A refusal is a proxy failure (Proxy() true); an
+// answer net/http cannot parse comes back from it as a failure of the dial,
+// not of the proxy, and Proxy() is false. The last shape
 // is the same proxy in front of a plain-HTTP API URL, which net/http sends
 // the request itself, Proxy-Authorization included, without a CONNECT: the
 // malformed answer then fails the round trip after the dial, which the
 // attempt's classification, not the transport's, maps, and no "h2: gate
 // error" record is written.
 //
-// The proxy's credential is looked for whatever its length (ruling
-// D-W6-secfix-m2), so a 3-byte password is scrubbed too; and each word of a
-// password between single spaces, since net/http quotes one word of a status
-// line it cannot parse: the first where the status code is, or the second
-// where the status code is when the first is read as the version, alone or
-// glued to it (ruling D-W6-secfix-revise-2-scope (a)).
+// The proxy's credential is looked for whatever its length, so a 3-byte
+// password is scrubbed too; and each word of a password between single
+// spaces, since net/http quotes one word of a status line it cannot parse:
+// the first where the status code is, or the second where the status code is
+// when the first is read as the version, alone or glued to it.
 func TestProxyEchoHoldsNoCredential(t *testing.T) {
 	const user, defaultPassword = "proxy-user", "hunter2@proxy-password"
 	escaped := strings.TrimPrefix(url.UserPassword("", defaultPassword).String(), ":") // hunter2%40proxy-password
@@ -777,20 +773,20 @@ func assertRecordsScrubbed(t *testing.T, logs *testsupport.LogRecorder, secrets 
 	}
 }
 
-// TestProxyEchoConcurrentColdClient pins ruling D-W6-secfix-m2 where the
-// security review's probe found the per-request reading wrong: twelve
-// calls at once on a cold client, through a proxy whose answer net/http
-// cannot parse and quotes with the password in it. Over CONNECT the gate
-// lets one call lead and parks the other eleven; the proxy answers the
-// leader's CONNECT only once they are parked, so the proxy func is asked
-// once, by net/http for the leader, and the eleven share the leader's
-// failed dial (R19) without asking it. Every one of the twelve errors, and
-// every record at the level, holds no password, token or escaped password
-// and shows "***": the scrub reads the transport's set of the proxies it
-// chose, not the request's own. A plain-HTTP API URL sends each call to the
-// proxy itself, which asks the func once per call. A rotating func turns
-// between two proxies, each repeating its own password. The func is asked
-// exactly as often as the proxy is sent a request: none on the error path.
+// TestProxyEchoConcurrentColdClient pins the scrub under a cold burst
+// through a proxy: twelve calls at once on a cold client, through a proxy
+// whose answer net/http cannot parse and quotes with the password in it.
+// Over CONNECT the gate lets one call lead and parks the other eleven; the
+// proxy answers the leader's CONNECT only once they are parked, so the
+// proxy func is asked once, by net/http for the leader, and the eleven
+// share the leader's failed dial without asking it. Every one of the twelve
+// errors, and every record at the level, holds no password, token or
+// escaped password and shows "***": the scrub reads the transport's set of
+// the proxies it chose, not the request's own. A plain-HTTP API URL sends
+// each call to the proxy itself, which asks the func once per call. A
+// rotating func turns between two proxies, each repeating its own password.
+// The func is asked exactly as often as the proxy is sent a request: none
+// on the error path.
 func TestProxyEchoConcurrentColdClient(t *testing.T) {
 	const (
 		n    = 12
@@ -888,7 +884,7 @@ func TestProxyEchoConcurrentColdClient(t *testing.T) {
 }
 
 // TestProxyCredentialSetEvictsTheOldest pins the bound of the transport's
-// proxy credential set (ruling D-W6-secfix-m2): a func that rotates through
+// proxy credential set: a func that rotates through
 // 17 proxies, one call each, each proxy repeating its own password, leaves
 // the 16 most recent in the set, the first forgotten, and every call's
 // error and records scrubbed of its own proxy's password; a proxy chosen
@@ -952,8 +948,8 @@ func TestProxyCredentialSetEvictsTheOldest(t *testing.T) {
 	assertRecordsScrubbed(t, logs, secrets, n+1)
 }
 
-// TestProxyFuncAskedOncePerAttempt pins the P6 critic's m-2 across the
-// attempts of one call: the SDK's transport asks a WithProxy func once per
+// TestProxyFuncAskedOncePerAttempt pins, across the attempts of one call,
+// that the SDK's transport asks a WithProxy func once per
 // attempt, where net/http asks it, and never again on the error path. The
 // func counts its calls and rotates between two proxies, each with its own
 // password in its URL, and each proxy's malformed answer repeats the
@@ -1032,16 +1028,16 @@ func TestProxyFuncAskedOncePerAttempt(t *testing.T) {
 	}
 }
 
-// TestProxyAnswerHeadersRedacted pins ruling D-W6-secfix-revise-2-scope-c
-// (NOTE R4): a plain-HTTP API URL sends the request to the proxy itself,
-// whose well-formed 407 is the call's response, and a proxy may repeat in
-// its headers the Proxy-Authorization it was sent, or the password. Each of
-// the three places that print a response header redacts a value holding a
-// credential of a proxy the client's transport chose: the error types'
-// Header (headerRedactor.header), the request id of the INFO "response"
-// record and of the error (headerRedactor.requestID), and the DEBUG
-// "response headers" record (engine.NewRedactedHeaders). The body is shown as the
-// proxy wrote it, by design (ruling R103-rev); this one is empty.
+// TestProxyAnswerHeadersRedacted pins the redaction of a proxy's answer
+// headers: a plain-HTTP API URL sends the request to the proxy itself, whose
+// well-formed 407 is the call's response, and a proxy may repeat in its
+// headers the Proxy-Authorization it was sent, or the password. Each of the
+// three places that print a response header redacts a value holding a
+// credential of a proxy the client's transport chose: the error types' Header
+// (headerRedactor.header), the request id of the INFO "response" record and
+// of the error (headerRedactor.requestID), and the DEBUG "response headers"
+// record (engine.NewRedactedHeaders). The body is shown as the proxy wrote
+// it, by design; this one is empty.
 func TestProxyAnswerHeadersRedacted(t *testing.T) {
 	const user, password = "proxy-user", "hunter2@proxy-password"
 	secrets := proxySecrets(user, password)
@@ -1106,13 +1102,12 @@ func TestProxyAnswerHeadersRedacted(t *testing.T) {
 	}
 }
 
-// TestProxyCredentialParityWithAPIKey pins ruling D-W6-secfix-407msg-corr:
-// a credential of a proxy the client's transport chose is treated at every
-// sink exactly as the client's own API key is, "***" where the key is "***"
-// (a response header, the request id, the records that print them) and
-// shown where the key is shown by design (the message the server composed,
-// the body, and the LevelTrace body record; ruling R103-rev, review W6.2
-// N-10). A plain-HTTP API URL sends the request, the API key and the
+// TestProxyCredentialParityWithAPIKey pins that a credential of a proxy the
+// client's transport chose is treated at every sink exactly as the client's
+// own API key is, "***" where the key is "***" (a response header, the
+// request id, the records that print them) and shown where the key is shown
+// by design (the message the server composed, the body, and the LevelTrace
+// body record). A plain-HTTP API URL sends the request, the API key and the
 // proxy's Proxy-Authorization with it, to a proxy whose 407 repeats one
 // secret in its body's message, in a header and in the request id: once
 // the client's API key, once the proxy's password. Every sink renders the
@@ -1220,21 +1215,21 @@ func assertHeaderShown(t *testing.T, err error, logs *testsupport.LogRecorder, w
 	}
 }
 
-// TestProxyHeaderScanScope pins ruling D-W6-secfix-header-scope: the
-// response header paths (the error types' Header, the request id and the
-// DEBUG "response headers" record) look for a proxy's credential only in
-// the answer to a plain-HTTP request for which the proxy func returned a
-// proxy, where the proxy may have written the answer itself, and only for a
-// credential of 8 bytes or more, as for the API key. Over HTTPS a proxy only
-// tunnels the API's bytes: an API header that holds the proxy's password,
-// short or long, is shown as the API sent it, and so is a request id that
-// holds a 2-byte password. A plain-HTTP request the func sent to no proxy
-// reaches the API alone, whose header is not scanned either, though the set
-// holds a proxy's password. A 2-byte password a plain-HTTP proxy repeats in
-// its own answer's header is shown: the residual the minimum leaves, as for
-// a short API key. Errors' text is scrubbed of every length
-// (TestProxyEchoHoldsNoCredential); a password of 8 bytes or more in a
-// plain-HTTP proxy's own answer is "***" (TestProxyAnswerHeadersRedacted).
+// TestProxyHeaderScanScope pins that the response header paths (the error
+// types' Header, the request id and the DEBUG "response headers" record)
+// look for a proxy's credential only in the answer to a plain-HTTP request
+// for which the proxy func returned a proxy, where the proxy may have
+// written the answer itself, and only for a credential of 8 bytes or more,
+// as for the API key. Over HTTPS a proxy only tunnels the API's bytes: an
+// API header that holds the proxy's password, short or long, is shown as the
+// API sent it, and so is a request id that holds a 2-byte password. A
+// plain-HTTP request the func sent to no proxy reaches the API alone, whose
+// header is not scanned either, though the set holds a proxy's password. A
+// 2-byte password a plain-HTTP proxy repeats in its own answer's header is
+// shown: the residual the minimum leaves, as for a short API key. Errors'
+// text is scrubbed of every length (TestProxyEchoHoldsNoCredential); a
+// password of 8 bytes or more in a plain-HTTP proxy's own answer is "***"
+// (TestProxyAnswerHeadersRedacted).
 func TestProxyHeaderScanScope(t *testing.T) {
 	const user = "proxy-user"
 	const long = "hunter2@proxy-password"
@@ -1345,17 +1340,16 @@ func TestProxyHeaderScanScope(t *testing.T) {
 	})
 }
 
-// TestProxyRetryAfterSurvivesOverHTTPS pins ruling
-// D-W6-secfix-header-scope-2 where the W6.2 DELTA found a consequence past
-// the text: with a proxy password of a 1-byte word, "open 2 sesame", over
-// HTTPS through a CONNECT tunnel, the API's `Retry-After: 2` became "***",
-// RetryAfter() found none, and the retry fired after the backoff instead of
-// the server's 2 s. The API's header, which a tunnelling proxy cannot
-// write, is not scanned: for passwords of 1 and 2 bytes and one with a
-// 1-byte word, Retry-After and a request id that holds the password's bytes
-// stay as the server sent them, in the error's Header, RetryAfter(),
-// RequestID(), Error() and the records; and the retry waits the server's
-// 2 s.
+// TestProxyRetryAfterSurvivesOverHTTPS pins that an API's Retry-After
+// survives a CONNECT tunnel: with a proxy password of a 1-byte word,
+// "open 2 sesame", over HTTPS, a scan of the API's header would turn
+// `Retry-After: 2` into "***", RetryAfter() would find none, and the retry
+// would fire after the backoff instead of the server's 2 s. The API's
+// header, which a tunnelling proxy cannot write, is not scanned: for
+// passwords of 1 and 2 bytes and one with a 1-byte word, Retry-After and a
+// request id that holds the password's bytes stay as the server sent them,
+// in the error's Header, RetryAfter(), RequestID(), Error() and the
+// records; and the retry waits the server's 2 s.
 func TestProxyRetryAfterSurvivesOverHTTPS(t *testing.T) {
 	tests := map[string]struct {
 		password, id string
@@ -1473,15 +1467,15 @@ func newKeepAliveProxy(t *testing.T, answer func(password, auth string) string) 
 	return p
 }
 
-// TestProxyKeepAliveSecondRequestHidden pins the W6.2 probe's keep-alive
-// case: a plain-HTTP request through a proxy whose connection net/http
-// keeps and reuses for the next request, which it sends without dialing.
-// net/http still asks the proxy func for it, to build the connection's key
+// TestProxyKeepAliveSecondRequestHidden pins the keep-alive case: a
+// plain-HTTP request through a proxy whose connection net/http keeps and
+// reuses for the next request, which it sends without dialing. net/http
+// still asks the proxy func for it, to build the connection's key
 // (GOROOT/src/net/http/transport.go:1051-1058), so the wrapper marks it,
 // and the proxy's own 407, which repeats the Proxy-Authorization and the
 // password in its header and the password in its message, has the header
 // hidden on the second request as on the first, and the message shown on
-// both, as the API key would be (parity, D-W6-secfix-407msg-corr).
+// both, as the API key would be.
 func TestProxyKeepAliveSecondRequestHidden(t *testing.T) {
 	const user, password = "proxy-user", "hunter2@proxy-password"
 	p := newKeepAliveProxy(t, func(pw, auth string) string {

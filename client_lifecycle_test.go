@@ -75,7 +75,8 @@ func (c *closingRT) Close() error {
 // certificate): WarmUp opens the one HTTP/2 connection (Stats: one dial, one
 // attempt) and three calls reuse it (one dial, four attempts), under a base
 // URL's path prefix, with the SDK's headers on the wire and no
-// X-TypeSafe-Retry-Count (C15's wire half).
+// X-TypeSafe-Retry-Count (the wire half of
+// test_headers_timeout_and_logging).
 func TestSystemOneOverHTTP2(t *testing.T) {
 	srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: apiHandler(t)})
 	clearEnv(t)
@@ -136,7 +137,7 @@ func waitClosed(t *testing.T, closed <-chan struct{}, what string) {
 	}
 }
 
-// TestCallerTransportKeepsItsSettings ports test_http_client_settings (C16)
+// TestCallerTransportKeepsItsSettings ports test_http_client_settings
 // to WithHTTPTransport: the client works over a clone of the caller's
 // *http.Transport, so the requests go through the caller's dialer and TLS
 // configuration and carry the SDK's headers, while the caller's transport
@@ -211,12 +212,12 @@ func TestCallerTransportKeepsItsSettings(t *testing.T) {
 	waitClosed(t, closed, "Close of a WithHTTPTransport client")
 }
 
-// TestCloseClosesSuppliedTransport ports test_supplied_network_resources_closed
-// (C17, AC-F9): Close calls Close once on a WithRoundTripper transport that
-// is an io.Closer, however often the client is closed; a call after Close
-// fails with a *ConfigError that wraps ErrClientClosed and says the client
-// is closed. A WithHTTPTransport clone's idle connections close at Close
-// (TestCallerTransportKeepsItsSettings).
+// TestCloseClosesSuppliedTransport ports
+// test_supplied_network_resources_closed: Close calls Close once on a
+// WithRoundTripper transport that is an io.Closer, however often the client
+// is closed; a call after Close fails with a *ConfigError that wraps
+// ErrClientClosed and says the client is closed. A WithHTTPTransport clone's
+// idle connections close at Close (TestCallerTransportKeepsItsSettings).
 func TestCloseClosesSuppliedTransport(t *testing.T) {
 	tests := map[string]struct {
 		rt     func(*testsupport.Recorder) http.RoundTripper
@@ -258,7 +259,7 @@ func TestCloseClosesSuppliedTransport(t *testing.T) {
 	}
 }
 
-// TestCloseClosesOwnedTransport ports test_owned_http_client_closed (C18):
+// TestCloseClosesOwnedTransport ports test_owned_http_client_closed:
 // the transport a client builds has the default 10 s timeout, and Close
 // closes its idle connection.
 func TestCloseClosesOwnedTransport(t *testing.T) {
@@ -356,8 +357,8 @@ func (b ctxBody) Read([]byte) (int, error) {
 
 func (ctxBody) Close() error { return nil }
 
-// TestCancelInFlightRequest ports test_task_cancellation_closes_context
-// (C20): cancelling the context of a call whose request is in flight ends it
+// TestCancelInFlightRequest ports test_task_cancellation_closes_context:
+// cancelling the context of a call whose request is in flight ends it
 // promptly after one attempt with context.Canceled itself, not an SDK error
 // (assertCancelled); over the SDK's own transport the loopback server sees
 // the stream reset, and Close then closes a supplied transport once. The
@@ -457,14 +458,14 @@ func TestCancelInFlightRequest(t *testing.T) {
 }
 
 // TestCancelledContextMakesOneAttempt ports test_cancellation_propagates
-// (C21) under the production policy, which retries a failed attempt: a
+// under the production policy, which retries a failed attempt: a
 // cancellation makes one attempt. Upstream's transport raises
 // CancelledError while the task runs; here the transport reports
 // context.Canceled while the call's context lives, which the attempt
 // classifies as a *ConnectionError, a class the policy retries, so only the
-// rule that a cancellation is never retried keeps the call to one attempt
-// (ruling R82 NIT 6). A call whose own context is cancelled returns
-// context.Canceled itself, not an SDK error (assertCancelled).
+// rule that a cancellation is never retried keeps the call to one attempt.
+// A call whose own context is cancelled returns context.Canceled itself,
+// not an SDK error (assertCancelled).
 func TestCancelledContextMakesOneAttempt(t *testing.T) {
 	tests := map[string]struct {
 		reply  testsupport.Reply
@@ -489,8 +490,7 @@ func TestCancelledContextMakesOneAttempt(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			rec := &testsupport.Recorder{Replies: []testsupport.Reply{tt.reply}}
 			// The production policy, not newTestClient's single attempt: the
-			// one attempt must come from the cancellation (rulings R82 NIT 6
-			// and R88b).
+			// one attempt must come from the cancellation.
 			c := newTestClient(t, rec, WithRetry(DefaultRetry()))
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
@@ -564,7 +564,7 @@ func (netTimeout) Timeout() bool   { return true }
 func (netTimeout) Temporary() bool { return true }
 
 // TestAttemptErrorClassification pins the attempt's classification of an
-// error that ended it without a response (C13, section 6.3): the attempt's
+// error that ended it without a response: the attempt's
 // own deadline is a *TimeoutError naming the attempt's timeout, whether it
 // passes before the response or while its body is read and whatever error
 // the transport reports for it; the caller's deadline is one without a
@@ -693,7 +693,7 @@ func TestAttemptErrorClassification(t *testing.T) {
 			if tt.ctx != nil {
 				ctx = tt.ctx(t)
 			}
-			// Bounded (K29, K30): a row whose deadline no longer ends the
+			// Bounded: a row whose deadline no longer ends the
 			// call fails by name instead of hanging the test binary.
 			_, err := callWithin(t, func(bounded context.Context) error {
 				_, err := c.Models().List(cmp.Or(ctx, bounded), tt.call...)
@@ -704,10 +704,11 @@ func TestAttemptErrorClassification(t *testing.T) {
 	}
 }
 
-// TestCloseIdlesSuppliedHTTPTransport completes C17 (AC-F9, ruling R79): a
-// *http.Transport given with WithRoundTripper counts as a supplied
-// *http.Transport, so Close closes its idle connection, which the server
-// sees closed; the connection stays open until then.
+// TestCloseIdlesSuppliedHTTPTransport completes the port of
+// test_supplied_network_resources_closed: a *http.Transport given with
+// WithRoundTripper counts as a supplied *http.Transport, so Close closes
+// its idle connection, which the server sees closed; the connection stays
+// open until then.
 func TestCloseIdlesSuppliedHTTPTransport(t *testing.T) {
 	srv := httptest.NewUnstartedServer(apiHandler(t))
 	hook, closed := closeWatch()
@@ -742,11 +743,11 @@ func TestCloseIdlesSuppliedHTTPTransport(t *testing.T) {
 // server that never answers: with WithTimeout, and with a per-call Timeout
 // over the default, the call returns within the timeout plus 1 s with an
 // error that wraps context.DeadlineExceeded, and not before the timeout
-// less one 20 ms clock tick (K29). A client without the deadline fails
-// here at once instead of at the test binary's timeout. The error's type
-// is W2.5's classification.
+// less one 20 ms clock tick. A client without the deadline fails here at
+// once instead of at the test binary's timeout.
+// TestAttemptErrorClassification pins the error's type.
 func TestAttemptDeadlineEndsTheCall(t *testing.T) {
-	const timeout = span // at least 250 ms, less one coarseTick below (K30)
+	const timeout = span // at least 250 ms, less one coarseTick below
 	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		select {

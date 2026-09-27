@@ -34,7 +34,7 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
-// The timing rules of the transport tests (K29, K30): every measured span
+// The timing rules of the transport tests: every measured span
 // is at least 250 ms, a lower bound allows one tick of the coarsest CI clock,
 // and every wait has a deadline.
 const (
@@ -87,15 +87,15 @@ func writePartial(w http.ResponseWriter) {
 }
 
 // TestTransportErrorsBecomeConnectionOrTimeout ports test_transport_errors
-// (C13) to failures of a real connection, through the client and the SDK's
-// own transport, against the loopback server and its knobs: every failure
-// that produced no HTTP response is a *TimeoutError when a deadline passed
-// or the network reported a timeout (httpx's ConnectTimeout and ReadTimeout
-// rows), and a *ConnectionError otherwise (LocalProtocolError, ConnectError,
-// ReadError, RemoteProtocolError; py:_core/transport.py:79-86). A proxy
-// that refuses the connection is a proxy *ConnectionError, and so is a
-// proxy that answers the CONNECT with 502: net/http returns that answer
-// without its proxyconnect wrap, and the SDK's transport adds it (K16).
+// to failures of a real connection, through the client and the SDK's own
+// transport, against the loopback server and its knobs: every failure that
+// produced no HTTP response is a *TimeoutError when a deadline passed or the
+// network reported a timeout (httpx's ConnectTimeout and ReadTimeout rows),
+// and a *ConnectionError otherwise (LocalProtocolError, ConnectError,
+// ReadError, RemoteProtocolError; py:_core/transport.py:79-86). A proxy that
+// refuses the connection is a proxy *ConnectionError, and so is a proxy that
+// answers the CONNECT with 502: net/http returns that answer without its
+// proxyconnect wrap, and the SDK's transport adds it.
 // Each makes one attempt, and each error is an SDK error.
 func TestTransportErrorsBecomeConnectionOrTimeout(t *testing.T) {
 	type target struct {
@@ -129,14 +129,13 @@ func TestTransportErrorsBecomeConnectionOrTimeout(t *testing.T) {
 		}
 	}
 	// closedGracefully checks, besides servedOnce, the server's record of how
-	// CloseConns ended the one connection (ruling K33): close_notify and FIN,
-	// then the end of the client's side read, then the socket's close, so
-	// nothing the client sent was left unread for the kernel to answer with
-	// a reset that would destroy the last frames on Windows; with goAway,
-	// the GOAWAY frame left before close_notify. The client closes its side
-	// only after it read everything before close_notify, so it read the
-	// GOAWAY before the server closed. The order is by sequence number
-	// (K29).
+	// CloseConns ended the one connection: close_notify and FIN, then the end
+	// of the client's side read, then the socket's close, so nothing the
+	// client sent was left unread for the kernel to answer with a reset that
+	// would destroy the last frames on Windows; with goAway, the GOAWAY frame
+	// left before close_notify. The client closes its side only after it read
+	// everything before close_notify, so it read the GOAWAY before the server
+	// closed. The order is by sequence number.
 	closedGracefully := func(srv *testsupport.LoopbackServer, goAway bool) func(t *testing.T) {
 		return func(t *testing.T) {
 			servedOnce(srv)(t)
@@ -397,8 +396,8 @@ type readerFunc func([]byte) (int, error)
 
 func (f readerFunc) Read(p []byte) (int, error) { return f(p) }
 
-// TestTransportErrorsHoldNoCredential checks AC-F5 for transport errors, as
-// test_transport_errors_do_not_expose_credentials does
+// TestTransportErrorsHoldNoCredential checks the credential scrub of
+// transport errors, as test_transport_errors_do_not_expose_credentials does
 // (tests/test_logging.py:71-130): a transport that repeats the request's
 // credentials in its error's text, raw and quoted (%q), and in the text of
 // an error it wraps, never shows one in the SDK error, in any printed form
@@ -406,14 +405,15 @@ func (f readerFunc) Read(p []byte) (int, error) { return f(p) }
 // text around them stays ("Illegal header value", a header whose name marks
 // no credential), and "***" stands for them.
 //
-// The grid is AC-F5's nine header spellings (tests/test_logging.py:14-27),
-// each set with WithHeader to "request-credential", times the upstream
-// keys ("auth-credential" and one with quotes and a backslash), times five
+// The grid is the nine header spellings (tests/test_logging.py:14-27), each
+// set with WithHeader to "request-credential", times the upstream keys
+// ("auth-credential" and one with quotes and a backslash), times five
 // places a transport error can arise: the round trip, a round trip that
 // timed out (a *TimeoutError), and the body read of a response with each of
-// AC-F5's three statuses, 200, 400 and 429 (a response whose body cannot be
+// the three statuses, 200, 400 and 429 (a response whose body cannot be
 // read is a *ConnectionError whatever its status). A caller's Authorization
-// is dropped for the SDK's own (W2.1), which carries the key.
+// is dropped for the SDK's own (TestHeaderDropsLogged), which carries the
+// key.
 func TestTransportErrorsHoldNoCredential(t *testing.T) {
 	type test struct {
 		header, key, failure string
@@ -558,7 +558,7 @@ func TestTransportErrorsHoldNoCredentialOverTheNetwork(t *testing.T) {
 }
 
 // TestCallerTransportOwnsItsTimeouts pins the deviation "a custom transport
-// owns its timeouts" (F11, test_http_client_timeout_precedence): where
+// owns its timeouts" (test_http_client_timeout_precedence): where
 // typesafe-sdk-python replaces an httpx client's timeout with its own, a Go
 // caller's transport keeps every timeout it sets, here ResponseHeaderTimeout,
 // under the SDK's per-attempt deadline, which still applies. The caller's
@@ -632,14 +632,13 @@ type reqErr struct{ req *http.Request }
 
 func (*reqErr) Error() string { return "boom" }
 
-// TestTransportErrorFieldsHoldNoCredential pins the review's MINOR 2
-// (ruling R82 (b)) through the client: a transport error whose text is
-// clean but whose %#v (an error held by value) or %+v (an fmt.Formatter)
-// shows the request's header is replaced by a stand-in, so no printed form
-// of the SDK error or of anything it unwraps to holds the key; an error
-// that points to the request is kept, prints its pointer as an address, and
-// errors.As reaches the caller's own request through it, which the
-// ConnectionError godoc states.
+// TestTransportErrorFieldsHoldNoCredential pins, through the client: a
+// transport error whose text is clean but whose %#v (an error held by
+// value) or %+v (an fmt.Formatter) shows the request's header is replaced
+// by a stand-in, so no printed form of the SDK error or of anything it
+// unwraps to holds the key; an error that points to the request is kept,
+// prints its pointer as an address, and errors.As reaches the caller's own
+// request through it, which the ConnectionError godoc states.
 func TestTransportErrorFieldsHoldNoCredential(t *testing.T) {
 	const key = `ts_live_q"uo\te%41abcdef`
 	tests := map[string]struct {
@@ -690,13 +689,13 @@ func TestTransportErrorFieldsHoldNoCredential(t *testing.T) {
 }
 
 // TestTransportErrorTextScrubbedBeforeCut pins the order of the scrub and
-// the render (review W2.5 MINOR 1): a credential is replaced in the
-// transport error's whole text before engine.SafeMessage escapes it and cuts it at
-// 200 characters, so a key that straddles the cut leaves "***" and not its
-// first bytes. The key sits after pads of 176 to 195 characters, across the
-// boundary, in the text of a caller RoundTripper's error (attemptError) and
-// of an h2gate DialError (transportError); no 8-byte piece of the key may
-// survive in Error().
+// the render: a credential is replaced in the transport error's whole text
+// before engine.SafeMessage escapes it and cuts it at 200 characters, so a
+// key that straddles the cut leaves "***" and not its first bytes. The key
+// sits after pads of 176 to 195 characters, across the boundary, in the
+// text of a caller RoundTripper's error (attemptError) and of an h2gate
+// DialError (transportError); no 8-byte piece of the key may survive in
+// Error().
 func TestTransportErrorTextScrubbedBeforeCut(t *testing.T) {
 	const key = "ts_live_0123456789abcdef"
 	header := http.Header{"Authorization": {"Bearer " + key}}

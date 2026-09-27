@@ -48,7 +48,7 @@ var secretSpellings = []string{
 }
 
 // TestRedactedHeadersSecretSpellings ports the header part of
-// test_secret_headers_redacted (L1) as far as it applies to the client's
+// test_secret_headers_redacted as far as it applies to the client's
 // configuration: for each of the nine spellings, a header of that name set
 // with WithHeader and a response header of that name are printed as "***",
 // the API key never shows, and a header that is not a credential shows as
@@ -114,7 +114,7 @@ func renderers() map[string]func(log func(*slog.Logger)) string {
 	}
 }
 
-// TestAPIKeyNeedleThreshold pins ruling R68: the key is looked for inside a
+// TestAPIKeyNeedleThreshold pins that the key is looked for inside a
 // WithHeader name and inside a header value only when it is at least
 // engine.MinKeyNeedleBytes (8) long, so a test's short dummy key neither
 // refuses an ordinary name nor hides an ordinary value, while Authorization
@@ -167,12 +167,12 @@ func TestAPIKeyNeedleThreshold(t *testing.T) {
 	}
 }
 
-// TestErrorHeadersRedacted pins ruling R87 (K31, verify-p2 item 4) through
-// the client for the three error types that keep a response's header,
-// *APIError (from a failure status, and from one whose body passed the size
-// limit), *ResponseValidationError and *ResponseTooLargeError: the
-// stored Header, and so every fmt verb of the error, of the error's value
-// held in an unexported field (which fmt prints field by field, D-W2.1b)
+// TestErrorHeadersRedacted pins the header redaction through the client for
+// the three error types that keep a response's header, *APIError (from a
+// failure status, and from one whose body passed the size limit),
+// *ResponseValidationError and *ResponseTooLargeError: the stored Header,
+// and so every fmt verb of the error, of the error's value held in an
+// unexported field (which fmt prints field by field)
 // and of a pointer to it held there, shows "***" for Set-Cookie, X-Api-Key,
 // Authorization and a header whose value echoes the API key, and never the
 // server's credential; the request id and the retry-after headers stay as
@@ -295,17 +295,16 @@ func TestErrorHeadersRedacted(t *testing.T) {
 	}
 }
 
-// TestServerEchoedKeyShownAsReceived pins owner decision G7 (8), rulings
-// R103-rev and R107: text the server composed in the body is not redacted,
-// and a value the SDK takes from a header is. A message, a field path's
-// names and a skipped answer's name that echo the client's API key show
-// it: in Message or FieldPath, in Error(), %v and %+v (escaped and cut as
-// any message is), and in the WARN line naming the skipped answer. Body and
-// the LevelTrace "response body" record hold the body as it arrived. The
-// stored Header shows "***" for a header value that holds the key, and so
-// does the request id, in Error() and in the INFO "response" record alike
-// (R87). In these responses no other record above LevelTrace holds any 8
-// consecutive bytes of the key.
+// TestServerEchoedKeyShownAsReceived pins that text the server composed in
+// the body is not redacted, and a value the SDK takes from a header is. A
+// message, a field path's names and a skipped answer's name that echo the
+// client's API key show it: in Message or FieldPath, in Error(), %v and %+v
+// (escaped and cut as any message is), and in the WARN line naming the
+// skipped answer. Body and the LevelTrace "response body" record hold the
+// body as it arrived. The stored Header shows "***" for a header value that
+// holds the key, and so does the request id, in Error() and in the INFO
+// "response" record alike. In these responses no other record above
+// LevelTrace holds any 8 consecutive bytes of the key.
 func TestServerEchoedKeyShownAsReceived(t *testing.T) {
 	const key = "ts_live_QzXjWvKpYbNmHgFd"
 	const models = "GET https://api.typesafe.ai/v1/models: "
@@ -408,7 +407,7 @@ func TestServerEchoedKeyShownAsReceived(t *testing.T) {
 					if r.Message == engine.MsgSkippedAnswer {
 						a, _ := r.Attr("answer")
 						got.Warned = append(got.Warned, a.String())
-						continue // body text, shown as received (R103-rev)
+						continue // body text, shown as received
 					}
 					if r.Message == "response" {
 						v, _ := r.Attr("request_id")

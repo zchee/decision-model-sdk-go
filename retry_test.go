@@ -35,7 +35,7 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
-// The retry tests port tests/test_retry.py (RT1-RT25). Every test that
+// The retry tests port tests/test_retry.py. Every test that
 // makes calls runs inside a testing/synctest bubble: the retry waits run on
 // fake time, so a 60 s Retry-After costs nothing, and each wait is measured
 // exactly as the fake time between two attempts. Every call in a bubble runs
@@ -84,7 +84,7 @@ type seenAttempt struct {
 	at time.Time
 	// timeout is the attempt's deadline less at; zero without a deadline.
 	timeout time.Duration
-	// sum and n are the digest and length of a fresh GetBody read (PM4);
+	// sum and n are the digest and length of a fresh GetBody read;
 	// zero for a request without a body.
 	sum testsupport.BodySum
 	n   int64
@@ -231,8 +231,8 @@ func assertAccepted(t *testing.T, policy RetryPolicy) {
 	}
 }
 
-// TestRetryPolicyInvalidBudget ports test_retry_policy_invalid_timeout
-// (RT1): a budget that is not positive is refused with the Python SDK's
+// TestRetryPolicyInvalidBudget ports test_retry_policy_invalid_timeout: a
+// budget that is not positive is refused with the Python SDK's
 // message. Python's inf and nan are not a time.Duration (a partial
 // deviation); NoBudget is its timeout=None.
 func TestRetryPolicyInvalidBudget(t *testing.T) {
@@ -260,7 +260,7 @@ func TestRetryPolicyInvalidBudget(t *testing.T) {
 	}
 }
 
-// TestRetryPolicyInvalidBackoff ports test_invalid_backoff (RT3): a
+// TestRetryPolicyInvalidBackoff ports test_invalid_backoff: a
 // negative initial or maximum backoff is refused with a message that names
 // it. Python's nan and inf are not a time.Duration (a partial deviation).
 func TestRetryPolicyInvalidBackoff(t *testing.T) {
@@ -292,7 +292,7 @@ func TestRetryPolicyInvalidBackoff(t *testing.T) {
 	}
 }
 
-// TestRetryPolicyInvalidJitter ports test_invalid_backoff_jitter (RT4):
+// TestRetryPolicyInvalidJitter ports test_invalid_backoff_jitter:
 // a jitter outside [0, 1], NaN and the infinities included, is refused.
 func TestRetryPolicyInvalidJitter(t *testing.T) {
 	const msg = "backoff_jitter must be between zero and one."
@@ -321,7 +321,7 @@ func TestRetryPolicyInvalidJitter(t *testing.T) {
 	}
 }
 
-// TestRetryPolicyInvalidMaxRetries ports test_invalid_max_retries (RT5): a
+// TestRetryPolicyInvalidMaxRetries ports test_invalid_max_retries: a
 // negative count is refused. Python's 0.5, nan and inf are not an int (a
 // partial deviation: the type refuses them).
 func TestRetryPolicyInvalidMaxRetries(t *testing.T) {
@@ -453,7 +453,7 @@ func TestRetryPolicyDefaults(t *testing.T) {
 	}
 }
 
-// TestZeroBackoffRetriesAtOnce ports test_zero_backoff_retries (RT2): a zero
+// TestZeroBackoffRetriesAtOnce ports test_zero_backoff_retries: a zero
 // initial or maximum backoff retries at once, whether the retry recovers or
 // fails again, and the retry carries X-TypeSafe-Retry-Count: 1.
 func TestZeroBackoffRetriesAtOnce(t *testing.T) {
@@ -496,8 +496,8 @@ func TestZeroBackoffRetriesAtOnce(t *testing.T) {
 	}
 }
 
-// TestRetryBudgetStopsBeforeDelay ports test_retry_policy_timeout_budget
-// (RT6), the budget's oracle: each attempt takes duration of fake time and
+// TestRetryBudgetStopsBeforeDelay ports test_retry_policy_timeout_budget,
+// the budget's oracle: each attempt takes duration of fake time and
 // answers 429 with Retry-After delay; the call stops before a retry whose
 // wait would bring the time since the call started to the budget or
 // beyond, returns the last attempt's error, and each SDK call gets a fresh
@@ -576,7 +576,7 @@ func TestRetryBudgetStopsBeforeDelay(t *testing.T) {
 	}
 }
 
-// TestPerCallBudgetOverride ports test_retry_policy_timeout_override (RT7):
+// TestPerCallBudgetOverride ports test_retry_policy_timeout_override:
 // each attempt takes 20 s of fake time, so the client's default 30 s budget
 // stops a call after two attempts; a call's own policy replaces it for that
 // call only: a 1 s budget stops after one, NoBudget lets max_retries stop
@@ -619,7 +619,7 @@ func TestPerCallBudgetOverride(t *testing.T) {
 	}
 }
 
-// TestDefaultRetryStatuses ports test_default_retry_statuses (RT8): under
+// TestDefaultRetryStatuses ports test_default_retry_statuses: under
 // the production policy 408, 429 and 5xx are tried three times and other
 // statuses once, the last error keeping its status, only retries carry
 // X-TypeSafe-Retry-Count, and each retry waits the Retry-After-Ms of the
@@ -665,7 +665,7 @@ func TestDefaultRetryStatuses(t *testing.T) {
 	}
 }
 
-// TestRetryAfterHonoured ports test_server_delay_through_tenacity (RT10):
+// TestRetryAfterHonoured ports test_server_delay_through_tenacity:
 // the wait before the retry is the server's, from Retry-After in seconds or
 // Retry-After-Ms, the latter first, and 60 s is honoured as asked.
 func TestRetryAfterHonoured(t *testing.T) {
@@ -696,7 +696,7 @@ func TestRetryAfterHonoured(t *testing.T) {
 	}
 }
 
-// TestParseRetryAfterTable ports test_parse_retry_after (RT11), the nine
+// TestParseRetryAfterTable ports test_parse_retry_after, the nine
 // upstream rows: what retryAfter reads from the headers (Python's
 // parse_retry_after, in milliseconds), and the wait the loop then takes
 // through the client: the server's, or the backoff (500 ms with the jitter
@@ -744,8 +744,8 @@ func TestParseRetryAfterTable(t *testing.T) {
 	}
 }
 
-// TestBackoffScheduleAndDates ports test_backoff_dates_cap_and_jitter
-// (RT12): an HTTP date ten seconds ahead waits 10 s and one behind 0; the
+// TestBackoffScheduleAndDates ports test_backoff_dates_cap_and_jitter: an
+// HTTP date ten seconds ahead waits 10 s and one behind 0; the
 // backoff with the jitter source at 0 doubles from 500 ms and stops at 5 s,
 // and at 1 takes a quarter off (375 ms); a server's wait is honoured however
 // long (61 s, 60.001 s, a date), and an unparseable one falls back to the
@@ -818,8 +818,8 @@ func TestBackoffScheduleAndDates(t *testing.T) {
 	})
 }
 
-// TestPerCallRetryPolicyOverride ports test_system_one_retry_override
-// (RT13): a call's Retry replaces the client's policy for that call alone,
+// TestPerCallRetryPolicyOverride ports test_system_one_retry_override: a
+// call's Retry replaces the client's policy for that call alone,
 // its status set included (409 retried by the call's, 429 by the
 // client's), and a call without it uses the client's.
 func TestPerCallRetryPolicyOverride(t *testing.T) {
@@ -865,8 +865,8 @@ func TestPerCallRetryPolicyOverride(t *testing.T) {
 	}
 }
 
-// TestConcurrentCallsCountTheirOwnRetries is RT14's Go half
-// (test_async_concurrent_retry_state; a partial deviation, goroutines for
+// TestConcurrentCallsCountTheirOwnRetries is the Go half of
+// test_async_concurrent_retry_state (a partial deviation, goroutines for
 // asyncio tasks): four calls on one client from four goroutines each fail
 // once with 429 and recover, and each call's retry carries its own count.
 func TestConcurrentCallsCountTheirOwnRetries(t *testing.T) {
@@ -905,10 +905,10 @@ func TestConcurrentCallsCountTheirOwnRetries(t *testing.T) {
 }
 
 // TestRetryRecoversWithOverrides ports
-// test_system_one_retry_recovers_with_overrides (RT15): a call with its own
-// model, timeout and headers fails with a timeout, then a 429 asking for
-// 125 ms, then succeeds; every attempt sends the same body bytes (a fresh
-// GetBody read hashes the same, PM4), the same headers besides the retry
+// test_system_one_retry_recovers_with_overrides: a call with its own model,
+// timeout and headers fails with a timeout, then a 429 asking for 125 ms,
+// then succeeds; every attempt sends the same body bytes (a fresh GetBody
+// read hashes the same), the same headers besides the retry
 // count, and the call's per-attempt timeout; the first wait is the backoff
 // (375 ms to 500 ms), the second the server's. The next call has the
 // client's settings and no retry count. Python's httpx.Timeout(3.0,
@@ -996,7 +996,7 @@ func TestRetryRecoversWithOverrides(t *testing.T) {
 }
 
 // TestConcurrentCallsKeepTheirOverrides ports
-// test_concurrent_system_one_overrides (RT16): three concurrent calls with
+// test_concurrent_system_one_overrides: three concurrent calls with
 // their own retry counts, models, states and timeouts keep them on every
 // attempt.
 func TestConcurrentCallsKeepTheirOverrides(t *testing.T) {
@@ -1082,7 +1082,7 @@ func (timeoutText) Timeout() bool   { return true }
 func (timeoutText) Temporary() bool { return true }
 
 // TestExhaustedTransportRetryReturnsLastError ports
-// test_exhausted_transport_retry (RT17): when every attempt fails without a
+// test_exhausted_transport_retry: when every attempt fails without a
 // response, the call returns the third attempt's error, classified as that
 // attempt was: a *TimeoutError naming the call's timeout, or a
 // *ConnectionError with the transport's text, each wrapping the transport's
@@ -1135,7 +1135,7 @@ func TestExhaustedTransportRetryReturnsLastError(t *testing.T) {
 }
 
 // TestExhaustedRetryKeepsLastAPIError ports
-// test_exhausted_retry_preserves_final_http_error (RT18): after 429, 500
+// test_exhausted_retry_preserves_final_http_error: after 429, 500
 // and 503 the call returns the 503, with its body, request id and text.
 func TestExhaustedRetryKeepsLastAPIError(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
@@ -1163,11 +1163,11 @@ func TestExhaustedRetryKeepsLastAPIError(t *testing.T) {
 	})
 }
 
-// TestCancelPendingRetry ports test_cancel_pending_retry (RT19, ruling R81
-// (1) and (8)): a call waiting to retry ends as soon as its context does,
-// after one attempt and before the wait's timer: a cancellation returns
-// context.Canceled itself (its cause kept for context.Cause), a deadline a
-// *TimeoutError without a timeout wrapping context.DeadlineExceeded, and a
+// TestCancelPendingRetry ports test_cancel_pending_retry: a call waiting
+// to retry ends as soon as its context does, after one attempt and before
+// the wait's timer: a cancellation returns context.Canceled itself (its
+// cause kept for context.Cause), a deadline a *TimeoutError without a
+// timeout wrapping context.DeadlineExceeded, and a
 // cancellation before a zero wait makes no second attempt either.
 func TestCancelPendingRetry(t *testing.T) {
 	cause := errors.New("the caller gave up")
@@ -1229,8 +1229,7 @@ func TestCancelPendingRetry(t *testing.T) {
 			},
 		},
 		"error: a deadline at the wait's end makes no second attempt": {
-			// The review's probe (MINOR 3): the wait and the caller's
-			// deadline end at the same instant.
+			// The wait and the caller's deadline end at the same instant.
 			reply: rtReply(429, `{}`, "Retry-After", "1"),
 			ctx: func(t *testing.T) (context.Context, func()) {
 				ctx, cancel := context.WithTimeout(bubbleCtx(t), time.Second)
@@ -1265,7 +1264,7 @@ func TestCancelPendingRetry(t *testing.T) {
 		"error: a cancellation during a wait longer than the caller's deadline": {
 			// The deadline (10 s) comes before the wait's end (60 s), so the
 			// call waits for the context, which the cancellation ends
-			// first: context.Canceled itself, not a timeout (review R1).
+			// first: context.Canceled itself, not a timeout.
 			policy: DefaultRetry().NoBudget(),
 			reply:  rtReply(429, `{}`, "Retry-After", "60"),
 			ctx: func(t *testing.T) (context.Context, func()) {
@@ -1278,7 +1277,7 @@ func TestCancelPendingRetry(t *testing.T) {
 		},
 		"success: a deadline just after the wait's end lets the retry run": {
 			// One nanosecond of the caller's time is left when the wait
-			// ends, so the retry starts and succeeds (review R-N1).
+			// ends, so the retry starts and succeeds.
 			reply: rtReply(429, `{}`, "Retry-After", "1"),
 			then:  new(rtReply(200, `{"models":[]}`)),
 			ctx: func(t *testing.T) (context.Context, func()) {
@@ -1373,7 +1372,7 @@ func TestCallerDeadlineEndsAnAttempt(t *testing.T) {
 	})
 }
 
-// TestMaxRetriesCountsAttempts ports test_retry_policy_max_retries (RT20):
+// TestMaxRetriesCountsAttempts ports test_retry_policy_max_retries:
 // a call makes max_retries + 1 attempts.
 func TestMaxRetriesCountsAttempts(t *testing.T) {
 	tests := map[string]struct {
@@ -1399,8 +1398,8 @@ func TestMaxRetriesCountsAttempts(t *testing.T) {
 	}
 }
 
-// TestCustomStatusesReplaceDefault ports test_retry_policy_custom_statuses
-// (RT21): Statuses replaces the default set: 409 is retried, 500 no longer.
+// TestCustomStatusesReplaceDefault ports test_retry_policy_custom_statuses:
+// Statuses replaces the default set: 409 is retried, 500 no longer.
 func TestCustomStatusesReplaceDefault(t *testing.T) {
 	tests := map[string]struct {
 		status, attempts int
@@ -1424,7 +1423,7 @@ func TestCustomStatusesReplaceDefault(t *testing.T) {
 	}
 }
 
-// TestPerCallMaxRetries ports test_retry_policy_per_call_override (RT22): a
+// TestPerCallMaxRetries ports test_retry_policy_per_call_override: a
 // call's NoRetry makes one attempt under a client that retries twice; and a
 // call's policy replaces the client's as a whole, so a setting the call's
 // policy leaves at its default is the default, not the client's.
@@ -1456,12 +1455,13 @@ func TestPerCallMaxRetries(t *testing.T) {
 	}
 }
 
-// TestPredicateOptsIn is RT23's Go half (test_retry_policy_exceptions_and_
-// predicate; a partial deviation: the Python SDK's exceptions setting is
-// dropped, and a Predicate that tests the error's type does its work): a
-// predicate retries an error the rules do not (a 404), is asked only then,
-// can opt a 2xx whose body does not validate in, which a 2xx in the status
-// set never does, and cannot make a call retry a cancellation.
+// TestPredicateOptsIn is the Go half of
+// test_retry_policy_exceptions_and_predicate (a partial deviation: the
+// Python SDK's exceptions setting is dropped, and a Predicate that tests
+// the error's type does its work): a predicate retries an error the rules
+// do not (a 404), is asked only then, can opt a 2xx whose body does not
+// validate in, which a 2xx in the status set never does, and cannot make a
+// call retry a cancellation.
 func TestPredicateOptsIn(t *testing.T) {
 	is404 := func(err error) bool {
 		ae, ok := errors.AsType[*APIError](err)
@@ -1565,7 +1565,7 @@ func TestPredicateOptsIn(t *testing.T) {
 // TimeoutErrors(false) the reverse, as the Python SDK checks its timeout
 // class first (py:_core/retry.py:100-109); Predicate(nil) removes a
 // predicate; and the transport's refusal of a host that did not negotiate
-// HTTP/2, a *ConfigError wrapping ErrHTTP2NotNegotiated (section 6.3), is
+// HTTP/2, a *ConfigError wrapping ErrHTTP2NotNegotiated, is
 // never retried under the production policy.
 func TestRetryClassSwitches(t *testing.T) {
 	is404 := func(err error) bool {
@@ -1635,7 +1635,7 @@ func TestRetryClassSwitches(t *testing.T) {
 	}
 }
 
-// TestWaitOptions ports test_retry_policy_wait_options (RT24): with the
+// TestWaitOptions ports test_retry_policy_wait_options: with the
 // jitter source at 0 and Retry-After 5, the default policy waits 5 s,
 // RespectRetryAfter(false) the 500 ms backoff, and a 200 ms initial backoff
 // 200 ms; the same waits are measured through the client.
@@ -1672,7 +1672,7 @@ func TestWaitOptions(t *testing.T) {
 	}
 }
 
-// TestBackoffExtremeValues ports test_backoff_extreme_values (RT25) with the
+// TestBackoffExtremeValues ports test_backoff_extreme_values with the
 // jitter source at 0. Python's 1e-300, 1e300 and 1e308 seconds are not
 // Durations; their rows use the shortest (1 ns) and the longest Duration in
 // their place and keep their meaning: a wait below half a millisecond

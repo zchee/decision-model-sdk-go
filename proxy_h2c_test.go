@@ -35,20 +35,19 @@ import (
 )
 
 // TestProxyH2CEchoRedactedOnEveryCall pins the response header scan on a
-// held h2c connection to a proxy (review W6.2, DELTA 174a1d5). With
-// HTTP2Only on a plain-http base URL the transport speaks h2c prior
-// knowledge to the proxy, and every call after the first rides that one
-// connection. The scan applies to a response only when the proxy func
-// returned a proxy for its request, and net/http asks the func for every
-// request, the ones on the held connection included (three of three on Go
-// 1.27.1). A Go release that stopped asking it there would leave the scan
-// off from the second call on, and the proxy's password would show in the
-// request id and the headers it wrote: the test then fails on the func's
+// held h2c connection to a proxy. With HTTP2Only on a plain-http base URL
+// the transport speaks h2c prior knowledge to the proxy, and every call
+// after the first rides that one connection. The scan applies to a
+// response only when the proxy func returned a proxy for its request, and
+// net/http asks the func for every request, the ones on the held
+// connection included (three of three on Go 1.27.1). A Go release that
+// stopped asking it there would leave the scan off from the second call
+// on, and the proxy's password would show in the request id and the
+// headers it wrote: the test then fails on the func's
 // count, by name, before it reads a sink.
 //
 // The proxy's body does not repeat the password: APIError.Message shows
-// body text as it arrived, a separate rule (ruling
-// D-W6-secfix-407msg-corr).
+// body text as it arrived, a separate rule.
 func TestProxyH2CEchoRedactedOnEveryCall(t *testing.T) {
 	const password = "h2c-proxy-secret-020" // 20 bytes, one word
 	var (

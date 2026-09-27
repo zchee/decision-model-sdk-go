@@ -98,9 +98,9 @@ func panickingTrace(hook string, armed *atomic.Bool, n *atomic.Int64) *httptrace
 	}
 }
 
-// TestClientTracePanicIsRaisedOnTheCaller pins K28, K28b and K28c through the
-// transport resolve builds: net/http calls a warm request's GetConn with its
-// HTTP/2 connection pool locked and the stream reserved
+// TestClientTracePanicIsRaisedOnTheCaller pins the hook-panic shield through
+// the transport resolve builds: net/http calls a warm request's GetConn with
+// its HTTP/2 connection pool locked and the stream reserved
 // (internal/http2/client_conn_pool.go:52-61), and GotConn once the stream is
 // reserved, so a panic unwinding from either would leave the pool locked or
 // the stream counted. The shield recovers it inside the hook, whether the
@@ -214,11 +214,11 @@ func TestClientTracePanicIsRaisedOnTheCaller(t *testing.T) {
 	}
 }
 
-// TestClientTraceColdDialPanic pins K28c on the dial: a ConnectStart hook on
-// the call's context runs on net/http's dialing goroutine, through the net
-// package's own hooks, where an escaped panic would end the process. The
-// shield recovers it there and raises it on the caller, and the client dials
-// again on the next call.
+// TestClientTraceColdDialPanic pins the shield on the dial: a ConnectStart
+// hook on the call's context runs on net/http's dialing goroutine, through
+// the net package's own hooks, where an escaped panic would end the process.
+// The shield recovers it there and raises it on the caller, and the client
+// dials again on the next call.
 func TestClientTraceColdDialPanic(t *testing.T) {
 	srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{})
 	var (

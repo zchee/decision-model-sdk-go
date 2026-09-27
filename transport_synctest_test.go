@@ -30,20 +30,20 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
-// The S-T2 fake-network tests again, as internal/h2gate's
-// TestSynctestFanOut runs them, but through the option a caller uses: the
-// fake server's client transport goes to WithHTTPTransport, and resolve
-// builds the gate from its clone. The fake transport dials the in-memory
-// listener (httptest/server.go:439-444), so the default transport cannot be
-// tested there. Every call carries a deadline on fake time: a strict-mode
-// stall is a durable block (internal/http2/transport.go:1555).
+// The fake-network tests of internal/h2gate's TestSynctestFanOut again, but
+// through the option a caller uses: the fake server's client transport goes
+// to WithHTTPTransport, and resolve builds the gate from its clone. The
+// fake transport dials the in-memory listener (httptest/server.go:439-444),
+// so the default transport cannot be tested there. Every call carries a
+// deadline on fake time: a strict-mode stall is a durable block
+// (internal/http2/transport.go:1555).
 const (
 	// fakeDeadline bounds every call on fake time.
 	fakeDeadline = 2 * time.Minute
 	// fakeFanOut is the cold fan-out width (h2gate's fanN).
 	fakeFanOut = 64
 	// fakeSendPing is the HTTP/2 ping interval the SDK sets when the
-	// caller's transport leaves it zero (section 6.3).
+	// caller's transport leaves it zero.
 	fakeSendPing = 30 * time.Second
 	// fakeIdle is the idle timeout the test sets on the fake transport as a
 	// caller would; the SDK leaves a caller's IdleConnTimeout alone.
@@ -151,13 +151,14 @@ func fakeFan(t *testing.T, tr *engine.Transport, n int, prefix string, d time.Du
 	return out
 }
 
-// TestSynctestThroughWithHTTPTransport is S-T2 through WithHTTPTransport:
-// the cold fan-out on one connection, the warm burst on none, the ping timer
-// (a PING the client sends on the idle connection, counted on its writes)
-// and the idle timer on fake time, and F1's 16 calls against a limit of 4, which
-// strict accounting alone stalls and the token completes. The SDK sets what
-// the caller's transport leaves zero (one connection per host, strict
-// accounting, the ping timeouts); the caller's own IdleConnTimeout is kept.
+// TestSynctestThroughWithHTTPTransport is internal/h2gate's
+// TestSynctestFanOut through WithHTTPTransport: the cold fan-out on one
+// connection, the warm burst on none, the ping timer (a PING the client sends
+// on the idle connection, counted on its writes) and the idle timer on fake
+// time, and 16 calls against a limit of 4, which strict accounting alone
+// stalls and the token completes. The SDK sets what the caller's transport
+// leaves zero (one connection per host, strict accounting, the ping
+// timeouts); the caller's own IdleConnTimeout is kept.
 func TestSynctestThroughWithHTTPTransport(t *testing.T) {
 	t.Run("success: cold 64 on 1 connection, warm 64 on none, then the ping and idle timers", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {

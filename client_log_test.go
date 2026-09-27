@@ -66,22 +66,20 @@ func attemptRecords(logs *testsupport.LogRecorder) []string {
 	return out
 }
 
-// TestSecretHeadersRedacted ports test_secret_headers_redacted (L1, AC-F5,
-// tests/test_logging.py:14-67) through the client: the nine header
+// TestSecretHeadersRedacted ports test_secret_headers_redacted
+// (tests/test_logging.py:14-67) through the client: the nine header
 // spellings times the three statuses, under DefaultRetry with a backoff of
 // 1 ms and no jitter, as upstream's RetryPolicy(backoff_initial=0.001,
-// backoff_max=0.001); the policy is passed explicitly over the test
-// helper's NoRetry (ruling R88b). A 429 is retried twice: three attempts,
-// each logged as upstream logs one (DEBUG request, INFO response, DEBUG
-// response headers, LevelTrace body), the retries after an INFO "request
-// retry" record with retry=1 and retry=2; a 200 and a 400 make one attempt.
-// A credential in the request header the caller set, in the same response
-// header, and the API key appear in no record of any attempt down to
-// LevelTrace, nor in any rendering of the error or of an error it wraps
-// (%v, %+v, %#v, %q and %s; the error stores the response header redacted,
-// ruling R87), while the other headers' values do and "***" stands for the
-// redacted ones. It replaces Phase 2's TestClientLogsNoCredential, which ran
-// the same grid with one attempt per call.
+// backoff_max=0.001); the policy is passed explicitly over the test helper's
+// NoRetry. A 429 is retried twice: three attempts, each logged as upstream
+// logs one (DEBUG request, INFO response, DEBUG response headers, LevelTrace
+// body), the retries after an INFO "request retry" record with retry=1 and
+// retry=2; a 200 and a 400 make one attempt. A credential in the request
+// header the caller set, in the same response header, and the API key appear
+// in no record of any attempt down to LevelTrace, nor in any rendering of
+// the error or of an error it wraps (%v, %+v, %#v, %q and %s; the error
+// stores the response header redacted), while the other headers' values do
+// and "***" stands for the redacted ones.
 func TestSecretHeadersRedacted(t *testing.T) {
 	type test struct {
 		header string
@@ -154,10 +152,10 @@ func TestSecretHeadersRedacted(t *testing.T) {
 }
 
 // TestTransportErrorsNeverExposeCredentials ports
-// test_transport_errors_do_not_expose_credentials (L2, AC-F5,
-// tests/test_logging.py:70-132): a RoundTripper fails every attempt in a Go
-// form of each of upstream's five httpx errors (LocalProtocolError: a bare
-// error; ConnectError: a refused dial; ReadError: a reset read;
+// test_transport_errors_do_not_expose_credentials
+// (tests/test_logging.py:70-132): a RoundTripper fails every attempt in a
+// Go form of each of upstream's five httpx errors (LocalProtocolError: a
+// bare error; ConnectError: a refused dial; ReadError: a reset read;
 // RemoteProtocolError: a body cut short; ReadTimeout: a network timeout),
 // under DefaultRetry with no backoff, which retries each, so it is called
 // three times. Its error's text repeats the request's Authorization value
@@ -170,20 +168,20 @@ func TestSecretHeadersRedacted(t *testing.T) {
 // record of every attempt down to LevelTrace hold no form of either
 // credential (raw, %q, JSON) nor the provider's value; "Illegal header
 // value" and "Rejected authorization: ***; provider: ***" survive in the
-// %+v of the cause (ruling R95).
+// %+v of the cause.
 //
-// Upstream's type checks have a Go analogue, not a copy (rulings R81 (3),
-// R82 (a)): the Python SDK rebuilds each exception with its own type, a
-// traceback-free, request-free copy of its chain; the Go SDK maps the
-// failure to its own class (*ConnectionError, or *TimeoutError for the
-// timeout) and replaces a cause whose chain printed a credential by a
-// *engine.scrubbedError, a new value, not the transport's error, with the
-// redacted text and the redacted rendering of the chain, through which
-// errors.As reaches neither the transport's error types nor the request,
-// and errors.Is only the standard sentinels and errno the original matched,
-// so the class's diagnostic (ECONNREFUSED, ECONNRESET, io.ErrUnexpectedEOF)
-// survives. The request the transport saw still holds the credential, as
-// upstream's original_errors[-1].request does.
+// Upstream's type checks have a Go analogue, not a copy: the Python SDK
+// rebuilds each exception with its own type, a traceback-free, request-free
+// copy of its chain; the Go SDK maps the failure to its own class
+// (*ConnectionError, or *TimeoutError for the timeout) and replaces a cause
+// whose chain printed a credential by a *engine.scrubbedError, a new value,
+// not the transport's error, with the redacted text and the redacted
+// rendering of the chain, through which errors.As reaches neither the
+// transport's error types nor the request, and errors.Is only the standard
+// sentinels and errno the original matched, so the class's diagnostic
+// (ECONNREFUSED, ECONNRESET, io.ErrUnexpectedEOF) survives. The request the
+// transport saw still holds the credential, as upstream's
+// original_errors[-1].request does.
 func TestTransportErrorsNeverExposeCredentials(t *testing.T) {
 	type class struct {
 		wrap     func(failure error) error

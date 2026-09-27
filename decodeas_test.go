@@ -60,7 +60,7 @@ func resultWith(members ...string) []byte {
 // knownResponse is the Go form of the upstream KnownResponse
 // (tests/test_pydantic_response_models.py:19-25): the one answer spam. The
 // name is tagged, since a field's question name is otherwise the field's
-// name as written, "Spam" (ruling R94).
+// name as written, "Spam".
 type knownResponse struct {
 	Spam NoulAnswer `typesafe:"kind=noul;name=spam"`
 }
@@ -94,7 +94,7 @@ func TestResultWith(t *testing.T) {
 }
 
 // TestDecodeAsWithSeparateQuestions ports test_standalone_pydantic_response_model
-// (tests/test_pydantic_response_models.py:46-56, P1): questions built by
+// (tests/test_pydantic_response_models.py:46-56): questions built by
 // hand, {"spam": Noul()}, and the answers decoded into a struct with
 // DecodeAs, as response_model=KnownResponse decodes them; a member the
 // struct's answer type does not model, explanation, is ignored.
@@ -131,7 +131,7 @@ func TestDecodeAsWithSeparateQuestions(t *testing.T) {
 }
 
 // TestSystemOneDefaultResponse ports test_explicit_default_response_model
-// (:59-69, P2). Both upstream parametrizations, response_model=None and
+// (:59-69). Both upstream parametrizations, response_model=None and
 // response_model=SystemOneResponse, are the default response, which is what
 // SystemOne returns: the typed struct is a separate step (DecodeAs), not a
 // response type.
@@ -155,7 +155,7 @@ func TestSystemOneDefaultResponse(t *testing.T) {
 }
 
 // TestDecodeAsOptionalFieldAndUnknownAnswer ports
-// test_pydantic_system_one_response_subclass (:72-91, P3): a struct with an
+// test_pydantic_system_one_response_subclass (:72-91): a struct with an
 // optional field whose answer is absent (Present false, the upstream
 // missing is None), a tone restricted to two options, an answer of the
 // unknown type future that the decoder drops with a WARN line, the full
@@ -195,7 +195,7 @@ func TestDecodeAsOptionalFieldAndUnknownAnswer(t *testing.T) {
 		t.Errorf("Missing is not the zero NoulAnswer (-want +got):\n%s", diff)
 	}
 	// The upstream model_dump holds "missing": None; the struct marshals the
-	// absent answer as null (ruling R99 Q3) and the others as their kinds.
+	// absent answer as null and the others as their kinds.
 	dump, err := testsupport.StdlibMarshal(got)
 	if err != nil {
 		t.Fatalf("json.Marshal(typed struct): %v", err)
@@ -252,12 +252,12 @@ func TestDecodeAsOptionalFieldAndUnknownAnswer(t *testing.T) {
 	}
 }
 
-// TestDecodeAsOptional checks the decode halves of AC-F8's three optional
-// cases (W4.1 has the question-set halves): an optional answer that is
-// absent leaves the zero answer, whose Present is false; one that is there
-// is read, with Present true, as a required one is; and optional on a field
-// that is not an answer field makes DecodeAs and Ask fail with the
-// *ConfigError of PreparedFor, Ask before any request.
+// TestDecodeAsOptional checks the decode halves of the three optional cases
+// (TestPreparedForOptional has the question-set halves): an optional answer
+// that is absent leaves the zero answer, whose Present is false; one that
+// is there is read, with Present true, as a required one is; and optional
+// on a field that is not an answer field makes DecodeAs and Ask fail with
+// the *ConfigError of PreparedFor, Ask before any request.
 func TestDecodeAsOptional(t *testing.T) {
 	type notAnAnswer struct {
 		Spam  NoulAnswer `typesafe:"kind=noul;name=spam"`
@@ -341,10 +341,10 @@ func TestDecodeAsOptional(t *testing.T) {
 	}
 }
 
-// TestDecodeAsReturnsZeroOnFailure pins DecodeAs's godoc (review W4.2
-// NIT 1): a decode that fails after reading some fields returns the zero
-// T, not the fields read before the failure, from DecodeAs and from Ask,
-// and leaves the response as it was.
+// TestDecodeAsReturnsZeroOnFailure pins DecodeAs's godoc: a decode that
+// fails after reading some fields returns the zero T, not the fields read
+// before the failure, from DecodeAs and from Ask, and leaves the response
+// as it was.
 func TestDecodeAsReturnsZeroOnFailure(t *testing.T) {
 	// spam is read first; tone then picks an option reviewAnswers does not
 	// list.
@@ -390,7 +390,7 @@ func TestDecodeAsReturnsZeroOnFailure(t *testing.T) {
 }
 
 // TestAskPassesCallOptions checks that Ask hands its call options to
-// SystemOne (review W4.2 MINOR 2): a Model and a Header reach the request
+// SystemOne: a Model and a Header reach the request
 // that goes out, and without them the request carries the client's model
 // and no such header.
 func TestAskPassesCallOptions(t *testing.T) {
@@ -451,7 +451,7 @@ func decodeAs[T any]() decodeAsFunc {
 }
 
 // TestAskValidationFieldPaths ports test_pydantic_response_validation
-// (:94-117, P4) and extends it to every row of DecodeAs's path table. Each
+// (:94-117) and extends it to every row of DecodeAs's path table. Each
 // case asks with Ask over a Recorder that replies with the body and the
 // request id req-invalid, and checks the *ResponseValidationError as the
 // upstream test does (field path, request id, body) and as the SDK's other
@@ -463,7 +463,7 @@ func decodeAs[T any]() decodeAsFunc {
 // spikes@815453827b43:w4.2/python_typed_paths.py): T's fields are the answers lifted
 // out of "answers", so a typed failure is named as the Python SDK names it
 // for a SystemOneResponse subclass with one field per answer, as the
-// upstream TypedSystemOneResponse is (ruling R99-rev):
+// upstream TypedSystemOneResponse is:
 //
 //   - The upstream first case, KnownResponse over a body without usage,
 //     fails at usage in Go: Ask validates the whole System One response
@@ -592,8 +592,8 @@ func TestAskValidationFieldPaths(t *testing.T) {
 	}
 }
 
-// TestTypedErrorWrapsDecodeError pins what a typed failure wraps (ruling
-// R99-rev): FieldPath names the answer in the lifted model's form, while
+// TestTypedErrorWrapsDecodeError pins what a typed failure wraps: FieldPath
+// names the answer in the lifted model's form, while
 // the decode error Unwrap returns keeps the answer's place in the body,
 // under "answers", and says the response data is invalid (the decoder's
 // "invalid response data: …", not a JSON failure's "invalid JSON: …").
@@ -679,7 +679,7 @@ func checkTypedError(t *testing.T, form string, err error, body []byte, path, en
 // TestTypedFieldPathEscapesNames checks that a typed failure's path writes
 // an answer's name as the decoder writes the names in its own paths
 // (renderFieldPath): escaped, without the "answers." the decoder puts
-// first (ruling R99-rev). escaped-names.json loses one answer, so the
+// first. escaped-names.json loses one answer, so the
 // field that reads it fails as absent.
 func TestTypedFieldPathEscapesNames(t *testing.T) {
 	tests := map[string]struct {
@@ -718,7 +718,7 @@ func TestTypedFieldPathEscapesNames(t *testing.T) {
 
 // TestDecodeAsStoredResponse checks the error of a typed decode of a
 // response read back from JSON: it has the path and no HTTP metadata, as
-// the stored response's own validation errors have none (ruling R80 Q3).
+// the stored response's own validation errors have none.
 func TestDecodeAsStoredResponse(t *testing.T) {
 	var resp SystemOneResponse
 	if err := resp.UnmarshalJSON(resultWith(toneJSON, qualityJSON)); err != nil {
@@ -747,18 +747,16 @@ func TestDecodeAsStoredResponse(t *testing.T) {
 }
 
 // TestTypedErrorRedactsHeader checks what a typed validation error shows
-// of a credential (rulings R99 (d), R103-rev and R114, review W4.2 MINOR 4,
-// V48 NIT A and review W6.2 MIN-5). The response echoes the client's API
-// key in two headers, in the request id and in a probability label that T
-// does not list, so the decode fails at that label. Ask, which has the
-// client's key, shows "***" for it in the header and the request id, and so
-// does DecodeAs over the same live response, which keeps its client's
-// redactor (ruling D-W6.6-decodeas-carrier; until then DecodeAs showed the
-// key). A response read back with UnmarshalJSON came from no client: its
-// Meta is empty and it keeps no redactor. Both show the label in the field
-// path and in Error as it arrived, as the SDK's other errors show a path
-// (R103-rev), and both show Set-Cookie, a credential by its name, as "***".
-// Neither changes the response's own header.
+// of a credential. The response echoes the client's API key in two headers,
+// in the request id and in a probability label that T does not list, so the
+// decode fails at that label. Ask, which has the client's key, shows "***"
+// for it in the header and the request id, and so does DecodeAs over the
+// same live response, which keeps its client's redactor. A response read
+// back with UnmarshalJSON came from no client: its Meta is empty and it
+// keeps no redactor. Both show the label in the field path and in Error as
+// it arrived, as the SDK's other errors show a path, and both show
+// Set-Cookie, a credential by its name, as "***". Neither changes the
+// response's own header.
 func TestTypedErrorRedactsHeader(t *testing.T) {
 	// tone gives a probability to a label that is the key, which
 	// typedSystemOneResponse's options do not list.
@@ -848,8 +846,7 @@ func TestTypedErrorRedactsHeader(t *testing.T) {
 	}
 }
 
-// TestDecodeAsProxyParity pins rulings D-W6.6-decodeas-carrier-3 and
-// N-W6.6-c5-edge-35 (charters/w6.6.md Addendum 4): DecodeAs over a live
+// TestDecodeAsProxyParity pins that DecodeAs over a live
 // response redacts its header as Ask redacts the same answer, at every sink
 // the error has (Header, RequestID, Error), when the answer went through a
 // proxy. A plain-HTTP request through a proxy gets the proxy's own answer,
@@ -979,16 +976,15 @@ func TestDecodeAsProxyParity(t *testing.T) {
 	})
 }
 
-// TestResponseNeverPrintsKey pins ruling D-W6.6-decodeas-carrier (3) and
-// its amendments -2 and -3: a live response keeps the redactor its call
-// used, which knows the API key and, for the answer to a plain-HTTP request
-// through a proxy, the proxy's credentials, yet no fmt verb applied to the
-// response, by pointer or by value, prints any of them, and neither does a
-// dump that follows the response's pointers by reflection, as go-spew and
-// testify's failure diffs do. The redactor sits behind a func, whose
+// TestResponseNeverPrintsKey pins that a live response keeps the redactor
+// its call used, which knows the API key and, for the answer to a plain-HTTP
+// request through a proxy, the proxy's credentials, yet no fmt verb applied
+// to the response, by pointer or by value, prints any of them, and neither
+// does a dump that follows the response's pointers by reflection, as go-spew
+// and testify's failure diffs do. The redactor sits behind a func, whose
 // captures neither fmt nor reflection sees; a pointer to it would print the
 // key under %s and %q, and a reflective walk would reach it. Two controls
-// per response keep the probe honest (STANDING 9): the response's redactor
+// per response keep the probe honest: the response's redactor
 // must redact each secret, so it does hold them, and the same walk must find
 // each behind a plain pointer to a redactor that holds it or in its proxy
 // set's credentials.
@@ -1110,13 +1106,13 @@ func reachesString(v reflect.Value, s string, seen map[uintptr]bool) bool {
 }
 
 // TestAskPreservesAPIErrors ports test_custom_response_preserves_api_errors
-// (:120-131, P5) and extends it: with a struct type, a failure status is
-// still the *APIError it is without one (400 with its body and request id,
-// 429 with its Retry-After), a transport failure is still a
-// *ConnectionError, each after one attempt, and a struct type PreparedFor
-// refuses fails with that *ConfigError before any request. Each error is
-// the bare value, of the type itself, not a wrapper that errors.As would
-// see through, so a caller's type switch holds (review W4.2 MINOR 3).
+// (:120-131) and extends it: with a struct type, a failure status is still
+// the *APIError it is without one (400 with its body and request id, 429
+// with its Retry-After), a transport failure is still a *ConnectionError,
+// each after one attempt, and a struct type PreparedFor refuses fails with
+// that *ConfigError before any request. Each error is the bare value, of
+// the type itself, not a wrapper that errors.As would see through, so a
+// caller's type switch holds.
 func TestAskPreservesAPIErrors(t *testing.T) {
 	type unTagged struct {
 		Spam NoulAnswer

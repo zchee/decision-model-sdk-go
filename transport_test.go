@@ -37,7 +37,9 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
-// testKey is the API key of the transport tests, which never reach an API.
+// testKey is the root tests' default API key (the upstream tests' key):
+// 8 bytes long, so the checks that look for the key inside other text
+// apply to it.
 const testKey = "test-key"
 
 // getResult is what a GET through a client's transport produced.
@@ -107,7 +109,7 @@ func TestHTTPVersionString(t *testing.T) {
 	}
 }
 
-// TestHTTPVersionDefaults pins section 6.3's defaults: an http base URL is
+// TestHTTPVersionDefaults pins the defaults: an http base URL is
 // HTTPAuto, which speaks HTTP/1.1 to a plain server, and an https base URL is
 // HTTP2Only, which refuses a server that negotiates no protocol;
 // WithHTTPVersion overrides either.
@@ -146,7 +148,8 @@ func TestHTTPVersionDefaults(t *testing.T) {
 	}
 }
 
-// TestTransportOptionsAreExclusive is F1's Go half (deviation "one
+// TestTransportOptionsAreExclusive is the Go half of
+// test_transport_and_http_client_mutually_exclusive (deviation "one
 // transport option, two kinds"): Python refuses transport= together with
 // http_client=; the port refuses WithHTTPTransport together with
 // WithRoundTripper, and each of them together with the options that
@@ -327,15 +330,16 @@ func TestTransportBuildErrors(t *testing.T) {
 	})
 }
 
-// TestDialErrorsMapToSDKErrors pins the h2gate → SDK error mapping (section
-// 6.3, R67 Q3): a proxy hop that timed out is a *TimeoutError naming the
-// proxy hop; any other proxy failure is a *ConnectionError with Proxy(),
-// even when the proxy refused h2 (R20); a failure to speak HTTP/2 is a
-// *ConfigError wrapping ErrHTTP2NotNegotiated and the cause; a dial that
-// timed out is a *TimeoutError; any other dial failure is a
-// *ConnectionError. An error that is none of those is left to the attempt's
-// classification (W2.5). The table drives the mapping with h2gate values;
-// the loopback cases below reach it through the transports resolve builds.
+// TestDialErrorsMapToSDKErrors pins the h2gate → SDK error mapping: a proxy
+// hop that timed out is a *TimeoutError naming the proxy hop; any other
+// proxy failure is a *ConnectionError with Proxy(), even when the proxy
+// refused h2; a failure to speak HTTP/2 is a *ConfigError wrapping
+// ErrHTTP2NotNegotiated and the cause; a dial that timed out is a
+// *TimeoutError; any other dial failure is a *ConnectionError. An error
+// that is none of those is left to the attempt's classification
+// (TestAttemptErrorClassification). The table drives the mapping with
+// h2gate values; the loopback cases below reach it through the transports
+// resolve builds.
 func TestDialErrorsMapToSDKErrors(t *testing.T) {
 	const attempt = 10 * time.Second
 	timeoutCause := &net.OpError{Op: "dial", Net: "tcp", Err: context.DeadlineExceeded}
@@ -637,7 +641,7 @@ func (c closeOnly) Close() error { return c.l.Close() }
 // TestTransportClose pins close: the SDK's transport and a WithHTTPTransport
 // clone close their idle connections; a WithRoundTripper closes its idle
 // connections when it has CloseIdleConnections and is then closed when it is
-// an io.Closer (AC-F9, R79), each once; every later call returns the first
+// an io.Closer, each once; every later call returns the first
 // result.
 func TestTransportClose(t *testing.T) {
 	boom := errors.New("close failed")
