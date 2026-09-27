@@ -141,7 +141,7 @@ func FuzzErrorBody(f *testing.F) {
 		if got.NoBody && got.Message != "" {
 			t.Fatalf("ReadErrorBody(%q) = %+v: no body with a message", body, got)
 		}
-		if got.NoBody != (len(body) == 0 || strings.TrimSpace(string(body)) == "null") && got.NoBody {
+		if got.NoBody && len(body) != 0 && strings.TrimSpace(string(body)) != "null" {
 			t.Fatalf("ReadErrorBody(%q) = %+v: no body for a body", body, got)
 		}
 		if again := ReadErrorBody(body); again != got {

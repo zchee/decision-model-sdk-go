@@ -41,7 +41,7 @@ func TestValidString(t *testing.T) {
 		"success: three-byte sequence":                        {s: "日本語", want: true},
 		"success: four-byte sequence":                         {s: "\U0001F600", want: true},
 		"success: C1 control U+0080 is allowed by JSON":       {s: "\u0080", want: true},
-		"success: U+2028 line separator":                      {s: " ", want: true},
+		"success: U+2028 line separator":                      {s: "\u2028", want: true},
 		"success: U+FFFD stays valid":                         {s: "�", want: true},
 		"success: largest code point U+10FFFF":                {s: "\U0010FFFF", want: true},
 		"success: escape text is plain ASCII before decoding": {s: `a\nb\u0000c`, want: true},

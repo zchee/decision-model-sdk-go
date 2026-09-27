@@ -145,7 +145,7 @@ func TestOneScanMatchesWholeScan(t *testing.T) {
 			add(name+" cut at "+strconv.Itoa(i), body[:i])
 			add(name+" cut at "+strconv.Itoa(i)+" and closed", body[:i]+"}")
 		}
-		for _, tail := range []string{" ", "\t\n\r ", "}", " }", "}}", "x", "{}", `{"a":1}`, "]", ",", "\f", " ", "\x00", "1"} {
+		for _, tail := range []string{" ", "\t\n\r ", "}", " }", "}}", "x", "{}", `{"a":1}`, "]", ",", "\f", "\u00a0", "\x00", "1"} {
 			add(name+" followed by "+strconv.Quote(tail), body+tail)
 		}
 		add(name+" without its closing brace", strings.TrimSuffix(strings.TrimRight(body, " \t\n\r"), "}"))
@@ -303,17 +303,17 @@ func TestK41ScannerBoundary(t *testing.T) {
 	// were probed on darwin/arm64), in each shape: open at the body's end,
 	// with a brace last, open at the cut with a brace or a bracket before it,
 	// and the top-level string.
-	type k41case = struct {
+	type boundaryCase = struct {
 		body    string
 		wantErr string
 	}
 	for k := 1; k <= 9; k++ {
 		n := strconv.Itoa(32 * k)
-		tests["error: "+n+" bytes open at the body's end"] = k41case{body: `{"":"` + zeros(32*k), wantErr: "eof"}
-		tests["error: "+n+" bytes open with a brace last"] = k41case{body: `{"":"` + zeros(32*k-1) + `}`, wantErr: "eof"}
-		tests["error: "+n+" bytes open at the cut, a brace before it"] = k41case{body: `{"a":"` + zeros(32*k-1) + `}}`, wantErr: "eof"}
-		tests["error: "+n+" bytes open at the cut, a bracket before it"] = k41case{body: `{"a":"` + zeros(32*k-1) + `]}`, wantErr: "eof"}
-		tests["error: a top-level string of "+n+" bytes"] = k41case{body: `"` + zeros(32*k), wantErr: "not a JSON object"}
+		tests["error: "+n+" bytes open at the body's end"] = boundaryCase{body: `{"":"` + zeros(32*k), wantErr: "eof"}
+		tests["error: "+n+" bytes open with a brace last"] = boundaryCase{body: `{"":"` + zeros(32*k-1) + `}`, wantErr: "eof"}
+		tests["error: "+n+" bytes open at the cut, a brace before it"] = boundaryCase{body: `{"a":"` + zeros(32*k-1) + `}}`, wantErr: "eof"}
+		tests["error: "+n+" bytes open at the cut, a bracket before it"] = boundaryCase{body: `{"a":"` + zeros(32*k-1) + `]}`, wantErr: "eof"}
+		tests["error: a top-level string of "+n+" bytes"] = boundaryCase{body: `"` + zeros(32*k), wantErr: "not a JSON object"}
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {

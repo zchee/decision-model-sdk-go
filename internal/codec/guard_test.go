@@ -128,7 +128,7 @@ func guardCorpus(t *testing.T) [][]byte {
 	var build func(prefix []byte, n int)
 	build = func(prefix []byte, n int) {
 		if n == 0 {
-			corpus = append(corpus, append([]byte(nil), prefix...))
+			corpus = append(corpus, slices.Clone(prefix))
 			return
 		}
 		for i := range len(alphabet) {

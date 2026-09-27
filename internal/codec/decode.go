@@ -161,18 +161,18 @@ type SkippedAnswer struct {
 // before the first answer that is not an object or has no string type, even
 // when the decode then fails. The names and types alias the body.
 type Skipped struct {
-	// First holds the first min(Count, MaxSkipped) skipped answers.
-	First [MaxSkipped]SkippedAnswer
+	// first holds the first min(Count, MaxSkipped) skipped answers.
+	first [MaxSkipped]SkippedAnswer
 	// Count is the number of skipped answers.
 	Count int
 }
 
 // Named returns the skipped answers reported by name.
-func (s *Skipped) Named() []SkippedAnswer { return s.First[:min(s.Count, MaxSkipped)] }
+func (s *Skipped) Named() []SkippedAnswer { return s.first[:min(s.Count, MaxSkipped)] }
 
 func (s *Skipped) add(name, typ string) {
 	if s.Count < MaxSkipped {
-		s.First[s.Count] = SkippedAnswer{Name: name, Type: typ}
+		s.first[s.Count] = SkippedAnswer{Name: name, Type: typ}
 	}
 	s.Count++
 }

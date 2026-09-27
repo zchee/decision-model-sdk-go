@@ -17,6 +17,7 @@
 package codec
 
 import (
+	"bytes"
 	"fmt"
 	"math/rand/v2"
 	"strconv"
@@ -229,7 +230,7 @@ func (g *pathGen) container(depth int) {
 func (g *pathGen) structured() []byte {
 	start := len(g.buf)
 	g.container(1)
-	return []byte(string(g.buf[start:]))
+	return bytes.Clone(g.buf[start:])
 }
 
 // lvl returns a level from 0 to 3.
