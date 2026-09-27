@@ -578,7 +578,7 @@ func assertMapped(t *testing.T, got, err error, kind, text string, proxy, unwrap
 	// A cause that printed a credential is replaced by a stand-in, which
 	// errors.As finds in its place.
 	if standIn := chainHolds(got, isStandIn); standIn == unwrapsErr {
-		t.Errorf("the cause is a *scrubbedError stand-in: %t, want %t", standIn, !unwrapsErr)
+		t.Errorf("the cause is a *engine.scrubbedError stand-in: %t, want %t", standIn, !unwrapsErr)
 	}
 	if _, ok := got.(Error); !ok { //nolint:errorlint // the mapped value itself must be an SDK error
 		t.Errorf("transportError = %T, not a typesafe.Error", got)

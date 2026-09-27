@@ -40,9 +40,9 @@ var prepareSink *typesafe.Prepared
 // building it.
 //
 // The n8 sets measure the falsiness check of a raw "score" question's JSON
-// criteria (falsyJSON): each is paired with a control that differs only in
-// the type string, "Score" instead of "score", so that the check does not run
-// while the writer does the same work.
+// criteria (engine.FalsyJSON): each is paired with a control that differs
+// only in the type string, "Score" instead of "score", so that the check
+// does not run while the writer does the same work.
 var prepareCases = map[string]func() *typesafe.Questions{
 	// The API sketch of the port plan's section 5.
 	"c1-sketch": func() *typesafe.Questions {

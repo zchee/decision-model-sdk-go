@@ -176,7 +176,7 @@ func TestSecretHeadersRedacted(t *testing.T) {
 // traceback-free, request-free copy of its chain; the Go SDK maps the
 // failure to its own class (*ConnectionError, or *TimeoutError for the
 // timeout) and replaces a cause whose chain printed a credential by a
-// *scrubbedError, a new value, not the transport's error, with the
+// *engine.scrubbedError, a new value, not the transport's error, with the
 // redacted text and the redacted rendering of the chain, through which
 // errors.As reaches neither the transport's error types nor the request,
 // and errors.Is only the standard sentinels and errno the original matched,
@@ -265,7 +265,7 @@ func TestTransportErrorsNeverExposeCredentials(t *testing.T) {
 			}
 			standIn := errors.Unwrap(err)
 			if !isStandIn(standIn) || standIn == failures[len(failures)-1] { //nolint:errorlint // the direct cause is the stand-in, a new value
-				t.Fatalf("the cause = %T %v, want a new *scrubbedError standing in for the transport's error", standIn, standIn)
+				t.Fatalf("the cause = %T %v, want a new *engine.scrubbedError standing in for the transport's error", standIn, standIn)
 			}
 			detail := fmt.Sprintf("%+v", standIn)
 			for _, survivor := range []string{"Illegal header value", "Rejected authorization: ***; provider: ***"} {

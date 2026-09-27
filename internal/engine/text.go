@@ -162,16 +162,16 @@ type Credentials []string
 // for, as the API key is not (ruling R68): it would match ordinary text; the
 // Python SDK looks for every value.
 func RequestCredentials(h http.Header) Credentials {
-	return CallCredentials(h, nil)
+	return callCredentials(h, nil)
 }
 
-// CallCredentials returns the credentials a transport error of a call may
+// callCredentials returns the credentials a transport error of a call may
 // repeat: those of the request with header h ([RequestCredentials]) and
 // proxies, the credentials of the proxies the SDK's own transport chose
 // ([ProxyCreds]), which a proxy's answer may repeat in an error net/http
 // builds from it before the SDK's transport sees a response (review W6.2
 // MIN-4, its review's MINOR 1, and ruling D-W6-secfix-m2).
-func CallCredentials(h http.Header, proxies Credentials) Credentials {
+func callCredentials(h http.Header, proxies Credentials) Credentials {
 	var c Credentials
 	for name, values := range h {
 		if !IsSecretHeader(name) {
@@ -294,7 +294,7 @@ func jsonForm(v string) string {
 }
 
 // Redact returns s with every credential replaced by [Redacted], then the
-// userinfo of every URL in it ([ScrubUserinfo]), which may hold a proxy's
+// userinfo of every URL in it ([scrubUserinfo]), which may hold a proxy's
 // password, and reports whether it replaced anything.
 func (c Credentials) Redact(s string) (string, bool) {
 	found := false
@@ -303,20 +303,20 @@ func (c Credentials) Redact(s string) (string, bool) {
 			s, found = strings.ReplaceAll(s, v, Redacted), true
 		}
 	}
-	if u, ok := ScrubUserinfo(s); ok {
+	if u, ok := scrubUserinfo(s); ok {
 		s, found = u, true
 	}
 	return s, found
 }
 
-// LogErrorText renders err, an error of the SDK's transport, for the
+// logErrorText renders err, an error of the SDK's transport, for the
 // transport's DEBUG records "h2: gate error" and "h2: redial error"
 // (h2gate.Config.ErrorText, ruling R84): every credential of creds, the
 // call's ([Transport.Credentials]), and every URL userinfo
 // replaced by "***" ([Credentials.Redact]), then escaped and cut at 200
 // characters ([SafeMessage]), as the text of a *ConnectionError is. The
 // transport calls it only for a record the logger keeps.
-func LogErrorText(creds Credentials, err error) string {
+func logErrorText(creds Credentials, err error) string {
 	text, _ := creds.Redact(err.Error())
 	return SafeMessage(text)
 }
@@ -475,12 +475,12 @@ func (e *scrubbedError) Format(f fmt.State, verb rune) {
 // Unwrap returns the sentinels the transport's error matched.
 func (e *scrubbedError) Unwrap() []error { return e.sentinels }
 
-// ScrubUserinfo replaces the userinfo of every URL in s ("scheme://user@" or
+// scrubUserinfo replaces the userinfo of every URL in s ("scheme://user@" or
 // "scheme://user:password@") with "***", and reports whether it replaced
 // any. A URL's authority is taken to run to the next whitespace or quote, not
 // to the next "/": a password written with a raw "/" is still scrubbed, at
 // the cost of scrubbing a path that holds an "@".
-func ScrubUserinfo(s string) (string, bool) {
+func scrubUserinfo(s string) (string, bool) {
 	var b strings.Builder
 	rest, scrubbed := s, false
 	for {

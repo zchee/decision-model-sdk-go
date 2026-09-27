@@ -46,9 +46,9 @@ var retryCountValues = func() [16][]string {
 // key a header map holds it under.
 var CanonicalRetryCount = http.CanonicalHeaderKey(HeaderRetryCount)
 
-// RetryCountValue returns the X-TypeSafe-Retry-Count value of attempt, which
+// retryCountValue returns the X-TypeSafe-Retry-Count value of attempt, which
 // is at least 1: the number of attempts before it.
-func RetryCountValue(attempt int) []string {
+func retryCountValue(attempt int) []string {
 	if attempt <= len(retryCountValues) {
 		return retryCountValues[attempt-1]
 	}

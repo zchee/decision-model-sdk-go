@@ -153,22 +153,22 @@ func (t *Transport) Stats() h2gate.Stats {
 }
 
 // Credentials returns the credentials an error of the transport for req may
-// repeat ([CallCredentials]): those of req's header and, on the SDK's own
+// repeat ([callCredentials]): those of req's header and, on the SDK's own
 // transport, those of every proxy it chose ([ProxyCreds]), never asking the
 // proxy func again. A proxy's answer that net/http cannot parse becomes an
 // error net/http builds itself, quoting the answer, before refusedConnect's
 // scrub (internal/h2gate) could see it; a caller's transport keeps its own
 // proxy, which the SDK does not ask.
 func (t *Transport) Credentials(req *http.Request) Credentials {
-	return CallCredentials(req.Header, t.Proxies.Credentials())
+	return callCredentials(req.Header, t.Proxies.Credentials())
 }
 
 // ErrorText renders err, an error of the transport for the request req, for
 // its DEBUG records "h2: gate error" and "h2: redial error"
 // (h2gate.Config.ErrorText, ruling R84), scrubbed of every credential of the
-// call ([Transport.Credentials], [LogErrorText]).
+// call ([Transport.Credentials], [logErrorText]).
 func (t *Transport) ErrorText(req *http.Request, err error) string {
-	return LogErrorText(t.Credentials(req), err)
+	return logErrorText(t.Credentials(req), err)
 }
 
 // ResponseRedactor returns r, the client's header redactor, for the header

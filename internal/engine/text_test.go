@@ -231,8 +231,8 @@ func TestLogErrorText(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if diff := gocmp.Diff(tt.want, LogErrorText(RequestCredentials(req.Header), tt.err)); diff != "" {
-				t.Errorf("LogErrorText (-want +got):\n%s", diff)
+			if diff := gocmp.Diff(tt.want, logErrorText(RequestCredentials(req.Header), tt.err)); diff != "" {
+				t.Errorf("logErrorText (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -281,8 +281,8 @@ func TestRedactionCoversGoEscapeForms(t *testing.T) {
 			if _, ok := cause.(*scrubbedError); !ok || cause.Error() != want { //nolint:errorlint // the stand-in itself, not a link of its chain
 				t.Errorf("cause = %T %q, want a *scrubbedError %q", cause, cause, want)
 			}
-			if got := LogErrorText(RequestCredentials(h), original); got != want {
-				t.Errorf("LogErrorText = %q, want %q", got, want)
+			if got := logErrorText(RequestCredentials(h), original); got != want {
+				t.Errorf("logErrorText = %q, want %q", got, want)
 			}
 			if !strings.HasPrefix(original.Error(), "raw="+tt.credential+";") {
 				t.Errorf("the original error's text changed: %q", original.Error())
@@ -578,9 +578,9 @@ func TestScrubUserinfo(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, scrubbed := ScrubUserinfo(tt.in)
+			got, scrubbed := scrubUserinfo(tt.in)
 			if got != tt.want || scrubbed != tt.scrubbed {
-				t.Errorf("ScrubUserinfo(%q) = %q, %t; want %q, %t", tt.in, got, scrubbed, tt.want, tt.scrubbed)
+				t.Errorf("scrubUserinfo(%q) = %q, %t; want %q, %t", tt.in, got, scrubbed, tt.want, tt.scrubbed)
 			}
 		})
 	}

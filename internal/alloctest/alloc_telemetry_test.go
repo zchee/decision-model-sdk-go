@@ -128,10 +128,10 @@ var sinkID string
 // costs, the reading the record made before R107: that joins them into one
 // string, and engine.HeaderRedactor.RequestID builds one string too, of
 // "***" ones when a value holds the key. The header's name is not
-// lower-cased, as engine.IsCredential's would be. A client whose transport
-// chose a proxy reads its credential set here too, the one success-path read
-// of the set (ruling D-W6-secfix-m2): one value costs no allocation, with or
-// without the proxy's password.
+// lower-cased, as the engine's credential check would be. A client whose
+// transport chose a proxy reads its credential set here too, the one
+// success-path read of the set (ruling D-W6-secfix-m2): one value costs no
+// allocation, with or without the proxy's password.
 func TestAllocRequestID(t *testing.T) {
 	const key = "ts_live_QzXjWvKpYbNmHgFd"
 	r := engine.NewHeaderRedactor(key)

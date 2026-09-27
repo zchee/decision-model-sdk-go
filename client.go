@@ -110,21 +110,30 @@ func (c *Client) Close() error {
 	return c.cfg().Transport.Close()
 }
 
+// msgNotBuilt is the message of the *ConfigError of a Client that
+// NewClient did not build.
+const msgNotBuilt = "The client was not built by NewClient."
+
 // built returns a *ConfigError for a Client that NewClient did not build.
 func (c *Client) built() error {
 	if !c.eng().Built() {
-		return newConfigError("The client was not built by NewClient.")
+		return newConfigError(msgNotBuilt)
 	}
 	return nil
 }
 
 // usable returns the error a call fails with before it starts: a client that
 // NewClient did not build, or one that has been closed.
+//
+// It reads the engine's state once, rather than through built, so that it
+// stays within the inliner's budget and each call checks its client inline
+// (docs/perf/ledger.md, ## W6.5).
 func (c *Client) usable() error {
-	if err := c.built(); err != nil {
-		return err
+	e := c.eng()
+	if !e.Built() {
+		return newConfigError(msgNotBuilt)
 	}
-	if c.eng().Closed().Load() {
+	if e.Closed().Load() {
 		return newClientClosedError()
 	}
 	return nil

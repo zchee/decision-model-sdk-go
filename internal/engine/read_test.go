@@ -64,10 +64,10 @@ func TestReadBody(t *testing.T) {
 			data: body(InitialUndeclared), declared: -1, limit: 1 << 20, wantCap: 2 * InitialUndeclared,
 		},
 		"success: a declared body of exactly the first buffer": {
-			data: body(InitialDeclared), declared: InitialDeclared, limit: 1 << 30, wantCap: InitialDeclared + 1,
+			data: body(initialDeclared), declared: initialDeclared, limit: 1 << 30, wantCap: initialDeclared + 1,
 		},
 		"success: a declared body past the first buffer": {
-			data: body(InitialDeclared + 10), declared: InitialDeclared + 10, limit: 1 << 30, wantCap: InitialDeclared + 10 + 1,
+			data: body(initialDeclared + 10), declared: initialDeclared + 10, limit: 1 << 30, wantCap: initialDeclared + 10 + 1,
 		},
 		"success: an undeclared body of exactly the limit": {data: body(5000), declared: -1, limit: 5000, wantCap: 5000 + 1},
 		"error: declared over the limit, refused unread":   {data: nil, declared: 65, limit: 64, wantErr: ErrTooLarge},

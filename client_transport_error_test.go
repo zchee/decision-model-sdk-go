@@ -695,7 +695,7 @@ func TestTransportErrorFieldsHoldNoCredential(t *testing.T) {
 				return
 			}
 			if !standIn {
-				t.Errorf("the cause = %T, want a *scrubbedError stand-in", ce.Unwrap())
+				t.Errorf("the cause = %T, want a *engine.scrubbedError stand-in", ce.Unwrap())
 			}
 		})
 	}

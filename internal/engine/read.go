@@ -24,9 +24,9 @@ var ErrTooLarge = errors.New("typesafe: response body over the size limit")
 
 // The first buffer of a response body read (NF5, ruling R27).
 const (
-	// InitialDeclared bounds the first buffer of a body whose length is
-	// declared: the buffer holds min(Content-Length, InitialDeclared).
-	InitialDeclared = 256 << 10
+	// initialDeclared bounds the first buffer of a body whose length is
+	// declared: the buffer holds min(Content-Length, initialDeclared).
+	initialDeclared = 256 << 10
 	// InitialUndeclared is the first buffer of a body that declares no
 	// length (a chunked body); it doubles as the body grows.
 	InitialUndeclared = 4 << 10
@@ -40,7 +40,7 @@ const (
 // declares none.
 //
 //   - A declared length above limit is refused before anything is read.
-//   - The first buffer holds min(declared, InitialDeclared) bytes for a
+//   - The first buffer holds min(declared, initialDeclared) bytes for a
 //     declared body and InitialUndeclared for an undeclared one.
 //   - A full buffer grows by doubling, up to the end the body may reach: its
 //     declared length while it is within it, else the limit. Growth that
@@ -59,8 +59,8 @@ func ReadBody(r io.Reader, declared, limit int64) ([]byte, error) {
 	}
 	var size int64
 	switch {
-	case declared > InitialDeclared:
-		size = InitialDeclared
+	case declared > initialDeclared:
+		size = initialDeclared
 	case declared >= 0:
 		size = declared + 1
 	default:

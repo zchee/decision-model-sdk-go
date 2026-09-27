@@ -244,10 +244,11 @@ func measureCallItems(t *testing.T, c *typesafe.Client, state any, qs *typesafe.
 }
 
 // TestAllocAnswersInlineBound checks the bound of the answer entries a call
-// allocates with its response (W5.3's N2, newSystemOneAlloc) at the
-// boundary: a call of engine.MaxInlineAnswers questions costs the allocations of
-// one of engine.MaxInlineAnswers-1, and a call of engine.MaxInlineAnswers+1 questions one
-// more, its entries allocated by the decode as before W5.3. Every call is
+// allocates with its response (W5.3's N2, engine.NewSystemOneAlloc) at the
+// boundary: a call of engine.MaxInlineAnswers questions costs the
+// allocations of one of engine.MaxInlineAnswers-1, and a call of
+// engine.MaxInlineAnswers+1 questions one more, its entries allocated by
+// the decode as before W5.3. Every call is
 // answered by result.json's three answers, which fit each inline array
 // here; the bytes differ with the array's size and are logged.
 func TestAllocAnswersInlineBound(t *testing.T) {

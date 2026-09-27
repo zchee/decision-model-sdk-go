@@ -138,7 +138,7 @@ func EncodeBody[R ~[]byte, C content[R]](state any, model string, q *wire.Prepar
 		if modelAt < 0 {
 			*buf, _ = wire.AppendString(*buf, model) // valid UTF-8: cannot fail
 		} else {
-			f = appendMember(buf, memberModel, extra[modelAt].Value, AppendValue[R, C])
+			f = appendMember(buf, memberModel, extra[modelAt].Value, appendValue[R, C])
 		}
 	}
 	if f.Kind == FailNone {
@@ -146,7 +146,7 @@ func EncodeBody[R ~[]byte, C content[R]](state any, model string, q *wire.Prepar
 		if questionsAt < 0 {
 			*buf = append(*buf, q.Questions...)
 		} else {
-			f = appendMember(buf, memberQuestions, extra[questionsAt].Value, AppendValue[R, C])
+			f = appendMember(buf, memberQuestions, extra[questionsAt].Value, appendValue[R, C])
 		}
 	}
 	if f.Kind == FailNone {
@@ -202,7 +202,7 @@ next:
 			return Failure{Kind: FailEncode, Key: key, Extra: true, Err: err}
 		}
 		*buf = append(*buf, ':')
-		if err := AppendValue[R, C](buf, extra[j].Value); err != nil {
+		if err := appendValue[R, C](buf, extra[j].Value); err != nil {
 			return Failure{Kind: FailEncode, Key: key, Extra: true, Err: err}
 		}
 	}
@@ -242,9 +242,9 @@ func AppendState[R ~[]byte, C content[R]](buf *[]byte, state any) error {
 	}
 }
 
-// AppendValue appends any JSON value, for a body member other than the
+// appendValue appends any JSON value, for a body member other than the
 // state. R and C are the root package's RawJSON and Content ([EncodeBody]).
-func AppendValue[R ~[]byte, C content[R]](buf *[]byte, value any) error {
+func appendValue[R ~[]byte, C content[R]](buf *[]byte, value any) error {
 	switch v := value.(type) {
 	case R:
 		return codec.AppendRawValue(buf, []byte(v))

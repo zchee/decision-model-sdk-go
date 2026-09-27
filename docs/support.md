@@ -280,14 +280,19 @@ sections 4, 11 and 12 describe the layout before it):
   allocation budgets. The budget list runs there:
   `go test -list "^($ALLOC)$" ./internal/alloctest/` and
   `go test -run "^($ALLOC)$" -count=1 -v ./internal/alloctest/`, and
-  CI's allocation-budget step runs `run_budgets ./internal/alloctest/`
-  with its `//go:build !race` scan over the root package and
-  `internal/alloctest`.
+  CI's allocation-budget step runs `run_budgets ./internal/alloctest/`.
+  Its `//go:build !race` scan reads every tracked test file the go
+  command builds: a `!race` test of `internal/alloctest` must be in the
+  step's list, and one in any package that no step without `-race` runs
+  (the root package among them) fails the step by name; the allowed
+  packages are the ones the steps run, the budget step's and the test
+  job's `NORACE_PKGS` (critic-p6 m-1, n-11).
 - `unsafe` stays under `internal/codec` itself (no package below it),
   `internal/testsupport/naive`, and the root package's typed store,
   `decodeas_store.go`; `internal/engine` imports no `unsafe` and uses no
-  raw-pointer route (K40, STANDING 3). The seam tests hold
-  `internal/engine` to every rule of the root package.
+  raw-pointer route (K40, STANDING 3), and no file of the module imports
+  `"C"` (review V81 NIT 1). The seam tests hold `internal/engine` to
+  every rule of the root package.
 - CI's `-race` coverage step runs with `-coverpkg=./...` (owner ruling
   G10), so a block is covered when any test of the module runs it.
 

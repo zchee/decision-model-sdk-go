@@ -268,6 +268,6 @@ func (rq *Request) AttemptHeader(attempt int) http.Header {
 	}
 	h := make(http.Header, len(rq.Header)+1)
 	maps.Copy(h, rq.Header)
-	h[CanonicalRetryCount] = RetryCountValue(attempt)
+	h[CanonicalRetryCount] = retryCountValue(attempt)
 	return h
 }

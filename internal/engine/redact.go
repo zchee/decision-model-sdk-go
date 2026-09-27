@@ -94,12 +94,12 @@ func KeyNeedle(key string) bool {
 	return len(key) >= MinKeyNeedleBytes
 }
 
-// IsCredential reports whether the values of the header name must not be
+// isCredential reports whether the values of the header name must not be
 // printed: the name marks them as credentials ([IsSecretHeader]), or one of
 // them holds the API key, under whatever name the caller sent it, when the
 // key is at least [MinKeyNeedleBytes] long. The second test goes past
 // typesafe-sdk-python, which redacts by name alone.
-func IsCredential(name string, values []string, apiKey string) bool {
+func isCredential(name string, values []string, apiKey string) bool {
 	if IsSecretHeader(name) {
 		return true
 	}
@@ -109,7 +109,7 @@ func IsCredential(name string, values []string, apiKey string) bool {
 // HeaderRedactor redacts the response header that the error types keep
 // and the log records print (rulings R87, R93): a header is a credential by
 // its name always, by holding the client's API key when the key is at least
-// [MinKeyNeedleBytes] long ([IsCredential]), and, in the response to a
+// [MinKeyNeedleBytes] long ([isCredential]), and, in the response to a
 // plain-HTTP request through a proxy, by holding a whole credential of the
 // proxies the SDK's transport chose, from [MinKeyNeedleBytes] too
 // ([ProxyCreds.inHeader]; rulings D-W6-secfix-revise-2-scope-c and
@@ -145,10 +145,10 @@ func (r HeaderRedactor) WithProxies(proxies *ProxyCreds) HeaderRedactor {
 }
 
 // credential reports whether the values of the header name must not be
-// printed: [IsCredential]'s test for r's key, or one of them holds a
+// printed: [isCredential]'s test for r's key, or one of them holds a
 // credential of r's proxies ([ProxyCreds.inHeader]).
 func (r HeaderRedactor) credential(name string, values []string) bool {
-	return IsCredential(name, values, r.key) || r.proxies.inHeader(values)
+	return isCredential(name, values, r.key) || r.proxies.inHeader(values)
 }
 
 // Header returns h's headers in a new map in which every value of each
@@ -184,7 +184,7 @@ func (r HeaderRedactor) Header(h http.Header) http.Header {
 // "***" where Error does (ruling R87). The header's name is not a
 // credential's ([IsSecretHeader]), so only the key and the proxies'
 // credentials are looked for, and the name is not lower-cased as
-// [IsCredential] would. h is not copied: one value costs no allocation, and
+// [isCredential] would. h is not copied: one value costs no allocation, and
 // several cost the one string they are joined into.
 func (r HeaderRedactor) RequestID(h http.Header) (string, bool) {
 	values := h[wire.RequestIDHeader]

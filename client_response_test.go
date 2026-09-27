@@ -644,11 +644,11 @@ func TestAPIErrorBodyEdgeCasesThroughClient(t *testing.T) {
 }
 
 // TestSystemOneAnswersInline checks the answer entries a call allocates with
-// its response (W5.3, newSystemOneAlloc): each call's answers live in an
-// array of their own, so a later call changes no earlier response's
+// its response (W5.3, engine.NewSystemOneAlloc): each call's answers live
+// in an array of their own, so a later call changes no earlier response's
 // answers; and a response with more answers than the questions asked, or a
-// question set past maxInlineAnswers, whose entries the decode allocates,
-// decodes the same.
+// question set past engine.MaxInlineAnswers, whose entries the decode
+// allocates, decodes the same.
 func TestSystemOneAnswersInline(t *testing.T) {
 	body := testsupport.Fixture(t, "result.json")
 	one := mustPrepared(t, NewQuestions().Noul("spam", Noul{Instructions: Text("Spam?")}))
@@ -694,7 +694,7 @@ func TestSystemOneAnswersInline(t *testing.T) {
 // response keeps that allocation reachable after the caller drops the
 // response, through collections and reuse of freed memory, as it kept the
 // response and the decode's own array before. It holds for a set within
-// maxInlineAnswers and for one past it.
+// engine.MaxInlineAnswers and for one past it.
 func TestAnswersOutliveTheirResponse(t *testing.T) {
 	body := testsupport.Fixture(t, "result.json")
 	five := NewQuestions()
