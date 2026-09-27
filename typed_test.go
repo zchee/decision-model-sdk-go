@@ -29,7 +29,8 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
-// Ticket is the typed question set of the port plan's section 5.
+// Ticket is a typed question set: billing, tone, urgency and an optional
+// spam.
 type Ticket struct {
 	Billing NoulAnswer   `typesafe:"kind=noul;instructions=Is this about billing, invoices or refunds?;yes=payments or invoices"`
 	Tone    ChoiceAnswer `typesafe:"kind=choice;instructions=What is the tone?;options=calm=neutral or polite|angry"`
@@ -104,8 +105,8 @@ func TestPreparedForTicketParity(t *testing.T) {
 	}
 }
 
-// escapes asks one question per case of the eight AC-F8 escape cases: each
-// of the four escapes once inside an option label and once inside free text.
+// escapes asks one question per case of the eight escape cases: each of the
+// four escapes once inside an option label and once inside free text.
 type escapes struct {
 	LabelSemicolon ChoiceAnswer `typesafe:"kind=choice;options=a\\;b=desc|c"`
 	LabelBar       ChoiceAnswer `typesafe:"kind=choice;options=a\\|b=desc|c"`
@@ -117,7 +118,7 @@ type escapes struct {
 	TextBackslash  NoulAnswer   `typesafe:"kind=noul;instructions=a\\\\b"`
 }
 
-// TestPreparedForEscapes pins the eight AC-F8 escape cases end to end: the
+// TestPreparedForEscapes pins the eight escape cases end to end: the
 // escaped character reaches the wire as itself, as the same text set by hand
 // does.
 func TestPreparedForEscapes(t *testing.T) {
@@ -150,7 +151,7 @@ func TestPreparedForEscapes(t *testing.T) {
 }
 
 // TestParseTag checks the grammar on its own: what each tag parses to, the
-// eight AC-F8 escape cases, and every syntax error.
+// eight escape cases, and every syntax error.
 func TestParseTag(t *testing.T) {
 	tests := map[string]struct {
 		tag     string
@@ -205,7 +206,7 @@ func TestParseTag(t *testing.T) {
 			want: tagSpec{kind: "yesno", options: []tagOption{{label: "a"}}, levels: []string{"b"}, keys: keyKind | keyOptions | keyLevels},
 		},
 
-		// The eight AC-F8 escape cases: each escape inside an option or
+		// The eight escape cases: each escape inside an option or
 		// level label, and inside a free-text value.
 		`success: escape \; in an option label`: {
 			tag:  `options=a\;b=desc`,
@@ -417,7 +418,7 @@ type (
 	rejDupLevel struct {
 		Urgency ScoreAnswer `typesafe:"kind=score;levels=low|high|low"`
 	}
-	// (4) choice without options, in case 4's family (R96).
+	// (4) choice without options, in case 4's family.
 	rejNoOptions struct {
 		Tone ChoiceAnswer `typesafe:"kind=choice;instructions=Tone?"`
 	}
@@ -497,7 +498,7 @@ type (
 	rejNamedHiddenTag struct {
 		Inner hiddenTaggedBase
 	}
-	// (9) a tagged field inside a named struct-typed field (R96).
+	// (9) a tagged field inside a named struct-typed field.
 	rejNamedStruct struct {
 		Inner TaggedBase
 	}
@@ -572,14 +573,14 @@ type (
 )
 
 // TestPreparedForRejections covers upstream's pyrefly negative
-// expectations (XT1, tests/typing/negative/*.py at 0ffd094). Each maps to a
+// expectations (tests/typing/negative/*.py at 0ffd094). Each maps to a
 // rejection of PreparedFor, to a compile error in Go (the mistake cannot be
 // written in a Go program that builds), or to a runtime check outside
 // PreparedFor:
 //
 //	file            expectation                                           Go analogue
-//	async_client.py system_one(None, ...)                                 runtime *InvalidRequestError (nil state, W1.2), not PreparedFor
-//	async_client.py AsyncTypeSafeClient(retry=Retrying())                 compile error: the client's retry option takes a RetryPolicy (W3.2)
+//	async_client.py system_one(None, ...)                                 runtime *InvalidRequestError (nil state), not PreparedFor
+//	async_client.py AsyncTypeSafeClient(retry=Retrying())                 compile error: the client's retry option takes a RetryPolicy
 //	async_client.py AsyncTypeSafeClient(http_client=httpx2.Client())      not representable: one client, no sync/async split (WithHTTPTransport takes an *http.Transport)
 //	async_client.py system_one(..., retry=Retrying())                     compile error: the Retry call option takes a RetryPolicy
 //	async_client.py system_one(..., response_model=int)                   case 10: PreparedFor[int] / Ask[int] → *ConfigError
@@ -589,7 +590,7 @@ type (
 //	questions.py    NoulModel with "type": "choice"                       compile error: Noul has no Type field; tag analogue case 7
 //	questions.py    ScoreModel with "type": "choice"                      compile error: Score has no Type field; tag analogue case 7
 //	questions.py    NoulModel without "type"                              compile error: the type is the Go type; tag analogue case 5 (no kind)
-//	questions.py    ChoiceModel without "criteria"                        case 4's family: a kind=choice tag without options is refused (R96, as Rust refuses it); the builder's Choice{} still sends "criteria":{}, as Python's runtime accepts an empty dict; RawQuestion{Type: "choice"} without criteria → Prepare *ConfigError
+//	questions.py    ChoiceModel without "criteria"                        case 4's family: a kind=choice tag without options is refused (as Rust refuses it); the builder's Choice{} still sends "criteria":{}, as Python's runtime accepts an empty dict; RawQuestion{Type: "choice"} without criteria → Prepare *ConfigError
 //	questions.py    ScoreModel without "criteria"                         case 4 (score without levels); Score{} → Prepare *ConfigError
 //	questions.py    NoulModel with an "extra" key                         compile error: Noul has no such field; tag analogue case 13 (unknown key)
 //	questions.py    ChoiceModel with list criteria                        compile error: Options is []Option
@@ -602,7 +603,7 @@ type (
 //	transport.py    async client._request(models) likewise                compile error, as above
 //
 // The positive fixtures (valid.py, transport.py, pydantic_response_models.py)
-// are W6.4's: go vet ./examples/... .
+// map to the examples, which CI's go vet ./examples/... checks.
 func TestPreparedForRejections(t *testing.T) {
 	_ = rejUnexported{}.spam // unexported fields exist only to be refused
 	_ = rejNamedUnexported{}.inner
@@ -964,10 +965,10 @@ type (
 	}
 )
 
-// TestPreparedForOptional covers the three AC-F8 optional cases at the plan's
+// TestPreparedForOptional covers the three optional cases at the plan's
 // level: the flag is recorded when given and absent when not, and changes
 // nothing on the wire. What it means for decoding (an absent answer leaves
-// Present false) is W4.2's DecodeAs.
+// Present false) is TestDecodeAsOptional's.
 func TestPreparedForOptional(t *testing.T) {
 	tests := map[string]struct {
 		plan         *typedPlan
@@ -1205,7 +1206,7 @@ var concurrentRuns atomic.Int64
 // overlapping first builds then keep two plans under the Store. Overlap
 // needs two goroutines running at once, so the test raises GOMAXPROCS to 2
 // for its duration when it is lower (go test -cpu 1, a one-CPU container).
-// Measured on (M) with the Store in place, 20 runs each: the first round to
+// Measured with the Store in place, 20 runs each: the first round to
 // fail was round 0 in 15, 12 and 20 runs at GOMAXPROCS 1, 2 and 16, and
 // never later than round 33; a one-field type failed only 19 runs in 20.
 // PreparedFor itself is checked once more on a named type.

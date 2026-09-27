@@ -21,11 +21,11 @@ import (
 )
 
 // TestRetryPolicyRules checks where a RetryPolicy keeps its statuses and
-// predicate (ruling R97-corr (c), W5.3): behind one pointer, so that the
-// policy is 56 bytes and the options of a call, which hold it by value, fit
-// the 128-byte size class; copies share the pointer, and a setter replaces
-// it without touching the policy it was called on or any copy of it. The
-// policy stays incomparable, as it was before the pointer (review V63).
+// predicate: behind one pointer, so that the policy is 56 bytes and the
+// options of a call, which hold it by value, fit the 128-byte size class;
+// copies share the pointer, and a setter replaces it without touching the
+// policy it was called on or any copy of it. The policy stays incomparable, as
+// it was before the pointer.
 func TestRetryPolicyRules(t *testing.T) {
 	if got := reflect.TypeFor[RetryPolicy]().Size(); got != 56 {
 		t.Errorf("RetryPolicy is %d bytes, want 56", got)

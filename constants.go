@@ -19,9 +19,8 @@ import (
 )
 
 // The environment variables a client reads for a setting its options leave
-// unset, as typesafe-sdk-python names them (py:constants.py). A value is
-// trimmed of leading and trailing whitespace, and a variable that is unset or
-// blank counts as unset.
+// unset, as typesafe-sdk-python names them. A value is trimmed of leading and
+// trailing whitespace, and a variable that is unset or blank counts as unset.
 const (
 	// APIKeyEnv names the variable holding the API key.
 	APIKeyEnv = "TYPESAFE_API_KEY" //nolint:gosec // G101: the name of the variable that holds the key, not a key.

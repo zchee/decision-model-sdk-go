@@ -42,7 +42,7 @@ type RawJSON []byte
 // request body member is sent as the JSON it holds, never as a base64
 // string. It fails when r is not exactly one valid JSON value, checked by the
 // same scanner as a question's JSON, so that invalid JSON never reaches the
-// network (ruling R60); the encoder checks the result a second time.
+// network; the encoder checks the result a second time.
 //
 // Nested RawJSON costs one scan and one copy of its bytes per call. A
 // RawJSON that is the state itself, or an extra body member's whole value, is
@@ -109,8 +109,7 @@ func (c Content) JSON() RawJSON { return c.w.JSON }
 // content checked and without its insignificant whitespace; unset Content as
 // null. It fails when the text is not valid UTF-8, or when the JSON content
 // is not a single valid JSON object or array, so that invalid JSON never
-// reaches the network (ruling R60); the encoder checks the result a second
-// time.
+// reaches the network; the encoder checks the result a second time.
 //
 // Nested content costs one copy per call, and JSON content one scan too: it
 // is built in a new slice for the encoder, where a string field is written

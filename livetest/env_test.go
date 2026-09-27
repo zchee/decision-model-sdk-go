@@ -76,14 +76,14 @@ func liveEnvFrom(getenv func(string) string) (liveEnv, error) {
 // redactedCredential replaces a credential that scrub removes.
 const redactedCredential = "***"
 
-// credentialShapes are what no recorded body may hold once scrub has run:
-// a token that starts with the API key prefix ts_, a credential header
-// written as a JSON member (a server that echoed request headers), and a
-// bearer credential. The header names are the ones redact.go treats as
-// credentials: the six it lists, and a name that holds "token" or
-// "secret". That last rule matches only a header-style member name
-// (letters, digits and hyphens), so the body's own usage.input_tokens is
-// not one. Each finding names its shape, never the matched text.
+// credentialShapes are what no recorded body may hold once scrub has run: a
+// token that starts with the API key prefix ts_, a credential header written
+// as a JSON member (a server that echoed request headers), and a bearer
+// credential. The header names are the ones internal/engine treats as
+// credentials: the six its secretHeaderNames lists, and a name that holds
+// "token" or "secret". That last rule matches only a header-style member name
+// (letters, digits and hyphens), so the body's own usage.input_tokens is not
+// one. Each finding names its shape, never the matched text.
 var credentialShapes = []struct {
 	name string
 	re   *regexp.Regexp

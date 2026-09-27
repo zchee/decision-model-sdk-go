@@ -173,7 +173,7 @@ func TestPreparedNamesStopsEarly(t *testing.T) {
 
 // TestPreparedIsIndependentOfQuestions checks that a prepared set does not
 // change when the questions and values it was built from change afterwards,
-// and that preparing the same set twice gives equal sets.
+// and that preparing the changed set again shows the change.
 func TestPreparedIsIndependentOfQuestions(t *testing.T) {
 	tests := map[string]struct {
 		mutate func(opts Options, levels []Content, fields map[string]any, qs *Questions)

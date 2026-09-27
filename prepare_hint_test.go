@@ -24,10 +24,10 @@ import (
 )
 
 // TestSizeHintCoversRawValues checks that the size hint of a raw question
-// counts a field that is a long string, RawJSON or Content (W5.3's P3), so
-// that Prepare's buffer holds the question without growing: the hint is at
-// least the prepared length. A field of any other kind still counts 32
-// bytes, which a long one outgrows.
+// counts a field that is a long string, RawJSON or Content, so that Prepare's
+// buffer holds the question without growing: the hint is at least the prepared
+// length. A field of any other kind still counts 32 bytes, which a long one
+// outgrows.
 func TestSizeHintCoversRawValues(t *testing.T) {
 	long := strings.Repeat("x", 4096)
 	tests := map[string]struct {
@@ -53,11 +53,11 @@ func TestSizeHintCoversRawValues(t *testing.T) {
 	}
 }
 
-// TestPrepareTablesOwnArrays checks the tables Prepare cuts from one array
-// per kind (W5.3's P5): each choice's Options and each score's Levels hold
-// exactly that question's values, capped at their own length so that an
-// append to one copies instead of writing into the next, and changing the
-// questions afterwards changes no table (R45).
+// TestPrepareTablesOwnArrays checks the tables Prepare cuts from one array per
+// kind: each choice's Options and each score's Levels hold exactly that
+// question's values, capped at their own length so that an append to one
+// copies instead of writing into the next, and changing the questions
+// afterwards changes no table.
 func TestPrepareTablesOwnArrays(t *testing.T) {
 	qs := NewQuestions()
 	for i := range 3 {

@@ -136,7 +136,7 @@ type riskAnswers struct {
 }
 
 // loneSurrogateAnswers types deviation-lone-surrogate.json, which Go
-// accepts (plan Appendix B).
+// accepts (docs/deviations.md, "lone surrogates").
 type loneSurrogateAnswers struct {
 	Quality ScoreAnswer `typesafe:"kind=score;name=quality;levels=bad|note"`
 }
@@ -168,15 +168,15 @@ func agreeAs[T any]() agreeFunc {
 	return func(t *testing.T, body []byte) any { return checkAgreement[T](t, body) }
 }
 
-// TestDecodeAsAgreesWithAnswers is AC-F12's differential test: for every
-// fixture the decoder accepts as a System One body, the struct DecodeAs
-// fills holds, field by field, the answer Answers() holds under the field's
-// name (the same values, the same last-wins choice for duplicates.json, the
-// same skip for unknown-answer-type.json), every answer of Answers() has a
-// field, and Ask over a Recorder replying with the fixture gives the same
-// struct. A fixture the decoder accepts without a struct type here fails
-// the test, so a new fixture joins it. models.json, the one accepted
-// fixture that is not a System One body, is a list-models body.
+// TestDecodeAsAgreesWithAnswers is a differential test: for every fixture the
+// decoder accepts as a System One body, the struct DecodeAs fills holds, field
+// by field, the answer Answers() holds under the field's name (the same
+// values, the same last-wins choice for duplicates.json, the same skip for
+// unknown-answer-type.json), every answer of Answers() has a field, and Ask
+// over a Recorder replying with the fixture gives the same struct. A fixture
+// the decoder accepts without a struct type here fails the test, so a new
+// fixture joins it. models.json, the one accepted fixture that is not a System
+// One body, is a list-models body.
 func TestDecodeAsAgreesWithAnswers(t *testing.T) {
 	tests := map[string]struct {
 		fixture string

@@ -48,9 +48,9 @@ var apiPackage = sync.OnceValues(func() (*types.Package, error) {
 
 // TestPublicAPISurface pins every exported identifier of the package with its
 // type, value (constants), fields, and method set, one feature per line, in
-// the manner of the Go distribution's api/*.txt files (upstream XA1 and XA2:
-// test_public_members, test_package_exports), and whether each exported type
-// is comparable. Only exported identifiers are listed, and the internal/
+// the manner of the Go distribution's api/*.txt files (upstream
+// test_public_members and test_package_exports), and whether each exported
+// type is comparable. Only exported identifiers are listed, and the internal/
 // packages cannot be imported from outside this module at all (the go
 // command's internal-directory rule), so no private name can leak into the
 // surface.
@@ -59,7 +59,7 @@ func TestPublicAPISurface(t *testing.T) {
 	checkGolden(t, "public-api.txt", "exported API of "+pkg.Path(), apiLines(pkg))
 }
 
-// TestClientOptionsSurface pins the constructor's options (upstream XA3,
+// TestClientOptionsSurface pins the constructor's options (upstream
 // test_constructor_kwargs): NewClient takes only a variadic list of
 // ClientOption, so every setting is optional and named, as upstream's are
 // keyword-only with a None default, and the golden lists every function that
@@ -241,8 +241,7 @@ func typeLines(obj *types.TypeName, qual types.Qualifier) []string {
 
 // comparability writes the column that ends a type's declaration line: whether
 // its values work with == and as map keys (types.Comparable). A field change
-// can flip it while every other line stays the same, as moving RetryPolicy's
-// slice and func fields behind a pointer did in W5.3 (review V63).
+// can flip it while every other line stays the same.
 func comparability(typ types.Type) string {
 	if types.Comparable(typ) {
 		return ", comparable"

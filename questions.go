@@ -305,11 +305,11 @@ func firstRepeat(s []string) int {
 	return -1
 }
 
-// prepareTables holds the backing arrays of a set's tables (W5.3's P5): the
-// choices' Options tables are cut from labels, and the scores' Levels
-// tables from levels, each at the length sizeHint counted for the set, so
-// a set costs one allocation per table kind instead of one per question.
-// A table is capped at its own length, so no append to it reaches the next.
+// prepareTables holds the backing arrays of a set's tables: the choices'
+// Options tables are cut from labels, and the scores' Levels tables from
+// levels, each at the length sizeHint counted for the set, so a set costs one
+// allocation per table kind instead of one per question. A table is capped at
+// its own length, so no append to it reaches the next.
 type prepareTables struct {
 	labels []string
 	levels []wire.Content
@@ -453,11 +453,11 @@ func appendLeaf(dst []byte, v any) ([]byte, bool, error) {
 // sizeHint estimates the serialised size of the set, so that the builder's
 // buffer rarely grows: the text and JSON lengths plus the member names and
 // punctuation around them, and for a raw question 32 bytes per field plus
-// the length of a field that is a string, RawJSON or Content (W5.3's P3;
-// other values count 32 bytes). Escaping can make the result longer and
-// removing whitespace from JSON shorter. It also counts the score levels
-// that hold JSON, whose spans the builder records (W5.3's P4), and the
-// choices' options and the scores' levels, the tables' lengths (P5).
+// the length of a field that is a string, RawJSON or Content (other values
+// count 32 bytes). Escaping can make the result longer and removing
+// whitespace from JSON shorter. It also counts the score levels that hold
+// JSON, whose spans the builder records, and the choices' options and the
+// scores' levels, the tables' lengths.
 func (qs *Questions) sizeHint() prepareSize {
 	var h prepareSize
 	n := 0

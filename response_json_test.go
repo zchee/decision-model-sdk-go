@@ -124,8 +124,8 @@ func marshal(t *testing.T, m marshaler) string {
 }
 
 // TestResponseJSONRoundTrip ports
-// test_response_serialization_excludes_http_metadata (R5,
-// tests/test_responses.py:90-109) for both resources: a response from the
+// test_response_serialization_excludes_http_metadata
+// (tests/test_responses.py:90-109) for both resources: a response from the
 // client, after its answer views have been read, marshals to exactly the
 // body the server sent (the upstream body is Python's model_dump_json of
 // itself, byte for byte), without the request id or any view; the payload
@@ -221,9 +221,9 @@ func TestResponseJSONRoundTrip(t *testing.T) {
 // marshals it, reads the payload back and marshals that again. For each
 // fixture Go accepts, the payload reads back to the same values, the second
 // payload is the first byte for byte (a fixed point), and the payload is
-// Python's model_dump_json output byte for byte, except where Appendix B
-// says otherwise: a structured legend level keeps its received bytes (R73),
-// and the bodies Python refuses or Go refuses.
+// Python's model_dump_json output byte for byte, except where
+// docs/deviations.md says otherwise: a structured legend level keeps its
+// received bytes, and the bodies Python refuses or Go refuses.
 func TestResponseJSONFixtures(t *testing.T) {
 	// python is Python's payload, or "" when it is the fixture's own bytes
 	// (python-dump.txt: "equals the fixture: True"; for the floods it prints
@@ -236,7 +236,8 @@ func TestResponseJSONFixtures(t *testing.T) {
 		r73 [2]string
 		// pythonRefuses is Go's payload for a body Python refuses.
 		pythonRefuses string
-		// goRefuses is the field path of a body Go refuses (Appendix B).
+		// goRefuses is the field path of a body Go refuses
+		// (docs/deviations.md).
 		goRefuses string
 	}{
 		"deviation-big-exp-noul.json": {goRefuses: "answers.spam.noul"}, // Python: "noul":null (inf)
@@ -296,9 +297,10 @@ func TestResponseJSONFixtures(t *testing.T) {
 		t.Fatalf("fixtures without a row, or rows without a fixture (-rows +fixtures):\n%s", diff)
 	}
 
-	// 18 fixtures: 15 read back, 3 refused by Go (Appendix B). The total is
-	// counted from the table, so a -run filter that selects some of the rows
-	// does not fail it; the rows that ran are held to it only when all ran.
+	// 18 fixtures: 15 read back, 3 refused by Go (docs/deviations.md). The
+	// total is counted from the table, so a -run filter that selects some of
+	// the rows does not fail it; the rows that ran are held to it only when
+	// all ran.
 	wantAccepted := 0
 	for _, tt := range tests {
 		if tt.goRefuses == "" {
@@ -385,12 +387,12 @@ func TestResponseJSONFixtures(t *testing.T) {
 }
 
 // TestResponseJSONDeviations pins the two classes, besides a structured
-// level's escapes, where the payload differs from Python's model_dump_json
-// (review W2.4 MINOR 2), each with Python's bytes beside Go's: a known
-// float member that arrived as -0.0 is written 0.0, since the decoder reads
-// every zero as 0 (R73 NIT 4, a W7 row), where Python writes -0.0; and a
-// member name repeated inside a structured level stays as received (R73),
-// where Python keeps the last. Both payloads read back to a fixed point.
+// level's escapes, where the payload differs from Python's model_dump_json,
+// each with Python's bytes beside Go's: a known float member that arrived as
+// -0.0 is written 0.0, since the decoder reads every zero as 0, where Python
+// writes -0.0; and a member name repeated inside a structured level stays as
+// received, where Python keeps the last. Both payloads read back to a fixed
+// point.
 func TestResponseJSONDeviations(t *testing.T) {
 	const prefix = `{"model":"m","usage":{"input_tokens":1,"output_tokens":1},"answers":{`
 	tests := map[string]struct {
@@ -446,14 +448,15 @@ func TestResponseJSONDeviations(t *testing.T) {
 }
 
 // TestAnswerJSONShapes ports test_answer_attributes_and_dictionary_types
-// (R12, tests/test_responses.py:218-229): each answer type marshals to
-// Python's model_dump_json of the same answer, byte for byte, with the
-// answers of test_answer_fields_are_frozen's parameters (R14) and
-// test_response_preserves_nested_json (R11) besides, and Usage and
-// ModelCard as Python's Usage and ModelMetadata. The Go port has no public
-// constructor for an answer, so the answers come from a payload. Answer
-// writes its kind's bytes, Answers the answers member, and the zero values
-// write the shapes of their Python defaults (ruling R80).
+// (tests/test_responses.py:218-229), whose answers are pyNoul and pyChoice:
+// each answer type marshals to Python's model_dump_json of the same answer,
+// byte for byte, with the answers of test_answer_fields_are_frozen's
+// parameters (pySureChoice, pyScore) and test_response_preserves_nested_json
+// (pyNested) besides, and Usage and ModelCard as Python's Usage and
+// ModelMetadata. The Go port has no public constructor for an answer, so the
+// answers come from a payload. Answer writes its kind's bytes, Answers the
+// answers member, and the zero values write the shapes of their Python
+// defaults.
 func TestAnswerJSONShapes(t *testing.T) {
 	const payload = `{"model":"test","usage":{"input_tokens":1,"output_tokens":1},"answers":{` +
 		`"noul":{"type":"noul","noul":0.98},` +
@@ -492,11 +495,11 @@ func TestAnswerJSONShapes(t *testing.T) {
 	}
 
 	const (
-		pyNoul       = `{"type":"noul","noul":0.98}`                                                                                             // R12 noul
-		pyChoice     = `{"type":"choice","choice":"billing","confidence":0.9,"probabilities":{"billing":0.9,"support":0.1}}`                     // R12 choice
-		pySureChoice = `{"type":"choice","choice":"billing","confidence":1.0,"probabilities":{"billing":1.0}}`                                   // R14 choice
-		pyScore      = `{"type":"score","score":0.0,"confidence":1.0,"legend":{"0":"bad"},"probabilities":{"0":1.0}}`                            // R14 score
-		pyNested     = `{"type":"score","score":0.0,"confidence":1.0,"legend":{"0":{"examples":["a",{"note":null}]}},"probabilities":{"0":1.0}}` // R11 structured score
+		pyNoul       = `{"type":"noul","noul":0.98}`
+		pyChoice     = `{"type":"choice","choice":"billing","confidence":0.9,"probabilities":{"billing":0.9,"support":0.1}}`
+		pySureChoice = `{"type":"choice","choice":"billing","confidence":1.0,"probabilities":{"billing":1.0}}`
+		pyScore      = `{"type":"score","score":0.0,"confidence":1.0,"legend":{"0":"bad"},"probabilities":{"0":1.0}}`
+		pyNested     = `{"type":"score","score":0.0,"confidence":1.0,"legend":{"0":{"examples":["a",{"note":null}]}},"probabilities":{"0":1.0}}`
 	)
 	tests := map[string]struct {
 		value marshaler
@@ -777,14 +780,14 @@ func TestResponseUnmarshalJSON(t *testing.T) {
 	})
 }
 
-// TestStdlibJSON checks the responses through a caller's encoding/json
-// (ruling R80): json.Marshal of a response by value and by pointer, and as
-// a struct field of either kind, gives the MarshalJSON bytes, as it does for
-// every other type that marshals, except that encoding/json escapes <, >,
-// &, U+2028 and U+2029 in any MarshalJSON output, where MarshalJSON and the
-// Python SDK write them as they are; json.Unmarshal reaches
-// UnmarshalJSON, and null leaves a field as it was. ResponseMeta is HTTP
-// metadata with no payload of its own, and marshals as an empty object.
+// TestStdlibJSON checks the responses through a caller's encoding/json:
+// json.Marshal of a response by value and by pointer, and as a struct field of
+// either kind, gives the MarshalJSON bytes, as it does for every other type
+// that marshals, except that encoding/json escapes <, >, &, U+2028 and U+2029
+// in any MarshalJSON output, where MarshalJSON and the Python SDK write them
+// as they are; json.Unmarshal reaches UnmarshalJSON, and null leaves a field
+// as it was. ResponseMeta is HTTP metadata with no payload of its own, and
+// marshals as an empty object.
 func TestStdlibJSON(t *testing.T) {
 	body := testsupport.Fixture(t, "result.json")
 	c := newTestClient(t, replying(http.StatusOK, body, "X-Typesafe-Request-Id", "req-std"))

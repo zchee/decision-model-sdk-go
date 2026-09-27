@@ -264,9 +264,9 @@ func (a Answer) MarshalJSON() ([]byte, error) { return wire.AppendAnswer(nil, &a
 // response, whatever the answers of the two held. Compare the answers
 // themselves, with [Answers.Get] or [Answers.All].
 type Answers struct {
-	// _ keeps Answers incomparable (owner ruling G8-b, critic-p5 n-7): the
-	// view pointer alone would make == compile and compare two views by the
-	// response they share. A zero-size first field adds no byte.
+	// _ keeps Answers incomparable: the view pointer alone would make ==
+	// compile and compare two views by the response they share. A zero-size
+	// first field adds no byte.
 	_ [0]func()
 	s *wire.Answers
 }

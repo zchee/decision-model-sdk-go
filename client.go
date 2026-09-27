@@ -48,8 +48,8 @@ const LevelTrace = slog.LevelDebug - 4
 type Client engine.Client[RetryPolicy]
 
 // eng returns c's state, internal/engine's Client, over which Client is
-// defined (W6.5 design D1): a free conversion. The key sits two pointers
-// away from it (ruling R66, engine.ConfigRef).
+// defined: a free conversion. The key sits two pointers away from it
+// ([engine.ConfigRef]).
 func (c *Client) eng() *engine.Client[RetryPolicy] { return (*engine.Client[RetryPolicy])(c) }
 
 // cfg returns c's configuration.
@@ -127,7 +127,7 @@ func (c *Client) built() error {
 //
 // It reads the engine's state once, rather than through built, so that it
 // stays within the inliner's budget and each call checks its client inline
-// (docs/perf/ledger.md, ## W6.5).
+// (measured in docs/perf/ledger.md).
 func (c *Client) usable() error {
 	e := c.eng()
 	if !e.Built() {
@@ -252,7 +252,9 @@ func (c *Client) systemOne(ctx context.Context, state any, qs *Prepared, opts []
 	return resp, nil
 }
 
-// modelsAlloc is engine.SystemOneAlloc for a list-models call.
+// modelsAlloc holds a list-models call's response and its first attempt's
+// copy of the endpoint URL in one allocation, as [engine.SystemOneAlloc]
+// does for a System One call.
 type modelsAlloc struct {
 	resp ModelsResponse
 	url  url.URL
@@ -307,15 +309,15 @@ func (m Models) List(ctx context.Context, opts ...CallOption) (*ModelsResponse, 
 	return resp, nil
 }
 
-// send makes the attempts of one call as policy asks (section 6.4) and
-// returns nil for a response that decoded, or the error that ended the
-// call: the last attempt's own, decode's for a response that arrived, or
-// the context's when it ended a wait (retryState.wait). Each attempt stores
-// its response's status, header and body in *meta, which decode reads with
-// the response's header redactor ([engine.Transport.ResponseRedactor]),
-// which send also returns. One loop serves every endpoint (ruling R79 NIT
-// 9). Neither decode nor the policy, a copy on send's stack, escapes, so a
-// first attempt that succeeds allocates nothing here.
+// send makes the attempts of one call as policy asks and returns nil for a
+// response that decoded, or the error that ended the call: the last
+// attempt's own, decode's for a response that arrived, or the context's
+// when it ended a wait (retryState.wait). Each attempt stores its response's
+// status, header and body in *meta, which decode reads with the response's
+// header redactor ([engine.Transport.ResponseRedactor]), which send also
+// returns. One loop serves every endpoint. Neither decode nor the policy, a
+// copy on send's stack, escapes, so a first attempt that succeeds allocates
+// nothing here.
 func (c *Client) send(ctx context.Context, rq *engine.Request, policy RetryPolicy, meta *wire.ResponseMeta, decode func(engine.HeaderRedactor) error) (engine.HeaderRedactor, error) {
 	r := retryState{policy: &policy, start: time.Now(), random: c.cfg().Random}
 	for attempt := 0; ; attempt++ {
@@ -416,14 +418,15 @@ func (c *Client) attempt(ctx context.Context, rq *engine.Request, attempt int) (
 }
 
 // attemptError turns the error that ended an attempt without a response,
-// from the transport or from reading the body, into what the call returns
-// (section 6.3). ctx is the call's context, actx the attempt's under its
-// timeout, and h the header the attempt sent. In this order:
+// from the transport or from reading the body, into what the call returns.
+// ctx is the call's context, actx the attempt's under its timeout, timeout
+// the one a *TimeoutError reports, and req the request the attempt sent. In
+// this order:
 //
 //   - A call whose context was cancelled returns ctx.Err(), context.Canceled,
 //     itself: typesafe-sdk-python maps only httpx's RequestError
 //     (py:_core/transport.py:79-86), so asyncio.CancelledError reaches its
-//     caller as it is (tests/test_clients.py:559-596, C20 and C21).
+//     caller as it is (tests/test_clients.py:559-596).
 //   - An error the transport already mapped ([transportError]) is returned
 //     as it is.
 //   - The call's own deadline is a *TimeoutError without a timeout.
@@ -491,8 +494,8 @@ func (c *Client) logRequest(ctx context.Context, rq *engine.Request, h http.Head
 // The request id and the headers are redacted by r, the response's
 // redactor, as the error types' Header is: "***" when a value holds the
 // client's API key or, for a response to a plain-HTTP request through a
-// proxy, the proxy's credential (ruling R87; typesafe-sdk-python logs the id
-// as it arrived); the body is as it arrived.
+// proxy, the proxy's credential (typesafe-sdk-python logs the id as it
+// arrived); the body is as it arrived.
 func (c *Client) logResponse(ctx context.Context, rq *engine.Request, attempt int, start time.Time, meta *wire.ResponseMeta, r engine.HeaderRedactor) {
 	logger := c.cfg().Logger
 	if !logger.Enabled(ctx, slog.LevelInfo) {

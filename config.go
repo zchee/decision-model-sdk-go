@@ -81,9 +81,9 @@ type headerOption struct {
 //
 // The key is trimmed of leading and trailing whitespace as Python's
 // str.strip() trims it; what is left must be printable ASCII without
-// whitespace, and must not be empty (py:_core/config.py:26-33). A key given
-// here that fails either rule is refused: the environment is not consulted
-// in its place. No error repeats the key.
+// whitespace, and must not be empty. A key given here that fails either rule
+// is refused: the environment is not consulted in its place. No error
+// repeats the key.
 func WithAPIKey(key string) ClientOption {
 	return func(o *options) { o.apiKey = new(key) }
 }
@@ -145,21 +145,20 @@ func WithMaxResponseBytes(n int64) ClientOption {
 
 // WithHeader sets a header sent on every request. A later WithHeader of the
 // same name, compared without regard to case, replaces an earlier one, as a
-// per-call header replaces a default one in typesafe-sdk-python
-// (py:_core/transport.py:117). Its default headers differ: a mapping that
-// holds two spellings of one name, such as X-Team and x-team, sends both.
+// per-call header replaces a default one in typesafe-sdk-python. Its default
+// headers differ: a mapping that holds two spellings of one name, such as
+// X-Team and x-team, sends both.
 //
 // The SDK's own headers always win, as they do in typesafe-sdk-python, which
-// writes them over the caller's (py:_core/transport.py:116-127): a caller's
-// Authorization, Accept, User-Agent, X-TypeSafe-SDK, X-TypeSafe-Runtime and
-// Content-Type are dropped, and so is X-TypeSafe-Retry-Count, which the SDK
-// sets on retries only (py:_core/transport.py:118). [WithUserAgentProduct]
-// and [WithRuntimeHeader] are the only ways to change what User-Agent and
-// X-TypeSafe-Runtime carry. The headers that frame a message or manage its
-// connection belong to the transport and are dropped too: Content-Length,
-// Transfer-Encoding, Connection, Proxy-Connection, Keep-Alive, Upgrade, TE,
-// Trailer and Host. Each dropped header is logged at [slog.LevelDebug] by
-// name, never with its value.
+// writes them over the caller's: a caller's Authorization, Accept, User-Agent,
+// X-TypeSafe-SDK, X-TypeSafe-Runtime and Content-Type are dropped, and so is
+// X-TypeSafe-Retry-Count, which the SDK sets on retries only.
+// [WithUserAgentProduct] and [WithRuntimeHeader] are the only ways to change
+// what User-Agent and X-TypeSafe-Runtime carry. The headers that frame a
+// message or manage its connection belong to the transport and are dropped
+// too: Content-Length, Transfer-Encoding, Connection, Proxy-Connection,
+// Keep-Alive, Upgrade, TE, Trailer and Host. Each dropped header is logged at
+// [slog.LevelDebug] by name, never with its value.
 //
 // The name must be a valid HTTP field name (RFC 9110, section 5.6.2) and the
 // value a valid field value (RFC 9110, section 5.5), or the client is not
@@ -177,8 +176,7 @@ func WithHeader(name, value string) ClientOption {
 // 9110, section 10.1.5): "my-app/1.2.0" sends
 // User-Agent: my-app/1.2.0 typesafe-sdk-go/<Version>. Unset, User-Agent is
 // typesafe-sdk-go/<Version> alone, the form typesafe-sdk-python sends its own
-// name in (py:_core/transport.py:123). X-TypeSafe-SDK always names the SDK
-// alone.
+// name in. X-TypeSafe-SDK always names the SDK alone.
 //
 // The product must be name/version, both parts tokens (RFC 9110, section
 // 5.6.2: letters, digits and !#$%&'*+-.^_`|~), with exactly one "/" and at
@@ -424,9 +422,9 @@ func baseURLRule(raw string) string {
 
 // dropDefaultPort returns raw, an absolute http or https URL that
 // [baseURLRule] accepted, without an explicit default port: :443 on https,
-// :80 on http, as httpx normalises it (ruling R70 Q2), so the endpoints,
-// the Host a request sends and the errors name the URL without it. The rest
-// of the text is kept as written.
+// :80 on http, as httpx normalises it, so the endpoints, the Host a request
+// sends and the errors name the URL without it. The rest of the text is kept
+// as written.
 func dropDefaultPort(raw string) string {
 	scheme, rest, ok := strings.Cut(raw, "://")
 	if !ok {

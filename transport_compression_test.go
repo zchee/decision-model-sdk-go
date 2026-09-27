@@ -32,7 +32,7 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
-// gzipAPI serves api as the live API does (ledger W6.4-05): gzip-encoded
+// gzipAPI serves api as the live API does (docs/perf/ledger.md): gzip-encoded
 // when the request accepts gzip, and as it is otherwise, with its length
 // declared either way (the loopback server declares none on its own). It
 // records each request's Accept-Encoding and whether the answer went out
@@ -81,23 +81,20 @@ func (g *gzipAPI) requests() []gzipSeen {
 	return append([]gzipSeen(nil), g.seen...)
 }
 
-// TestCompressionOption pins WithCompression (owner decisions G11 (1) and
-// G12 (3); ruling D-W6.6-compression-combos-2) against FakeAPI behind a
-// server that gzips an answer when the request accepts gzip, as the live
-// API does, over TLS and HTTP/2. A client that asks for gzip, by default,
-// with WithCompression(true) or through a caller's transport whose
+// TestCompressionOption pins WithCompression against FakeAPI behind a server
+// that gzips an answer when the request accepts gzip, as the live API does,
+// over TLS and HTTP/2. A client that asks for gzip, by default, with
+// WithCompression(true) or through a caller's transport whose
 // DisableCompression is false, sends Accept-Encoding: gzip, gets the answer
-// gzip-encoded and has the transport undo it, so the SDK reads a body
-// without a declared length: the DEBUG "response headers" record holds no
+// gzip-encoded and has the transport undo it, so the SDK reads a body without
+// a declared length: the DEBUG "response headers" record holds no
 // Content-Length. A client that does not, with WithCompression(false) or
 // through a caller's transport whose DisableCompression is true, sends no
 // Accept-Encoding and reads the length the server declares: the record's
 // Content-Length equals its body_bytes. The models list and a System One
 // answer decode alike either way. WithCompression configures the SDK's own
 // transport, so NewClient refuses it with WithRoundTripper or
-// WithHTTPTransport, whatever its value, and sends nothing. It runs in CI's
-// -race test step (go test -race with coverage) on ubuntu-26.04, xcode-27
-// and windows-2025.
+// WithHTTPTransport, whatever its value, and sends nothing.
 func TestCompressionOption(t *testing.T) {
 	sdk := func(opts ...ClientOption) func(*testing.T) []ClientOption {
 		return func(t *testing.T) []ClientOption {

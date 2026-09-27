@@ -68,19 +68,18 @@ func Timeout(d time.Duration) CallOption {
 
 // Header sets a header this call sends, over the client's: it replaces a
 // [WithHeader] of the same name, compared without regard to case, as a
-// per-call header replaces a default one in typesafe-sdk-python
-// (py:_core/transport.py:117), and a later Header of the same name replaces
-// an earlier one.
+// per-call header replaces a default one in typesafe-sdk-python, and a
+// later Header of the same name replaces an earlier one.
 //
 // The rules of WithHeader apply: the SDK's own headers and the transport's
 // win, and a caller's value of any of them is dropped and logged at
 // [slog.LevelDebug] by name; X-TypeSafe-Retry-Count, which the SDK sets on
-// retries only, is dropped too (py:_core/transport.py:118).
+// retries only, is dropped too.
 //
 // The name must be a valid HTTP field name and the value a valid field
 // value. A name that contains the API key is refused, when the key is at
-// least 8 bytes long (ruling R68). Each of these failures fails the call
-// before anything is sent, and no error repeats a value.
+// least 8 bytes long. Each of these failures fails the call before anything
+// is sent, and no error repeats a value.
 func Header(name, value string) CallOption {
 	return func(o *callOptions) { o.headers = append(o.headers, headerOption{name: name, value: value}) }
 }
@@ -96,10 +95,7 @@ func Header(name, value string) CallOption {
 // The API refuses a System One request whose top level holds a member it
 // does not know: the call then fails with an [*APIError] whose StatusCode
 // is 400 and whose ErrorType is "api_usage_error" ("Invalid request."), so
-// ExtraBody is for a member the API accepts. The Python SDK's
-// extra_body={"beam_width": 4, "nullable": None} (tests/typing/valid.py)
-// is a type check that never runs, not a request the API takes (live pass
-// W6.4).
+// ExtraBody is for a member the API accepts.
 //
 // v may be any value JSON can hold, encoded as the call's state is: a
 // [RawJSON] is sent as it is after a check of its first byte, a [Content]

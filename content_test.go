@@ -94,9 +94,9 @@ func TestContentJSONSharesTheBytes(t *testing.T) {
 	}
 }
 
-// TestContentMarshalJSON covers the JSON form of Content (rulings R52 and
-// R60): text escaped as the questions are, JSON content checked by wire's
-// scanner and compacted, unset Content as null, and the failures.
+// TestContentMarshalJSON covers the JSON form of Content: text escaped as the
+// questions are, JSON content checked by wire's scanner and compacted, unset
+// Content as null, and the failures.
 func TestContentMarshalJSON(t *testing.T) {
 	tests := map[string]struct {
 		c          Content
@@ -125,9 +125,9 @@ func TestContentMarshalJSON(t *testing.T) {
 	}
 }
 
-// TestRawJSONMarshalJSON covers the JSON form of nested RawJSON (rulings R57
-// and R60): any single JSON value, checked by wire's scanner and compacted,
-// nil as null, and the failures.
+// TestRawJSONMarshalJSON covers the JSON form of nested RawJSON: any single
+// JSON value, checked by wire's scanner and compacted, nil as null, and the
+// failures.
 func TestRawJSONMarshalJSON(t *testing.T) {
 	tests := map[string]struct {
 		r          RawJSON

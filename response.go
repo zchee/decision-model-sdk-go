@@ -90,8 +90,8 @@ func (m ResponseMeta) RequestID() (string, bool) { return m.m.RequestID() }
 type SystemOneResponse engine.Response
 
 // result returns r's decoded result, and respMeta its HTTP metadata, from its
-// state, internal/engine's Response, over which SystemOneResponse is defined
-// (W6.5 design D1): free conversions.
+// state, internal/engine's Response, over which SystemOneResponse is
+// defined: free conversions.
 func (r *SystemOneResponse) result() *wire.SystemOneResult { return (*engine.Response)(r).Result() }
 
 // respMeta: see result.
@@ -99,7 +99,7 @@ func (r *SystemOneResponse) respMeta() *wire.ResponseMeta { return (*engine.Resp
 
 // redactor returns the redactor of the client whose request r answers, or
 // the zero redactor, by name alone, for a response read back with
-// UnmarshalJSON (ruling R114).
+// UnmarshalJSON.
 func (r *SystemOneResponse) redactor() engine.HeaderRedactor { return (*engine.Response)(r).Redactor() }
 
 // Model returns the model that answered.

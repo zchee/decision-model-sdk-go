@@ -131,13 +131,8 @@ import (
 //     [Questions.Prepare] reports for an empty set.
 //
 // Fields that are neither answer fields nor tagged, and unexported fields
-// without a typesafe tag, are ignored. Fields of an embedded struct are not
-// promoted, and those of a named struct-typed field are not read: only T's
-// own fields are, so a struct-typed field whose type holds typesafe tags is
-// refused rather than silently skipped, and one without such tags is
-// ignored like any other untagged field. A type alias of
-// an answer type is that answer type; a type defined from one is not an
-// answer type.
+// without a typesafe tag, are ignored. A type alias of an answer type is that
+// answer type; a type defined from one is not an answer type.
 //
 // # Caching
 //
@@ -320,9 +315,9 @@ func buildPlan(t reflect.Type) *typedPlan {
 // answer type is its type. The typed store writes through those records
 // (decodeas_store.go, invariants 2, 3 and 6); its per-write bound refuses a
 // write that leaves the recorded bytes, but not a plan whose offset and end
-// both name another field of the same size (review V72). The check runs once
-// per type, when the plan is built, and its message names the type, the
-// field and both layouts.
+// both name another field of the same size. The check runs once per type, when
+// the plan is built, and its message names the type, the field and both
+// layouts.
 func checkPlanLayout(t reflect.Type, fields []typedField) {
 	u := func(v uintptr) string { return strconv.FormatUint(uint64(v), 10) }
 	for i := range fields {

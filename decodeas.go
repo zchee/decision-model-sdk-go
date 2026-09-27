@@ -38,9 +38,7 @@ import (
 // response as a whole and the others [Client.SystemOne] lists, is returned
 // as SystemOne returns it. A response whose answers do not fit T fails as
 // DecodeAs says, with the call's endpoint in the error and its header
-// redacted as the call's other errors redact theirs: by the header's name,
-// and a header whose value holds the client's API key or, in the response
-// to a plain-HTTP request through a proxy, the proxy's credential.
+// redacted as the call's other errors redact theirs ([APIError.Header]).
 //
 // Ask returns only the answers. A caller that also needs the response,
 // its request id, usage, model or raw body, makes the two calls Ask makes:
@@ -82,18 +80,17 @@ func Ask[T any](ctx context.Context, c *Client, state any, opts ...CallOption) (
 // dumps None there.
 //
 // A T that PreparedFor refuses fails with its [*ConfigError]. Otherwise the
-// fields are read in their order in T, and the first that does not fit
-// fails the whole decode: DecodeAs returns the zero T, never one holding
-// the fields read before the failure, and a [*ResponseValidationError]
-// whose FieldPath names the answer. T's fields are the answers lifted out
-// of the response's "answers" member, so the paths are the ones the Python
-// SDK reports for such a response model, a SystemOneResponse subclass with
-// one field per answer (the upstream tests' TypedSystemOneResponse): the
-// answer's name, then the member and the key. An answer of a type this
-// version does not model has been skipped, as that model skips it, so under
-// a required field's name it fails as absent and under an optional field's
-// name it leaves the field absent, and a response without an "answers"
-// member fails at T's first required field:
+// fields are read in their order in T, and the first that does not fit fails
+// the whole decode: DecodeAs returns the zero T, never one holding the fields
+// read before the failure, and a [*ResponseValidationError] whose FieldPath
+// names the answer. T's fields are the answers lifted out of the response's
+// "answers" member, so the paths are the ones the Python SDK reports for such
+// a response model, a SystemOneResponse subclass with one field per answer:
+// the answer's name, then the member and the key. An answer of a type this
+// version does not model has been skipped, as that model skips it, so under a
+// required field's name it fails as absent and under an optional field's name
+// it leaves the field absent, and a response without an "answers" member fails
+// at T's first required field:
 //
 //	the answer is absent and the field is not optional  <name>
 //	the answer is of another kind than the field        <name>.type
@@ -115,25 +112,14 @@ func Ask[T any](ctx context.Context, c *Client, state any, opts ...CallOption) (
 // says so, with a Literal, and then reports the pick at "tone.choice", as
 // DecodeAs does.
 //
-// The error carries resp's HTTP metadata: its status, header, request id
-// and body when resp came from a request, and none of them when it was read
+// The error carries resp's HTTP metadata, none of it for a response read
 // back with [SystemOneResponse.UnmarshalJSON], whose Meta is empty. Its
-// Header is a new map in which each value of a header that is a credential
-// by its name, such as Authorization, Cookie or Set-Cookie
-// ([APIError.Header] lists them), is "***"; the other headers' values are
-// the response's own and must not be modified. A response from a request
-// keeps the redactor its call used, so DecodeAs also replaces the client's
-// API key wherever the server echoes it in the header or the request id,
-// and, in the response to a plain-HTTP request through a proxy, a whole
-// credential of the client's proxies, as [Ask] does (ruling R114). Such a
-// response keeps those credentials as they were when its call returned, so
-// it is redacted alike however long it is kept, although the client
-// remembers only its 16 most recent proxies' ([WithProxy]). A response read
-// back with [SystemOneResponse.UnmarshalJSON] came from no client and keeps
-// no redactor, so DecodeAs redacts it by name alone. Neither DecodeAs nor Ask
-// redacts FieldPath: the answer's name and the option or level it names
-// are shown as they arrived, as the SDK's other errors show a path (ruling
-// R103-rev). Its Endpoint is empty; Ask fills it in.
+// Header is redacted as [APIError.Header] describes, with the credentials of
+// the call resp came from, however long resp is kept; a response read back
+// with UnmarshalJSON came from no client and is redacted by header name
+// alone. FieldPath is not redacted: the answer's name and the option or
+// level it names are shown as they arrived, as the SDK's other errors show a
+// path. Its Endpoint is empty; Ask fills it in.
 func DecodeAs[T any](resp *SystemOneResponse) (T, error) {
 	return decodeTyped[T](typedPlanFor[T](), resp, "", resp.redactor())
 }
@@ -274,8 +260,7 @@ func undeclaredLevel(a *wire.ScoreAnswer, levels uint64) (at codec.FieldPath, ba
 // The error carries resp's HTTP metadata and endpoint; r redacts its header
 // ([newResponseValidationError]). The decode error it wraps keeps the
 // answer's place in the body, under "answers"; its FieldPath is that
-// path's lifted form ([typedFieldPath]), rendered once (review-w4.2 NIT F:
-// the decoder's form was rendered first and then replaced).
+// path's lifted form ([typedFieldPath]), rendered once.
 func typedError(resp *SystemOneResponse, endpoint string, r engine.HeaderRedactor, name string, at codec.FieldPath, reason error) *ResponseValidationError {
 	at.Top, at.Name, at.HasName = "answers", name, true
 	return newResponseValidationErrorAt(resp.respMeta(), endpoint, r, &codec.DecodeError{Path: at, Err: reason}, typedFieldPath(at))
@@ -283,10 +268,9 @@ func typedError(resp *SystemOneResponse, endpoint string, r engine.HeaderRedacto
 
 // typedFieldPath renders p, the path in the body of an answer that does not
 // fit its field, as the Python SDK names it in a response model that lifts
-// each answer out of "answers" (ruling R99-rev): the answer's name, then
-// the member and the key, such as "tone.choice" or "quality.legend.3". The
-// name and the key are escaped and cut as [renderFieldPath] writes the
-// decoder's.
+// each answer out of "answers": the answer's name, then the member and the
+// key, such as "tone.choice" or "quality.legend.3". The name and the key are
+// escaped and cut as [renderFieldPath] writes the decoder's.
 func typedFieldPath(p codec.FieldPath) string {
 	t := pathText{limit: engine.MaxPathChars}
 	t.name(p.Name)

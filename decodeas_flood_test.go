@@ -15,12 +15,12 @@
 package typesafe
 
 // The struct types of the two structured-legend floods for
-// TestDecodeAsAgreesWithAnswers (AC-F12). A flood's score has one level per
-// legend entry, 10^3 or 10^4 of them, so its tag lists the levels 0 to n-1
-// by number (a tag is text; the legend's structured levels are not
-// compared with the tag's levels, only counted against them).
-// TestFloodTypeTags checks each tag against that rule, so the long lines
-// below cannot drift from the fixtures without a failure.
+// TestDecodeAsAgreesWithAnswers. A flood's score has one level per legend
+// entry, 10^3 or 10^4 of them, so its tag lists the levels 0 to n-1 by number
+// (a tag is text; the legend's structured levels are not compared with the
+// tag's levels, only counted against them). TestFloodTypeTags checks each tag
+// against that rule, so the long lines below cannot drift from the fixtures
+// without a failure.
 
 // flood1kAnswers types testdata/structured-legend-flood-1k.json.
 type flood1kAnswers struct {

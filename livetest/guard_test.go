@@ -36,10 +36,10 @@ import (
 // keys' ts_ prefix so the scrubber's shape rule sees what it would see.
 const syntheticKey = "ts_synthetic_live_key_0123456789"
 
-// TestLiveEnvGuard checks the guard every live test calls first (AC-F11's
-// first clause): without TYPESAFE_LIVE_TESTS=1 and a non-blank
-// TYPESAFE_API_KEY it fails naming each missing variable, and no message
-// repeats a value. It runs on every go test, without the live tag.
+// TestLiveEnvGuard checks the guard every live test calls first: without
+// TYPESAFE_LIVE_TESTS=1 and a non-blank TYPESAFE_API_KEY it fails naming each
+// missing variable, and no message repeats a value. It runs on every go test,
+// without the live tag.
 func TestLiveEnvGuard(t *testing.T) {
 	tests := map[string]struct {
 		env      map[string]string
@@ -156,13 +156,13 @@ func testNames(out string) []string {
 	return names
 }
 
-// TestLiveTestsFailWithoutEnv builds this package with the live tag in a
-// child go test whose environment has no TYPESAFE_ variable, and checks
-// AC-F11's first clause end to end: go test -list names every live test
-// without the variables, and running them fails every one of them with the
-// guard's message, none passing. The live tests are the ones -tags live
-// adds to the list, so a new one is covered without an edit here; the four
-// of the upstream port must be among them.
+// TestLiveTestsFailWithoutEnv builds this package with the live tag in a child
+// go test whose environment has no TYPESAFE_ variable, and checks end to end
+// that the live tests fail without the variables: go test -list names every
+// live test without the variables, and running them fails every one of them
+// with the guard's message, none passing. The live tests are the ones -tags
+// live adds to the list, so a new one is covered without an edit here; the
+// four of the upstream port must be among them.
 func TestLiveTestsFailWithoutEnv(t *testing.T) {
 	var env []string
 	for _, kv := range os.Environ() {

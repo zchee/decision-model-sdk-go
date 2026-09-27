@@ -26,8 +26,8 @@ const Version = "0.1.0"
 // sdkIdentifier is what the SDK calls itself in User-Agent and
 // X-TypeSafe-SDK, the same string in both, as typesafe-sdk-python sends
 // typesafe-sdk/<version> in both (py:_core/transport.py:123-124). This port
-// names itself instead (plan Appendix B, "SDK/runtime headers"), so the API
-// never mistakes it for the SDK it is a port of.
+// names itself instead, so the API never mistakes it for the SDK it is a
+// port of.
 const sdkIdentifier = "typesafe-sdk-go/" + Version
 
 // runtimeIdentifier is the value of X-TypeSafe-Runtime: the Go release, the
@@ -41,9 +41,9 @@ var runtimeIdentifier = runtimeHeaderValue(runtime.Version(), runtime.GOOS, runt
 // [runtime.Version] string, as typesafe-sdk-python sends the plain
 // platform.python_version(): "go1.27.1" becomes "1.27.1", and so does
 // "go1.27.1-X:simd,runtimesecret", a toolchain built with experiments, whose
-// suffix names build settings rather than a release (rulings R63, R63b). The
-// linker writes that suffix after " " instead of "-" when the version already
-// holds a "-" (cmd/link/internal/ld/main.go:193-197, go.dev/issue/75953), so
+// suffix names build settings rather than a release. The linker writes that
+// suffix after " " instead of "-" when the version already holds a "-"
+// (cmd/link/internal/ld/main.go:193-197, go.dev/issue/75953), so
 // "go1.27.1-bigcorp X:simd" becomes "1.27.1-bigcorp"; the release ends at the
 // first "-X:" or " X:". A development toolchain's "devel ..." string has no
 // "go" prefix and is kept whole.

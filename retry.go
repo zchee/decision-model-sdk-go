@@ -36,10 +36,10 @@ const (
 )
 
 // RetryPolicy decides whether a call makes another attempt after one fails,
-// and how long it waits first, as typesafe-sdk-python's RetryPolicy does
-// (py:_core/retry.py). A policy is a value: each setter returns a copy with
-// one setting changed, so a policy can be shared by goroutines and derived
-// from freely. [WithRetry] sets a client's policy and [Retry] one call's.
+// and how long it waits first, as typesafe-sdk-python's RetryPolicy does. A
+// policy is a value: each setter returns a copy with one setting changed, so a
+// policy can be shared by goroutines and derived from freely. [WithRetry] sets
+// a client's policy and [Retry] one call's.
 //
 // The zero RetryPolicy is [DefaultRetry], the Python SDK's RetryPolicy():
 //
@@ -54,10 +54,7 @@ const (
 //   - a budget of 30 s per call ([RetryPolicy.Budget]).
 //
 // After an attempt fails, the call makes another when all of these hold, in
-// the order tenacity, which the Python SDK runs its policy on, checks them
-// (tenacity also computes the wait, drawing its jitter, before it counts
-// the attempts; the Go loop draws the jitter only for a retry that may
-// follow, which no caller can observe):
+// the order tenacity, which the Python SDK runs its policy on, checks them:
 //
 //   - The error is one the policy retries: a *TimeoutError or a
 //     *ConnectionError of a kind it retries, an [*APIError] whose status is
@@ -103,20 +100,19 @@ const (
 // exceptions has no counterpart. A duration cannot be NaN or infinite, where
 // the Python SDK refuses such a number of seconds.
 type RetryPolicy struct {
-	// _ keeps RetryPolicy incomparable, as its statuses slice and predicate
-	// made it before W5.3: the rules pointer would otherwise make == compile
-	// and compare two policies by the identity of their rules (review V63).
-	// A zero-size first field adds no byte.
+	// _ keeps RetryPolicy incomparable: the rules pointer would otherwise
+	// make == compile and compare two policies by the identity of their
+	// rules. A zero-size first field adds no byte.
 	_          [0]func()
 	maxRetries int
 	initial    time.Duration
 	maximum    time.Duration
 	jitter     float64
-	// rules holds the statuses and the predicate, the settings a policy
-	// seldom carries, behind one pointer, so that the policy every call's
-	// options hold by value is 56 bytes, not 80 (ruling R97-corr (c), W5.3);
-	// nil holds neither. Copies of the policy share it; Statuses and
-	// Predicate replace it with a new one, and nothing writes to it after.
+	// rules holds the statuses and the predicate, the settings a policy seldom
+	// carries, behind one pointer, so that the policy every call's options
+	// hold by value is 56 bytes, not 80; nil holds neither. Copies of the
+	// policy share it; Statuses and Predicate replace it with a new one, and
+	// nothing writes to it after.
 	rules  *retryRules
 	budget time.Duration
 	// set marks the settings whose fields replace DefaultRetry's values;
@@ -161,10 +157,7 @@ const (
 
 // DefaultRetry returns the policy a client uses unless [WithRetry] sets
 // another, as the Python SDK uses RetryPolicy() when its retry argument is
-// None: 2 retries, a backoff of 500 ms doubling up to 5 s with a jitter of
-// 0.25, the statuses 408, 429 and 500 to 599, Retry-After honoured,
-// connection and timeout errors retried, and a budget of 30 s. It is the
-// zero RetryPolicy.
+// None, with the settings [RetryPolicy] lists. It is the zero RetryPolicy.
 func DefaultRetry() RetryPolicy { return RetryPolicy{} }
 
 // NoRetry returns the policy that never tries a call again: every call makes
@@ -184,8 +177,8 @@ func (p RetryPolicy) MaxRetries(n int) RetryPolicy {
 // Backoff returns p with the wait before retry n (from 1) that no
 // Retry-After decides: initial doubled n-1 times, at most maximum, less a
 // random fraction of at most jitter of it, rounded to the millisecond and
-// never above the doubled value (the Python SDK's _backoff,
-// py:_core/retry.py:27-33). A zero initial or maximum retries at once.
+// never above the doubled value (the Python SDK's _backoff). A zero initial
+// or maximum retries at once.
 // initial and maximum must not be negative and jitter must be between 0 and
 // 1, or the policy is refused when it is used.
 func (p RetryPolicy) Backoff(initial, maximum time.Duration, jitter float64) RetryPolicy {
@@ -248,8 +241,9 @@ func (p RetryPolicy) Predicate(accept func(err error) bool) RetryPolicy {
 // retry whose wait would bring the time since its first attempt started to
 // d or beyond, and returns the error of its last attempt instead
 // (tenacity's stop_before_delay). The clock starts once the call's options
-// are checked and its body is encoded. d must be positive, or the policy is refused when it
-// is used. The default is 30 s; [RetryPolicy.NoBudget] removes the budget.
+// are checked and its body is encoded. d must be positive, or the policy is
+// refused when it is used. The default is 30 s; [RetryPolicy.NoBudget]
+// removes the budget.
 func (p RetryPolicy) Budget(d time.Duration) RetryPolicy {
 	p.budget, p.unbounded = d, false
 	p.set |= setBudget
@@ -293,7 +287,9 @@ func (p *RetryPolicy) retries() int {
 }
 
 // retriesStatus reports whether p retries a response of status. A 2xx is
-// never retried by status (the plan's Appendix B).
+// never retried by status, a deviation docs/deviations.md records ("2xx in
+// retry statuses retries a non-validating body → never; `Predicate` can
+// opt in").
 func (p *RetryPolicy) retriesStatus(status int) bool {
 	switch {
 	case status >= 200 && status <= 299:
@@ -437,9 +433,9 @@ func responseHeader(err error) http.Header {
 }
 
 // waitError returns the error of a call whose context ended a retry's
-// wait: ctx.Err() itself for a cancellation (ruling R81 (1)), and a
-// *TimeoutError without a timeout for a passed deadline, as an attempt that
-// the caller's deadline ends is classified.
+// wait: ctx.Err() itself for a cancellation, and a *TimeoutError without a
+// timeout for a passed deadline, as an attempt that the caller's deadline
+// ends is classified.
 func waitError(ctx context.Context) error {
 	err := ctx.Err()
 	if errors.Is(err, context.DeadlineExceeded) {

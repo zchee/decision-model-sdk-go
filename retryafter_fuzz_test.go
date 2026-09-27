@@ -116,9 +116,6 @@ func waitOf(h http.Header, now time.Time) waitResult {
 //
 // Its seed corpus is testdata/fuzz/FuzzRetryAfter, the Rust SDK's
 // fuzz/corpus/retry_after byte for byte, and the rows below.
-// Its seed corpus runs as a test in CI's -race test step (go test -race
-// with coverage) on ubuntu-26.04, xcode-27 and windows-2025, and the
-// fuzz job fuzzes it for 60 s on ubuntu-26.04.
 func FuzzRetryAfter(f *testing.F) {
 	for _, seed := range []string{
 		"", "R", "Rbad", "R-1", "R1.5", "R1_000", "R1__0", "R_1", "R1e", "R.", "R.5", "R5.", "R+inf", "R-Infinity", "RnAn",

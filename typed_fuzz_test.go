@@ -91,10 +91,10 @@ func escapeTag(v, special string) string {
 	return b.String()
 }
 
-// tagGrammarSeeds are the corpus seeds: the section 5 tags, the eight AC-F8
-// escape cases, the tags of the rejection cases and grammar edges.
+// tagGrammarSeeds are the corpus seeds: the tags of Ticket, the eight escape
+// cases, the tags of the rejection cases and grammar edges.
 var tagGrammarSeeds = []string{
-	// Section 5.
+	// The tags of Ticket.
 	"kind=noul;instructions=Is this about billing, invoices or refunds?;yes=payments or invoices",
 	"kind=choice;instructions=What is the tone?;options=calm=neutral or polite|angry",
 	"kind=score;instructions=How urgent?;levels=can wait|this week|today",
@@ -155,9 +155,6 @@ var tagGrammarSeeds = []string{
 // that names the field. Read as a whole struct tag instead, the input gives
 // lookupTag the result reflect.StructTag.Lookup gives, unless lookupTag
 // reports a problem.
-// Its seed corpus runs as a test in CI's -race test step (go test -race
-// with coverage) on ubuntu-26.04, xcode-27 and windows-2025, and the
-// fuzz job fuzzes it for 60 s on ubuntu-26.04.
 func FuzzTagGrammar(f *testing.F) {
 	for _, seed := range tagGrammarSeeds {
 		f.Add(seed)

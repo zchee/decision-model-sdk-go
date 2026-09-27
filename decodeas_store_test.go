@@ -32,21 +32,20 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
-// The typed store's tests (decodeas_store.go, ruling R116). Mutation
+// The typed store's tests (decodeas_store.go). Mutation
 // checks, each planted in a copy of the tree, each failing the named test:
 //   - buildPlan recording an offset, an end or a kind that is not reflect's
 //     (the next field's offset, 0, past the last field, or the offset and
 //     end of another field of the same size): checkPlanLayout panics by
 //     name when the plan is built, in every test that builds it, before any
-//     decode (review V72); TestPlanLayoutRefusesCorruptPlans plants each;
+//     decode; TestPlanLayoutRefusesCorruptPlans plants each;
 //   - a plan that is wrong after it is built, or a store of another answer
-//     type than the field's: the store's per-write bound (invariant 6)
-//     panics with its storeRefusal, which names the type, the field and the
-//     offset, before a byte is written; requireStoreLayout stops
-//     TestStoreFieldKinds, TestStoreKeepsNeighbours and the tests that
-//     decode before them by name, before the store (critic-p5 m-3, V70 NIT
-//     1); TestStoreRefusesOutsideField plants each such plan and checks the
-//     refusal;
+//     type than the field's: the store's per-write bound (invariant 6) panics
+//     with its storeRefusal, which names the type, the field and the offset,
+//     before a byte is written; requireStoreLayout stops TestStoreFieldKinds,
+//     TestStoreKeepsNeighbours and the tests that decode before them by name,
+//     before the store; TestStoreRefusesOutsideField plants each such plan and
+//     checks the refusal;
 //   - the bound removed, or reduced to one of its three comparisons:
 //     TestStoreRefusesOutsideField;
 //   - the write at another offset than the one the bound checked, such as
@@ -129,12 +128,13 @@ func wantAnswers(t *testing.T, resp *SystemOneResponse, v storeKinds) storeKinds
 // T's, and each answer field's plan offset is reflect's offset of that
 // field (the embedded one included: an answer field is never promoted, so no
 // offset is a sum), a multiple of its type's alignment, and overlaps no
-// other field, and its recorded end is that offset plus its type's size. Every mismatch is reported, then the test stops with
-// t.Fatalf. Without the stop, a wrong offset writes response bytes over a
-// neighbour or past the struct, and the run ends in a fault, a checkptr
-// failure under -race or a hang in a later comparison instead of failing by
-// test name (critic-p5 m-3, condition C3). It returns T's plan; a plan that
-// refuses T is returned unchecked, since the store never runs on it.
+// other field, and its recorded end is that offset plus its type's size.
+// Every mismatch is reported, then the test stops with t.Fatalf. Without the
+// stop, a wrong offset writes response bytes over a neighbour or past the
+// struct, and the run ends in a fault, a checkptr failure under -race or a
+// hang in a later comparison instead of failing by test name. It returns T's
+// plan; a plan that refuses T is returned unchecked, since the store never
+// runs on it.
 func requireStoreLayout[T any](t *testing.T) *typedPlan {
 	t.Helper()
 	typ := reflect.TypeFor[T]()
@@ -222,8 +222,8 @@ func TestStoreKeepsNeighbours(t *testing.T) {
 // per-write bound: a plan whose first answer field, Spam, is recorded at a
 // place its answer does not fit makes the store panic with a storeRefusal
 // that names the type, the field and the offset, before it writes a byte,
-// whether the offset is wrong (the shapes of critic-p5's store mutants S1 to
-// S3, and past the struct), the recorded end is, or the answer is of
+// whether the offset is wrong (the shapes the subtests name S1 to S3, and
+// past the struct), the recorded end is, or the answer is of
 // another type than the field. Each row plants its plan in a copy of
 // storeKinds's plan and decodes into a storeKinds whose every field holds a
 // value; the value must come out of the panic unchanged.
@@ -325,12 +325,11 @@ func TestStoreRefusesOutsideField(t *testing.T) {
 }
 
 // TestPlanLayoutRefusesCorruptPlans checks checkPlanLayout, the plan-build
-// half of invariant 2 of decodeas_store.go (review V72): each row corrupts
-// one answer field of a copy of storeKinds's plan, among them the in-bounds
-// case the store's per-write bound cannot see, Spam's offset and end moved
-// together onto the embedded NoulAnswer field of the same size, and the
-// check must panic with a message naming the type, the field and both
-// layouts. The good plan passes.
+// half of invariant 2 of decodeas_store.go: each row corrupts one answer field
+// of a copy of storeKinds's plan, among them the in-bounds case the store's
+// per-write bound cannot see, Spam's offset and end moved together onto the
+// embedded NoulAnswer field of the same size, and the check must panic with a
+// message naming the type, the field and both layouts. The good plan passes.
 func TestPlanLayoutRefusesCorruptPlans(t *testing.T) {
 	good := requireStoreLayout[storeKinds](t)
 	typ := reflect.TypeFor[storeKinds]()
@@ -440,7 +439,7 @@ func TestStoreWritesTyped(t *testing.T) {
 // checked, such as *(*F)(unsafe.Add(b.p, off+8)) = v, corrupts memory in
 // the first test that decodes a typed answer, and that test hangs until
 // the binary's timeout before TestStoreWritesTyped runs; checked first, the
-// package fails at once and names the test (review W6.2 RECHECK, NIT).
+// package fails at once and names the test.
 func TestMain(m *testing.M) {
 	var failures shapeFailures
 	checkStoreShape(&failures)

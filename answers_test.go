@@ -54,11 +54,10 @@ func firstOf[K, V any](seq iter.Seq2[K, V]) (K, V, int) {
 	return k, v, n
 }
 
-// TestAnswersIncomparable pins that Answers is not comparable (owner ruling
-// G8-b, critic-p5 n-7), as RetryPolicy's pin in TestRetryPolicyRules does
-// for that type (review V63): == on two views would compare the responses
-// they show, not their answers. The marker adds no byte: an Answers is one
-// pointer.
+// TestAnswersIncomparable pins that Answers is not comparable, as
+// RetryPolicy's pin in TestRetryPolicyRules does for that type: == on two
+// views would compare the responses they show, not their answers. The marker
+// adds no byte: an Answers is one pointer.
 func TestAnswersIncomparable(t *testing.T) {
 	typ := reflect.TypeFor[Answers]()
 	if typ.Comparable() {
@@ -157,11 +156,10 @@ func TestAnswerViews(t *testing.T) {
 	})
 }
 
-// TestAttemptHeader checks the header of each attempt (R27, R28): the first
-// attempt sends the call's template itself, without X-TypeSafe-Retry-Count;
-// a retry sends a fresh map that shares the template's values and adds the
-// count of attempts before it, from the static table and past it; the
-// template is never written.
+// TestAttemptHeader checks the header of each attempt: the first attempt sends
+// the call's template itself, without X-TypeSafe-Retry-Count; a retry sends a
+// fresh map that shares the template's values and adds the count of attempts
+// before it, from the static table and past it; the template is never written.
 func TestAttemptHeader(t *testing.T) {
 	c := newTestClient(t, replying(http.StatusOK, nil))
 	tmpl := c.cfg().SystemOneHeader
@@ -196,13 +194,12 @@ func TestAttemptHeader(t *testing.T) {
 	}
 }
 
-// TestAnswerPresent checks Present on the three answer types: every
-// accessor that reads an answer from a response gives one that is present
-// (Answers' Get and its kind's accessor, Noul, Choice and Score, and the
-// Nouls, Choices and Scores iterators), an accessor of another kind and the
-// zero value give one that is not, and MarshalJSON writes one that is not
-// as null (ruling R99 Q3). The sizes pin what the bit costs: §4's "same size as
-// the wire value" holds for none of the three any more (W7 note).
+// TestAnswerPresent checks Present on the three answer types: every accessor
+// that reads an answer from a response gives one that is present (Answers' Get
+// and its kind's accessor, Noul, Choice and Score, and the Nouls, Choices and
+// Scores iterators), an accessor of another kind and the zero value give one
+// that is not, and MarshalJSON writes one that is not as null. The sizes pin
+// what the presence bit costs.
 func TestAnswerPresent(t *testing.T) {
 	answers := upstreamResponse(t).Answers()
 	spam, _ := answers.Get("spam")

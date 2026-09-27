@@ -42,7 +42,7 @@ import (
 )
 
 // record makes the live tests write the bodies the API returned to
-// testdata/live (K6), each scrubbed of credentials first (writeFixture).
+// testdata/live, each scrubbed of credentials first (writeFixture).
 var record = flag.Bool("record", false, "write the live response bodies to testdata/live, credentials removed")
 
 // liveTimeout is each attempt's deadline, as upstream's live client sets it
@@ -55,8 +55,8 @@ var ticketState = map[string]any{
 	"body":    "I see two charges of $49. I only have one account. Please fix this ASAP.",
 }
 
-// requireLive returns the live-test environment, or fails the test before
-// it calls the API (AC-F11: the live tests fail without both variables).
+// requireLive returns the live-test environment, or fails the test before it
+// calls the API (the live tests fail without both variables).
 func requireLive(tb testing.TB) liveEnv {
 	tb.Helper()
 	env, err := liveEnvFrom(os.Getenv)
@@ -67,8 +67,8 @@ func requireLive(tb testing.TB) liveEnv {
 	return env
 }
 
-// phases holds the httptrace times of one call, each measured from the
-// call's start: what K22 records about the live API's first response.
+// phases holds the httptrace times of one call, each measured from the call's
+// start: what the live API's first response costs, phase by phase.
 type phases struct {
 	mu                                      sync.Mutex
 	start                                   time.Time
@@ -159,7 +159,7 @@ func (lc *liveClient) begin() {
 	lc.start = time.Now()
 }
 
-// done logs the call's K22 line: its phases and the response's framing as
+// done logs one line for the call: its phases and the response's framing as
 // the SDK saw it (the "response headers" record: Content-Length and
 // Content-Encoding after the transport's own gzip handling).
 func (lc *liveClient) done(t *testing.T, label string) {
@@ -223,8 +223,8 @@ func probabilitySum[K comparable](seq iter.Seq2[K, float64]) (map[K]float64, flo
 
 // TestLiveModels ports test_live_models: the API lists at least one model,
 // each decoded with its name, description and release date. It records the
-// body (models.json) and K22's first response on a cold client, then three
-// warm calls on the same connection.
+// body (models.json) and the phases of the first response on a cold client,
+// then of three warm calls on the same connection.
 func TestLiveModels(t *testing.T) {
 	env := requireLive(t)
 	lc := newLiveClient(t)
@@ -459,15 +459,14 @@ func (w withoutCredential) RoundTrip(r *http.Request) (*http.Response, error) {
 // client's Close asks.
 func (w withoutCredential) CloseIdleConnections() { w.base.CloseIdleConnections() }
 
-// TestLiveUnauthenticated checks AC-F11's last clause and the case next to
-// it, on both endpoints and without a retry: a request that carries no
-// credential is answered with 403 and the error type authentication_error,
-// and one with a key the API did not issue with 401 and the same error type.
-// The SDK reports both as an *APIError whose IsAuthentication is true: the
-// first through its ErrorType (Kind permission denied), the second through
-// its status as well (Kind authentication). The models endpoint's error
-// bodies are recorded as unauthenticated.json (403) and wrong-key.json
-// (401), each key scrubbed as the real one would be.
+// TestLiveUnauthenticated checks two cases on both endpoints, without a retry:
+// a request that carries no credential is answered with 403 and the error type
+// authentication_error, and one with a key the API did not issue with 401 and
+// the same error type. The SDK reports both as an *APIError whose
+// IsAuthentication is true: the first through its ErrorType (Kind permission
+// denied), the second through its status as well (Kind authentication). The
+// models endpoint's error bodies are recorded as unauthenticated.json (403)
+// and wrong-key.json (401), each key scrubbed as the real one would be.
 func TestLiveUnauthenticated(t *testing.T) {
 	env := requireLive(t)
 	var p http.Protocols
@@ -557,10 +556,10 @@ func (p *framingProbe) RoundTrip(r *http.Request) (*http.Response, error) {
 	return resp, err
 }
 
-// TestLiveTransportFacts records K22's server facts, asserting nothing about
-// their values: the SETTINGS the API sends on a new HTTP/2 connection
-// (MAX_CONCURRENT_STREAMS among them; no request, no key), and how the
-// models response is framed through a stock HTTP/2 transport with and
+// TestLiveTransportFacts records the server's transport facts, asserting
+// nothing about their values: the SETTINGS the API sends on a new HTTP/2
+// connection (MAX_CONCURRENT_STREAMS among them; no request, no key), and how
+// the models response is framed through a stock HTTP/2 transport with and
 // without the transparent gzip that the SDK's transport requests.
 func TestLiveTransportFacts(t *testing.T) {
 	env := requireLive(t)

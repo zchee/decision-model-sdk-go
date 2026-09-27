@@ -14,12 +14,12 @@
 
 package typesafe
 
-// This file is the typed decode's store, the root package's one use of
-// unsafe (owner ruling R116, superseding R112; the seam test
-// TestSeamRootRawPointers names this file and no other). DecodeAs writes
-// each answer into the field of the caller's T at the offset reflect gave
-// that field when the plan was built, so that the T stays on DecodeAs's
-// stack instead of moving to the heap through reflect.Value.Interface.
+// This file is the typed decode's store, the root package's one use of unsafe
+// (the seam test TestSeamRootRawPointers names this file and no other).
+// DecodeAs writes each answer into the field of the caller's T at the offset
+// reflect gave that field when the plan was built, so that the T stays on
+// DecodeAs's stack instead of moving to the heap through
+// reflect.Value.Interface.
 //
 // The invariants that make each write sound, and where each is kept:
 //
@@ -32,7 +32,7 @@ package typesafe
 //     typesafe tag below the struct's own fields, so no offset is a sum.
 //     Before a plan is used, checkPlanLayout compares each field's offset,
 //     end and kind with what reflect gives the field at its index, and
-//     panics by name on any difference (review V72).
+//     panics by name on any difference.
 //  3. F is that field's type: buildPlan admits a field only when its type is
 //     the answer type of its kind (answerKind), and decode picks F from the
 //     same kind. So the write covers exactly the field, at its own
@@ -43,21 +43,20 @@ package typesafe
 //     shape of this file).
 //  5. The pointer is not kept: a fieldBase lives on the caller's stack for
 //     one decode, and nothing here stores it.
-//  6. Invariants 2 and 3 are checked before every write, not only trusted
-//     (the per-write bound, owner ruling G8-a Q3 (a)): storeAnswer writes
-//     only when the offset is inside T, the write of F's size from it ends
-//     exactly at the field's end that buildPlan recorded apart from the
-//     offset (typedField.end, reflect's Offset plus the size of the field's
-//     type), and that end is inside T, whose size baseOf takes from T itself
-//     at compile time rather than from the plan. Otherwise it panics with a
-//     message that names T, the field and the offset. So a plan holding a
-//     wrong offset (another field's, 0, one past the last field) or a store
-//     of the wrong answer type stops before a byte is written, where the
-//     write would put response bytes into a pointer slot of T or past T
-//     into the caller's frame (critic-p5 M-2). The check compares values the
-//     decode already holds: no allocation, no reflection, until it fails.
-//     It cannot see a plan whose offset and end both name another field of
-//     the same size; checkPlanLayout refuses that plan when it is built
+//  6. Invariants 2 and 3 are checked before every write, not only trusted (the
+//     per-write bound): storeAnswer writes only when the offset is inside T,
+//     the write of F's size from it ends exactly at the field's end that
+//     buildPlan recorded apart from the offset (typedField.end, reflect's
+//     Offset plus the size of the field's type), and that end is inside T,
+//     whose size baseOf takes from T itself at compile time rather than from
+//     the plan. Otherwise it panics with a message that names T, the field and
+//     the offset. So a plan holding a wrong offset (another field's, 0, one
+//     past the last field) or a store of the wrong answer type stops before a
+//     byte is written, where the write would put response bytes into a pointer
+//     slot of T or past T into the caller's frame. The check compares values
+//     the decode already holds: no allocation, no reflection, until it fails.
+//     It cannot see a plan whose offset and end both name another field of the
+//     same size; checkPlanLayout refuses that plan when it is built
 //     (invariant 2).
 
 import "unsafe"

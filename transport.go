@@ -155,7 +155,8 @@ func WithProxy(proxy func(*http.Request) (*url.URL, error)) ClientOption {
 // handshake timeout ([WithConnectTimeout]); under HTTP2Only it always sets
 // strict HTTP/2 stream accounting (HTTP2Config.StrictMaxConcurrentRequests),
 // checks ALPN on the API host's handshake, and checks a connection from t's
-// TLS dialer for h2. The cold-start gate and the header-write token apply.
+// TLS dialer for h2. The SDK's cold-start gate and its one-request-at-a-time
+// header writes ([WithClientTrace]) apply.
 //
 // It cannot be combined with [WithRoundTripper], [WithProxy], [WithRootCAs],
 // [WithTLSConfig] or [WithCompression]; [WithConnectTimeout] still applies
@@ -224,11 +225,10 @@ func WithRoundTripper(rt http.RoundTripper) ClientOption {
 //   - In GetConn, while the client has no connection yet: for up to the
 //     wait for its first connection (the same two timeouts, and a proxy's
 //     CONNECT and handshake when a proxy may apply) plus the bound above.
-//   - In GetConn, once the client has its connection: until the hook
-//     returns, past the other calls' own deadlines. net/http calls GetConn
-//     with its connection pool's lock held (risk K28), so a call that has
-//     waited out the bound above then waits for that lock, which its
-//     context cannot interrupt.
+//   - In GetConn, once the client has its connection: until the hook returns,
+//     past the other calls' own deadlines. net/http calls GetConn with its
+//     connection pool's lock held, so a call that has waited out the bound
+//     above then waits for that lock, which its context cannot interrupt.
 //   - In the DNS, connect or TLS handshake hooks of a new connection
 //     (DNSStart, DNSDone, ConnectStart, ConnectDone, TLSHandshakeStart,
 //     TLSHandshakeDone): for up to the bound above plus the wait for a
@@ -247,9 +247,6 @@ func WithRoundTripper(rt http.RoundTripper) ClientOption {
 // as net/http/httptrace allows, and a panic the hook raises then is
 // recovered and logged at WARN, as the panic of any hook that runs after
 // its call has returned.
-//
-// The shield above covers a panic, and the bounds a hook that blocks,
-// except GetConn on a client that has a connection.
 func WithClientTrace(trace *httptrace.ClientTrace) ClientOption {
 	return func(o *options) {
 		if trace == nil {
@@ -341,7 +338,7 @@ func (t *transportOptions) build(api *url.URL, connectTimeout time.Duration, con
 		mode = *t.version
 	}
 	// The gate's DEBUG records print the transport's errors through the
-	// credential scrub (ruling R84).
+	// credential scrub.
 	cfg := h2gate.Config{APIURL: api, Mode: h2gate.HTTP2Only, ConnectTimeout: connectTimeout, Logger: logger, ErrorText: tr.ErrorText}
 	if mode == HTTPAuto {
 		cfg.Mode = h2gate.HTTPAuto
@@ -393,8 +390,8 @@ func buildError(err error) *ConfigError {
 // roundTrip sends req through t. timeout is the attempt's deadline, which a
 // *TimeoutError reports. A failure of the SDK's transport before a
 // connection was had, and an API host that did not speak HTTP/2 under
-// HTTP2Only, come back as the SDK's error types (section 6.3, R67 Q3); any
-// other error is returned as the transport gave it.
+// HTTP2Only, come back as the SDK's error types; any other error is
+// returned as the transport gave it.
 func roundTrip(t *engine.Transport, req *http.Request, timeout time.Duration) (*http.Response, error) {
 	resp, err := t.RoundTrip(req)
 	if err != nil {
@@ -407,19 +404,17 @@ func roundTrip(t *engine.Transport, req *http.Request, timeout time.Duration) (*
 }
 
 // transportError maps an error of the SDK's transport to the SDK's error
-// types, or returns nil for an error it leaves to the attempt's
-// classification ([Client.attemptError]). creds are the credentials of the
-// call that failed ([engine.Transport.Credentials]). The order is R67 Q3's:
-// a proxy hop that timed out is a *TimeoutError naming the proxy hop; any
-// other proxy failure is a *ConnectionError with Proxy() true, even when
-// the proxy refused h2 (R20);
-// a failure to speak HTTP/2 is a *ConfigError wrapping
-// [ErrHTTP2NotNegotiated]; a dial or TLS handshake that timed out is a
-// *TimeoutError; any other failure before a connection is a
-// *ConnectionError. No text of a mapped error shows a credential of the
-// request or a URL's userinfo ([engine.Credentials.Redact]), and each wraps the
-// transport's error, or a stand-in for it when its chain printed one
-// ([engine.Credentials.Cause]).
+// types, or returns nil for an error it leaves to the attempt's classification
+// ([Client.attemptError]). creds are the credentials of the call that failed
+// ([engine.Transport.Credentials]). In this order: a proxy hop that timed out
+// is a *TimeoutError naming the proxy hop; any other proxy failure is a
+// *ConnectionError with Proxy() true, even when the proxy refused h2; a
+// failure to speak HTTP/2 is a *ConfigError wrapping [ErrHTTP2NotNegotiated];
+// a dial or TLS handshake that timed out is a *TimeoutError; any other failure
+// before a connection is a *ConnectionError. No text of a mapped error shows a
+// credential of the request or a URL's userinfo ([engine.Credentials.Redact]),
+// and each wraps the transport's error, or a stand-in for it when its chain
+// printed one ([engine.Credentials.Cause]).
 func transportError(err error, timeout time.Duration, creds engine.Credentials) error {
 	de, isDial := errors.AsType[*h2gate.DialError](err)
 	if !isDial && !errors.Is(err, h2gate.ErrNotNegotiated) {

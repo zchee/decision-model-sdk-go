@@ -38,30 +38,22 @@ import (
 // ([context.Canceled]) itself, as the Python SDK lets
 // asyncio.CancelledError through.
 //
-// An SDK error is a value: where the Python SDK copies, pickles and rebuilds
-// its exceptions (to send one to another process, say), a Go caller copies
-// the struct an error points to (c := *e) and uses &c, which renders, reads
-// and unwraps as the original does and shares its Header and Body. The
-// struct value c is not itself an error, and fmt prints its fields, so print
-// &c, never c. A caller may also hand the pointer to another goroutine,
-// since no read of an error changes it. [errors.As] finds the error through
-// any wrapping and sets its target to the very pointer: the target is the
-// address of a variable of one of the seven pointer types (var e *APIError;
-// errors.As(err, &e)), or of an Error, and [errors.AsType] takes the pointer
-// type itself (errors.AsType[*APIError](err)). The address of a struct value
-// (var e APIError; errors.As(err, &e)) makes errors.As panic, since only the
-// pointer types are errors. Nothing is serialised.
+// An SDK error is a pointer to a struct that no read changes: where the
+// Python SDK copies, pickles and rebuilds its exceptions, a Go caller shares
+// the pointer between goroutines, or copies the struct as c := *e and uses
+// &c. [errors.As] needs the address of a variable of the pointer type
+// (var e *APIError).
 //
-// The SDK never writes a credential into an error's text itself, and in
-// text that others wrote it replaces the credentials it knows of with
-// "***", under the rules each type documents ([ConnectionError],
-// [APIError].Header). Text the server composed is the exception: an
-// [APIError]'s Message and a field path of a [ResponseValidationError] are
-// shown as the server sent them, as the Python SDK shows them (ruling
-// R103-rev), a credential the server or a proxy echoes into them included.
-// No error's text holds a request's state or a response body unescaped:
-// text the SDK did not write is escaped and cut (the server's message at
-// 200 characters, a name the server chose at 128, a field path at 320).
+// The SDK never writes a credential into an error's text itself, and in text
+// that others wrote it replaces the credentials it knows of with "***", under
+// the rules each type documents ([ConnectionError], [APIError].Header). Text
+// the server composed is the exception: an [APIError]'s Message and a field
+// path of a [ResponseValidationError] are shown as the server sent them, a
+// credential the server or a proxy echoes into them included, as the Python
+// SDK shows them. No error's text holds a request's state or a response body
+// unescaped: text the SDK did not write is escaped and cut (the server's
+// message at 200 characters, a name the server chose at 128, a field path at
+// 320).
 type Error interface {
 	error
 	// typesafeError keeps the interface to the SDK's own types.
@@ -77,12 +69,12 @@ type Error interface {
 //
 // Error returns the message, which names what is wrong without repeating a
 // credential: neither the API key nor the value of a header the caller set is
-// ever part of it. Unwrap returns the
-// errors it wraps, if any. A rejected question set wraps the failure behind
-// the message, such as the syntax error in JSON content; its type is
-// internal to the SDK, so only its text, which the message already carries,
-// is of use to a caller. A condition a caller may want to branch on is
-// wrapped as a sentinel error that the function returning it documents.
+// ever part of it. Unwrap returns the errors it wraps, if any. A rejected
+// question set wraps the failure behind the message, such as the syntax error
+// in JSON content; its type is internal to the SDK, so only its text, which
+// the message already carries, is of use to a caller. A condition a caller may
+// want to branch on is wrapped as a sentinel error that the function returning
+// it documents.
 type ConfigError struct {
 	msg  string
 	errs []error
@@ -235,12 +227,12 @@ type APIError struct {
 	// have written itself, one with a value that holds the proxy's whole
 	// password, as it is or as the URL escapes it, or its Basic token, 8
 	// bytes or longer ([WithProxy]); a shorter one, or a word of the
-	// password, is shown, as a shorter key is. Every other
-	// header, Retry-After, Retry-After-Ms and X-Typesafe-Request-Id
-	// included, is as the server sent it, so [APIError.RetryAfter] and
-	// [APIError.RequestID] read it. The values of those other headers are
-	// the response's own and must not be modified. typesafe-sdk-python
-	// keeps the headers as they arrived and redacts them only in its logs.
+	// password, is shown, as a shorter key is. Every other header,
+	// Retry-After, Retry-After-Ms and X-Typesafe-Request-Id included, is as
+	// the server sent it, so [APIError.RetryAfter] and [APIError.RequestID]
+	// read it. The values of those other headers are the response's own and
+	// must not be modified. typesafe-sdk-python keeps the headers as they
+	// arrived and redacts them only in its logs.
 	Header http.Header
 	// Body is the response body as it arrived, or nil when it was empty or
 	// over the size limit. It is shared, not copied, and must not be
@@ -251,11 +243,11 @@ type APIError struct {
 	// empty when it is not known.
 	Endpoint string
 	// Message is the message Error prints after the status; empty prints
-	// the status alone. A message the server composes is not redacted
-	// (ruling R103-rev): when it echoes the client's API key, Message,
-	// Error and %+v show the key, as the Python SDK's error does. Header and
-	// the request id show "***" for a value that holds the key, in the
-	// error and in the SDK's log records alike (R87).
+	// the status alone. A message the server composes is not redacted: when
+	// it echoes the client's API key, Message, Error and %+v show the key,
+	// as the Python SDK's error does. Header and the request id show "***"
+	// for a value that holds the key, in the error and in the SDK's log
+	// records alike.
 	Message string
 	// ErrorType is the server's machine-readable name for the failure, from
 	// the body's detail.error_type, or empty. It is the server's text as it
@@ -283,7 +275,7 @@ func (e *APIError) RequestID() (string, bool) { return requestID(e.Header) }
 // not only 429. A date is read in the three formats RFC 9110 names
 // (IMF-fixdate, RFC 850, asctime; [net/http.ParseTime]); the Python SDK's
 // parser also takes a numeric zone such as +0000 and a missing weekday,
-// which give no answer here (ruling R73).
+// which give no answer here.
 func (e *APIError) RetryAfter() (time.Duration, bool) { return retryAfter(e.Header, time.Now()) }
 
 // IsAuthentication reports whether the status or the server's error type
@@ -300,10 +292,9 @@ func (*APIError) typesafeError() {}
 // its message read from the body by the lenient reader
 // (codec.ReadErrorBody), escaped and cut at 200 characters, or "status code
 // (no body)" for an empty or null body, and the response header with its
-// credentials redacted by r ([engine.HeaderRedactor], ruling R87). The message is
-// not redacted (ruling R103-rev): a key the server echoes in it is shown, as
-// the Python SDK shows it. Header and the request id show "***" for a value
-// that holds the key, as the log records do (R87).
+// credentials redacted by r ([engine.HeaderRedactor]). The message is not
+// redacted: a key the server echoes in it is shown, as the Python SDK shows
+// it.
 func newAPIError(meta *wire.ResponseMeta, endpoint string, r engine.HeaderRedactor) *APIError {
 	eb := codec.ReadErrorBody(meta.Body)
 	msg := "status code (no body)"
@@ -334,7 +325,7 @@ func newAPIError(meta *wire.ResponseMeta, endpoint string, r engine.HeaderRedact
 // ([DecodeAs], [Ask]) names FieldPath as the Python SDK's response model
 // with one field per answer names it, such as "tone.choice", while the
 // failure it wraps keeps the answer's place in the body,
-// "answers.tone.choice" (ruling R99-rev).
+// "answers.tone.choice".
 type ResponseValidationError struct {
 	// StatusCode is the HTTP status code.
 	StatusCode int
@@ -377,9 +368,8 @@ func (*ResponseValidationError) typesafeError() {}
 // successful response whose body the decoder refused with err, with the
 // response header's credentials redacted by r ([engine.HeaderRedactor]). The
 // path's names, an answer's name and a probability or legend key, are not
-// redacted (ruling R103-rev): a key the server echoes in them is shown, as
-// the Python SDK shows it. Header and the request id show "***" for a value
-// that holds the key, as the log records do (R87).
+// redacted: a key the server echoes in them is shown, as the Python SDK
+// shows it.
 func newResponseValidationError(meta *wire.ResponseMeta, endpoint string, r engine.HeaderRedactor, err error) *ResponseValidationError {
 	var path codec.FieldPath
 	if de, ok := errors.AsType[*codec.DecodeError](err); ok {
@@ -531,7 +521,7 @@ type TimeoutError struct {
 // out." without a timeout, with " on the proxy hop" after "out" when the hop
 // to the proxy timed out. The Python SDK's str() prints the timeout as a
 // float without a unit ("timeout=10.0"); the Go port prints it with an "s"
-// and without a trailing ".0" ("timeout=10s"), as the Rust port does.
+// and without a trailing ".0" ("timeout=10s").
 func (e *TimeoutError) Error() string {
 	msg := "Request timed out"
 	if e.proxy {
@@ -562,7 +552,7 @@ func newTimeoutError(timeout time.Duration, cause error) *TimeoutError {
 }
 
 // newProxyTimeoutError returns the *TimeoutError for an attempt given
-// timeout whose hop to the proxy timed out with cause (R67 Q3).
+// timeout whose hop to the proxy timed out with cause.
 func newProxyTimeoutError(timeout time.Duration, cause error) *TimeoutError {
 	return &TimeoutError{Timeout: timeout, err: cause, proxy: true}
 }

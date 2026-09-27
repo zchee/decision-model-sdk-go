@@ -128,12 +128,12 @@ func checkExamples(t *testing.T, env, secrets []string) {
 // fakeExampleKey is the key the examples send to the fake API.
 const fakeExampleKey = "fake-example-key-0000000000"
 
-// TestExamplesOffline runs every program under examples/ (XD1) against
+// TestExamplesOffline runs every program under examples/ against
 // testsupport.FakeAPI, an in-process stand-in for the API, with the
-// environment the programs read: TYPESAFE_API_KEY and TYPESAFE_BASE_URL,
-// and no other TYPESAFE_ variable. Each must exit 0 and print what its
-// exampleOutputs pattern describes; none may print the key. The live
-// variant, TestExamples, runs them against the API itself (-tags live).
+// environment the programs read: TYPESAFE_API_KEY and TYPESAFE_BASE_URL, and
+// no other TYPESAFE_ variable. Each must exit 0 and print what its
+// exampleOutputs pattern describes; none may print the key. The live variant,
+// TestExamples, runs them against the API itself (-tags live).
 func TestExamplesOffline(t *testing.T) {
 	api := &testsupport.FakeAPI{}
 	srv := httptest.NewServer(api)
