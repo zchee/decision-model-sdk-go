@@ -59,9 +59,10 @@ jobs:
         with:
           mode: walltime
           # The action's go shim runs benchmarks only: it keeps -bench and
-          # -benchtime, drops other flags, and reads the first non-flag
-          # argument as a package pattern, so no -run here (`-run '^$'` fails
-          # as a malformed import path) and no unit test runs in this job.
+          # -benchtime, drops other flags, and takes the first non-flag
+          # argument and everything after it as package patterns, so no -run
+          # here (`-run '^$'` fails as a malformed import path) and no unit
+          # test runs in this job.
           # The log copy feeds the guard below; pipefail keeps go's status.
           run: set -o pipefail; go test -bench=. ./... 2>&1 | tee "${{ runner.temp }}/codspeed.log"
 

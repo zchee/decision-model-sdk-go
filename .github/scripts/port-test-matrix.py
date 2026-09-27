@@ -76,11 +76,11 @@ status is 0 only when every check passes.
      ends in ``/typesafe-sdk-go``, not ``/typesafe``, so a qualified name
      could never match it.
    - ``deviation``: the Go cell must cite a row of the deviation table
-     (``docs/deviations.md``, which grew out of the port plan's Appendix B)
-     as the word ``deviation`` followed by a double-quoted, non-blank
-     reference, the row's key, as in ``deviation "one deadline per
-     attempt"``. The rows carry no numbers, and ``B<n>`` would read as one
-     of the plan's benchmark IDs B1-B6, so there is no numeric form. A cell
+     (``docs/deviations.md``) as the word ``deviation`` followed by a
+     double-quoted, non-blank reference, the row's key, as in ``deviation
+     "one deadline per attempt"``. The rows carry no numbers, and ``B<n>``
+     would read as one of the benchmark IDs B1-B6 that
+     ``docs/perf/benchmarks.md`` defines, so there is no numeric form. A cell
      containing ``same deviation`` takes the citation of the nearest row
      above it in the same group that carries one; rows without a citation
      in between are skipped. With ``--deviations`` the reference must be a
@@ -111,7 +111,7 @@ status is 0 only when every check passes.
 8. As-built record (only with ``--as-built FILE``, which needs
    ``--deviations``). FILE's ruling tables, headed ``| Ruling | Date (UTC) |
    Plan text amended | As built | Pinned by | Owner |``, hold one row per
-   ruling that changed the port plan: the Ruling cell is ruling ids separated
+   ruling or set of rulings: the Ruling cell is ruling ids separated
    by commas (``R81``, ``R99-rev``, ``G8-a``, ``D-W2.2b``), an id appears
    once in a cell, and an id has one row in all of them. Each section headed
    ``## Phase <n>`` (to the next heading of level 1 or 2) holds exactly one
@@ -119,18 +119,16 @@ status is 0 only when every check passes.
    a table whose header lost or changed a word fails instead of being
    skipped with its rows. FILE also holds exactly one Appendix B table,
    headed ``| # | Appendix B row (Python SDK 0.7.1) | Bold | Deviation keys |
-   Rulings |``: the plan's Appendix B transcribed row by row, numbered 1, 2,
-   …, Bold ``yes`` or ``no``, Deviation keys ``—`` or ``deviation "<key>"``
-   citations, Rulings ``—`` or the ids of ruling-table rows. The plan lives
-   outside the repository, so the transcription itself was checked by hand;
-   the plan was never edited after its approval, so its counts are
+   Rulings |``, its rows numbered 1, 2, …, Bold ``yes`` or ``no``, Deviation
+   keys ``—`` or ``deviation "<key>"`` citations, Rulings ``—`` or the ids
+   of ruling-table rows; a row's Python side is not checked. The counts are
    constants: ``PLAN_PHASES`` phase sections and ``APPENDIX_ROWS`` Appendix B
    rows, ``APPENDIX_BOLD`` of them bold. A row dropped and the rest
    renumbered passes the numbering rule and fails the count.
    FILE and the deviation table agree in both directions: every citation in
    FILE is a key, and every key is cited by the Appendix B table or by a
-   ruling row, so no deviation lacks the plan row or the ruling it came from;
-   a bold row names a key or the rulings that replaced it. Every
+   ruling row, so no deviation lacks the Appendix B row or the ruling it
+   came from; a bold row names a key or the rulings that replaced it. Every
    backtick-quoted ``Test…``, ``Benchmark…``, ``Fuzz…`` or ``Example…`` name
    in a ruling table (a ``/sub`` suffix is ignored) must be listed by the
    ``go test -list`` run, as for ``ported`` rows.
@@ -1245,11 +1243,15 @@ def check_as_built(
 
 
 def check_plan_shape(record: AsBuilt, source: str) -> list[str]:
-    """Return one failure per count of the record that differs from the plan's.
+    """Return one failure per count of the record that differs from its constant.
 
-    The plan is frozen, so ``PLAN_PHASES``, ``APPENDIX_ROWS`` and
-    ``APPENDIX_BOLD`` are constants; a phase or an Appendix B row dropped and
-    the rest renumbered passes the numbering rules and fails here.
+    The counts do not change: the record has a section for each phase the
+    port was built in, and its Appendix B table a row for each row of the
+    behaviour map it records, bold where that row was marked a deviation; a
+    behaviour added later is a row of a ruling table. So ``PLAN_PHASES``,
+    ``APPENDIX_ROWS`` and ``APPENDIX_BOLD`` are constants, and a phase or an
+    Appendix B row dropped with the rest renumbered passes the numbering
+    rules and fails here.
     """
     bold = sum(1 for row in record.appendix if row.bold)
     return [
