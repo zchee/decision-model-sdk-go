@@ -17,6 +17,7 @@ package h2gate
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -98,6 +99,14 @@ type Stats struct {
 	// TokenExpiries counts requests that waited the hold bound for the
 	// header-write token and went out without it (R85).
 	TokenExpiries uint64
+	// DialExpiries counts dials of NewTransport's own dialer that had not
+	// returned when the connect timeout ended, and that the transport
+	// failed and abandoned (K28d): a caller's DNS or connect hook blocked
+	// them.
+	DialExpiries uint64
+	// WaitExpiries counts requests whose wait for a connection the wait
+	// bound ended (K28d).
+	WaitExpiries uint64
 }
 
 // settings is what a Transport needs besides the stock transport.
@@ -139,6 +148,13 @@ type Transport struct {
 
 	parked atomic.Int64 // waiters parked now, for tests
 
+	// stalled is set when a request's wait for a connection ended at the
+	// wait bound, and cleared at the next GotConn: until a connection is
+	// handed over again, a dial may hold the connection permit in a
+	// caller's hook, so every request waits for its connection under the
+	// bound (K28d).
+	stalled atomic.Bool
+
 	// unsettled holds the HTTP/2 connections a stock replay opened after
 	// giving the token back (K21c, R69), oldest first, at most maxUnsettled;
 	// nUnsettled is its length, read without the lock.
@@ -148,7 +164,7 @@ type Transport struct {
 
 	dials, leaders, releases, failures, handovers, coldResets atomic.Uint64
 	fallThroughs, firstHolds, holdExpiries, settleHolds       atomic.Uint64
-	tokenExpiries                                             atomic.Uint64
+	tokenExpiries, dialExpiries, waitExpiries                 atomic.Uint64
 
 	tokenWaits atomic.Uint64 // waitToken entries, for tests: a free token enters none
 }
@@ -219,6 +235,8 @@ func (t *Transport) Stats() Stats {
 		SettleHolds:   t.settleHolds.Load(),
 		HoldExpiries:  t.holdExpiries.Load(),
 		TokenExpiries: t.tokenExpiries.Load(),
+		DialExpiries:  t.dialExpiries.Load(),
+		WaitExpiries:  t.waitExpiries.Load(),
 	}
 }
 
@@ -444,15 +462,27 @@ func (t *Transport) send(req *http.Request, gen *generation) (*http.Response, er
 	// The token goes back on every exit, a panic unwinding through the stock
 	// RoundTrip included; the call below returns it as early as before.
 	defer c.finish()
+	rctx := ctx
+	if !held || t.stalled.Load() || dialHooks(httptrace.ContextClientTrace(ctx)) {
+		// The wait bound (K28d): a request that may wait for a connection
+		// behind a dial held in a caller's hook gets a context the bound can
+		// end. The body of its response ends that context, so it does not
+		// outlive the call among its parent's children; every other exit
+		// ends it in release.
+		var cancel context.CancelCauseFunc
+		rctx, cancel = context.WithCancelCause(ctx)
+		c.bound = &waitState{cancel: cancel}
+		defer c.release()
+	}
 	c.trace = httptrace.ClientTrace{GetConn: c.getConn, GotConn: c.gotConn, WroteHeaders: c.wroteHeaders}
-	c.Context = httptrace.WithClientTrace(ctx, &c.trace)
+	c.Context = httptrace.WithClientTrace(rctx, &c.trace)
 	resp, err := t.base.RoundTrip(req.WithContext(c))
 	c.finish()
 	if err == nil {
 		c.responded()
 	}
 	if err != nil {
-		if c.seen.Load()&callLookedUp != 0 && !c.connected.Load() && ctx.Err() == nil {
+		if c.seen.Load()&(callLookedUp|callConnected) == callLookedUp && ctx.Err() == nil {
 			de := classify(err)
 			if gen == nil && t.warm.Load() && t.debugEnabled(ctx) {
 				// After warm, re-dials are the stock pool's, serial and ungated.
@@ -470,7 +500,36 @@ func (t *Transport) send(req *http.Request, gen *generation) (*http.Response, er
 		t.log.WarnContext(ctx, "h2: response not HTTP/2", "proto", resp.Proto)
 		return nil, fmt.Errorf("%w: the response is %s", ErrNotNegotiated, resp.Proto)
 	}
+	if b := c.bound; b != nil {
+		resp.Body = &boundBody{ReadCloser: resp.Body, cancel: b.cancel}
+		b.kept = true
+	}
 	return resp, nil
+}
+
+// dialHooks reports whether trace has a hook that runs in a new
+// connection's dial phase (DNS, connect or TLS handshake), where a hook
+// that blocks holds the connection permit (MaxConnsPerHost 1) and, under
+// the stock transport, the request's wait for it (K28d).
+func dialHooks(trace *httptrace.ClientTrace) bool {
+	return trace != nil && (trace.DNSStart != nil || trace.DNSDone != nil || trace.ConnectStart != nil ||
+		trace.ConnectDone != nil || trace.TLSHandshakeStart != nil || trace.TLSHandshakeDone != nil)
+}
+
+// boundBody is the body of a response whose request waited for its
+// connection under the wait bound: closing it ends the context the
+// transport derived for the bound, which the response's stream needed
+// until then.
+type boundBody struct {
+	io.ReadCloser
+	cancel context.CancelCauseFunc
+}
+
+// Close closes the body and ends the request's context.
+func (b *boundBody) Close() error {
+	err := b.ReadCloser.Close()
+	b.cancel(nil)
+	return err
 }
 
 // waitToken waits for the header-write token when another request holds
@@ -516,22 +575,41 @@ type call struct {
 	gen   *generation // the generation this request leads, or nil
 	trace httptrace.ClientTrace
 
-	given     atomic.Bool   // the token was given back
-	seen      atomic.Uint32 // callLookedUp and callProxied
-	connected atomic.Bool   // the transport handed over a connection (GotConn)
-	first     atomic.Bool   // FirstHold engaged
-	hold      atomic.Pointer[time.Timer]
+	given atomic.Bool   // the token was given back
+	seen  atomic.Uint32 // callLookedUp, callProxied, callConnected and callFirst
+	hold  atomic.Pointer[time.Timer]
 	// marked is the connection this request, a stock replay, marked
 	// unsettled; its own response clears the mark (responded).
 	marked atomic.Pointer[net.Conn]
+	// bound is the wait bound's state (K28d) when send gave the request a
+	// context the bound can end, nil otherwise. It is set before RoundTrip
+	// and never changes. Held apart, it leaves the call's size, and so the
+	// cost of a request without the bound, as it was.
+	bound *waitState
 }
 
-// The bits of call.seen, set once and never cleared.
+// waitState is the wait bound of one request: cancel ends the context send
+// derived for it, wait is armed at each GetConn and stopped at GotConn,
+// waiting is set in between, and kept records that the response's body took
+// cancel over (kept is the calling goroutine's alone).
+type waitState struct {
+	cancel  context.CancelCauseFunc
+	wait    atomic.Pointer[time.Timer]
+	waiting atomic.Bool
+	kept    bool
+}
+
+// The bits of call.seen, set once and never cleared. Or returns the word as
+// it was, so c.seen.Or(bit)&bit == 0 reports that this call set the bit.
 const (
 	// callLookedUp: the transport looked for a connection (GetConn).
 	callLookedUp uint32 = 1 << iota
 	// callProxied: the Proxy func returned a proxy for the request.
 	callProxied
+	// callConnected: the transport handed over a connection (GotConn).
+	callConnected
+	// callFirst: FirstHold engaged.
+	callFirst
 )
 
 // callKey is the context key under which a call answers for itself.
@@ -561,12 +639,44 @@ func Proxied(resp *http.Response) bool {
 }
 
 // finish ends the call's hold on the token: it gives the token back, if it
-// has not gone back already, and stops the hold bound's timer.
+// has not gone back already, and stops the hold bound's timer and the wait
+// bound's.
 func (c *call) finish() {
 	c.giveBack(false)
 	if tm := c.hold.Load(); tm != nil {
 		tm.Stop()
 	}
+	if b := c.bound; b != nil {
+		if tm := b.wait.Load(); tm != nil {
+			b.waiting.Store(false)
+			tm.Stop()
+		}
+	}
+}
+
+// release ends the context send derived for the wait bound, unless the
+// response's body took it over.
+func (c *call) release() {
+	if !c.bound.kept {
+		c.bound.cancel(nil)
+	}
+}
+
+// expire is the wait bound's callback: a request still waiting for its
+// connection when the bound ends marks the transport stalled and ends its
+// context, so the stock transport returns the bound's error; a request
+// that got its connection meanwhile is left alone.
+func (c *call) expire() {
+	if !c.bound.waiting.CompareAndSwap(true, false) {
+		return
+	}
+	t := c.t
+	// Before the cancel: the token this request gives back on its way out
+	// reaches the next holder after the mark.
+	t.stalled.Store(true)
+	t.waitExpiries.Add(1)
+	t.log.DebugContext(c, "h2: connection wait expired", "bound", t.waitBound)
+	c.bound.cancel(&boundError{what: "the wait for a connection", bound: t.waitBound})
 }
 
 // responded clears the unsettled mark this request set, if a holder has not
@@ -595,8 +705,21 @@ func (c *call) giveBack(expired bool) {
 	<-c.t.token
 }
 
-// getConn is the httptrace GetConn hook.
-func (c *call) getConn(string) { c.seen.Or(callLookedUp) }
+// getConn is the httptrace GetConn hook. Under the wait bound it arms the
+// bound, again for a stock retry that looks for a connection once more.
+func (c *call) getConn(string) {
+	c.seen.Or(callLookedUp)
+	b := c.bound
+	if b == nil {
+		return
+	}
+	b.waiting.Store(true)
+	if tm := b.wait.Load(); tm != nil {
+		tm.Reset(c.t.waitBound)
+		return
+	}
+	b.wait.Store(time.AfterFunc(c.t.waitBound, c.expire))
+}
 
 // gotConn is the httptrace GotConn hook: it counts a new connection, gives
 // the token back at once on an HTTP/1.1 connection, engages FirstHold on a
@@ -613,6 +736,15 @@ func (c *call) getConn(string) { c.seen.Or(callLookedUp) }
 // under the same bound (R69).
 func (c *call) gotConn(info httptrace.GotConnInfo) {
 	t := c.t
+	if b := c.bound; b != nil && b.waiting.CompareAndSwap(true, false) {
+		if tm := b.wait.Load(); tm != nil {
+			tm.Stop()
+		}
+	}
+	if t.stalled.Load() {
+		// A connection was handed over: no dial holds the permit now.
+		t.stalled.Store(false)
+	}
 	h2 := t.isH2(info.Conn)
 	if !info.Reused {
 		t.dials.Add(1)
@@ -630,16 +762,16 @@ func (c *call) gotConn(info httptrace.GotConnInfo) {
 	case !info.Reused:
 		// A request that still holds the token and is replayed onto a
 		// second new connection holds on, but counts once.
-		if c.first.CompareAndSwap(false, true) {
+		if c.seen.Or(callFirst)&callFirst == 0 {
 			t.firstHolds.Add(1)
 		}
 	case t.takeUnsettled(info.Conn):
-		if c.first.CompareAndSwap(false, true) {
+		if c.seen.Or(callFirst)&callFirst == 0 {
 			t.firstHolds.Add(1)
 		}
 		t.settleHolds.Add(1)
 	}
-	c.connected.Store(true)
+	c.seen.Or(callConnected)
 	if c.gen != nil {
 		t.release(c, c.gen)
 	}
@@ -648,7 +780,7 @@ func (c *call) gotConn(info httptrace.GotConnInfo) {
 // wroteHeaders is the httptrace WroteHeaders hook: it gives the token back,
 // or, under FirstHold, arms the hold bound.
 func (c *call) wroteHeaders() {
-	if !c.first.Load() {
+	if c.seen.Load()&callFirst == 0 {
 		c.giveBack(false)
 		return
 	}

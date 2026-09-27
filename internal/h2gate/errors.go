@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // ErrNotNegotiated reports that the API hop did not speak HTTP/2 under
@@ -96,6 +97,35 @@ func (e *DialError) Unwrap() []error {
 func (e *DialError) clone() *DialError {
 	c := *e
 	return &c
+}
+
+// boundError is the cause of a dial, or of a request's wait for a
+// connection, that one of the transport's bounds ended (risk K28d): a
+// caller's trace hook that blocks a new connection's DNS, connect or TLS
+// phase keeps either from ending on its own. It is a net.Error whose
+// Timeout is true, so classify reports a timeout, and errors.Is matches it
+// to context.DeadlineExceeded, as it matches a dial's own timeout.
+type boundError struct {
+	// what names what did not end: "dial tcp example.com:443" or "the wait
+	// for a connection".
+	what  string
+	bound time.Duration
+}
+
+// Error implements error.
+func (e *boundError) Error() string {
+	return "h2gate: " + e.what + " did not end within its bound (" + e.bound.String() + ")"
+}
+
+// Timeout implements net.Error: the bound is a timeout.
+func (*boundError) Timeout() bool { return true }
+
+// Temporary implements net.Error.
+func (*boundError) Temporary() bool { return true }
+
+// Is reports whether target is context.DeadlineExceeded.
+func (*boundError) Is(target error) bool {
+	return target == context.DeadlineExceeded
 }
 
 // refusedConnect is the OnProxyConnectResponse of a transport NewTransport

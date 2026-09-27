@@ -86,8 +86,10 @@ const (
 )
 
 // Logger receives the transport's events: DEBUG "h2: dial", "h2: gate
-// release", "h2: gate error" (with a reason), "h2: redial error", and WARN
-// "h2: response not HTTP/2". A *log/slog.Logger satisfies it.
+// release", "h2: gate error" (with a reason), "h2: redial error", "h2:
+// token wait expired", "h2: dial bound expired" and "h2: connection wait
+// expired" (each with its bound), and WARN "h2: response not HTTP/2". A
+// *log/slog.Logger satisfies it.
 //
 // A Logger that also has the method Enabled(context.Context, slog.Level)
 // bool, as a *slog.Logger has, is asked before an event that prints an
@@ -380,12 +382,50 @@ func waitBound(connect, handshake time.Duration, mayProxy bool) time.Duration {
 	return d
 }
 
-// boundedDial bounds dial by timeout, as net.Dialer.Timeout does.
-func boundedDial(dial func(context.Context, string, string) (net.Conn, error), timeout time.Duration) func(context.Context, string, string) (net.Conn, error) {
+// boundedDial bounds dial by timeout, as net.Dialer.Timeout does, and runs
+// it in its own goroutine, so that a dial that has not returned when the
+// bound ends still ends for the transport: a caller's DNS or connect trace
+// hook runs inside dial and can block it past its context (risk K28d). The
+// transport then fails the dial at once with a timeout, which frees the
+// connection permit (MaxConnsPerHost 1) for the next dial, and abandons the
+// goroutine rather than stopping it: dial's context has ended with the
+// bound, so the dialer returns as soon as the hook does, and the goroutine
+// closes a connection the dialer returns after it was abandoned. A dial
+// that net/http cancels ends the same way, with the context's error.
+func (t *Transport) boundedDial(dial func(context.Context, string, string) (net.Conn, error), timeout time.Duration) func(context.Context, string, string) (net.Conn, error) {
+	type dialed struct {
+		conn net.Conn
+		err  error
+	}
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
 		ctx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
-		return dial(ctx, network, addr)
+		// got is unbuffered: the goroutine hands a connection over only while
+		// the transport still waits for it, and closes it otherwise.
+		got := make(chan dialed)
+		abandoned := make(chan struct{})
+		go func() {
+			conn, err := dial(ctx, network, addr)
+			select {
+			case got <- dialed{conn, err}:
+			case <-abandoned:
+				if conn != nil {
+					_ = conn.Close()
+				}
+			}
+		}()
+		select {
+		case d := <-got:
+			return d.conn, d.err
+		case <-ctx.Done():
+			close(abandoned)
+			if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return nil, ctx.Err()
+			}
+			t.dialExpiries.Add(1)
+			t.log.DebugContext(ctx, "h2: dial bound expired", "bound", timeout)
+			return nil, &boundError{what: "dial " + network + " " + addr, bound: timeout}
+		}
 	}
 }
 
@@ -427,7 +467,6 @@ func NewTransport(cfg Config) (*Transport, error) {
 		TLSHandshakeTimeout: connect,
 		Proxy:               observeProxy(cfg.Proxy, cfg.OnProxy),
 		TLSClientConfig:     tlsConfig,
-		DialContext:         boundedDial(dial, connect),
 		// A proxy's refusal of the CONNECT is a proxy failure (K16).
 		OnProxyConnectResponse: refusedConnect,
 	}
@@ -436,14 +475,18 @@ func NewTransport(cfg Config) (*Transport, error) {
 	}
 	scope := scopeFor(cfg.Mode, tg, mayProxy, tlsConfig.ServerName)
 	installALPNCheck(tr, scope, tg)
-	return newTransport(tr, settings{
+	t := newTransport(tr, settings{
 		mode:      cfg.Mode,
 		scope:     scope,
 		waitBound: waitBound(connect, connect, mayProxy),
 		holdBound: connect + connect,
 		log:       cfg.Logger,
 		errorText: cfg.ErrorText,
-	}), nil
+	})
+	// Set once t exists, which counts and logs the dials the bound ends;
+	// the stock transport reads it only when it first dials.
+	tr.DialContext = t.boundedDial(dial, connect)
+	return t, nil
 }
 
 // observeProxy returns proxy wrapped so that onProxy, when set, sees every

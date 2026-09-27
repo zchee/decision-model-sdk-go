@@ -122,27 +122,54 @@
 //   - In GetConn on a warm transport: net/http's connection pool mutex,
 //     which it holds while it calls GetConn on a warm HTTP/2 connection
 //     (K28, above). A request that leaves send at the hold bound then blocks
-//     on that mutex, which neither the bound nor its own context can end, so
-//     the others wait until the hook returns, past their deadlines.
-//   - In a new connection's DNS, connect or TLS hooks (DNSStart,
-//     ConnectStart, TLSHandshakeStart): that connection, the only one
-//     MaxConnsPerHost 1 allows, for which net/http's per-host wait is
-//     bounded by the request's own context alone (net/http calls
-//     TLSHandshakeStart before it arms TLSHandshakeTimeout). The others
-//     wait until the hook returns or their own deadline, without a bound
-//     under WithNoTimeout: the K28d residual.
+//     on that mutex, which neither a bound nor its own context can end, so
+//     the others wait until the hook returns, past their deadlines. Only
+//     calling the hook where net/http does not call it could bound this: on
+//     a goroutine of its own for every call that has the hook, running on
+//     past the bound beside the request's later hooks. The transport does
+//     neither; the case is the one hooks must avoid.
+//   - In a new connection's DNS, connect or TLS hooks (DNSStart, DNSDone,
+//     ConnectStart, ConnectDone, TLSHandshakeStart, TLSHandshakeDone): the
+//     connection permit, the only one MaxConnsPerHost 1 allows, which the
+//     dial holds while the hook runs, and net/http's per-host wait for it,
+//     which only a request's own context ends. net/http's TLS handshake
+//     timeout closes the connection but then waits for the hook.
 //
-// The bound is the longest a FirstHold keeps the token, and it fires only
-// after a stall, so the measured AC-P4 clauses do not move. A free token is
-// taken in send at once, without a timer; only a request that finds it
-// held enters waitToken, which arms the timer and counts the entry in
-// tokenWaits, a diagnostic counter of the Transport (an atomic touched on
-// that slow path only, read by the fast-path test and never by send;
-// ruling D-W6.1-minor2). Requests that
-// go out without the token may exceed a server's stream limit, and the
-// stock transport retries a stream the server refuses. Hooks must return
-// promptly: the shield above covers panics and ordering, and the bound a
-// hook that blocks once its request has a connection.
+// Two bounds end the waits of the last case, the root package's
+// WithNoTimeout included (K28d, owner decision G11 (5)):
+//
+//   - The dial bound: NewTransport's dialer, inside which the DNS and
+//     connect hooks run, runs in a goroutine of its own, and the transport
+//     waits for it at most ConnectTimeout. A dial that has not returned by
+//     then fails with a timeout, counted in Stats.DialExpiries, which frees
+//     the permit for the next dial. The goroutine is abandoned, not
+//     stopped: the dial's context ended with the bound, so the dialer
+//     returns as soon as the hook does, and a connection it returns then is
+//     closed. Wrap keeps a caller's dialer as it is.
+//   - The wait bound: a request whose trace has one of these hooks, one that
+//     goes out without the token, and every request while the transport is
+//     stalled waits for its connection, from GetConn to GotConn, at most
+//     waitBound. send gives it a context that the bound ends with a
+//     timeout, counted in Stats.WaitExpiries; the expiry marks the
+//     transport stalled until the next GotConn, since a dial may still hold
+//     the permit, and the response's body ends the context when it is
+//     closed. A hook that blocks a TLS handshake, or a dial that Wrap
+//     keeps, holds the permit until it returns: until then no connection is
+//     made, and every request fails at its own wait bound.
+//
+// The bounds fire only after a stall, the hold bound once a FirstHold has
+// kept the token its longest and the dial and wait bounds once a dial has
+// run past what a healthy one takes, so the measured AC-P4 clauses do not
+// move; a request with neither a dial-phase hook nor a stall to wait
+// behind pays for neither. A free token is taken in send at once, without
+// a timer; only a request that finds it held enters waitToken, which arms
+// the timer and counts the entry in tokenWaits, a diagnostic counter of the
+// Transport (an atomic touched on that slow path only, read by the
+// fast-path test and never by send; ruling D-W6.1-minor2). Requests that go
+// out without the token may exceed a server's stream limit, and the stock
+// transport retries a stream the server refuses. Hooks must return
+// promptly: the shield above covers panics and ordering, and the bounds a
+// hook that blocks, except GetConn on a warm transport.
 //
 // # Logging
 //
@@ -156,9 +183,12 @@
 //
 // # Goroutines
 //
-// The package starts none of its own. Its hooks run on the transport's
-// goroutines, and a FirstHold bound that expires runs one time.AfterFunc
-// callback, which gives the token back.
+// The package starts one goroutine for each dial of NewTransport's dialer,
+// which ends when the dial returns; one the dial bound abandoned ends when
+// the caller's hook returns. Its hooks run on the transport's goroutines. A
+// FirstHold bound that expires runs one time.AfterFunc callback, which gives
+// the token back, and a wait bound that expires runs one, which ends its
+// request's context.
 //
 // # Errors
 //

@@ -212,15 +212,19 @@ func WithRoundTripper(rt http.RoundTripper) ClientOption {
 //     with its connection pool's lock held (risk K28), so a call that has
 //     waited out the bound above then waits for that lock, which its
 //     context cannot interrupt.
-//   - In the DNS, connect or TLS handshake hooks of its request's new
-//     connection: until the hook returns. The transport keeps one
-//     connection per host, so the other calls wait for that one until their
-//     own deadlines, without a bound under [WithNoTimeout]; net/http arms
-//     the TLS handshake timeout only after TLSHandshakeStart.
+//   - In the DNS, connect or TLS handshake hooks of a new connection
+//     (DNSStart, DNSDone, ConnectStart, ConnectDone, TLSHandshakeStart,
+//     TLSHandshakeDone): for up to the wait for a connection above, under
+//     [WithNoTimeout] too. The call that dials, and every call that waits
+//     for a connection meanwhile, then fails with a [*TimeoutError] while
+//     the hook runs on. The default transport's dial, which runs the DNS
+//     and connect hooks, ends at the connect timeout, so the next call can
+//     dial again; a TLS handshake hook, or a hook that blocks the dialer of
+//     [WithHTTPTransport]'s transport, keeps the client's one connection to
+//     the host from being made until it returns.
 //
-// The shield above covers a panic; the bound covers a hook that blocks once
-// its request has a connection, except GetConn on a client that has one,
-// and not one that blocks the dial.
+// The shield above covers a panic, and the bounds a hook that blocks,
+// except GetConn on a client that has a connection.
 func WithClientTrace(trace *httptrace.ClientTrace) ClientOption {
 	return func(o *options) {
 		if trace == nil {
