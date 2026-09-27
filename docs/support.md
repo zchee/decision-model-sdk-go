@@ -204,7 +204,7 @@ Performance numbers are comparable only when every host builds with the Go
 
 ## Fuzzing
 
-Seven targets run in CI's `fuzz` job for 60 seconds each on `ubuntu-26.04`
+Eight targets run in CI's `fuzz` job for 60 seconds each on `ubuntu-26.04`
 (`.github/workflows/ci.yaml`, whose `fuzzed` list names them); their seed
 corpora also run as ordinary tests in every `go test` run.
 
@@ -217,6 +217,7 @@ corpora also run as ordinary tests in every `go test` run.
 | `FuzzTagGrammar` | `.` | a `typesafe` struct tag |
 | `FuzzFalsyJSON` | `./internal/engine` | a JSON value a question holds (`RawJSON`, JSON `Content`); `FalsyJSON`, which reads its first bytes first, must give the whole-value check's verdict (W5.3; in `internal/engine` since W6.5) |
 | `FuzzIsSecretHeader` | `./internal/engine` | a header name; `IsSecretHeader`, which folds an ASCII name in place, must give the verdict of the name lower-cased (W5.3; in `internal/engine` since W6.5) |
+| `FuzzValidUTF8` | `./internal/codec` | any byte string; `validUTF8` must give `utf8.Valid`'s verdict, which on amd64 holds sonic's SIMD validator to Go's (W6-fixes, owner ruling G8-b; `TestValidUTF8Parity` covers the short inputs exhaustively) |
 
 `FuzzAppendJSON` (`./internal/codec`, `./internal/wire`) and `FuzzValidString`
 (`./internal/codec`) run only their seed corpora; the job's `seeded` list
