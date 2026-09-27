@@ -58,7 +58,7 @@ func TestProxyModes(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			srv := NewLoopbackServer(t, ServerConfig{Handler: http.HandlerFunc(answerH2ExampleCom)})
+			srv := NewLoopbackServer(t, ServerConfig{Handler: http.HandlerFunc(AnswerH2ExampleCom)})
 			proxy := NewProxy(t, tt.mode, Routes{"example.com:443": srv.Addr()})
 			tr := newTransport(t, tt.h1, tt.h2)
 			tr.Proxy = http.ProxyURL(proxy.URL())
@@ -71,7 +71,7 @@ func TestProxyModes(t *testing.T) {
 				// Handshake returns, which can be after the client read the
 				// alert and returned (as in TestLoopbackALPNModes): wait
 				// for the record instead of reading it at once.
-				waitFor(t, "the proxy's record of the refused handshake", func() bool {
+				WaitUntil(t, "the proxy's record of the refused handshake", func() bool {
 					conns := proxy.Conns()
 					return len(conns) == 1 && conns[0].HandshakeErr != ""
 				})
@@ -137,7 +137,7 @@ func TestProxyRefusals(t *testing.T) {
 			if got := strings.TrimSpace(line); got != tt.wantStatus {
 				t.Errorf("status line %q, want %q", got, tt.wantStatus)
 			}
-			waitFor(t, "the recorded request", func() bool { return len(proxy.Connects()) == 1 })
+			WaitUntil(t, "the recorded request", func() bool { return len(proxy.Connects()) == 1 })
 			if got := proxy.Connects()[0].Target; got != tt.wantTarget {
 				t.Errorf("target %q, want %q", got, tt.wantTarget)
 			}

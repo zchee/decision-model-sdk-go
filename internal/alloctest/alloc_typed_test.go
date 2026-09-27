@@ -76,21 +76,19 @@ func TestAllocTypedDecode(t *testing.T) {
 			t.Fatalf("%s: %v", label, err)
 		}
 	}
-	none := func() struct{} { return struct{}{} }
-
 	answersDecode := testsupport.MeasureMin(t, "Answers() decode", func() *wire.SystemOneResult { return new(wire.SystemOneResult) }, func(res *wire.SystemOneResult) {
 		_, err = codec.DecodeSystemOne(body, wireOf(qs), cfgOf(c).Model, res)
 	})
 	check("Answers() decode")
-	typedDecode := testsupport.MeasureMin(t, "DecodeAs[reviewAnswers]", none, func(struct{}) {
+	typedDecode := testsupport.MeasureMin(t, "DecodeAs[reviewAnswers]", noInput, func(struct{}) {
 		sinkReview, err = typesafe.DecodeAs[reviewAnswers](resp)
 	})
 	check("DecodeAs")
-	call := testsupport.MeasureMin(t, "SystemOne", none, func(struct{}) {
+	call := testsupport.MeasureMin(t, "SystemOne", noInput, func(struct{}) {
 		sinkResponse, err = c.SystemOne(ctx, "x", qs)
 	})
 	check("SystemOne")
-	ask := testsupport.MeasureMin(t, "Ask[reviewAnswers]", none, func(struct{}) {
+	ask := testsupport.MeasureMin(t, "Ask[reviewAnswers]", noInput, func(struct{}) {
 		sinkReview, err = typesafe.Ask[reviewAnswers](ctx, c, "x")
 	})
 	check("Ask")

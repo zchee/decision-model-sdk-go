@@ -48,7 +48,6 @@ package benchmark
 
 import (
 	"bytes"
-	"io"
 	"net/http"
 	"net/url"
 	"slices"
@@ -223,11 +222,7 @@ func BenchmarkCall(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			rd := bytes.NewReader(sent.Body)
-			req := &http.Request{
-				Method: http.MethodPost, URL: u, Proto: "HTTP/1.1", ProtoMajor: 1, ProtoMinor: 1,
-				Header: sent.Header, Body: io.NopCloser(rd), ContentLength: int64(len(sent.Body)), Host: sent.Host,
-			}
+			req, rd := testsupport.FloorRequest(u, sent.Header, sent.Body)
 			buf := make([]byte, 0, 4<<10)
 			b.ReportAllocs()
 			for b.Loop() {
@@ -280,7 +275,7 @@ func TestNaiveRequestMatchesSDK(t *testing.T) {
 			t.Run("success: "+nc.name+" "+sc.name, func(t *testing.T) {
 				rec := &testsupport.Recorder{Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, testsupport.Fixture(t, sc.fixture))}}
 				var remaining []time.Duration // each request's time left before its deadline; -1 for none
-				rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				rt := testsupport.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
 					if dl, ok := req.Context().Deadline(); ok {
 						remaining = append(remaining, time.Until(dl))
 					} else {

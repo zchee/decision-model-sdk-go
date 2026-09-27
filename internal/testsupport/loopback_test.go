@@ -31,7 +31,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"testing"
 	"time"
 
@@ -148,18 +147,6 @@ func (l *connLog) String() string {
 	return strings.Join(l.lines, "\n")
 }
 
-// waitFor polls cond for up to 5 s.
-func waitFor(t *testing.T, what string, cond func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for !cond() {
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for %s", what)
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-}
-
 // actions returns the recorded actions of a server's requests.
 func actions(s *LoopbackServer) []Action {
 	var out []Action
@@ -190,11 +177,37 @@ func recv[T any](t *testing.T, ch <-chan T, what string) T {
 	}
 }
 
-// isConnReset reports whether err is a TCP reset from the peer: ECONNRESET,
-// or WSAECONNRESET (10054), the code Windows reports for it. The message
-// differs by system, so the check compares codes, not text.
-func isConnReset(err error) bool {
-	return errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.Errno(10054))
+// checkDrained waits until the server has closed its first connection's
+// socket, then checks the frames it drained, that the close records are in
+// order (0 < CloseWriteSeq < PeerClosedSeq < ClosedSeq), and whether a
+// GOAWAY left before close_notify.
+func checkDrained(t *testing.T, srv *LoopbackServer, wantDrained []string, wantGoAway bool) {
+	t.Helper()
+	var ci ConnInfo
+	WaitUntil(t, "the server to close the socket", func() bool {
+		ci = srv.Conns()[0]
+		return ci.ClosedSeq != 0
+	})
+	if diff := gocmp.Diff(wantDrained, ci.Drained); diff != "" {
+		t.Errorf("drained frames (-want +got):\n%s", diff)
+	}
+	if ordered := 0 < ci.CloseWriteSeq && ci.CloseWriteSeq < ci.PeerClosedSeq && ci.PeerClosedSeq < ci.ClosedSeq; !ordered {
+		t.Errorf("close records %+v, want 0 < CloseWriteSeq < PeerClosedSeq < ClosedSeq", ci)
+	}
+	if goAway := 0 < ci.GoAwaySeq && ci.GoAwaySeq < ci.CloseWriteSeq; goAway != wantGoAway {
+		t.Errorf("close records %+v: GOAWAY before close_notify = %t, want %t", ci, goAway, wantGoAway)
+	}
+}
+
+// heldStreams waits until the server's one live connection has n active
+// streams and returns that connection; what names the wait in a failure.
+func heldStreams(t *testing.T, srv *LoopbackServer, n int, what string) *H2Conn {
+	t.Helper()
+	WaitUntil(t, what, func() bool {
+		cs := srv.LiveH2Conns()
+		return len(cs) == 1 && len(cs[0].ActiveStreams()) == n
+	})
+	return srv.LiveH2Conns()[0]
 }
 
 // rawClient speaks HTTP/2 frame by frame, so a test can see exactly what
@@ -487,7 +500,7 @@ func TestLoopbackStreamLimit(t *testing.T) {
 			c.request(id, "/", true)
 		}
 		c.expect(frame{Type: "RST_STREAM", StreamID: 5, Code: CodeRefusedStream})
-		waitFor(t, "three recorded requests", func() bool { return len(srv.Requests()) == 3 })
+		WaitUntil(t, "three recorded requests", func() bool { return len(srv.Requests()) == 3 })
 		if diff := gocmp.Diff([]Action{ActionHold, ActionHold, ActionRefuse}, actions(srv)); diff != "" {
 			t.Errorf("actions (-want +got):\n%s", diff)
 		}
@@ -550,11 +563,7 @@ func TestLoopbackStreamLimit(t *testing.T) {
 		}
 		c.request(1, "/a", true)
 		c.request(3, "/b", true)
-		waitFor(t, "two held streams", func() bool {
-			cs := srv.LiveH2Conns()
-			return len(cs) == 1 && len(cs[0].ActiveStreams()) == 2
-		})
-		conn := srv.LiveH2Conns()[0]
+		conn := heldStreams(t, srv, 2, "two held streams")
 		if err := conn.SetMaxConcurrentStreams(0); err == nil {
 			t.Error("SetMaxConcurrentStreams(0) = nil, want an error")
 		}
@@ -569,7 +578,7 @@ func TestLoopbackStreamLimit(t *testing.T) {
 		}
 		c.expect(frame{Type: "SETTINGS", MaxStreams: 3})
 		c.request(7, "/d", true) // raised again: the third stream is held
-		waitFor(t, "three held streams", func() bool { return len(conn.ActiveStreams()) == 3 })
+		WaitUntil(t, "three held streams", func() bool { return len(conn.ActiveStreams()) == 3 })
 		if diff := gocmp.Diff([]Action{ActionHold, ActionHold, ActionRefuse, ActionHold}, actions(srv)); diff != "" {
 			t.Errorf("actions (-want +got):\n%s", diff)
 		}
@@ -615,7 +624,7 @@ func TestLoopbackLimitOnClosingConn(t *testing.T) {
 				_ = c.conn.Close()
 				// The reader closes its side once it reads the end, and the
 				// server forgets the connection after that.
-				waitFor(t, "the server to drop the connection", func() bool { return len(srv.LiveH2Conns()) == 0 })
+				WaitUntil(t, "the server to drop the connection", func() bool { return len(srv.LiveH2Conns()) == 0 })
 			},
 			want: ErrConnClosing,
 		},
@@ -667,11 +676,7 @@ func TestLoopbackGoAway(t *testing.T) {
 		for _, id := range []uint32{1, 3, 5} {
 			c.request(id, "/", true)
 		}
-		waitFor(t, "three open streams", func() bool {
-			conns := srv.LiveH2Conns()
-			return len(conns) == 1 && len(conns[0].ActiveStreams()) == 3
-		})
-		conn := srv.LiveH2Conns()[0]
+		conn := heldStreams(t, srv, 3, "three open streams")
 		if err := conn.GoAway(1, CodeNoError); err != nil {
 			t.Fatal(err)
 		}
@@ -908,14 +913,11 @@ func TestLoopbackRefuseCloseHold(t *testing.T) {
 		srv := NewLoopbackServer(t, ServerConfig{OnStream: func(*Stream) Action { return ActionHold }})
 		c := dialRaw(t, srv.Addr())
 		c.request(1, "/", true)
-		waitFor(t, "a held stream", func() bool {
-			conns := srv.LiveH2Conns()
-			return len(conns) == 1 && len(conns[0].ActiveStreams()) == 1
-		})
+		heldStreams(t, srv, 1, "a held stream")
 		if err := c.fr.WriteRSTStream(1, http2.ErrCodeCancel); err != nil {
 			t.Fatal(err)
 		}
-		waitFor(t, "the reset stream to close", func() bool { return len(srv.LiveH2Conns()[0].ActiveStreams()) == 0 })
+		WaitUntil(t, "the reset stream to close", func() bool { return len(srv.LiveH2Conns()[0].ActiveStreams()) == 0 })
 		if reqs := srv.Requests(); reqs[0].Action != ActionHold || !reqs[0].Dropped {
 			t.Errorf("request %+v, want ActionHold and Dropped", reqs[0])
 		}
@@ -964,12 +966,12 @@ func TestLoopbackConnEnd(t *testing.T) {
 			}
 			_, err := c.next()
 			if tt.wantReset {
-				if !isConnReset(err) {
+				if !IsConnReset(err) {
 					t.Fatalf("read after the end: %v, want a connection reset", err)
 				}
 				return
 			}
-			if !errors.Is(err, io.EOF) || isConnReset(err) {
+			if !errors.Is(err, io.EOF) || IsConnReset(err) {
 				t.Fatalf("read after the end: %v, want io.EOF", err)
 			}
 		})
@@ -1022,24 +1024,11 @@ func TestLoopbackCloseConnsDrains(t *testing.T) {
 				t.Fatalf("PING after CloseConns: %v", err)
 			}
 			c.expect(tt.want...)
-			if _, err := c.next(); !errors.Is(err, io.EOF) || isConnReset(err) {
+			if _, err := c.next(); !errors.Is(err, io.EOF) || IsConnReset(err) {
 				t.Fatalf("read after the frames: %v, want io.EOF", err)
 			}
 			_ = c.conn.Close()
-			var ci ConnInfo
-			waitFor(t, "the server to close the socket", func() bool {
-				ci = srv.Conns()[0]
-				return ci.ClosedSeq != 0
-			})
-			if diff := gocmp.Diff([]string{"PING"}, ci.Drained); diff != "" {
-				t.Errorf("drained frames (-want +got):\n%s", diff)
-			}
-			if ordered := 0 < ci.CloseWriteSeq && ci.CloseWriteSeq < ci.PeerClosedSeq && ci.PeerClosedSeq < ci.ClosedSeq; !ordered {
-				t.Errorf("close records %+v, want 0 < CloseWriteSeq < PeerClosedSeq < ClosedSeq", ci)
-			}
-			if goAway := 0 < ci.GoAwaySeq && ci.GoAwaySeq < ci.CloseWriteSeq; goAway != tt.goAway {
-				t.Errorf("close records %+v: GOAWAY before close_notify = %t, want %t", ci, goAway, tt.goAway)
-			}
+			checkDrained(t, srv, []string{"PING"}, tt.goAway)
 		})
 	}
 }
@@ -1074,7 +1063,7 @@ func TestLoopbackActionsDrain(t *testing.T) {
 			c.serverSettings() // acknowledged before the request: the body and the PING are the only late frames
 			c.request(1, "/upload", false)
 			c.expect(tt.want...)
-			if _, err := c.next(); !errors.Is(err, io.EOF) || isConnReset(err) {
+			if _, err := c.next(); !errors.Is(err, io.EOF) || IsConnReset(err) {
 				t.Fatalf("read after the frames: %v, want io.EOF", err)
 			}
 			if err := c.fr.WriteData(1, true, []byte(`{"state":"s"}`)); err != nil {
@@ -1084,21 +1073,7 @@ func TestLoopbackActionsDrain(t *testing.T) {
 				t.Fatalf("PING after close_notify: %v", err)
 			}
 			_ = c.conn.Close()
-			var ci ConnInfo
-			waitFor(t, "the server to close the socket", func() bool {
-				ci = srv.Conns()[0]
-				return ci.ClosedSeq != 0
-			})
-			if diff := gocmp.Diff([]string{"DATA", "PING"}, ci.Drained); diff != "" {
-				t.Errorf("drained frames (-want +got):\n%s", diff)
-			}
-			if ordered := 0 < ci.CloseWriteSeq && ci.CloseWriteSeq < ci.PeerClosedSeq && ci.PeerClosedSeq < ci.ClosedSeq; !ordered {
-				t.Errorf("close records %+v, want 0 < CloseWriteSeq < PeerClosedSeq < ClosedSeq", ci)
-			}
-			wantGoAway := tt.action == ActionGoAway
-			if goAway := 0 < ci.GoAwaySeq && ci.GoAwaySeq < ci.CloseWriteSeq; goAway != wantGoAway {
-				t.Errorf("close records %+v: GOAWAY before close_notify = %t, want %t", ci, goAway, wantGoAway)
-			}
+			checkDrained(t, srv, []string{"DATA", "PING"}, tt.action == ActionGoAway)
 			if diff := gocmp.Diff([]Action{tt.action}, actions(srv)); diff != "" {
 				t.Errorf("actions (-want +got):\n%s", diff)
 			}
@@ -1278,7 +1253,7 @@ func TestLoopbackALPNModes(t *testing.T) {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("handshake error = %v, want %q", err, tt.wantErr)
 				}
-				waitFor(t, "the server-side handshake error", func() bool {
+				WaitUntil(t, "the server-side handshake error", func() bool {
 					conns := srv.Conns()
 					return len(conns) == 1 && conns[0].HandshakeErr != ""
 				})

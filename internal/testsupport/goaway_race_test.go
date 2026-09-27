@@ -34,7 +34,7 @@ func TestGoAwayRaceWithFinish(t *testing.T) {
 	srv := NewLoopbackServer(t, ServerConfig{Handler: http.NotFoundHandler()})
 	c := dialRaw(t, srv.Addr())
 	c.serverSettings()
-	waitFor(t, "the live connection", func() bool { return len(srv.LiveH2Conns()) == 1 })
+	WaitUntil(t, "the live connection", func() bool { return len(srv.LiveH2Conns()) == 1 })
 	conn := srv.LiveH2Conns()[0]
 
 	entered := make(chan struct{})  // the finisher is about to take the write lock

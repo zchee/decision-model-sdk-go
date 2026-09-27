@@ -33,12 +33,12 @@ const boundChildEnv = "TYPESAFE_TESTSUPPORT_BOUND_CHILD"
 // panic naming the input and the bound, and a bound disarmed before it
 // fires never fires. The hanging input runs in a child process, since the
 // panic ends the process it fires in; the disarm is checked through
-// boundFuzzInput, the wrapper every target calls, with boundFire swapped for
-// a recorder.
+// armBound, which BoundFuzzInput arms, with boundFire swapped for a
+// recorder.
 func TestBoundFuzzInput(t *testing.T) {
 	const bound = 50 * time.Millisecond
 	if os.Getenv(boundChildEnv) == "1" {
-		defer boundFuzzInput(t, bound)()
+		defer armBound(t.Name(), bound, boundFire)()
 		<-t.Context().Done() // an input that never returns: the test never ends on its own
 		return
 	}
@@ -82,7 +82,7 @@ func TestBoundFuzzInput(t *testing.T) {
 			ch := make(chan string, 1)
 			fired, boundFire = ch, func(msg string) { ch <- msg }
 			start := time.Now()
-			boundFuzzInput(t, arm)()
+			armBound(t.Name(), arm, boundFire)()
 			if time.Since(start) < arm {
 				break
 			}

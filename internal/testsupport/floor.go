@@ -15,8 +15,10 @@
 package testsupport
 
 import (
+	"bytes"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -38,6 +40,17 @@ func FloorCall(rt http.RoundTripper, req *http.Request) error {
 		err = cerr
 	}
 	return err
+}
+
+// FloorRequest returns the request [FloorCall] sends for a call to u with
+// header h and body: a POST built beforehand over a rewindable reader of
+// body, and that reader, which the caller rewinds before each round trip.
+func FloorRequest(u *url.URL, h http.Header, body []byte) (*http.Request, *bytes.Reader) {
+	rd := bytes.NewReader(body)
+	return &http.Request{
+		Method: http.MethodPost, URL: u, Proto: "HTTP/1.1", ProtoMajor: 1, ProtoMinor: 1,
+		Header: h, Body: io.NopCloser(rd), ContentLength: int64(len(body)), Host: u.Host,
+	}, rd
 }
 
 // NewFixtureServer starts a [LoopbackServer] that answers the way the

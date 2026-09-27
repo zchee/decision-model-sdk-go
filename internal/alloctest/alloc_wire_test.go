@@ -58,6 +58,38 @@ func (b *countingBody) Read(p []byte) (int, error) {
 	return n, err
 }
 
+// loopbackClient starts a loopback server and a client of it: the server
+// answers a GET of the models path with models.json and any other request
+// with the bytes body returns, in 64 KiB writes, so that a handler ends at
+// the first write the client's reset of the stream fails, and without a
+// Content-Length unless body sets one: the undeclared path, which every
+// live 2xx takes (gzip).
+func loopbackClient(t *testing.T, body func(w http.ResponseWriter) []byte) *typesafe.Client {
+	t.Helper()
+	models := testsupport.Fixture(t, "models.json")
+	srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, engine.ModelsPath) {
+			_, _ = w.Write(models)
+			return
+		}
+		for rest := body(w); len(rest) > 0; {
+			n := min(len(rest), 64<<10)
+			if _, err := w.Write(rest[:n]); err != nil {
+				return
+			}
+			rest = rest[n:]
+		}
+	})})
+	clearEnv(t)
+	c, err := typesafe.NewClient(typesafe.WithAPIKey(testKey), typesafe.WithBaseURL(srv.URL()), typesafe.WithRootCAs(testsupport.RootCAs(t)))
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	return c
+}
+
 // TestResponseCapOverTheWire checks the response size cap over a real
 // connection: the SDK's own transport, over TLS and HTTP/2 to the
 // in-process loopback server, answered with a 200 whose body is the default
@@ -80,7 +112,6 @@ func (b *countingBody) Read(p []byte) (int, error) {
 func TestResponseCapOverTheWire(t *testing.T) {
 	const limit = typesafe.DefaultMaxResponseBytes
 	over := bytes.Repeat([]byte{' '}, limit+1)
-	models := testsupport.Fixture(t, "models.json")
 	tests := map[string]struct {
 		declared bool
 		wantRead int64
@@ -91,32 +122,13 @@ func TestResponseCapOverTheWire(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			var posts atomic.Int32
-			srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
-				if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, engine.ModelsPath) {
-					_, _ = w.Write(models)
-					return
-				}
+			c := loopbackClient(t, func(w http.ResponseWriter) []byte {
 				posts.Add(1)
 				if tt.declared {
 					w.Header().Set("Content-Length", strconv.Itoa(len(over)))
 				}
-				// In 64 KiB writes, so that the handler ends at the first
-				// write the client's reset of the stream fails.
-				for rest := over; len(rest) > 0; {
-					n := min(len(rest), 64<<10)
-					if _, err := w.Write(rest[:n]); err != nil {
-						return
-					}
-					rest = rest[n:]
-				}
-			})})
-			clearEnv(t)
-			c, err := typesafe.NewClient(typesafe.WithAPIKey(testKey), typesafe.WithBaseURL(srv.URL()), typesafe.WithRootCAs(testsupport.RootCAs(t)))
-			if err != nil {
-				t.Fatalf("NewClient: %v", err)
-			}
-			t.Cleanup(func() { _ = c.Close() })
+				return over
+			})
 			counter := &countingRT{rt: cfgOf(c).Transport.RT}
 			cfgOf(c).Transport.RT = counter
 			if err := c.WarmUp(t.Context()); err != nil { // the connection, so the call's deltas are the call's
@@ -126,6 +138,7 @@ func TestResponseCapOverTheWire(t *testing.T) {
 			counter.read.Store(0)
 
 			qs, state := q3Questions(t), newAllocState()
+			var err error
 			runtime.GC()
 			var m0, m1 runtime.MemStats
 			runtime.ReadMemStats(&m0)

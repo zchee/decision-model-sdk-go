@@ -52,11 +52,7 @@ func floorRequest(t *testing.T, c *typesafe.Client, state any, qs *typesafe.Prep
 	}
 	pre := bytes.Clone(enc.Bytes())
 	enc.Release()
-	rd := bytes.NewReader(pre)
-	return &http.Request{
-		Method: http.MethodPost, URL: cfgOf(c).SystemOneURL, Proto: "HTTP/1.1", ProtoMajor: 1, ProtoMinor: 1,
-		Header: cfgOf(c).SystemOneHeader, Body: io.NopCloser(rd), ContentLength: int64(len(pre)), Host: cfgOf(c).SystemOneURL.Host,
-	}, rd
+	return testsupport.FloorRequest(cfgOf(c).SystemOneURL, cfgOf(c).SystemOneHeader, pre)
 }
 
 // memCase is one reply of TestMemStatsCap and the outcome and bound it must

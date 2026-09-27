@@ -28,7 +28,6 @@ import (
 
 	typesafe "github.com/zchee/typesafe-sdk-go"
 	"github.com/zchee/typesafe-sdk-go/internal/codec"
-	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
@@ -89,31 +88,9 @@ func TestMemStatsFlood(t *testing.T) {
 	flood, answers := testsupport.UnknownAnswerFlood(15 << 20)
 	under, _ := testsupport.UnknownAnswerFlood(8000 * 21)
 	small := testsupport.Fixture(t, "result.json")
-	models := testsupport.Fixture(t, "models.json")
 	var reply atomic.Pointer[[]byte]
 	reply.Store(&small)
-	srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, engine.ModelsPath) {
-			_, _ = w.Write(models)
-			return
-		}
-		// In 64 KiB writes and without a Content-Length: the undeclared
-		// path, which every live 2xx takes (gzip).
-		for rest := *reply.Load(); len(rest) > 0; {
-			n := min(len(rest), 64<<10)
-			if _, err := w.Write(rest[:n]); err != nil {
-				return
-			}
-			rest = rest[n:]
-		}
-	})})
-	clearEnv(t)
-	c, err := typesafe.NewClient(typesafe.WithAPIKey(testKey), typesafe.WithBaseURL(srv.URL()), typesafe.WithRootCAs(testsupport.RootCAs(t)))
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
-	}
-	t.Cleanup(func() { _ = c.Close() })
+	c := loopbackClient(t, func(http.ResponseWriter) []byte { return *reply.Load() })
 	ctx := t.Context()
 	if err := c.WarmUp(ctx); err != nil {
 		t.Fatalf("WarmUp: %v", err)
@@ -166,7 +143,7 @@ func TestMemStatsFlood(t *testing.T) {
 		}
 	})
 	start := time.Now()
-	err = call(&flood)
+	err := call(&flood)
 	took := time.Since(start)
 	close(stop)
 	wg.Wait()

@@ -18,7 +18,6 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
-	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -89,7 +88,7 @@ func TestGatedDialer(t *testing.T) {
 			status, _, _, err := get(t, tr, srv.URL())
 			done <- result{status, err}
 		}()
-		waitFor(t, "a dial at the gate", func() bool { return g.Waiting() == 1 })
+		WaitUntil(t, "a dial at the gate", func() bool { return g.Waiting() == 1 })
 		if srv.Accepts() != 0 || g.Dials() != 0 {
 			t.Fatalf("before the gate opened: Accepts %d, Dials %d; want 0, 0", srv.Accepts(), g.Dials())
 		}
@@ -114,7 +113,7 @@ func TestGatedDialer(t *testing.T) {
 			}
 			errc <- err
 		}()
-		waitFor(t, "a dial at the gate", func() bool { return g.Waiting() == 1 })
+		WaitUntil(t, "a dial at the gate", func() bool { return g.Waiting() == 1 })
 		cancel()
 		if err := recv(t, errc, "the dial"); !errors.Is(err, context.Canceled) {
 			t.Fatalf("DialContext error = %v, want context.Canceled", err)
@@ -166,7 +165,7 @@ func TestGatedDialer(t *testing.T) {
 // inside a synctest bubble.
 func TestFakeH2CServer(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		srv := NewFakeH2CServer(t, http.HandlerFunc(answerH2ExampleCom))
+		srv := NewFakeH2CServer(t, http.HandlerFunc(AnswerH2ExampleCom))
 		client := srv.Client()
 		for range 5 {
 			status, proto, body, err := get(t, client.Transport, "http://example.com/")
@@ -191,17 +190,6 @@ func TestFakeH2CServer(t *testing.T) {
 			t.Errorf("an HTTP/1.1 request succeeded against the h2c-only server")
 		}
 	})
-}
-
-// answerH2ExampleCom answers 200 "h2 example.com" to an HTTP/2 request for
-// example.com and 400 to anything else, so a test can check both from the
-// body.
-func answerH2ExampleCom(w http.ResponseWriter, r *http.Request) {
-	if r.ProtoMajor != 2 || r.Host != "example.com" {
-		http.Error(w, "not an HTTP/2 request for example.com", http.StatusBadRequest)
-		return
-	}
-	_, _ = io.WriteString(w, "h2 example.com")
 }
 
 // TestRoutes covers address resolution and the no-network rule.

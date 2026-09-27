@@ -76,14 +76,7 @@ func TestAllocEncodeFunctional(t *testing.T) {
 				if sc.maps > 0 {
 					// encoding/json writes a map's members sorted by key, so
 					// its encoding of the decoded member is canonical.
-					var value any
-					if err := testsupport.StdlibUnmarshal(state, &value); err != nil {
-						t.Fatalf("the state member is not JSON: %v", err)
-					}
-					canonical, err := testsupport.StdlibMarshal(value)
-					if err != nil {
-						t.Fatal(err)
-					}
+					canonical := canonicalJSON(t, "the state member is not JSON", state)
 					if !bytes.Equal(canonical, want) {
 						t.Errorf("the state member (%d B) is not the state's JSON value: sorted, it differs from encoding/json's encoding (%d B) at byte %d", len(state), len(want), firstDiff(canonical, want))
 					}
@@ -296,18 +289,23 @@ func TestMemStatsCapFunctional(t *testing.T) {
 // encoding/json's canonical form (members sorted by key).
 func sameJSON(t *testing.T, a, b []byte) bool {
 	t.Helper()
-	canonical := func(data []byte) []byte {
-		var v any
-		if err := testsupport.StdlibUnmarshal(data, &v); err != nil {
-			t.Fatalf("not JSON: %v", err)
-		}
-		out, err := testsupport.StdlibMarshal(v)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return out
+	return bytes.Equal(canonicalJSON(t, "not JSON", a), canonicalJSON(t, "not JSON", b))
+}
+
+// canonicalJSON returns encoding/json's encoding of the JSON value data
+// holds, its members sorted by key; data that is not JSON fails the test
+// with notJSON and the error.
+func canonicalJSON(t *testing.T, notJSON string, data []byte) []byte {
+	t.Helper()
+	var v any
+	if err := testsupport.StdlibUnmarshal(data, &v); err != nil {
+		t.Fatalf("%s: %v", notJSON, err)
 	}
-	return bytes.Equal(canonical(a), canonical(b))
+	out, err := testsupport.StdlibMarshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
 }
 
 // firstDiff returns the index of the first byte where a and b differ, or

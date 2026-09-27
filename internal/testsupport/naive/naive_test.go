@@ -101,7 +101,7 @@ func TestClientSystemOne(t *testing.T) {
 				rec := &testsupport.Recorder{Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, testsupport.Fixture(t, "result.json"))}}
 				var deadline time.Time
 				var hasDeadline bool
-				rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				rt := testsupport.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
 					deadline, hasDeadline = req.Context().Deadline()
 					return rec.RoundTrip(req)
 				})
@@ -146,12 +146,6 @@ func TestClientSystemOne(t *testing.T) {
 		}
 	}
 }
-
-// roundTripFunc adapts a function to http.RoundTripper.
-type roundTripFunc func(*http.Request) (*http.Response, error)
-
-// RoundTrip implements http.RoundTripper.
-func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
 // TestClientSystemOneErrors checks each failure a naive call reports: a
 // status outside 2xx, a transport error, a body the codec refuses, and a

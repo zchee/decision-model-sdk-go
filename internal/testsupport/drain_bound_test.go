@@ -37,12 +37,12 @@ func TestDrainBoundClosesSilentClient(t *testing.T) {
 	srv.hooks.Store(&h2Hooks{drainBound: bound})
 	c := dialRaw(t, srv.Addr())
 	c.serverSettings()
-	waitFor(t, "the live connection", func() bool { return len(srv.LiveH2Conns()) == 1 })
+	WaitUntil(t, "the live connection", func() bool { return len(srv.LiveH2Conns()) == 1 })
 
 	start := time.Now()
 	srv.CloseConns()
 	c.expectEOF() // close_notify; the client neither writes nor closes from here on
-	waitFor(t, "the server's close of the socket", func() bool { return srv.Conns()[0].ClosedSeq != 0 })
+	WaitUntil(t, "the server's close of the socket", func() bool { return srv.Conns()[0].ClosedSeq != 0 })
 	elapsed := time.Since(start)
 
 	ci := srv.Conns()[0]

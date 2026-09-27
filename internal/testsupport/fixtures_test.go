@@ -55,11 +55,6 @@ type fixtureSpec struct {
 // resultJSON is the upstream RESULT body every trailing-data fixture extends.
 const resultJSON = `{"model":"jev-latest","usage":{"input_tokens":12,"output_tokens":3},"answers":{"spam":{"type":"noul","noul":0.98},"tone":{"type":"choice","choice":"friendly","confidence":0.9,"probabilities":{"friendly":0.9,"hostile":0.1}},"quality":{"type":"score","score":1.7,"confidence":0.8,"legend":{"0":"bad","1":"ok","2":"great"},"probabilities":{"0":0.1,"1":0.1,"2":0.8}}}}`
 
-// duplicatesLastWins is duplicates.json with every repeated member resolved
-// as Python 0.7.1 resolves it: the last one wins at every level, and a
-// repeated object replaces the earlier one whole (usage loses output_tokens).
-const duplicatesLastWins = `{"model":"jev-latest","usage":{"input_tokens":12},"answers":{"tone":{"type":"choice","choice":"friendly","confidence":0.9,"probabilities":{"friendly":0.9,"hostile":0.1}},"spam":{"type":"noul","noul":0.98},"quality":{"type":"score","score":1.7,"confidence":0.8,"legend":{"0":"bad","1":"fine","2":"great"},"probabilities":{"0":0.1,"1":0.1,"2":0.8}},"risk":{"type":"score","score":0,"confidence":1,"legend":{"0":{"summary":"low"}},"probabilities":{"0":1}}}}`
-
 // fixtureManifest lists every file under testdata. testdata/README.md
 // documents the same rows for people.
 var fixtureManifest = map[string]fixtureSpec{
@@ -237,7 +232,7 @@ var fixtureManifest = map[string]fixtureSpec{
 				return fmt.Errorf("%s: %s appears %d times, want once", fault, text, n)
 			}
 		}
-		if err := sameJSON(raw, []byte(duplicatesLastWins)); err != nil {
+		if err := sameJSON(raw, []byte(DuplicatesLastWins)); err != nil {
 			return err
 		}
 		return schemaOK(raw)

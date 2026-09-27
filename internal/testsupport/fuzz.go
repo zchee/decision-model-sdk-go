@@ -39,18 +39,13 @@ const FuzzInputBound = 10 * time.Second
 // a plain go test run of the seed corpus fails with the panic, which names
 // the input.
 func BoundFuzzInput(tb testing.TB) (disarm func()) {
-	return boundFuzzInput(tb, FuzzInputBound)
+	disarmed := armBound(tb.Name(), FuzzInputBound, boundFire)
+	return func() { disarmed() }
 }
 
 // boundFire is what a bound that fires does: it panics, which ends the
 // process. TestBoundFuzzInput swaps in a recorder to check the disarm.
 var boundFire = func(msg string) { panic(msg) }
-
-// boundFuzzInput is [BoundFuzzInput] with the bound d.
-func boundFuzzInput(tb testing.TB, d time.Duration) (disarm func()) {
-	disarmed := armBound(tb.Name(), d, boundFire)
-	return func() { disarmed() }
-}
 
 // armBound calls fire with the bound's message once d has passed, unless
 // disarm is called first; disarm reports whether it stopped the watchdog

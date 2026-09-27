@@ -393,12 +393,8 @@ func (c *H2Conn) shutdown() bool {
 // dropLocked ends a stream on the server side without writing anything.
 // c.mu must be held.
 func (c *H2Conn) dropLocked(st *h2stream) {
-	if _, ok := c.streams[st.id]; !ok {
+	if !c.forgetLocked(st) {
 		return
-	}
-	delete(c.streams, st.id)
-	if !st.retired {
-		c.active--
 	}
 	st.reset = true
 	st.cancel()
@@ -408,7 +404,21 @@ func (c *H2Conn) dropLocked(st *h2stream) {
 	if !st.ended {
 		c.srv.markDropped(st.seq)
 	}
+}
+
+// forgetLocked removes st from the connection's streams and, unless it was
+// retired, from its active count, and reports whether st was there. c.mu
+// must be held.
+func (c *H2Conn) forgetLocked(st *h2stream) bool {
+	if cur, ok := c.streams[st.id]; !ok || cur != st {
+		return false
+	}
+	delete(c.streams, st.id)
+	if !st.retired {
+		c.active--
+	}
 	c.cond.Broadcast()
+	return true
 }
 
 // write runs one of the reader's frame writes (its SETTINGS and their
@@ -780,13 +790,7 @@ func (c *H2Conn) retireIfClosing(st *h2stream, end frameEnd) {
 // finishStream forgets a stream the handler is done with.
 func (c *H2Conn) finishStream(st *h2stream) {
 	c.mu.Lock()
-	if cur, ok := c.streams[st.id]; ok && cur == st {
-		delete(c.streams, st.id)
-		if !st.retired {
-			c.active--
-		}
-		c.cond.Broadcast()
-	}
+	c.forgetLocked(st)
 	c.mu.Unlock()
 	st.cancel()
 	c.maybeFinish()
@@ -918,52 +922,43 @@ func (c *H2Conn) writeStream(st *h2stream, end frameEnd, fn func() error) error 
 }
 
 // writeHeaders encodes and writes a response header block, split into
-// CONTINUATION frames when it exceeds maxFrameSize, unless the stream is
-// already over or the graceful close has begun since claim.
+// CONTINUATION frames when it exceeds maxFrameSize, through writeStream.
 func (c *H2Conn) writeHeaders(st *h2stream, status int, h http.Header, endStream bool) error {
-	if !c.claim(st, endStream) {
-		return errStreamReset
-	}
-	c.wmu.Lock()
-	defer c.wmu.Unlock()
-	if c.draining.Load() {
-		return errConnClosed
-	}
+	end := frameMid
 	if endStream {
-		c.retireIfClosing(st, frameEndStream)
+		end = frameEndStream
 	}
-	c.hbuf.Reset()
-	_ = c.henc.WriteField(hpack.HeaderField{Name: ":status", Value: strconv.Itoa(status)})
-	keys := make([]string, 0, len(h))
-	for k := range h {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-	for _, k := range keys {
-		name := strings.ToLower(k)
-		switch name {
-		case "connection", "keep-alive", "proxy-connection", "transfer-encoding", "upgrade":
-			continue
+	return c.writeStream(st, end, func() error {
+		c.hbuf.Reset()
+		_ = c.henc.WriteField(hpack.HeaderField{Name: ":status", Value: strconv.Itoa(status)})
+		keys := make([]string, 0, len(h))
+		for k := range h {
+			keys = append(keys, k)
 		}
-		for _, v := range h[k] {
-			_ = c.henc.WriteField(hpack.HeaderField{Name: name, Value: v})
+		slices.Sort(keys)
+		for _, k := range keys {
+			name := strings.ToLower(k)
+			switch name {
+			case "connection", "keep-alive", "proxy-connection", "transfer-encoding", "upgrade":
+				continue
+			}
+			for _, v := range h[k] {
+				_ = c.henc.WriteField(hpack.HeaderField{Name: name, Value: v})
+			}
 		}
-	}
-	block := c.hbuf.Bytes()
-	first := block[:min(len(block), maxFrameSize)]
-	rest := block[len(first):]
-	err := c.fr.WriteHeaders(http2.HeadersFrameParam{
-		StreamID: st.id, BlockFragment: first, EndStream: endStream, EndHeaders: len(rest) == 0,
+		block := c.hbuf.Bytes()
+		first := block[:min(len(block), maxFrameSize)]
+		rest := block[len(first):]
+		err := c.fr.WriteHeaders(http2.HeadersFrameParam{
+			StreamID: st.id, BlockFragment: first, EndStream: endStream, EndHeaders: len(rest) == 0,
+		})
+		for err == nil && len(rest) > 0 {
+			chunk := rest[:min(len(rest), maxFrameSize)]
+			rest = rest[len(chunk):]
+			err = c.fr.WriteContinuation(st.id, len(rest) == 0, chunk)
+		}
+		return err
 	})
-	for err == nil && len(rest) > 0 {
-		chunk := rest[:min(len(rest), maxFrameSize)]
-		rest = rest[len(chunk):]
-		err = c.fr.WriteContinuation(st.id, len(rest) == 0, chunk)
-	}
-	if err != nil {
-		return c.writeFailed(err)
-	}
-	return nil
 }
 
 // h2ResponseWriter is the http.ResponseWriter of a LoopbackServer handler.

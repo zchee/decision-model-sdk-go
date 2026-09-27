@@ -47,12 +47,6 @@ func (b *trackedBody) Close() error {
 	return nil
 }
 
-// roundTripFunc adapts a function to http.RoundTripper.
-type roundTripFunc func(*http.Request) (*http.Response, error)
-
-// RoundTrip implements http.RoundTripper.
-func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
-
 // TestFloorCall checks the floor both the allocation test and the call/floor
 // benchmark use: it reads the response to its end and closes it (a floor
 // that stops draining fails here), and it returns the transport's error as
@@ -69,7 +63,7 @@ func TestFloorCall(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			rt := RoundTripFunc(func(req *http.Request) (*http.Response, error) {
 				if tt.rtErr != nil {
 					return nil, tt.rtErr
 				}

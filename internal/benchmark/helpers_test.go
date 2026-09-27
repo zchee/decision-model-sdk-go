@@ -63,9 +63,3 @@ func newBenchClient(tb testing.TB, rt http.RoundTripper, opts ...typesafe.Client
 	tb.Cleanup(func() { _ = c.Close() })
 	return c
 }
-
-// roundTripFunc adapts a function to http.RoundTripper.
-type roundTripFunc func(*http.Request) (*http.Response, error)
-
-// RoundTrip implements http.RoundTripper.
-func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }

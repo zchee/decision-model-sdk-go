@@ -144,13 +144,9 @@ func StableMin(tb testing.TB, label string, runs []Allocs) Allocs {
 
 // stableMin is StableMin without the test plumbing.
 func stableMin(runs []Allocs) (Allocs, error) {
-	if len(runs) == 0 {
-		return Allocs{}, errors.New("no runs")
-	}
-	least := runs[0]
-	for _, run := range runs[1:] {
-		least.Mallocs = min(least.Mallocs, run.Mallocs)
-		least.Bytes = min(least.Bytes, run.Bytes)
+	least, _, err := spread(runs)
+	if err != nil {
+		return Allocs{}, err
 	}
 	agree := 0
 	for _, run := range runs {

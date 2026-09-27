@@ -34,6 +34,14 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
+// The whole call's pins (TestAllocWholeCall): its floor, the Recorder's
+// round trip and E_sonic, and the SDK's own allocations above it (N = 12).
+// TestAllocLoggedCall's call with the default logger costs their sum.
+var (
+	wholeCallFloor = testsupport.Allocs{Mallocs: 8, Bytes: 640}
+	wholeCallOwn   = testsupport.Allocs{Mallocs: 12, Bytes: 2008}
+)
+
 // Sinks keep measured results reachable, as a caller's would be.
 var (
 	sinkResponse *typesafe.SystemOneResponse
@@ -123,10 +131,10 @@ func TestAllocWholeCall(t *testing.T) {
 	// is N = 12 (docs/perf/frozen-budgets.md), and the pin is the ceiling
 	// itself: an allocation added to the call fails here, and one removed
 	// moves the pin and the frozen row together.
-	if floor != (testsupport.Allocs{Mallocs: 8, Bytes: 640}) {
+	if floor != wholeCallFloor {
 		t.Errorf("the floor of one call = %s, want 8/640 (the Recorder's round trip 7/624 and E_sonic 1/16)", floor)
 	}
-	if own != 12 {
+	if own != wholeCallOwn.Mallocs {
 		t.Errorf("SDK-own allocations of one call = %d, want exactly 12 (AC-P6: N = 12, frozen at W5.3)", own)
 	}
 

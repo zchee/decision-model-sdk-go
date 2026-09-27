@@ -111,7 +111,7 @@ func TestAllocLoggedCall(t *testing.T) {
 			}
 		}
 		t.Log(line.String())
-		if rp.name == "q3" && def != (testsupport.Allocs{Mallocs: 20, Bytes: 2648}) {
+		if rp.name == "q3" && def != (testsupport.Allocs{Mallocs: wholeCallFloor.Mallocs + wholeCallOwn.Mallocs, Bytes: wholeCallFloor.Bytes + wholeCallOwn.Bytes}) {
 			t.Errorf("the call with the default logger = %s, want TestAllocWholeCall's 20/2648: a record is built that no handler keeps", def)
 		}
 	}
