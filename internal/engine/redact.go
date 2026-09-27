@@ -136,9 +136,9 @@ func NewHeaderRedactor(apiKey string) HeaderRedactor {
 }
 
 // WithProxies returns r looking also for the whole credentials of proxies,
-// for the header of a response that a proxy may have written itself: the
-// root package's transport gives it to a response to a plain-HTTP request
-// through a proxy alone (ruling D-W6-secfix-header-scope).
+// for the header of a response that a proxy may have written itself:
+// [Transport.ResponseRedactor] gives it to a response to a plain-HTTP
+// request through a proxy alone (ruling D-W6-secfix-header-scope).
 func (r HeaderRedactor) WithProxies(proxies *ProxyCreds) HeaderRedactor {
 	r.proxies = proxies
 	return r

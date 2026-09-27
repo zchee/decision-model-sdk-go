@@ -167,10 +167,11 @@ func WithHTTPTransport(t *http.Transport) ClientOption {
 }
 
 // WithCompression sets whether requests ask the API to compress its
-// responses, with Accept-Encoding: gzip, as Go's transport and
-// typesafe-sdk-python's httpx do by default. The default, true, keeps that:
-// the transport undoes the API's gzip before the SDK reads the body, which
-// then has no declared length. false sends no Accept-Encoding, so the API
+// responses. The default, true, sends Accept-Encoding: gzip, as Go's
+// transport does by default (typesafe-sdk-python's httpx asks for gzip and
+// deflate, and for br and zstd where their decoders are installed): the
+// transport undoes the API's gzip before the SDK reads the body, which then
+// has no declared length. false sends no Accept-Encoding, so the API
 // sends the body as it is with its length declared, which on this API's
 // small bodies saves the client about 7 allocations and 10 KiB per call
 // (docs/support.md). It configures the SDK's own transport, so, whatever

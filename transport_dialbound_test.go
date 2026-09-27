@@ -67,9 +67,8 @@ func dialPhaseTrace(t *testing.T, hook string, release <-chan struct{}, late boo
 // the dial bound's grace of 100 ms for DNSStart and ConnectStart, which run
 // inside the dial, and twice the connect timeout for TLSHandshakeStart, the
 // wait bound (on this transport the TLS handshake timeout is the connect
-// timeout). The call's INFO
-// "request failed" record and the transport's DEBUG record of the bound
-// name it.
+// timeout). The call's INFO "request failed" record and the transport's
+// DEBUG record of the bound name it.
 //
 // A second call made while the hook still blocks shows what the bound
 // leaves: after a DNS or connect hook the dial was abandoned and the permit
