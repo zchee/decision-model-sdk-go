@@ -74,7 +74,6 @@ jobs:
       - name: Test the checker scripts
         run: uvx --with pyyaml pytest -q -p no:cacheprovider .github/scripts
 
-      # --no-planned: since W6.4 no row is planned, and a new one fails.
       # --deviations: every deviation the matrix cites is a row of
       # docs/deviations.md, and each row lists exactly the rows citing it.
       # --as-built: docs/as-built.md transcribes the plan's Appendix B row by
@@ -83,7 +82,7 @@ jobs:
       # key comes from an Appendix B row or a ruling, and every test the page
       # names is listed by go test -list.
       - name: Check the port test matrix against the upstream tests
-        run: uv run --script .github/scripts/port-test-matrix.py --upstream upstream --no-planned --deviations docs/deviations.md --as-built docs/as-built.md
+        run: uv run --script .github/scripts/port-test-matrix.py --upstream upstream --deviations docs/deviations.md --as-built docs/as-built.md
       # uncovered-lines.py runs in the test job, which has the coverage profile.
 
       # XD1: every Go block of README.md and docs/**/*.md sits under an

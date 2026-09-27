@@ -320,11 +320,6 @@ def old_name_lines(repo: Path) -> dict[tuple[str, str], tuple[tuple[str, ...], i
     return found
 
 
-def allowed_entries(repo: Path) -> list[tuple[str, str, tuple[str, ...], int]]:
-    """ALLOWED as the rewritten tree would have it (W6.7's docs commit writes it)."""
-    return sorted((f, h, toks, n) for (f, h), (toks, n, _) in old_name_lines(repo).items())
-
-
 def part1(repo: Path) -> tuple[list[str], list[tuple[str, int, str, str | None]]]:
     """Return (failures, citations as (file, line, commit, path or None))."""
     failures = [f"{p}: tracked under the old spike tree"

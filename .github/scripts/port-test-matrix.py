@@ -11,7 +11,7 @@ or to a documented deviation. This script enforces that mapping.
 Usage (from the repository root)::
 
     .github/scripts/port-test-matrix.py --upstream PATH [--write FILE]
-        [--names FILE] [--matrix FILE] [--no-planned] [--deviations FILE]
+        [--names FILE] [--matrix FILE] [--deviations FILE]
 
 Checks, in order. Every failure is logged to stderr on its own line, followed
 by a failure count; on success one summary line goes to stdout. The exit
@@ -65,7 +65,6 @@ status is 0 only when every check passes.
    unknown test, a repeated ID and a malformed row are failures.
 5. Status rules.
 
-   - ``planned``: passes, unless ``--no-planned`` is given (then it fails).
    - ``ported``: the Go cell must contain at least one backtick-quoted
      ``Test…`` identifier, and every such identifier must be listed by
      ``go test -list '.*' -tags live ./...``, which runs once from the
@@ -95,7 +94,7 @@ status is 0 only when every check passes.
 
 6. Status counts. The matrix states its rows by status on exactly one line
    ``Rows by status: <counts>.``, where <counts> is the text the summary
-   line prints (``32 deviation, 6 planned, 91 ported``), so the document
+   line prints (``35 deviation, 94 ported``), so the document
    cannot show counts its rows do not have.
 7. Deviation table (only with ``--deviations FILE``). FILE holds one or more
    tables whose header row is ``| Key | Python SDK 0.7.1 | Go SDK | Why |
@@ -157,7 +156,7 @@ from pathlib import Path
 
 PINNED_COMMIT = "0ffd094c72ed9445223060b24ffd7a56aa781fb4"
 EXPECTED_TEST_COUNT = 129
-STATUSES = frozenset({"planned", "ported", "deviation"})
+STATUSES = frozenset({"ported", "deviation"})
 
 # pytest's defaults: python_files, and the norecursedirs globs.
 TEST_FILE_GLOBS = ("test_*.py", "*_test.py")
@@ -740,15 +739,11 @@ def _path_qualified(row: Row) -> list[str]:
 
 
 def _status_failures(
-    row: Row, cited: str | None, listed: dict[str, set[str]], *, no_planned: bool
+    row: Row, cited: str | None, listed: dict[str, set[str]]
 ) -> list[str]:
     """Apply the status rule of one row (check 5 of the module docstring)."""
     idents = _test_identifiers(row.go_cell)
     match row.status:
-        case "planned":
-            if no_planned:
-                return [f"row {row.row_id} ({row.key}) is still planned (--no-planned)"]
-            return []
         case "ported":
             failures = _missing_tests(row, idents, listed)
             if not idents:
@@ -777,11 +772,7 @@ def _status_failures(
 
 
 def check_rows(
-    rows: list[Row],
-    upstream: list[str],
-    listed: dict[str, set[str]],
-    *,
-    no_planned: bool,
+    rows: list[Row], upstream: list[str], listed: dict[str, set[str]]
 ) -> list[str]:
     """Apply the coverage and status rules to the parsed rows.
 
@@ -789,7 +780,6 @@ def check_rows(
         rows: the rows :func:`parse_matrix` returned, in document order.
         upstream: the derived upstream test names.
         listed: the :func:`parse_go_list` map of Go tests per import path.
-        no_planned: fail every row whose status is still ``planned``.
 
     Returns:
         One failure message per repeated ID, repeated or unknown upstream
@@ -828,7 +818,7 @@ def check_rows(
         elif _SAME_DEVIATION.search(row.go_cell):
             cited = citation_above.get(row.file)
         failures += _path_qualified(row)
-        failures += _status_failures(row, cited, listed, no_planned=no_planned)
+        failures += _status_failures(row, cited, listed)
     failures += [
         f"upstream test {name} has no matrix row"
         for name in upstream
@@ -841,7 +831,8 @@ def status_summary(rows: list[Row]) -> str:
     """Return the rows' counts by status, as the summary line prints them."""
     counts = dict.fromkeys(sorted(STATUSES), 0)
     for row in rows:
-        counts[row.status] += 1
+        if row.status in counts:
+            counts[row.status] += 1
     return ", ".join(f"{n} {status}" for status, n in counts.items())
 
 
@@ -1358,11 +1349,6 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="module root where go test -list runs (default: %(default)s)",
     )
     parser.add_argument(
-        "--no-planned",
-        action="store_true",
-        help="fail on any row whose status is still planned",
-    )
-    parser.add_argument(
         "--deviations",
         type=Path,
         metavar="FILE",
@@ -1437,7 +1423,7 @@ def main(argv: list[str] | None = None) -> int:
 
     listed, go_failures = list_go_tests(args.repo)
     failures += go_failures
-    failures += check_rows(matrix.rows, upstream, listed, no_planned=args.no_planned)
+    failures += check_rows(matrix.rows, upstream, listed)
     summary = status_summary(matrix.rows)
     if text:
         failures += check_status_line(text, summary, str(args.matrix))

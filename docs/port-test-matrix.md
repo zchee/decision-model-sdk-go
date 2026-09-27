@@ -15,13 +15,12 @@ rows were seeded from Appendix D of the port plan, which also defines the row
 IDs that the plan's waves cite. The checker also holds the next line to the
 rows:
 
-Rows by status: 35 deviation, 0 planned, 94 ported.
+Rows by status: 35 deviation, 94 ported.
 
 ## Status values
 
 | Status | Meaning | Checker rule |
 | --- | --- | --- |
-| `planned` | not ported yet | passes; with `--no-planned`, which CI passes since W6.4 flipped the last planned rows, it fails |
 | `ported` | the Go test exists | the Go cell names at least one backtick-quoted `Test…` identifier, and every one of them is listed by `go test -list '.*' -tags live ./...`; `pkg.TestName` must be listed by a package whose import path ends in `/pkg`, so tests of the root package are written unqualified (`TestX`, never `typesafe.TestX`: the root import path ends in `/typesafe-sdk-go`) |
 | `deviation` | replaced by a documented behaviour difference | the Go cell cites a row of [`deviations.md`](deviations.md), the deviation table (the plan's Appendix B as built), as the word `deviation` followed by the row's key in double quotes (`deviation "one deadline per attempt"`), and that row lists this row's ID (`--deviations`, in CI); the rows are unnumbered and `B<n>` would read as a benchmark ID, so there is no numeric form; `same deviation` takes the citation of the nearest row above it in the same group that carries one (rows without a citation in between are skipped); any backtick-quoted `Test…` identifier in the cell must exist, as for `ported` |
 

@@ -96,10 +96,10 @@ jobs:
               /^pkg: / { dir = $2; sub("^" mod, ".", dir) }
               /^Benchmark[^ \t]*[ \t]+[0-9]+[ \t]+[0-9.]+ ns\/op/ { print dir " " $1 }' |
             LC_ALL=C sort >"$RUNNER_TEMP/codspeed-expected.txt"
-          # The profile folder is under the CodSpeed step's TMPDIR: the job's
-          # temp directory, or /tmp without the setting above.
+          # The profile folder is under the CodSpeed step's TMPDIR, the job's
+          # temp directory.
           shopt -s nullglob
-          results=("$RUNNER_TEMP"/profile.*.out/results/*.json /tmp/profile.*.out/results/*.json)
+          results=("$RUNNER_TEMP"/profile.*.out/results/*.json)
           # The runner names a row <file>::<Benchmark>::<sub>...; map it the same way.
           jq -r '.benchmarks[].uri | split("::") as $u
             | (["."] + ($u[0] | split("/") | .[:-1]) | join("/")) + " " + ($u[1:] | join("/"))' \
@@ -134,9 +134,9 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          results=("$RUNNER_TEMP"/profile.*.out/results/*.json /tmp/profile.*.out/results/*.json)
+          results=("$RUNNER_TEMP"/profile.*.out/results/*.json)
           if [ "${#results[@]}" -eq 0 ]; then
-            echo "::error title=AC-P7 gate::no CodSpeed results file under \$RUNNER_TEMP or /tmp"
+            echo "::error title=AC-P7 gate::no CodSpeed results file under \$RUNNER_TEMP"
             exit 1
           fi
           {

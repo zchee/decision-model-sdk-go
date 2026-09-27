@@ -64,8 +64,13 @@ PLANNED_A = (
     "| A2 | `test_two` | `TestTwo` | planned |",
 )
 PLANNED_B = "| B1 | `test_three` | `TestThree` | planned |"
+PORTED_A = (
+    "| A1 | `test_one` | `TestOne` | ported |",
+    "| A2 | `test_two` | `TestTwo` | ported |",
+)
+PORTED_B = "| B1 | `test_three` | `TestThree` | ported |"
 LISTED = {
-    "example.com/m": {"TestOne", "TestTwo", "BenchmarkNoop"},
+    "example.com/m": {"TestOne", "TestTwo", "TestThree", "BenchmarkNoop"},
     "example.com/m/livetest": {"TestLive"},
 }
 
@@ -288,17 +293,17 @@ class TestNamesFile:
 class TestParseMatrix:
     def test_rows_are_keyed_by_group_and_escaped_pipes_unescaped(self) -> None:
         text = _matrix(
-            "| A1 | `test_one` | `TestOne` (`a=x\\|y`) | planned |",
+            "| A1 | `test_one` | `TestOne` (`a=x\\|y`) | ported |",
         )
         rows = _rows(text)
         assert len(rows) == 1
         assert rows[0].key == "tests/test_a.py::test_one"
         assert rows[0].go_cell == "`TestOne` (`a=x|y`)"
-        assert rows[0].status == "planned"
+        assert rows[0].status == "ported"
 
     def test_class_method_rows_use_the_pytest_node_name(self) -> None:
         rows = _rows(
-            _matrix("| A1 | `TestGroup::TestInner::test_x` | `TestX` | planned |")
+            _matrix("| A1 | `TestGroup::TestInner::test_x` | `TestX` | ported |")
         )
         assert rows[0].key == "tests/test_a.py::TestGroup::TestInner::test_x"
 
@@ -307,7 +312,7 @@ class TestParseMatrix:
             "### `tests/test_a.py` (1, skipped outside the dev repository)\n\n"
             "| ID | Upstream | Go test / deviation | status |\n"
             "| :--- | :---: | ---: | ---- |\n"
-            "| A1 | `test_one` | `TestOne` | planned |\n"
+            "| A1 | `test_one` | `TestOne` | ported |\n"
         )
         assert [row.row_id for row in _rows(text)] == ["A1"]
 
@@ -316,7 +321,7 @@ class TestParseMatrix:
         assert _rows(text) == []
 
     def test_rows_after_a_non_group_heading_fail(self) -> None:
-        text = _matrix("| A1 | `test_one` | `TestOne` | planned |")
+        text = _matrix("| A1 | `test_one` | `TestOne` | ported |")
         text += "## Other\n\n| Note | text |\n| --- | --- |\n"
         matrix = ptm.parse_matrix(text, "m.md")
         assert [row.row_id for row in matrix.rows] == ["A1"]
@@ -329,13 +334,13 @@ class TestParseMatrix:
         ("row", "want"),
         [
             ("| A1 | `test_one` | `TestOne` |", "expected 4 cells, found 3"),
-            ("| A1 | `test_one` | `TestOne` | planned", "expected 4 cells, found 0"),
-            ("| A1 | test_one | `TestOne` | planned |", "is not one backtick-quoted"),
-            ("| A1 | `helper` | `TestOne` | planned |", "is not one backtick-quoted"),
-            ("|  | `test_one` | `TestOne` | planned |", "ID cell '' is blank"),
-            ("| - | `test_one` | `TestOne` | planned |", "ID cell '-' is blank"),
-            ("| :-: | `test_one` | `TestOne` | planned |", "ID cell ':-:' is blank"),
-            ("| --- | `test_one` | `TestOne` | planned |", "ID cell '---' is blank"),
+            ("| A1 | `test_one` | `TestOne` | ported", "expected 4 cells, found 0"),
+            ("| A1 | test_one | `TestOne` | ported |", "is not one backtick-quoted"),
+            ("| A1 | `helper` | `TestOne` | ported |", "is not one backtick-quoted"),
+            ("|  | `test_one` | `TestOne` | ported |", "ID cell '' is blank"),
+            ("| - | `test_one` | `TestOne` | ported |", "ID cell '-' is blank"),
+            ("| :-: | `test_one` | `TestOne` | ported |", "ID cell ':-:' is blank"),
+            ("| --- | `test_one` | `TestOne` | ported |", "ID cell '---' is blank"),
         ],
         ids=[
             "three cells",
@@ -357,7 +362,7 @@ class TestParseMatrix:
 
     def test_a_stray_separator_among_the_rows_is_a_malformed_row(self) -> None:
         # GitHub renders it as a row of dashes, so it is not skipped.
-        text = _matrix(PLANNED_A[0], "| --- | --- | --- | --- |", PLANNED_A[1])
+        text = _matrix(PORTED_A[0], "| --- | --- | --- | --- |", PORTED_A[1])
         matrix = ptm.parse_matrix(text, "m.md")
         assert [row.row_id for row in matrix.rows] == ["A1", "A2"]
         assert matrix.failures == ["m.md:6: ID cell '---' is blank or only '-' and ':'"]
@@ -373,14 +378,14 @@ class TestParseMatrix:
             "| ID | Upstream | Go test | status |",
             "| ID | Upstream | Go test / deviation |",
             "| id | upstream | go test / deviation | status |",
-            "| A0 | `test_one` | `TestOne` | planned |",
+            "| A0 | `test_one` | `TestOne` | ported |",
         ],
         ids=["old column name", "three cells", "case differs", "a data row"],
     )
     def test_the_header_row_is_fixed(self, header: str) -> None:
         text = (
             "### `tests/test_a.py` (1)\n\n"
-            f"{header}\n| --- | --- | --- | --- |\n{PLANNED_A[0]}\n"
+            f"{header}\n| --- | --- | --- | --- |\n{PORTED_A[0]}\n"
         )
         matrix = ptm.parse_matrix(text, "m.md")
         assert matrix.failures == [f"m.md:3: {self.HEADER_FAILURE}"]
@@ -391,7 +396,7 @@ class TestParseMatrix:
             "### `tests/test_a.py` (1)\n\n"
             "| ID | Upstream | Go test / deviation | status |\n"
             "| --- | --- | --- |\n"
-            "| A1 | `test_one` | `TestOne` | planned |\n"
+            "| A1 | `test_one` | `TestOne` | ported |\n"
         )
         assert ptm.parse_matrix(text, "m.md").failures == [
             "m.md:4: expected 4 cells, found 3"
@@ -399,7 +404,7 @@ class TestParseMatrix:
 
     def test_a_table_without_header_and_separator_fails(self) -> None:
         # P7: GitHub renders these lines as a paragraph, not a table.
-        text = "### `tests/test_a.py` (2)\n\n" + "\n".join(PLANNED_A) + "\n"
+        text = "### `tests/test_a.py` (2)\n\n" + "\n".join(PORTED_A) + "\n"
         matrix = ptm.parse_matrix(text, "m.md")
         assert matrix.failures == [
             f"m.md:3: {self.HEADER_FAILURE}",
@@ -415,7 +420,7 @@ class TestParseMatrix:
         text = (
             "### `tests/test_a.py` (1)\n\n"
             "| ID | Upstream | Go test / deviation | status |\n"
-            f"{PLANNED_A[0]}\n"
+            f"{PORTED_A[0]}\n"
         )
         matrix = ptm.parse_matrix(text, "m.md")
         assert matrix.failures == [
@@ -438,10 +443,10 @@ class TestParseMatrix:
         self, second_header: str
     ) -> None:
         text = (
-            _matrix(PLANNED_A[0], count=1)
+            _matrix(PORTED_A[0], count=1)
             + "\n"
             + second_header
-            + "| A2 | `test_two` | `TestTwo` | planned |\n"
+            + "| A2 | `test_two` | `TestTwo` | ported |\n"
         )
         matrix = ptm.parse_matrix(text, "m.md")
         assert matrix.failures == [
@@ -462,11 +467,11 @@ class TestParseMatrix:
     def test_rows_indented_up_to_three_spaces_are_rows(self, spaces: int) -> None:
         # P6: GitHub renders them as table rows, so they are checked.
         indented = " " * spaces + "| A9 | `test_two` | `TestNope` | ported |"
-        text = _matrix(PLANNED_A[0], indented)
+        text = _matrix(PORTED_A[0], indented)
         assert [row.row_id for row in _rows(text)] == ["A1", "A9"]
 
     def test_a_line_indented_four_spaces_is_a_code_block(self) -> None:
-        text = _matrix(PLANNED_A[0], "    | A2 | `test_two` | `TestTwo` | planned |")
+        text = _matrix(PORTED_A[0], "    | A2 | `test_two` | `TestTwo` | ported |")
         matrix = ptm.parse_matrix(text, "m.md")
         assert [row.row_id for row in matrix.rows] == ["A1"]
         assert matrix.failures == ["m.md:1: heading says 2 rows, the group has 1"]
@@ -475,7 +480,7 @@ class TestParseMatrix:
     def test_file_headings_must_be_level_three(self, level: str) -> None:
         # P11: a group heading at another level would leave its rows outside
         # any group, or before the first one.
-        text = f"{level} `tests/test_a.py` (1)\n\n{HEADER}\n{PLANNED_A[0]}\n"
+        text = f"{level} `tests/test_a.py` (1)\n\n{HEADER}\n{PORTED_A[0]}\n"
         matrix = ptm.parse_matrix(text, "m.md")
         assert matrix.rows == []
         assert matrix.failures == [
@@ -483,25 +488,25 @@ class TestParseMatrix:
         ]
 
     def test_heading_count_must_match_the_rows(self) -> None:
-        text = _matrix(*PLANNED_A, count=3) + _matrix(PLANNED_B, file="tests/test_b.py")
+        text = _matrix(*PORTED_A, count=3) + _matrix(PORTED_B, file="tests/test_b.py")
         assert ptm.parse_matrix(text, "m.md").failures == [
             "m.md:1: heading says 3 rows, the group has 2"
         ]
 
     def test_last_group_count_is_checked_at_end_of_input(self) -> None:
-        text = _matrix(PLANNED_B, file="tests/test_b.py", count=0)
+        text = _matrix(PORTED_B, file="tests/test_b.py", count=0)
         assert ptm.parse_matrix(text, "m.md").failures == [
             "m.md:1: heading says 0 rows, the group has 1"
         ]
 
     def test_heading_without_count_fails_but_keeps_its_rows(self) -> None:
-        text = "### `tests/test_a.py`\n\n" + HEADER + "\n" + PLANNED_A[0] + "\n"
+        text = "### `tests/test_a.py`\n\n" + HEADER + "\n" + PORTED_A[0] + "\n"
         matrix = ptm.parse_matrix(text, "m.md")
         assert matrix.failures == ["m.md:1: group heading does not end in (<count>)"]
         assert [row.key for row in matrix.rows] == ["tests/test_a.py::test_one"]
 
     def test_repeated_group_heading_fails(self) -> None:
-        text = _matrix(PLANNED_A[0]) + _matrix(PLANNED_A[1])
+        text = _matrix(PORTED_A[0]) + _matrix(PORTED_A[1])
         matrix = ptm.parse_matrix(text, "m.md")
         assert matrix.failures == [
             "m.md:6: repeats the tests/test_a.py heading of line 1"
@@ -601,28 +606,26 @@ class TestListGoTests:
 
 
 class TestCheckRows:
-    def _check(self, text: str, *, no_planned: bool = False) -> list[str]:
-        got: list[str] = ptm.check_rows(
-            _rows(text), UPSTREAM, LISTED, no_planned=no_planned
-        )
+    def _check(self, text: str) -> list[str]:
+        got: list[str] = ptm.check_rows(_rows(text), UPSTREAM, LISTED)
         return got
 
-    def test_all_planned_passes(self) -> None:
-        assert self._check(_full(PLANNED_A, PLANNED_B)) == []
-
     def test_no_planned_fails_every_planned_row(self) -> None:
-        got = self._check(_full(PLANNED_A, PLANNED_B), no_planned=True)
+        got = self._check(_full(PLANNED_A, PLANNED_B))
         assert len(got) == 3
-        assert all(line.endswith("is still planned (--no-planned)") for line in got)
+        assert all(
+            line.endswith("unknown status 'planned'; want one of deviation, ported")
+            for line in got
+        )
 
     def test_missing_unknown_and_repeated_rows(self) -> None:
         text = _full(
             (
-                "| A1 | `test_one` | `TestOne` | planned |",
-                "| A1 | `test_one` | `TestOne` | planned |",
-                "| A3 | `test_gone` | `TestGone` | planned |",
+                "| A1 | `test_one` | `TestOne` | ported |",
+                "| A1 | `test_one` | `TestOne` | ported |",
+                "| A3 | `test_gone` | `TestTwo` | ported |",
             ),
-            PLANNED_B,
+            PORTED_B,
         )
         got = self._check(text)
         assert "row A1 (line 6) repeats the ID of line 5" in got
@@ -635,13 +638,11 @@ class TestCheckRows:
         assert len(got) == 4
 
     def test_unknown_status_fails(self) -> None:
-        text = _full(
-            (PLANNED_A[0], "| A2 | `test_two` | `TestTwo` | done |"), PLANNED_B
-        )
+        text = _full((PORTED_A[0], "| A2 | `test_two` | `TestTwo` | done |"), PORTED_B)
         assert self._check(text) == [
             (
                 "row A2 (tests/test_a.py::test_two): unknown status 'done'; "
-                "want one of deviation, planned, ported"
+                "want one of deviation, ported"
             )
         ]
 
@@ -689,9 +690,7 @@ class TestCheckRows:
         ],
     )
     def test_ported_rows(self, cell: str, want: list[str]) -> None:
-        text = _full(
-            (PLANNED_A[0], f"| A2 | `test_two` | {cell} | ported |"), PLANNED_B
-        )
+        text = _full((PORTED_A[0], f"| A2 | `test_two` | {cell} | ported |"), PORTED_B)
         assert self._check(text) == want
 
     @pytest.mark.parametrize(
@@ -715,11 +714,11 @@ class TestCheckRows:
     ) -> None:
         # The root package is named typesafe, but its import path ends in
         # /typesafe-sdk-go, so only the unqualified name can match it.
-        listed = {"github.com/zchee/typesafe-sdk-go": {"TestRoot"}}
-        text = _full(
-            (PLANNED_A[0], f"| A2 | `test_two` | {cell} | ported |"), PLANNED_B
-        )
-        assert ptm.check_rows(_rows(text), UPSTREAM, listed, no_planned=False) == want
+        listed = {
+            "github.com/zchee/typesafe-sdk-go": {"TestRoot", "TestOne", "TestThree"}
+        }
+        text = _full((PORTED_A[0], f"| A2 | `test_two` | {cell} | ported |"), PORTED_B)
+        assert ptm.check_rows(_rows(text), UPSTREAM, listed) == want
 
     @pytest.mark.parametrize(
         ("a2_cell", "b1_cell", "want"),
@@ -780,8 +779,8 @@ class TestCheckRows:
     )
     def test_deviation_rows(self, a2_cell: str, b1_cell: str, want: list[str]) -> None:
         text = _full(
-            (PLANNED_A[0], f"| A2 | `test_two` | {a2_cell} | deviation |"),
-            f"| B1 | `test_three` | {b1_cell} | planned |",
+            (PORTED_A[0], f"| A2 | `test_two` | {a2_cell} | deviation |"),
+            f"| B1 | `test_three` | {b1_cell} | ported |",
         )
         assert self._check(text) == want
 
@@ -799,29 +798,26 @@ class TestCheckRows:
         ],
     )
     def test_path_qualified_test_names_fail(self, cell: str, want: list[str]) -> None:
-        for status in ("planned", "ported"):
-            text = _full(
-                (PLANNED_A[0], f"| A2 | `test_two` | {cell} | {status} |"), PLANNED_B
+        text = _full((PORTED_A[0], f"| A2 | `test_two` | {cell} | ported |"), PORTED_B)
+        assert self._check(text) == [
+            (
+                f"row A2 (tests/test_a.py::test_two): {span} names a test by "
+                "a path; write pkg.TestName or TestName"
             )
-            assert self._check(text) == [
-                (
-                    f"row A2 (tests/test_a.py::test_two): {span} names a test by "
-                    "a path; write pkg.TestName or TestName"
-                )
-                for span in want
-            ]
+            for span in want
+        ]
 
     def test_same_deviation_skips_rows_without_a_citation(self) -> None:
         upstream = [*UPSTREAM, "tests/test_a.py::test_zero"]
         text = _full(
             (
                 '| A1 | `test_one` | deviation "not ported" | deviation |',
-                PLANNED_A[1],
+                PORTED_A[1],
                 "| A0 | `test_zero` | same deviation | deviation |",
             ),
-            PLANNED_B,
+            PORTED_B,
         )
-        got = ptm.check_rows(_rows(text), upstream, LISTED, no_planned=False)
+        got = ptm.check_rows(_rows(text), upstream, LISTED)
         assert got == []
 
     def test_same_deviation_inherits_within_its_group_only(self) -> None:
@@ -830,14 +826,14 @@ class TestCheckRows:
                 '| A1 | `test_one` | deviation "not ported" | deviation |',
                 "| A2 | `test_two` | same deviation | deviation |",
             ),
-            PLANNED_B,
+            PORTED_B,
         )
         assert self._check(inherits) == []
 
         other_group = _full(
             (
                 '| A1 | `test_one` | deviation "not ported" | deviation |',
-                PLANNED_A[1],
+                PORTED_A[1],
             ),
             "| B1 | `test_three` | same deviation | deviation |",
         )
@@ -940,7 +936,7 @@ def _fake_go(
 
 
 GO_LIST_OK = "TestOne\nTestTwo\nTestThree\nok  \texample.com/m\t0.1s\n"
-STATUS_LINE = "\nRows by status: 0 deviation, 3 planned, 0 ported.\n"
+STATUS_LINE = "\nRows by status: 0 deviation, 3 ported.\n"
 
 
 class TestMain:
@@ -961,7 +957,7 @@ class TestMain:
         names.write_text("\n".join(UPSTREAM) + "\n")
         path = tmp_path / "matrix.md"
         path.write_text(
-            _full(PLANNED_A, PLANNED_B) + STATUS_LINE if matrix is None else matrix
+            _full(PORTED_A, PORTED_B) + STATUS_LINE if matrix is None else matrix
         )
         return ["--names", str(names), "--matrix", str(path), "--repo", str(tmp_path)]
 
@@ -1023,7 +1019,7 @@ class TestMain:
         assert code == 0
         assert caplog.messages == []
         assert capsys.readouterr().out == (
-            "port-test-matrix: OK, 3 upstream tests (0 deviation, 3 planned, 0 ported)\n"
+            "port-test-matrix: OK, 3 upstream tests (0 deviation, 3 ported)\n"
         )
 
     @pytest.mark.usefixtures("pinned")
@@ -1091,9 +1087,12 @@ class TestMain:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         _fake_go(monkeypatch, _fake_run(returncode=1, stderr="build failed\n"))
+        matrix = (
+            _full(PLANNED_A, PLANNED_B) + "\nRows by status: 0 deviation, 0 ported.\n"
+        )
 
         code = ptm.main(
-            ["--upstream", str(upstream), "--no-planned", *self._files(tmp_path)]
+            ["--upstream", str(upstream), *self._files(tmp_path, matrix=matrix)]
         )
 
         assert code == 1
@@ -1101,7 +1100,8 @@ class TestMain:
             "go test -list .* -tags live ./... exited 1",
             "  build failed",
         ]
-        assert len([m for m in caplog.messages if m.endswith("(--no-planned)")]) == 3
+        planned = [m for m in caplog.messages if "unknown status 'planned'" in m]
+        assert len(planned) == 3
         # Two lines for the go failure, three for the planned rows.
         assert caplog.messages[-1] == "port-test-matrix: 5 failure(s)"
 
@@ -1110,20 +1110,18 @@ class TestMain:
         [
             pytest.param(
                 "",
-                "{m}: want one line 'Rows by status: 0 deviation, 3 planned, "
-                "0 ported.', found 0",
+                "{m}: want one line 'Rows by status: 0 deviation, 3 ported.', found 0",
                 id="no status line",
             ),
             pytest.param(
                 STATUS_LINE + STATUS_LINE,
-                "{m}: want one line 'Rows by status: 0 deviation, 3 planned, "
-                "0 ported.', found 2",
+                "{m}: want one line 'Rows by status: 0 deviation, 3 ported.', found 2",
                 id="two status lines",
             ),
             pytest.param(
-                "\nRows by status: 1 deviation, 2 planned, 0 ported.\n",
-                "{m}:14: the rows are 0 deviation, 3 planned, 0 ported; the line "
-                "says 1 deviation, 2 planned, 0 ported",
+                "\nRows by status: 1 deviation, 2 ported.\n",
+                "{m}:14: the rows are 0 deviation, 3 ported; the line "
+                "says 1 deviation, 2 ported",
                 id="counts that differ from the rows",
             ),
         ],
@@ -1137,7 +1135,7 @@ class TestMain:
         line: str,
         want: str,
     ) -> None:
-        args = self._files(tmp_path, matrix=_full(PLANNED_A, PLANNED_B) + line)
+        args = self._files(tmp_path, matrix=_full(PORTED_A, PORTED_B) + line)
 
         code = ptm.main(["--upstream", str(upstream), *args])
 
@@ -1162,6 +1160,40 @@ class TestMain:
         with pytest.raises(SystemExit) as exc:
             ptm.main([])
         assert exc.value.code == 2
+
+    @pytest.mark.parametrize(
+        "status",
+        [pytest.param("planned", id="planned"), pytest.param("done", id="made-up")],
+    )
+    @pytest.mark.usefixtures("pinned")
+    def test_an_unknown_status_fails_the_run_and_names_the_row(
+        self,
+        upstream: Path,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        caplog: pytest.LogCaptureFixture,
+        status: str,
+    ) -> None:
+        matrix = (
+            _full(
+                (PORTED_A[0], f"| A2 | `test_two` | `TestTwo` | {status} |"), PORTED_B
+            )
+            + "\nRows by status: 0 deviation, 2 ported.\n"
+        )
+
+        code = ptm.main(
+            ["--upstream", str(upstream), *self._files(tmp_path, matrix=matrix)]
+        )
+
+        assert code == 1
+        assert capsys.readouterr().out == ""
+        assert caplog.messages == [
+            (
+                f"row A2 (tests/test_a.py::test_two): unknown status '{status}'; "
+                "want one of deviation, ported"
+            ),
+            "port-test-matrix: 1 failure(s)",
+        ]
 
 
 DEV_HEADER = (
@@ -1328,7 +1360,7 @@ class TestDeviations:
                 ),
                 "| B1 | `test_three` | `TestThree` | ported |",
             )
-            + "\nRows by status: 1 deviation, 0 planned, 2 ported.\n"
+            + "\nRows by status: 1 deviation, 2 ported.\n"
         )
         dev = tmp_path / "deviations.md"
         files = TestMain._files(tmp_path, matrix=matrix)
@@ -1337,7 +1369,7 @@ class TestDeviations:
         code = ptm.main(["--upstream", str(upstream), *files, "--deviations", str(dev)])
         assert code == 0
         assert caplog.messages == []
-        assert "(1 deviation, 0 planned, 2 ported)" in capsys.readouterr().out
+        assert "(1 deviation, 2 ported)" in capsys.readouterr().out
 
         dev.write_text(_dev("| b | p | g | w | A1 |"))
         code = ptm.main(["--upstream", str(upstream), *files, "--deviations", str(dev)])
@@ -1815,7 +1847,7 @@ class TestAsBuilt:
                 ),
                 "| B1 | `test_three` | `TestThree` | ported |",
             )
-            + "\nRows by status: 1 deviation, 0 planned, 2 ported.\n"
+            + "\nRows by status: 1 deviation, 2 ported.\n"
         )
         files = TestMain._files(tmp_path, matrix=matrix)
         dev = tmp_path / "deviations.md"
@@ -1827,7 +1859,7 @@ class TestAsBuilt:
         assert ptm.main([*args, "--as-built", str(built)]) == 0
         assert caplog.messages == []
         assert capsys.readouterr().out == (
-            "port-test-matrix: OK, 3 upstream tests (1 deviation, 0 planned, 2 "
+            "port-test-matrix: OK, 3 upstream tests (1 deviation, 2 "
             "ported); as-built: 2 Appendix B rows (1 bold: 1 reach matrix rows, 0 "
             "no upstream test, 0 by ruling only), 3 keys (1 from Appendix B, 2 "
             "from rulings only), 4 rulings, 2 Go names\n"
