@@ -4,10 +4,10 @@ Bodies the live TypeSafe API returned to W6.4's owner-approved live pass
 (plan risk K6: the decoder and its budgets checked against real responses;
 critic-p5 C4: the share of real bodies the decode reads in one scan). The
 live tests write them when run with `-args -record`
-(`livetests/env_test.go`, `writeFixture`):
+(`livetest/env_test.go`, `writeFixture`):
 
 ```sh
-TYPESAFE_LIVE_TESTS=1 go test -tags live -count=1 -v ./livetests/ -args -record
+TYPESAFE_LIVE_TESTS=1 go test -tags live -count=1 -v ./livetest/ -args -record
 ```
 
 The API key is not on that command line: the SDK reads `TYPESAFE_API_KEY`
@@ -27,7 +27,7 @@ every body that decodes (`TestAllocDecodeFixtures`), and those pins live in a
 file another wave owns. Checking the decode budgets on these bodies (K6) is
 owed to that wave or to W7.
 
-| File | Scenario (`livetests`) | Request | Status | Bytes |
+| File | Scenario (`livetest`) | Request | Status | Bytes |
 | --- | --- | --- | --- | --- |
 | `models.json` | `TestLiveModels` | `GET /v1/models` | 200 | 311 |
 | `questions.json` | `TestLiveQuestions`: a raw noul with structured criteria, a typed choice, a typed score | `POST /v1/systemone` | 200 | 401 |
@@ -41,7 +41,7 @@ from `date`) on 47d2521, the last two at 02:42:13 JST on 47d2521's tree with
 and W6.4-02).
 
 Two tests read them on every `go test` run, without the live tag:
-`livetests.TestRecordedBodiesHoldNoCredentials` (exactly these files, no
+`livetest.TestRecordedBodiesHoldNoCredentials` (exactly these files, no
 credential shape, and no byte of `TYPESAFE_API_KEY` when the environment
 holds it) and `internal/codec.TestLiveBodiesOneScan` (each decodes, with the
 one-scan and the whole-body traversal agreeing; ledger W6.4-06).

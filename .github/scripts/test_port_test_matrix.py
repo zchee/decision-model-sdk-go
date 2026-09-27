@@ -66,7 +66,7 @@ PLANNED_A = (
 PLANNED_B = "| B1 | `test_three` | `TestThree` | planned |"
 LISTED = {
     "example.com/m": {"TestOne", "TestTwo", "BenchmarkNoop"},
-    "example.com/m/livetests": {"TestLive"},
+    "example.com/m/livetest": {"TestLive"},
 }
 
 # Constructs on which the ast collector and pytest's runtime collection agree.
@@ -519,13 +519,13 @@ class TestParseGoList:
             ?   \texample.com/m/internal/wire\t[no test files]
             TestLive
             ExampleClient
-            ok  \texample.com/m/livetests\t0.004s
+            ok  \texample.com/m/livetest\t0.004s
             ok  \texample.com/m/internal/empty\t0.001s
             """
         )
         assert ptm.parse_go_list(out) == {
             "example.com/m": {"BenchmarkNoop", "TestOne"},
-            "example.com/m/livetests": {"TestLive", "ExampleClient"},
+            "example.com/m/livetest": {"TestLive", "ExampleClient"},
             "example.com/m/internal/empty": set(),
         }
 
@@ -650,7 +650,7 @@ class TestCheckRows:
         [
             ("`TestTwo` (3 cases)", []),
             ("`TestOne` and `TestTwo`", []),
-            ("`livetests.TestLive`", []),
+            ("`livetest.TestLive`", []),
             (
                 "`TestMissing`",
                 [

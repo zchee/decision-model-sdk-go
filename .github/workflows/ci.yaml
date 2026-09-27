@@ -117,7 +117,7 @@ jobs:
           fi
           echo "go vet: ${#dirs[@]} example programs: ${dirs[*]}"
           go vet ./examples/...
-          go vet -tags live ./livetests/
+          go vet -tags live ./livetest/
 
       - name: Report available dependency updates
         run: go list -m -u all

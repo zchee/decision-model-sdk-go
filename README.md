@@ -417,7 +417,7 @@ calls the API unless both `TYPESAFE_LIVE_TESTS=1` and `TYPESAFE_API_KEY`
 are set. With the key already in your environment:
 
 ```sh
-TYPESAFE_LIVE_TESTS=1 go test -tags live -count=1 -v ./livetests/
+TYPESAFE_LIVE_TESTS=1 go test -tags live -count=1 -v ./livetest/
 ```
 
 The key is read from the environment and is never printed. The API bills

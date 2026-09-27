@@ -24,7 +24,7 @@ import (
 
 // TestReadPeerSettings reads the first SETTINGS frame of a loopback server
 // with and without a MAX_CONCURRENT_STREAMS limit, and refuses a server that
-// does not negotiate h2. The live test of K22 (livetests) reads the API's
+// does not negotiate h2. The live test of K22 (livetest) reads the API's
 // frame with the same function, so what it reports is checked here against
 // a server whose frame is known.
 func TestReadPeerSettings(t *testing.T) {

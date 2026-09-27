@@ -2,7 +2,7 @@
 version: "2"
 
 run:
-  # livetests/ compiles only with -tags live; lint it like the rest.
+  # livetest/ compiles only with -tags live; lint it like the rest.
   build-tags:
     - live
 

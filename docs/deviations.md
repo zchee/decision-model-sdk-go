@@ -136,7 +136,7 @@ facts about the API that are not deviations of the SDK:
   the API did not issue ("Cannot authenticate with the server."), both
   with the error type `authentication_error`, which
   `APIError.IsAuthentication` reports for both.
-  `livetests.TestLiveUnauthenticated` pins the two statuses, the error
+  `livetest.TestLiveUnauthenticated` pins the two statuses, the error
   type and `IsAuthentication`; the quoted messages are the live pass's
   record (ledger W6.4-02), which no test asserts.
 - The API gzips its successful responses when the client asks for gzip,

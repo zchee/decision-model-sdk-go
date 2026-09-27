@@ -14,7 +14,7 @@
 
 //go:build live
 
-package livetests
+package livetest
 
 import (
 	"os"

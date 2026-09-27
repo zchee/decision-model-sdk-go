@@ -29,7 +29,7 @@ import (
 )
 
 // liveBodies names the reader of each body the live pass recorded under
-// testdata/live (livetests, -record): a models body, a System One body, or
+// testdata/live (livetest, -record): a models body, a System One body, or
 // an error body, which the SDK reads with ReadErrorBody and never cuts. A
 // recording added without a row here fails TestLiveBodiesOneScan.
 var liveBodies = map[string]string{

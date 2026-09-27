@@ -5,7 +5,7 @@ and a complete program; every Go block on this page, and in the
 [README](../README.md), is one of them, byte for byte
 (`.github/scripts/docs-snippets.py` checks it in CI). CI also compiles them
 (`go vet ./examples/...`), and runs each against a local stand-in for the
-API (`livetests.TestExamplesOffline`); `livetests.TestExamples` runs them
+API (`livetest.TestExamplesOffline`); `livetest.TestExamples` runs them
 against the API itself (`-tags live`, not in CI).
 
 Each program reads the API key from `TYPESAFE_API_KEY`, as every client

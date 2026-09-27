@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package livetests holds the SDK's tests against the live TypeSafe API,
+// Package livetest holds the SDK's tests against the live TypeSafe API,
 // the port of the Python SDK's tests/test_integration.py. The API is billed
 // per call, so the tests are opt-in twice over: they compile only with the
 // build tag live, and each of them fails at once, before it calls the API,
 // unless the environment sets TYPESAFE_LIVE_TESTS=1 and TYPESAFE_API_KEY:
 //
-//	TYPESAFE_LIVE_TESTS=1 TYPESAFE_API_KEY=... go test -tags live -count=1 -v ./livetests/
+//	TYPESAFE_LIVE_TESTS=1 TYPESAFE_API_KEY=... go test -tags live -count=1 -v ./livetest/
 //
 // TYPESAFE_BASE_URL, when set, selects another API host, as it does for any
 // client. The key is read from the environment by the SDK itself; no test
@@ -33,4 +33,4 @@
 // every go test run, and run the programs under examples/ against a local
 // stand-in for the API (TestExamplesOffline); TestExamples, tagged, runs
 // them against the API.
-package livetests
+package livetest

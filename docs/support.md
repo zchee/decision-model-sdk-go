@@ -151,14 +151,14 @@ When a sonic tag without `!go1.28` exists:
 
 ## Live tests
 
-The tests against the live API (`livetests/`, the port of the Python
+The tests against the live API (`livetest/`, the port of the Python
 SDK's `tests/test_integration.py`) compile only with the build tag `live`
 and are not run by CI: each call to System One is billed, and CI holds no
 API key. They run where a maintainer holds a key, with the key in the
 environment, never on the command line:
 
 ```sh
-TYPESAFE_LIVE_TESTS=1 go test -tags live -count=1 -v ./livetests/
+TYPESAFE_LIVE_TESTS=1 go test -tags live -count=1 -v ./livetest/
 ```
 
 Each test fails before it calls the API unless `TYPESAFE_LIVE_TESTS` is `1`

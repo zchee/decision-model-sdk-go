@@ -62,7 +62,7 @@ coverage:
 # number when they appear in a profile.
 ignore:
   - examples/** # Runnable examples, compiled by go vet; documentation, not library code.
-  - livetests/** # Opt-in tests against the billed live API (-tags live); not run in CI.
+  - livetest/** # Opt-in tests against the billed live API (-tags live); not run in CI.
   - internal/testsupport/** # Test servers, proxies and fixtures: the code doing the testing.
 
 # https://docs.codecov.com/docs/pull-request-comments
