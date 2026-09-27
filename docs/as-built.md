@@ -33,7 +33,13 @@ A deviation that the change created or reshaped is cited as
 `deviation "<key>"`, the key of its row in [`deviations.md`](deviations.md).
 `.github/scripts/port-test-matrix.py --as-built` checks, in CI, every
 citation on this page against that table, every key of that table against
-this page, and every test name against `go test -list`.
+this page, every test name a phase table quotes against `go test -list`,
+and the page's shape against the frozen plan's: one ruling table in each
+of the eight phase sections, and 47 Appendix B rows, 27 of them bold. The
+accepted wave deviations further down quote their items as the rulings
+recorded them, so two test names there are history and not checked:
+`TestAllocBodyKinds`, which 429bf8c replaced by `TestAllocEncode`, and
+`TestClientLogsNoCredential`, folded into L1's `TestSecretHeadersRedacted`.
 
 ## Phase 0: foundation and spikes
 

@@ -1395,12 +1395,13 @@ GOOD_APPENDIX = (
 
 
 def _as_built(rulings: tuple[str, ...], appendix: tuple[str, ...]) -> str:
-    """Return a record with one ruling table (lines 7-) and one Appendix B table.
+    """Return a record with one phase and its ruling table (lines 7-) and one
+    Appendix B table.
 
     With the three good rulings the Appendix B rows start at line 15.
     """
     return (
-        "# As built\n\n## Phase 1\n\n"
+        "# As built\n\n## Phase 0: foundation\n\n"
         + RULING_TABLE
         + "\n".join(rulings)
         + "\n\n## Appendix B, row by row\n\n"
@@ -1448,6 +1449,37 @@ class TestAsBuilt:
     def test_anything_else_is_not_a_ruling_id(self, cell: str, want: str) -> None:
         _, failures = ptm.ruling_ids(cell, "f:1")
         assert failures == [f"f:1: {want} is not a ruling id"]
+
+    @pytest.mark.parametrize(
+        ("cell", "want_ids", "want"),
+        [
+            pytest.param(
+                "R1, R1",
+                ("R1",),
+                ["f:1: ruling R1 is named twice in one cell"],
+                id="adjacent",
+            ),
+            pytest.param(
+                "G8-a, R2, G8-a, R2",
+                ("G8-a", "R2"),
+                [
+                    "f:1: ruling G8-a is named twice in one cell",
+                    "f:1: ruling R2 is named twice in one cell",
+                ],
+                id="two-repeats",
+            ),
+            pytest.param("R1, R1-corr", ("R1", "R1-corr"), [], id="amendment-differs"),
+        ],
+    )
+    def test_an_id_named_twice_in_one_cell_fails(
+        self, cell: str, want_ids: tuple[str, ...], want: list[str]
+    ) -> None:
+        assert ptm.ruling_ids(cell, "f:1") == (want_ids, want)
+
+    def test_a_repeated_id_in_one_row_fails_the_record(self) -> None:
+        rulings = ("| R1, R1-corr, R1 | d | p | b | x | o |", *GOOD_RULINGS[1:])
+        record = ptm.parse_as_built(_as_built(rulings, GOOD_APPENDIX), "a.md")
+        assert record.failures == ["a.md:7: ruling R1 is named twice in one cell"]
 
     def test_the_record_is_read(self) -> None:
         record = ptm.parse_as_built(_as_built(GOOD_RULINGS, GOOD_APPENDIX), "a.md")
@@ -1552,6 +1584,142 @@ class TestAsBuilt:
             text += "\n" + APPENDIX_TABLE + "| 1 | x | no | — | — |\n"
         record = ptm.parse_as_built(text, "a.md")
         assert record.failures[0].startswith(f"a.md: {copies} Appendix B tables")
+
+    @staticmethod
+    def _phases(*sections: str) -> str:
+        """Return a record of the given phase sections and a good Appendix B.
+
+        Each section is a heading followed by its body; the first heading is
+        line 3.
+        """
+        return (
+            "# As built\n\n"
+            + "\n".join(sections)
+            + "\n## Appendix B, row by row\n\n"
+            + APPENDIX_TABLE
+            + "\n".join(GOOD_APPENDIX)
+            + "\n"
+        )
+
+    def test_phase_sections_are_read(self) -> None:
+        text = self._phases(
+            "## Phase 0: one\n\n" + RULING_TABLE + GOOD_RULINGS[0] + "\n",
+            "## Phase 1\n\n### A sub-heading\n\n" + RULING_TABLE + GOOD_RULINGS[1],
+        )
+        record = ptm.parse_as_built(text, "a.md")
+        assert record.failures == []
+        assert record.phases == [3, 9]
+        assert [r.line for r in record.rulings] == [7, 15]
+
+    @pytest.mark.parametrize(
+        ("sections", "want"),
+        [
+            pytest.param(
+                (
+                    "## Phase 0\n\n" + RULING_TABLE + GOOD_RULINGS[0] + "\n",
+                    "## Phase 1\n\n"
+                    + RULING_TABLE.replace("| Owner |", "| Owner answer |")
+                    + GOOD_RULINGS[1]
+                    + "\n",
+                ),
+                ["a.md:9: Phase 1 holds 0 ruling tables, want 1"],
+                id="renamed-header",
+            ),
+            pytest.param(
+                (
+                    "## Phase 0\n\n" + RULING_TABLE + GOOD_RULINGS[0] + "\n",
+                    "## Phase 1\n\n"
+                    + RULING_TABLE.replace("| Ruling |", "| Rulings |")
+                    + GOOD_RULINGS[1]
+                    + "\n",
+                ),
+                ["a.md:9: Phase 1 holds 0 ruling tables, want 1"],
+                id="renamed-first-cell",
+            ),
+            pytest.param(
+                (
+                    "## Phase 0\n\n"
+                    + RULING_TABLE
+                    + GOOD_RULINGS[0]
+                    + "\n\n"
+                    + RULING_TABLE
+                    + GOOD_RULINGS[1]
+                    + "\n",
+                ),
+                ["a.md:3: Phase 0 holds 2 ruling tables, want 1"],
+                id="two-tables",
+            ),
+            pytest.param(
+                (
+                    "## Phase 0\n\n" + RULING_TABLE + GOOD_RULINGS[0] + "\n",
+                    "## Phase 2\n\n" + RULING_TABLE + GOOD_RULINGS[1] + "\n",
+                ),
+                ["a.md:9: phase numbered '2', want 1"],
+                id="numbering",
+            ),
+            pytest.param(
+                (
+                    "## Phase 0\n\n" + RULING_TABLE + GOOD_RULINGS[0] + "\n",
+                    "## Phase 1\n\nNo table in this phase.\n",
+                    "## Notes\n\n" + RULING_TABLE + GOOD_RULINGS[1] + "\n",
+                ),
+                ["a.md:9: Phase 1 holds 0 ruling tables, want 1"],
+                id="table-in-a-later-section",
+            ),
+        ],
+    )
+    def test_each_phase_holds_one_ruling_table(
+        self, sections: tuple[str, ...], want: list[str]
+    ) -> None:
+        record = ptm.parse_as_built(self._phases(*sections), "a.md")
+        assert record.failures == want
+
+    @pytest.mark.parametrize(
+        ("phases", "appendix", "want"),
+        [
+            pytest.param(1, GOOD_APPENDIX, [], id="as-planned"),
+            pytest.param(
+                2,
+                GOOD_APPENDIX,
+                ["a.md: 1 phase sections, want 2"],
+                id="phase-dropped",
+            ),
+            pytest.param(
+                1,
+                GOOD_APPENDIX[:1],
+                ["a.md: 1 Appendix B rows, want 2"],
+                id="plain-row-dropped",
+            ),
+            pytest.param(
+                1,
+                ("| 1 | Row two | no | — | — |",),
+                [
+                    "a.md: 1 Appendix B rows, want 2",
+                    "a.md: 0 bold Appendix B rows, want 1",
+                ],
+                id="bold-row-dropped-and-renumbered",
+            ),
+            pytest.param(
+                1,
+                (GOOD_APPENDIX[0], "| 2 | Row two | yes | — | R1 |"),
+                ["a.md: 2 bold Appendix B rows, want 1"],
+                id="row-made-bold",
+            ),
+        ],
+    )
+    def test_the_plan_shape_is_pinned(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        phases: int,
+        appendix: tuple[str, ...],
+        want: list[str],
+    ) -> None:
+        monkeypatch.setattr(ptm, "PLAN_PHASES", phases)
+        monkeypatch.setattr(ptm, "APPENDIX_ROWS", 2)
+        monkeypatch.setattr(ptm, "APPENDIX_BOLD", 1)
+        record = ptm.parse_as_built(_as_built(GOOD_RULINGS, appendix), "a.md")
+        assert record.failures == []
+        assert ptm.check_plan_shape(record, "a.md") == want
 
     def _check(
         self,
@@ -1696,6 +1864,9 @@ class TestAsBuilt:
     def pinned(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(ptm, "upstream_head", lambda _: ptm.PINNED_COMMIT)
         monkeypatch.setattr(ptm, "EXPECTED_TEST_COUNT", len(UPSTREAM))
+        monkeypatch.setattr(ptm, "PLAN_PHASES", 1)
+        monkeypatch.setattr(ptm, "APPENDIX_ROWS", len(GOOD_APPENDIX))
+        monkeypatch.setattr(ptm, "APPENDIX_BOLD", 1)
         _fake_go(monkeypatch, _fake_run(stdout=GO_LIST_OK))
 
 
@@ -1710,6 +1881,7 @@ class TestRepositoryDeviations:
             (root / "docs" / "as-built.md").read_text(), "docs/as-built.md"
         )
         assert record.failures == []
+        assert ptm.check_plan_shape(record, "docs/as-built.md") == []
         got = ptm.check_as_built(
             record, deviations, None, "docs/as-built.md", "docs/deviations.md"
         )

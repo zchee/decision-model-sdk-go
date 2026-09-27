@@ -112,13 +112,21 @@ status is 0 only when every check passes.
    ``--deviations``). FILE's ruling tables, headed ``| Ruling | Date (UTC) |
    Plan text amended | As built | Pinned by | Owner |``, hold one row per
    ruling that changed the port plan: the Ruling cell is ruling ids separated
-   by commas (``R81``, ``R99-rev``, ``G8-a``, ``D-W2.2b``), and an id has one
-   row in all of them. FILE also holds exactly one Appendix B table, headed
-   ``| # | Appendix B row (Python SDK 0.7.1) | Bold | Deviation keys |
+   by commas (``R81``, ``R99-rev``, ``G8-a``, ``D-W2.2b``), an id appears
+   once in a cell, and an id has one row in all of them. Each section headed
+   ``## Phase <n>`` (to the next heading of level 1 or 2) holds exactly one
+   ruling table, and the sections are numbered 0, 1, … in document order, so
+   a table whose header lost or changed a word fails instead of being
+   skipped with its rows. FILE also holds exactly one Appendix B table,
+   headed ``| # | Appendix B row (Python SDK 0.7.1) | Bold | Deviation keys |
    Rulings |``: the plan's Appendix B transcribed row by row, numbered 1, 2,
    …, Bold ``yes`` or ``no``, Deviation keys ``—`` or ``deviation "<key>"``
    citations, Rulings ``—`` or the ids of ruling-table rows. The plan lives
-   outside the repository, so the transcription itself was checked by hand.
+   outside the repository, so the transcription itself was checked by hand;
+   the plan was never edited after its approval, so its counts are
+   constants: ``PLAN_PHASES`` phase sections and ``APPENDIX_ROWS`` Appendix B
+   rows, ``APPENDIX_BOLD`` of them bold. A row dropped and the rest
+   renumbered passes the numbering rule and fails the count.
    FILE and the deviation table agree in both directions: every citation in
    FILE is a key, and every key is cited by the Appendix B table or by a
    ruling row, so no deviation lacks the plan row or the ruling it came from;
@@ -202,6 +210,11 @@ APPENDIX_HEADER = (
     "Rulings",
 )
 BOLD = {"yes": True, "no": False}
+PLAN_PHASES = 8
+APPENDIX_ROWS = 47
+APPENDIX_BOLD = 27
+_SECTION_HEADING = re.compile(r"^#{1,2}[ \t]")
+_PHASE_HEADING = re.compile(r"^##[ \t]+Phase[ \t]+([^:\s]+)")
 _RULING_ID = re.compile(
     r"D-[A-Za-z0-9.]+(?:-[A-Za-z0-9.]+)*|[A-Z]\d+[a-z]?(?:-[a-z0-9]+)*"
 )
@@ -270,6 +283,7 @@ class AsBuilt:
 
     rulings: list[RulingRow] = field(default_factory=list)
     appendix: list[AppendixRow] = field(default_factory=list)
+    phases: list[int] = field(default_factory=list)
     failures: list[str] = field(default_factory=list)
 
 
@@ -1037,17 +1051,66 @@ def ruling_ids(cell: str, where: str) -> tuple[tuple[str, ...], list[str]]:
     """Split a cell of ruling ids separated by commas (check 8).
 
     Returns:
-        The ids, and one failure per part that is not exactly one ruling id.
+        The ids, and one failure per part that is not exactly one ruling id
+        and per id that the cell already named.
     """
     ids: list[str] = []
     failures: list[str] = []
     for part in cell.split(","):
         token = part.strip()
-        if _RULING_ID.fullmatch(token):
-            ids.append(token)
-        else:
+        if not _RULING_ID.fullmatch(token):
             failures.append(f"{where}: {token!r} is not a ruling id")
+        elif token in ids:
+            failures.append(f"{where}: ruling {token} is named twice in one cell")
+        else:
+            ids.append(token)
     return tuple(ids), failures
+
+
+def _phase_sections(text: str, source: str) -> tuple[list[int], list[str]]:
+    """Read the ``## Phase <n>`` sections of the as-built record (check 8).
+
+    A section runs from its heading to the next heading of level 1 or 2.
+
+    Returns:
+        The line of each phase heading, in document order, and one failure
+        per section numbered out of sequence (0, 1, …) and per section that
+        does not hold exactly one ruling table.
+    """
+    headings: list[tuple[int, str]] = []
+    tables: list[int] = []
+    in_phase = False
+    in_table = False
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        if _SECTION_HEADING.match(line):
+            match = _PHASE_HEADING.match(line)
+            in_phase, in_table = match is not None, False
+            if match is not None:
+                headings.append((lineno, match.group(1)))
+                tables.append(0)
+            continue
+        body = _table_line(line)
+        if (
+            in_phase
+            and body is not None
+            and not in_table
+            and tuple(_cells(body)) == RULING_HEADER
+        ):
+            tables[-1] += 1
+        in_table = body is not None
+    failures: list[str] = []
+    for want, ((lineno, number), count) in enumerate(
+        zip(headings, tables, strict=True)
+    ):
+        if number != str(want):
+            failures.append(
+                f"{source}:{lineno}: phase numbered {number!r}, want {want}"
+            )
+        if count != 1:
+            failures.append(
+                f"{source}:{lineno}: Phase {number} holds {count} ruling tables, want 1"
+            )
+    return [lineno for lineno, _ in headings], failures
 
 
 def cited_keys(cell: str) -> list[str]:
@@ -1084,11 +1147,15 @@ def parse_as_built(text: str, source: str) -> AsBuilt:
         source: the name used in failure messages.
 
     Returns:
-        The rows, and the failures: a malformed table or row, a Ruling cell
-        that is not ids, an id with two rows, no ruling table, not exactly
-        one Appendix B table, and a row of it numbered out of sequence.
+        The rows and the phase headings, and the failures: a malformed table
+        or row, a Ruling cell that is not ids or names an id twice, an id
+        with two rows, a phase section numbered out of sequence or without
+        exactly one ruling table, no ruling table, not exactly one Appendix B
+        table, and a row of it numbered out of sequence.
     """
     record = AsBuilt()
+    record.phases, failures = _phase_sections(text, source)
+    record.failures += failures
     tables, failures = _tables(text, RULING_HEADER, source)
     record.failures += failures
     first: dict[str, int] = {}
@@ -1210,6 +1277,25 @@ def check_as_built(
             if not _is_listed(pkg, name, listed)
         ]
     return failures
+
+
+def check_plan_shape(record: AsBuilt, source: str) -> list[str]:
+    """Return one failure per count of the record that differs from the plan's.
+
+    The plan is frozen, so ``PLAN_PHASES``, ``APPENDIX_ROWS`` and
+    ``APPENDIX_BOLD`` are constants; a phase or an Appendix B row dropped and
+    the rest renumbered passes the numbering rules and fails here.
+    """
+    bold = sum(1 for row in record.appendix if row.bold)
+    return [
+        f"{source}: {got} {what}, want {want}"
+        for what, got, want in (
+            ("phase sections", len(record.phases), PLAN_PHASES),
+            ("Appendix B rows", len(record.appendix), APPENDIX_ROWS),
+            ("bold Appendix B rows", bold, APPENDIX_BOLD),
+        )
+        if got != want
+    ]
 
 
 def as_built_summary(record: AsBuilt, deviations: list[Deviation]) -> str:
@@ -1376,6 +1462,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             record = parse_as_built(built_text, str(args.as_built))
             failures += record.failures
+            failures += check_plan_shape(record, str(args.as_built))
             failures += check_as_built(
                 record, deviations, listed, str(args.as_built), str(args.deviations)
             )
