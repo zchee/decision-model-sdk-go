@@ -48,12 +48,6 @@ func probeBody(state, extra string) string {
 	return `{"state":` + state + `,"model":"jev-latest","questions":` + probeQuestions + extra + `}`
 }
 
-// probeSet returns the probe's question set, prepared.
-func probeSet(t *testing.T) *Prepared {
-	t.Helper()
-	return mustPrepared(t, NewQuestions().Noul("q", Noul{Instructions: Text("?")}))
-}
-
 // bodyOf encodes a request body and returns a copy of its bytes, releasing
 // the body. On failure it checks that no body was handed out.
 func bodyOf(t *testing.T, state any, model string, qs *Prepared, extra ...bodyMember) (string, error) {
@@ -177,7 +171,7 @@ func TestBodyBytesMatchPython(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			qs := probeSet(t)
+			qs := noulQuestion(t)
 			if tt.qs != nil {
 				qs = tt.qs(t)
 			}
@@ -308,7 +302,7 @@ func TestBodyDeviationsFromPython(t *testing.T) {
 				}
 				want = w
 			}
-			got := mustBody(t, tt.state, "jev-latest", probeSet(t), tt.extra...)
+			got := mustBody(t, tt.state, "jev-latest", noulQuestion(t), tt.extra...)
 			if diff := gocmp.Diff(want, got); diff != "" {
 				t.Errorf("sonic's bytes changed on %s (-pinned +go):\n%s", runtime.GOARCH, diff)
 			}
@@ -427,7 +421,7 @@ func TestExtraBodyShallowOverride(t *testing.T) {
 			if model == "" {
 				model = "jev-latest"
 			}
-			got := mustBody(t, tt.state, model, probeSet(t), tt.extra...)
+			got := mustBody(t, tt.state, model, noulQuestion(t), tt.extra...)
 			if diff := gocmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("body (-want +got):\n%s", diff)
 			}
@@ -435,7 +429,7 @@ func TestExtraBodyShallowOverride(t *testing.T) {
 	}
 
 	t.Run("error: a replacing state follows the state rules", func(t *testing.T) {
-		_, err := bodyOf(t, "hi", "jev-latest", probeSet(t), bodyMember{Key: "state", Value: 3})
+		_, err := bodyOf(t, "hi", "jev-latest", noulQuestion(t), bodyMember{Key: "state", Value: 3})
 		ire := invalidRequest(t, err, `extra body member "state"`, "int encodes as a number")
 		if !errors.Is(ire, codec.ErrStateShape) {
 			t.Errorf("err = %v, want errors.Is codec.ErrStateShape", ire)
@@ -468,7 +462,7 @@ func requestReaders(body codec.Body) (io.ReadCloser, func() (io.ReadCloser, erro
 // SystemOne.
 func send(t *testing.T, rt http.RoundTripper, state any, extra ...bodyMember) error {
 	t.Helper()
-	body, err := encodeBody(state, "jev-latest", probeSet(t), extra)
+	body, err := encodeBody(state, "jev-latest", noulQuestion(t), extra)
 	if err != nil {
 		return err
 	}
@@ -665,7 +659,7 @@ func TestScalarStatesRefused(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, err := bodyOf(t, tt.state, "jev-latest", probeSet(t), tt.extra...)
+			got, err := bodyOf(t, tt.state, "jev-latest", noulQuestion(t), tt.extra...)
 			if tt.ok {
 				if err != nil {
 					t.Fatalf("encodeBody: %v", err)
@@ -702,7 +696,7 @@ func TestNamedStringStateEncodesAsString(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := mustBody(t, tt.state, "jev-latest", probeSet(t))
+			got := mustBody(t, tt.state, "jev-latest", noulQuestion(t))
 			want := probeBody(tt.want, "")
 			if diff := gocmp.Diff(want, got); diff != "" {
 				t.Errorf("body (-want +got):\n%s", diff)
@@ -746,7 +740,7 @@ func TestMapSliceStructStates(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := mustBody(t, tt.state, "jev-latest", probeSet(t))
+			got := mustBody(t, tt.state, "jev-latest", noulQuestion(t))
 			want := probeBody(tt.want, "")
 			if diff := gocmp.Diff(want, got); diff != "" {
 				t.Errorf("body (-want +got):\n%s", diff)
@@ -787,7 +781,7 @@ func TestEncodeBodyChecksConfigurationFirst(t *testing.T) {
 			want:  "At least one question is required.",
 		},
 		"error: the question set is checked before the model": {qs: noSet, model: "jev\xff", want: "At least one question is required."},
-		"error: a model that is not UTF-8":                    {qs: probeSet, model: "jev\xff", want: `Model "jev\xff" is not valid UTF-8.`},
+		"error: a model that is not UTF-8":                    {qs: noulQuestion, model: "jev\xff", want: `Model "jev\xff" is not valid UTF-8.`},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -807,7 +801,7 @@ func TestEncodeBodyChecksConfigurationFirst(t *testing.T) {
 // TestEncodeBodyModel checks that the model is written as a JSON string with
 // the question serialiser's escaping.
 func TestEncodeBodyModel(t *testing.T) {
-	got := mustBody(t, "x", "a\"b\\c\u0001é", probeSet(t))
+	got := mustBody(t, "x", "a\"b\\c\u0001é", noulQuestion(t))
 	want := `{"state":"x","model":"a\"b\\c\u0001é","questions":` + probeQuestions + `}`
 	if diff := gocmp.Diff(want, got); diff != "" {
 		t.Errorf("body (-want +got):\n%s", diff)
@@ -819,7 +813,7 @@ func TestEncodeBodyModel(t *testing.T) {
 // reads the same bytes (by digest), each holds the body until it is closed,
 // and GetBody fails once the body is gone.
 func TestRequestReaders(t *testing.T) {
-	body, err := encodeBody(map[string]any{"k": "v"}, "jev-latest", probeSet(t), []bodyMember{{Key: "n", Value: 1}})
+	body, err := encodeBody(map[string]any{"k": "v"}, "jev-latest", noulQuestion(t), []bodyMember{{Key: "n", Value: 1}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -892,7 +886,7 @@ func TestInvalidRequestError(t *testing.T) {
 		t.Errorf("Unwrap without a cause = %v, want nil", got)
 	}
 
-	_, err := bodyOf(t, []any{math.Inf(-1)}, "jev-latest", probeSet(t))
+	_, err := bodyOf(t, []any{math.Inf(-1)}, "jev-latest", noulQuestion(t))
 	ee, ok := errors.AsType[*codec.EncodeError](err)
 	if !ok {
 		t.Fatalf("err = %T %v, want a chain through *codec.EncodeError", err, err)
@@ -984,7 +978,7 @@ func TestNestedContentEncodesAsContent(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, err := bodyOf(t, tt.state, "jev-latest", probeSet(t), tt.extra...)
+			got, err := bodyOf(t, tt.state, "jev-latest", noulQuestion(t), tt.extra...)
 			if tt.wantErr != "" {
 				_ = invalidRequest(t, err, tt.wantErr)
 				if _, ok := errors.AsType[*codec.EncodeError](err); !ok {
@@ -1119,7 +1113,7 @@ func TestNestedRawJSONEncodesAsJSON(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, err := bodyOf(t, tt.state, "jev-latest", probeSet(t), tt.extra...)
+			got, err := bodyOf(t, tt.state, "jev-latest", noulQuestion(t), tt.extra...)
 			if tt.wantErr == "" {
 				if err != nil {
 					t.Fatalf("encodeBody: %v", err)
@@ -1212,7 +1206,7 @@ func TestEncodeErrorMessageIsBounded(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := bodyOf(t, tt.state, "jev-latest", probeSet(t), tt.extra...)
+			_, err := bodyOf(t, tt.state, "jev-latest", noulQuestion(t), tt.extra...)
 			ire := invalidRequest(t, err, tt.want)
 			msg := ire.Error()
 			t.Logf("message (%d bytes): %s", len(msg), msg)
