@@ -464,7 +464,8 @@ func testDialErrorsOverLoopback(t *testing.T) {
 		c := loopbackConfig(t, srv)
 		r := getWithin(t, c.Transport, srv.URL()+"/v1/models", attempt, within)
 		ce := assertNotNegotiated(t, r.err)
-		if ce != nil && !strings.Contains(ce.Error(), "no application protocol") {
+		const want = "The API host did not negotiate HTTP/2, which HTTP2Only requires (remote error: tls: no application protocol); WithHTTPVersion(HTTPAuto) allows HTTP/1.1."
+		if ce != nil && ce.Error() != want {
 			t.Errorf("Error() = %q, want the alert named", ce.Error())
 		}
 	})
