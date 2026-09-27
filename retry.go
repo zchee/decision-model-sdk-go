@@ -355,7 +355,7 @@ func (r *retryState) wait(ctx context.Context, attempt int, err error) error {
 		return err
 	}
 	d := r.delay(attempt+1, err)
-	if p.set&setBudget == 0 || !p.unbounded {
+	if !p.unbounded {
 		budget := defaultRetryBudget
 		if p.set&setBudget != 0 {
 			budget = p.budget
@@ -480,9 +480,6 @@ func backoff(retry int, initial, maximum time.Duration, jitter float64, random f
 // The formatting buffer stays on the stack for any wait below 10^55 s.
 func roundMillis(seconds float64) float64 {
 	var buf [64]byte
-	r, err := strconv.ParseFloat(string(strconv.AppendFloat(buf[:0], seconds, 'f', 3, 64)), 64)
-	if err != nil { // unreachable: 'f' output always parses
-		return seconds
-	}
+	r, _ := strconv.ParseFloat(string(strconv.AppendFloat(buf[:0], seconds, 'f', 3, 64)), 64) // 'f' output always parses
 	return r
 }

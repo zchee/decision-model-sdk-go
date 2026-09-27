@@ -1165,9 +1165,6 @@ type concurrentOnly struct {
 // the plan, and every later call returns the same *Prepared, or the same
 // error, without allocating.
 func TestPreparedForCache(t *testing.T) {
-	// With -count above 1 an earlier run of this test made the first call.
-	_, cachedBefore := typedPlans.Load(reflect.TypeFor[cacheOnly]())
-	t.Logf("cacheOnly cached before this run's first call: %v", cachedBefore)
 	first, err := PreparedFor[cacheOnly]()
 	if err != nil {
 		t.Fatalf("PreparedFor[cacheOnly]: %v", err)

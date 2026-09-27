@@ -303,10 +303,7 @@ func buildPlan(t reflect.Type) *typedPlan {
 	if err != nil {
 		// Every rule Prepare applies to a question was checked above, so the
 		// one failure left is a set without questions.
-		msg := err.Error()
-		if len(fields) == 0 {
-			msg += " " + typeLabel(t) + " has no answer fields: give it one NoulAnswer, ChoiceAnswer or ScoreAnswer field per question, each with a typesafe tag."
-		}
+		msg := err.Error() + " " + typeLabel(t) + " has no answer fields: give it one NoulAnswer, ChoiceAnswer or ScoreAnswer field per question, each with a typesafe tag."
 		return &typedPlan{err: newConfigError(owner + msg)}
 	}
 	entries := p.wirePrepared().Entries()

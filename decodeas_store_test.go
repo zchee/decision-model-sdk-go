@@ -175,25 +175,15 @@ func requireStoreLayout[T any](t *testing.T) *typedPlan {
 }
 
 // TestStoreFieldKinds checks the store's layout assumptions on a struct of
-// every field kind with requireStoreLayout, before any write, and prints the
-// alignment and size table of each field. DecodeAs then fills exactly the
-// answer fields and leaves every other field zero.
+// every field kind with requireStoreLayout, before any write. DecodeAs then
+// fills exactly the answer fields and leaves every other field zero.
 func TestStoreFieldKinds(t *testing.T) {
-	typ := reflect.TypeFor[storeKinds]()
 	p := requireStoreLayout[storeKinds](t)
 	if p.err != nil {
 		t.Fatal(p.err)
 	}
-	answerAt := map[int]bool{}
-	for _, f := range p.fields {
-		answerAt[f.index] = true
-	}
 	if len(p.fields) != 4 {
 		t.Fatalf("plan has %d answer fields, want 4", len(p.fields))
-	}
-	for i := range typ.NumField() {
-		sf := typ.Field(i)
-		t.Logf("LAYOUT %-10s %-14s offset %3d size %3d align %d answer %t", sf.Name, sf.Type, sf.Offset, sf.Type.Size(), sf.Type.Align(), answerAt[i])
 	}
 
 	resp := storeKindsResponse(t)
