@@ -825,12 +825,20 @@ func TestLoopbackGoAway(t *testing.T) {
 		// And no more than net/http dialed: on the loopback every accepted
 		// connection is one of its dials. An accept can trail its dial by a
 		// moment, so they are compared for up to 5 s, without ending the
-		// test, so that the record below still prints.
-		for deadline := time.Now().Add(5 * time.Second); srv.Accepts() != conns.Dials() && time.Now().Before(deadline); {
-			time.Sleep(5 * time.Millisecond)
+		// test, so that the record below still prints. The check uses the
+		// pair the loop read last and reads neither counter again: a
+		// dialing goroutine that took its context before the request was
+		// served can reach the dialer after the GET has returned, and a
+		// dial counted between two readings would be compared with an
+		// accept that has not happened yet.
+		var accepts, dials int
+		for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+			if accepts, dials = srv.Accepts(), conns.Dials(); accepts == dials || !time.Now().Before(deadline) {
+				break
+			}
 		}
-		if n, d := srv.Accepts(), conns.Dials(); n != d {
-			t.Errorf("Accepts() = %d, want the %d connections net/http dialed", n, d)
+		if accepts != dials {
+			t.Errorf("Accepts() = %d, want the %d connections net/http dialed", accepts, dials)
 		}
 		// Close waits for every handler the server started: the request ran
 		// once, on the connection that served the replay, and never on
