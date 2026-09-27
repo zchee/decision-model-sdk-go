@@ -290,7 +290,7 @@ func TestTransportBuildErrors(t *testing.T) {
 		if diff := gocmp.Diff(want, ce.Error()); diff != "" {
 			t.Errorf("Error() (-want +got):\n%s", diff)
 		}
-		assertNotPrinted(t, ce, "bücher")
+		testsupport.AssertNotPrinted(t, ce, "bücher")
 		mustResolve(t, noEnv, WithAPIKey(testKey), WithBaseURL("https://bücher.example"), WithHTTPVersion(HTTPAuto))
 	})
 	t.Run("error: a caller transport carrying its own h2 under HTTP2Only", func(t *testing.T) {
@@ -316,7 +316,7 @@ func TestTransportBuildErrors(t *testing.T) {
 		if len(ce.Unwrap()) != 0 {
 			t.Errorf("Unwrap() = %v, want nothing", ce.Unwrap())
 		}
-		assertNotPrinted(t, ce, "hunter2")
+		testsupport.AssertNotPrinted(t, ce, "hunter2")
 	})
 	t.Run("error: any other build failure keeps its cause", func(t *testing.T) {
 		cause := errors.New("h2gate: unknown mode 9")
@@ -418,24 +418,24 @@ func TestDialErrorsMapToSDKErrors(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := transportError(tt.err, attempt, requestCredentials(tt.header))
+			got := transportError(tt.err, attempt, engine.RequestCredentials(tt.header))
 			assertMapped(t, got, tt.err, tt.want.kind, tt.want.text, tt.want.proxy, tt.want.unwrapsErr)
 			if tt.want.kind == "" && got != nil {
 				t.Errorf("transportError = %T %v, want nil", got, got)
 			}
-			assertNotPrinted(t, got, "hunter2")
-			assertNotPrinted(t, got, detailKey)
+			testsupport.AssertNotPrinted(t, got, "hunter2")
+			testsupport.AssertNotPrinted(t, got, detailKey)
 		})
 	}
 	t.Run("success: a dial error without an attempt timeout", func(t *testing.T) {
-		got := transportError(&h2gate.DialError{Timeout: true, Err: timeoutCause}, 0, requestCredentials(nil))
+		got := transportError(&h2gate.DialError{Timeout: true, Err: timeoutCause}, 0, engine.RequestCredentials(nil))
 		if got == nil || got.Error() != "Request timed out." {
 			t.Errorf("transportError = %v, want %q", got, "Request timed out.")
 		}
 	})
 	t.Run("success: an unmapped error comes back from roundTrip as it is", func(t *testing.T) {
 		cause := errors.New("http2: stream closed")
-		c := mustResolve(t, noEnv, WithAPIKey(testKey), WithRoundTripper(roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, cause })))
+		c := mustResolve(t, noEnv, WithAPIKey(testKey), WithRoundTripper(testsupport.RoundTripFunc(func(*http.Request) (*http.Response, error) { return nil, cause })))
 		if r := getWithin(t, c.Transport, "https://api.typesafe.ai/v1/models", attempt, time.Second); r.err != cause { //nolint:errorlint // identity is the assertion
 			t.Errorf("roundTrip error = %v, want the round tripper's own", r.err)
 		}
@@ -511,7 +511,7 @@ func testDialErrorsOverLoopback(t *testing.T) {
 		if !errors.As(r.err, &ce) || !ce.Proxy() || !strings.HasPrefix(ce.Error(), "Connection error: proxyconnect tcp: ") {
 			t.Fatalf("error = %T %v, want a proxy *ConnectionError", r.err, r.err)
 		}
-		assertNotPrinted(t, r.err, "hunter2")
+		testsupport.AssertNotPrinted(t, r.err, "hunter2")
 	})
 	t.Run("error: a TLS-silent proxy", func(t *testing.T) {
 		silent := testsupport.NewSilentListener(t)

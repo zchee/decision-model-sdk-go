@@ -25,6 +25,17 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
+// mustClient builds a client from opts and closes it when tb ends.
+func mustClient(tb testing.TB, opts ...ClientOption) *Client {
+	tb.Helper()
+	c, err := NewClient(opts...)
+	if err != nil {
+		tb.Fatalf("NewClient: %v", err)
+	}
+	tb.Cleanup(func() { _ = c.Close() })
+	return c
+}
+
 // newTestClient builds a client over rt, the test's transport
 // (WithRoundTripper), with testKey (the upstream tests' key, 8 bytes long,
 // so the checks that look for the key inside other text apply to it, ruling
@@ -39,12 +50,7 @@ import (
 func newTestClient(t *testing.T, rt http.RoundTripper, opts ...ClientOption) *Client {
 	t.Helper()
 	clearEnv(t)
-	c, err := NewClient(append([]ClientOption{WithAPIKey(testKey), WithRoundTripper(rt), WithRetry(NoRetry())}, opts...)...)
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
-	}
-	t.Cleanup(func() { _ = c.Close() })
-	return c
+	return mustClient(t, append([]ClientOption{WithAPIKey(testKey), WithRoundTripper(rt), WithRetry(NoRetry())}, opts...)...)
 }
 
 // replying returns a Recorder that answers every request with status, a

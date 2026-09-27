@@ -32,6 +32,7 @@ import (
 	gocmp "github.com/google/go-cmp/cmp"
 
 	"github.com/zchee/typesafe-sdk-go/internal/codec"
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
@@ -116,7 +117,7 @@ func TestConfigError(t *testing.T) {
 // apiError builds the *APIError the SDK builds for a response with status,
 // body and header, at endpoint.
 func apiError(status int, body string, header http.Header, endpoint string) *APIError {
-	return newAPIError(&wire.ResponseMeta{Status: status, Header: header, Body: []byte(body)}, endpoint, headerRedactor{})
+	return newAPIError(&wire.ResponseMeta{Status: status, Header: header, Body: []byte(body)}, endpoint, engine.HeaderRedactor{})
 }
 
 func mustURL(t *testing.T, raw string) *url.URL {
@@ -677,7 +678,7 @@ func listModelsError[T Error](t *testing.T, rec *testsupport.Recorder) T {
 // responseValidationError builds the *ResponseValidationError the SDK builds
 // for a response with status and header, whose body decoding failed with err.
 func responseValidationError(status int, header http.Header, err error) *ResponseValidationError {
-	return newResponseValidationError(&wire.ResponseMeta{Status: status, Header: header, Body: []byte(`{}`)}, "", headerRedactor{}, err)
+	return newResponseValidationError(&wire.ResponseMeta{Status: status, Header: header, Body: []byte(`{}`)}, "", engine.HeaderRedactor{}, err)
 }
 
 // TestErrorsAsRoundTrip is the Go half of test_exception_reconstruction

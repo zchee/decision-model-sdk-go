@@ -28,6 +28,7 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
@@ -219,7 +220,7 @@ func TestStoreKeepsNeighbours(t *testing.T) {
 	resp := storeKindsResponse(t)
 	want := wantAnswers(t, resp, v)
 	p := requireStoreLayout[storeKinds](t)
-	if err := p.decode(resp, "", headerRedactor{}, baseOf(&v)); err != nil {
+	if err := p.decode(resp, "", engine.HeaderRedactor{}, baseOf(&v)); err != nil {
 		t.Fatal(err)
 	}
 	if diff := gocmp.Diff(want, v, storeKindsCmp); diff != "" {
@@ -323,7 +324,7 @@ func TestStoreRefusesOutsideField(t *testing.T) {
 						}
 					}
 				}()
-				_ = bad.decode(resp, "", headerRedactor{}, baseOf(&v))
+				_ = bad.decode(resp, "", engine.HeaderRedactor{}, baseOf(&v))
 				t.Error("decode with a plan the bound refuses returned")
 			}()
 			if diff := gocmp.Diff(before, v, storeKindsCmp); diff != "" {
@@ -425,7 +426,7 @@ func TestDecodeTypedPlanMismatch(t *testing.T) {
 			t.Errorf("recover() = %v, want the plan mismatch panic", r)
 		}
 	}()
-	_, _ = decodeTyped[reviewAnswers](typedPlanFor[storeKinds](), resp, "", headerRedactor{})
+	_, _ = decodeTyped[reviewAnswers](typedPlanFor[storeKinds](), resp, "", engine.HeaderRedactor{})
 	t.Error("decodeTyped with the plan of another type returned")
 }
 

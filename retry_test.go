@@ -31,6 +31,7 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/h2gate"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
@@ -140,7 +141,7 @@ func retryCounts(reqs []testsupport.RecordedRequest) []string {
 	out := make([]string, len(reqs))
 	for i, r := range reqs {
 		out[i] = absent
-		if v := r.Header.Values(headerRetryCount); len(v) > 0 {
+		if v := r.Header.Values(engine.HeaderRetryCount); len(v) > 0 {
 			out[i] = strings.Join(v, ",")
 		}
 	}
@@ -966,7 +967,7 @@ func TestRetryRecoversWithOverrides(t *testing.T) {
 						t.Errorf("attempt %d headers (-want +got):\n%s", i, diff)
 					}
 					h := r.Header.Clone()
-					h.Del(headerRetryCount)
+					h.Del(engine.HeaderRetryCount)
 					if diff := gocmp.Diff(reqs[0].Header, h); diff != "" {
 						t.Errorf("attempt %d headers besides the retry count differ from the first (-first +this):\n%s", i, diff)
 					}
@@ -984,8 +985,8 @@ func TestRetryRecoversWithOverrides(t *testing.T) {
 					t.Fatalf("second SystemOne: %v", err)
 				}
 				last := log.rec.Requests()[3]
-				if !strings.Contains(string(last.Body), `"model":"client-model"`) || last.Header.Get("X-Call") != "" || len(last.Header.Values(headerRetryCount)) != 0 {
-					t.Errorf("next call: body %s, X-Call %q, retry count %q; want the client's model and neither header", last.Body, last.Header.Get("X-Call"), last.Header.Values(headerRetryCount))
+				if !strings.Contains(string(last.Body), `"model":"client-model"`) || last.Header.Get("X-Call") != "" || len(last.Header.Values(engine.HeaderRetryCount)) != 0 {
+					t.Errorf("next call: body %s, X-Call %q, retry count %q; want the client's model and neither header", last.Body, last.Header.Get("X-Call"), last.Header.Values(engine.HeaderRetryCount))
 				}
 				if got := log.attempts()[3].timeout; got != 7*time.Second {
 					t.Errorf("next call's deadline in %v, want 7s", got)
@@ -1009,10 +1010,10 @@ func TestConcurrentCallsKeepTheirOverrides(t *testing.T) {
 		}
 		seen := map[string][]attempt{}
 		rec := &testsupport.Recorder{Replies: []testsupport.Reply{rtReply(429, `{"message": "retry"}`, "Retry-After-Ms", "0")}}
-		rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		rt := testsupport.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
 			dl, _ := req.Context().Deadline()
 			a := attempt{timeout: time.Until(dl), count: absent}
-			if v := req.Header.Values(headerRetryCount); len(v) > 0 {
+			if v := req.Header.Values(engine.HeaderRetryCount); len(v) > 0 {
 				a.count = strings.Join(v, ",")
 			}
 			rc, err := req.GetBody()
@@ -1352,7 +1353,7 @@ func TestCallerDeadlineEndsAnAttempt(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		cause := errors.New("transport: the request's context ended")
 		var n int
-		rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		rt := testsupport.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
 			n++
 			<-req.Context().Done()
 			return nil, cause

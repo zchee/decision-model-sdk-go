@@ -32,6 +32,7 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
@@ -45,9 +46,9 @@ func apiHandler(t *testing.T) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
-		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, systemOnePath):
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, engine.SystemOnePath):
 			_, _ = w.Write(result)
-		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, modelsPath):
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, engine.ModelsPath):
 			_, _ = w.Write(models)
 		default:
 			http.NotFound(w, r)
@@ -78,11 +79,7 @@ func (c *closingRT) Close() error {
 func TestSystemOneOverHTTP2(t *testing.T) {
 	srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: apiHandler(t)})
 	clearEnv(t)
-	c, err := NewClient(WithAPIKey(testKey), WithBaseURL(srv.URL()+"/prefix///"), WithRootCAs(testsupport.RootCAs(t)))
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
-	}
-	t.Cleanup(func() { _ = c.Close() })
+	c := mustClient(t, WithAPIKey(testKey), WithBaseURL(srv.URL()+"/prefix///"), WithRootCAs(testsupport.RootCAs(t)))
 	if err := c.WarmUp(t.Context()); err != nil {
 		t.Fatalf("WarmUp: %v", err)
 	}
@@ -108,7 +105,7 @@ func TestSystemOneOverHTTP2(t *testing.T) {
 	type seen struct{ Proto, Method, Path, Authorization, ContentType, RetryCount string }
 	var got []seen
 	for _, r := range srv.Requests() {
-		got = append(got, seen{r.Proto, r.Method, r.Path, r.Header.Get("Authorization"), r.Header.Get("Content-Type"), r.Header.Get(headerRetryCount)})
+		got = append(got, seen{r.Proto, r.Method, r.Path, r.Header.Get("Authorization"), r.Header.Get("Content-Type"), r.Header.Get(engine.HeaderRetryCount)})
 	}
 	post := seen{"HTTP/2.0", http.MethodPost, "/prefix/v1/systemone", "Bearer " + testKey, "application/json", ""}
 	want := []seen{{"HTTP/2.0", http.MethodGet, "/prefix/v1/models", "Bearer " + testKey, "", ""}, post, post, post}
@@ -175,11 +172,7 @@ func TestCallerTransportKeepsItsSettings(t *testing.T) {
 		},
 	}
 	clearEnv(t)
-	c, err := NewClient(WithAPIKey(testKey), WithHTTPTransport(tr), WithBaseURL(srv.URL), WithHeader("X-Sdk-Default", "sdk"), WithHeader("X-Call", "sdk"))
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
-	}
-	t.Cleanup(func() { _ = c.Close() })
+	c := mustClient(t, WithAPIKey(testKey), WithHTTPTransport(tr), WithBaseURL(srv.URL), WithHeader("X-Sdk-Default", "sdk"), WithHeader("X-Call", "sdk"))
 	models, err := c.Models().List(t.Context(), Header("X-Call", "call"))
 	if err != nil {
 		t.Fatalf("List: %v", err)
@@ -389,12 +382,7 @@ func TestCancelInFlightRequest(t *testing.T) {
 					case <-release:
 					}
 				})})
-				clearEnv(t)
-				c, err := NewClient(WithAPIKey(testKey), WithBaseURL(srv.URL()), WithRootCAs(testsupport.RootCAs(t)), WithProxy(nil))
-				if err != nil {
-					t.Fatalf("NewClient: %v", err)
-				}
-				t.Cleanup(func() { _ = c.Close() })
+				c := newLoopbackClient(t, srv, nil)
 				return setup{c: c, after: func(t *testing.T) {
 					waitFor(t, 5*time.Second, "the server sees the stream dropped", func() bool {
 						reqs := srv.Requests()
@@ -408,7 +396,7 @@ func TestCancelInFlightRequest(t *testing.T) {
 		},
 		"success: Close then closes a supplied transport once": {
 			setup: func(t *testing.T, started func()) setup {
-				rt := &closingRT{rt: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				rt := &closingRT{rt: testsupport.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
 					started()
 					<-req.Context().Done()
 					return nil, req.Context().Err()
@@ -426,7 +414,7 @@ func TestCancelInFlightRequest(t *testing.T) {
 		},
 		"success: a cancellation while the body is read": {
 			setup: func(t *testing.T, started func()) setup {
-				rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				rt := testsupport.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
 					return &http.Response{
 						StatusCode: http.StatusOK, Header: http.Header{}, ContentLength: -1, Request: req,
 						Body: ctxBody{ctx: req.Context(), started: started},
@@ -587,7 +575,7 @@ func (netTimeout) Temporary() bool { return true }
 // replaced, as typesafe-sdk-python collects it (py:_core/logging.py:43).
 func TestAttemptErrorClassification(t *testing.T) {
 	const longKey = "ts_live_0123456789abcdef"
-	blockUntilDone := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	blockUntilDone := testsupport.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		<-req.Context().Done()
 		return nil, req.Context().Err()
 	})
@@ -651,11 +639,11 @@ func TestAttemptErrorClassification(t *testing.T) {
 				if !ok || ce.Error() != "Connection error: proxy said: ***; key ***" || !standIn || ce.Proxy() {
 					t.Errorf("error = %v (%T), want a *ConnectionError with the credentials replaced, wrapping a stand-in", err, err)
 				}
-				assertNotPrinted(t, err, longKey)
+				testsupport.AssertNotPrinted(t, err, longKey)
 			},
 		},
 		"error: the attempt's deadline, whatever error the transport reports": {
-			rt: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			rt: testsupport.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
 				<-req.Context().Done()
 				return nil, errString("net/http: request canceled")
 			}),
@@ -668,7 +656,7 @@ func TestAttemptErrorClassification(t *testing.T) {
 			},
 		},
 		"error: the attempt's deadline while the body is read": {
-			rt: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			rt: testsupport.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
 				return &http.Response{
 					StatusCode: http.StatusOK, Header: http.Header{}, ContentLength: -1, Request: req,
 					Body: ctxBody{ctx: req.Context(), started: func() {}},
@@ -683,7 +671,7 @@ func TestAttemptErrorClassification(t *testing.T) {
 			},
 		},
 		"error: a body cut short": {
-			rt: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			rt: testsupport.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
 				return &http.Response{
 					StatusCode: http.StatusOK, Header: http.Header{}, ContentLength: 64, Request: req,
 					Body: io.NopCloser(io.MultiReader(strings.NewReader(`{"models":`), iotest.ErrReader(io.ErrUnexpectedEOF))),
@@ -780,11 +768,7 @@ func TestAttemptDeadlineEndsTheCall(t *testing.T) {
 			clearEnv(t)
 			// One attempt: a retry of the timed-out attempt would outlast
 			// the bound below.
-			c, err := NewClient(append([]ClientOption{WithAPIKey(testKey), WithBaseURL(srv.URL), WithRetry(NoRetry())}, tt.client...)...)
-			if err != nil {
-				t.Fatalf("NewClient: %v", err)
-			}
-			t.Cleanup(func() { _ = c.Close() })
+			c := mustClient(t, append([]ClientOption{WithAPIKey(testKey), WithBaseURL(srv.URL), WithRetry(NoRetry())}, tt.client...)...)
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			errc := make(chan error, 1)

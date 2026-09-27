@@ -252,7 +252,7 @@ func TestClientTraceColdDialPanic(t *testing.T) {
 // call of the client.
 func TestClientTraceMergeOrderAndCopy(t *testing.T) {
 	var calls []string
-	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	rt := testsupport.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		httptrace.ContextClientTrace(req.Context()).GetConn("api.typesafe.ai:443")
 		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Request: req}, nil
 	})
@@ -348,7 +348,7 @@ func assertHookRecords(t *testing.T, got []ctxRecord, want [][2]string, fn, secr
 func TestClientTraceRoundTripPanic(t *testing.T) {
 	rec := &ctxRecorder{}
 	var captured *httptrace.ClientTrace
-	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	rt := testsupport.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		captured = httptrace.ContextClientTrace(req.Context())
 		captured.GetConn("h:443")
 		panic("the round tripper failed")

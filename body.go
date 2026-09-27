@@ -91,22 +91,22 @@ func encodeBody(state any, model string, qs *Prepared, extra []bodyMember) (code
 	}
 	member := f.Key
 	if f.Extra {
-		member = "extra body member " + quotedName(f.Key)
+		member = "extra body member " + engine.QuotedName(f.Key)
 	}
 	return codec.Body{}, encodeError(member, f.Err)
 }
 
 // encodeError is the [*InvalidRequestError] for the body member that could
 // not be encoded, named as the message names it. The cause's text, which can
-// quote what the caller passed, is escaped and cut at [maxMessageChars]
+// quote what the caller passed, is escaped and cut at [engine.MaxMessageChars]
 // (NF7, ruling R58), so the message never carries the state into a log; the
 // whole cause stays behind Unwrap.
 func encodeError(member string, err error) *InvalidRequestError {
-	msg := make([]byte, 0, 64+len(member)+maxMessageChars)
+	msg := make([]byte, 0, 64+len(member)+engine.MaxMessageChars)
 	msg = append(msg, "The request body could not be encoded as JSON: "...)
 	msg = append(msg, member...)
 	msg = append(msg, ": "...)
-	msg = appendSafeText(msg, err.Error(), maxMessageChars, false)
+	msg = engine.AppendSafeText(msg, err.Error(), engine.MaxMessageChars, false)
 	if errors.Is(err, codec.ErrPlainBytes) {
 		msg = append(msg, "; send string(b) for text or RawJSON(b) for JSON"...)
 	}

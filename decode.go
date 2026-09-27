@@ -30,7 +30,7 @@ import (
 // request asked and model the model it named. A body the decoder refuses is a
 // [*ResponseValidationError] naming the first failure the Python SDK would
 // report, whose header r redacts.
-func decodeSystemOneInto(ctx context.Context, logger *slog.Logger, meta *wire.ResponseMeta, endpoint string, r headerRedactor, qs *Prepared, model string, dst *wire.SystemOneResult, spare []wire.AnswerEntry) error {
+func decodeSystemOneInto(ctx context.Context, logger *slog.Logger, meta *wire.ResponseMeta, endpoint string, r engine.HeaderRedactor, qs *Prepared, model string, dst *wire.SystemOneResult, spare []wire.AnswerEntry) error {
 	var q *wire.Prepared
 	if qs != nil {
 		q = qs.wirePrepared()
@@ -44,7 +44,7 @@ func decodeSystemOneInto(ctx context.Context, logger *slog.Logger, meta *wire.Re
 // decodeModels decodes the body of a successful list-models response,
 // meta.Body, into *dst. A body the decoder refuses is a
 // [*ResponseValidationError], whose header r redacts.
-func decodeModels(meta *wire.ResponseMeta, endpoint string, r headerRedactor, dst *wire.ModelList) error {
+func decodeModels(meta *wire.ResponseMeta, endpoint string, r engine.HeaderRedactor, dst *wire.ModelList) error {
 	if err := codec.DecodeModels(meta.Body, dst); err != nil {
 		return newResponseValidationError(meta, endpoint, r, err)
 	}

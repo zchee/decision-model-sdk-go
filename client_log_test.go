@@ -31,6 +31,7 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
@@ -127,7 +128,7 @@ func TestSecretHeadersRedacted(t *testing.T) {
 				t.Errorf("the records of the attempts (-want +got):\n%s", diff)
 			}
 			text := recordsText(logs)
-			for _, visible := range []string{"request-visible", "response-visible", redacted} {
+			for _, visible := range []string{"request-visible", "response-visible", engine.Redacted} {
 				if !strings.Contains(text, visible) {
 					t.Errorf("the records lack %q:\n%s", visible, text)
 				}
@@ -143,7 +144,7 @@ func TestSecretHeadersRedacted(t *testing.T) {
 				return
 			}
 			for _, secret := range []string{"auth-credential", "request-credential", "response-credential"} {
-				assertNotPrinted(t, err, secret)
+				testsupport.AssertNotPrinted(t, err, secret)
 				if out := fmt.Sprintf("%s", err); strings.Contains(out, secret) {
 					t.Errorf("%%s of the error holds %q: %s", secret, out)
 				}
@@ -233,7 +234,7 @@ func TestTransportErrorsNeverExposeCredentials(t *testing.T) {
 				failures []error
 				lastAuth string
 			)
-			rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			rt := testsupport.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
 				// HTTP transports can echo header values in both their messages and
 				// their error chains (tests/test_logging.py:96).
 				cause := errors.New("Rejected authorization: " + tt.credential + "; provider: " + req.Header.Get("X-Client-Secret"))
@@ -288,7 +289,7 @@ func TestTransportErrorsNeverExposeCredentials(t *testing.T) {
 			secrets := []string{tt.credential, quoted(tt.credential), jsonQuoted(t, tt.credential), "provider-credential"}
 			records := recordsText(logs)
 			for _, secret := range secrets {
-				assertNotPrinted(t, err, secret)
+				testsupport.AssertNotPrinted(t, err, secret)
 				if out := fmt.Sprintf("%s", err); strings.Contains(out, secret) {
 					t.Errorf("%%s of the error holds %q: %s", secret, out)
 				}
@@ -365,7 +366,7 @@ func TestClientLogRecords(t *testing.T) {
 				case "request":
 					auth, _ := r.Attr("headers.Authorization")
 					n, _ := r.Attr("body_bytes")
-					if auth.String() != redacted || n.Int64() != int64(len(`{"state":"hello","model":"jev-latest",`+noulBody+`}`)) {
+					if auth.String() != engine.Redacted || n.Int64() != int64(len(`{"state":"hello","model":"jev-latest",`+noulBody+`}`)) {
 						t.Errorf("request record %s", r)
 					}
 				case "response body":

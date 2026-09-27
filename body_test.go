@@ -451,11 +451,6 @@ func TestExtraBodyShallowOverride(t *testing.T) {
 // base64 (R59b).
 type blob []byte
 
-// roundTripFunc adapts a function to http.RoundTripper.
-type roundTripFunc func(*http.Request) (*http.Response, error)
-
-func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
-
 // requestReaders returns what an http.Request carries to send body: a reader
 // for its Body, the GetBody function a replay or a retry reads the same bytes
 // again through, and its ContentLength. Every reader holds a reference to the
@@ -602,7 +597,7 @@ func TestUnencodableBodyFailsBeforeNetwork(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			network := roundTripFunc(func(*http.Request) (*http.Response, error) {
+			network := testsupport.RoundTripFunc(func(*http.Request) (*http.Response, error) {
 				t.Error("an unencodable request body reached the network")
 				return nil, errors.New("unreachable")
 			})

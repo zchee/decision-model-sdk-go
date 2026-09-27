@@ -327,7 +327,7 @@ func (o *options) resolve(getenv func(string) string) (*config, error) {
 		Retry:            retry,
 	}
 	if o.hideEndpointHost {
-		c.SystemOneLog, c.ModelsLog = systemOnePath, modelsPath
+		c.SystemOneLog, c.ModelsLog = engine.SystemOnePath, engine.ModelsPath
 	}
 	return c, nil
 }
@@ -382,10 +382,10 @@ func resolveEndpoints(explicit *string, getenv func(string) string) (systemOne, 
 	// The API paths are appended to the text, as Python appends them
 	// (py:_core/transport.py:134), so the caller's own escaping of the prefix
 	// is kept. A valid base followed by a fixed path always parses.
-	if systemOne, err = url.Parse(raw + systemOnePath); err != nil {
+	if systemOne, err = url.Parse(raw + engine.SystemOnePath); err != nil {
 		return nil, nil, newConfigError(source + " is not a valid URL.")
 	}
-	if models, err = url.Parse(raw + modelsPath); err != nil {
+	if models, err = url.Parse(raw + engine.ModelsPath); err != nil {
 		return nil, nil, newConfigError(source + " is not a valid URL.")
 	}
 	return systemOne, models, nil
@@ -499,7 +499,7 @@ func (o *options) headerTemplate(logger *slog.Logger, key, userAgent string) (ht
 	h := make(http.Header, len(o.headers)+5)
 	lowerKey := strings.ToLower(key)
 	for i, ho := range o.headers {
-		if keyNeedle(key) && strings.Contains(strings.ToLower(ho.name), lowerKey) {
+		if engine.KeyNeedle(key) && strings.Contains(strings.ToLower(ho.name), lowerKey) {
 			return nil, newConfigError("The name given to WithHeader call " + strconv.Itoa(i+1) + " contains the API key, so it is not shown; pass the key with WithAPIKey only.")
 		}
 		if !validFieldName(ho.name) {
@@ -540,7 +540,7 @@ var sdkOwnedHeaders = func() map[string]string {
 	for _, name := range []string{headerAuthorization, headerAccept, headerUserAgent, headerSDK, headerRuntime, headerContentType} {
 		m[http.CanonicalHeaderKey(name)] = reasonSDKHeader
 	}
-	m[http.CanonicalHeaderKey(headerRetryCount)] = reasonRetryHeader
+	m[http.CanonicalHeaderKey(engine.HeaderRetryCount)] = reasonRetryHeader
 	// They frame a message or manage its connection (RFC 9110, section 7.6.1;
 	// RFC 9113, section 8.2.2): a caller's value disagrees with the body the
 	// SDK sends or with how the transport runs the connection, and net/http

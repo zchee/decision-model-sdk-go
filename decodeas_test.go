@@ -819,7 +819,7 @@ func TestTypedErrorRedactsHeader(t *testing.T) {
 				if err := resp.UnmarshalJSON(payload); err != nil {
 					t.Fatalf("UnmarshalJSON: %v", err)
 				}
-				if got := resp.redactor(); got != (headerRedactor{}) {
+				if got := resp.redactor(); got != (engine.HeaderRedactor{}) {
 					t.Errorf("the redactor after UnmarshalJSON = %+v, want the zero redactor: the response came from no client", got)
 				}
 				_, err = DecodeAs[typedSystemOneResponse](resp)
@@ -906,7 +906,7 @@ func TestDecodeAsProxyParity(t *testing.T) {
 		_, err := DecodeAs[typedSystemOneResponse](resp)
 		return viewOf(t, err)
 	}
-	hidden := view{FieldPath: path, Echo: redacted, Password: redacted, RequestID: redacted, Error: "200 Invalid response data at '" + path + "'. (request_id=***)"}
+	hidden := view{FieldPath: path, Echo: engine.Redacted, Password: engine.Redacted, RequestID: engine.Redacted, Error: "200 Invalid response data at '" + path + "'. (request_id=***)"}
 
 	t.Run("error: plain HTTP through a proxy: DecodeAs redacts the proxy's answer as Ask does", func(t *testing.T) {
 		pu := newEchoingProxy(t, proxyAnswer).URL()
@@ -1039,7 +1039,7 @@ func TestResponseNeverPrintsKey(t *testing.T) {
 				c engine.Credentials // the set's own, where its Basic token is
 			}{&red, proxies.Credentials()}
 			for _, secret := range tt.secrets {
-				if got := resp.redactor().Header(http.Header{"X-Echo": {"seen " + secret}}).Get("X-Echo"); got != redacted {
+				if got := resp.redactor().Header(http.Header{"X-Echo": {"seen " + secret}}).Get("X-Echo"); got != engine.Redacted {
 					t.Fatalf("the response's redactor leaves %q in a header as %q: it does not hold it, so the probe would pass vacuously", secret, got)
 				}
 				if !reachesString(reflect.ValueOf(&control), secret, map[uintptr]bool{}) {

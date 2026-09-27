@@ -407,7 +407,7 @@ func TestAssemblyMatchesCall(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			rec := replying(http.StatusOK, testsupport.Fixture(t, "result.json"))
 			var deadlines []time.Duration
-			rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			rt := testsupport.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
 				dl, ok := req.Context().Deadline()
 				if !ok {
 					deadlines = append(deadlines, -1)

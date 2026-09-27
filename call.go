@@ -21,6 +21,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 )
 
 // CallOption configures one call, over the client's settings: [Model],
@@ -212,7 +214,7 @@ func callHeader(ctx context.Context, cfg *config, base http.Header, headers []he
 	h := base.Clone()
 	lowerKey := strings.ToLower(cfg.APIKey)
 	for i, ho := range headers {
-		if keyNeedle(cfg.APIKey) && strings.Contains(strings.ToLower(ho.name), lowerKey) {
+		if engine.KeyNeedle(cfg.APIKey) && strings.Contains(strings.ToLower(ho.name), lowerKey) {
 			return nil, newConfigError("The name given to Header call option " + strconv.Itoa(i+1) + " contains the API key, so it is not shown; pass the key with WithAPIKey only.")
 		}
 		if !validFieldName(ho.name) {

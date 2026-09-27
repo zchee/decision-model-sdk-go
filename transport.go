@@ -438,7 +438,7 @@ func transportError(err error, timeout time.Duration, creds engine.Credentials) 
 			detail = de.Err.Error()
 		}
 		detail, _ = creds.Redact(strings.TrimPrefix(detail, h2gate.ErrNotNegotiated.Error()+": "))
-		msg := "The API host did not negotiate HTTP/2, which HTTP2Only requires (" + safeMessage(detail) +
+		msg := "The API host did not negotiate HTTP/2, which HTTP2Only requires (" + engine.SafeMessage(detail) +
 			"); WithHTTPVersion(HTTPAuto) allows HTTP/1.1."
 		return newConfigError(msg, ErrHTTP2NotNegotiated, creds.Cause(err))
 	case de.Timeout:

@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/zchee/typesafe-sdk-go/internal/codec"
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
@@ -299,15 +300,15 @@ func (*APIError) typesafeError() {}
 // its message read from the body by the lenient reader
 // (codec.ReadErrorBody), escaped and cut at 200 characters, or "status code
 // (no body)" for an empty or null body, and the response header with its
-// credentials redacted by r ([headerRedactor], ruling R87). The message is
+// credentials redacted by r ([engine.HeaderRedactor], ruling R87). The message is
 // not redacted (ruling R103-rev): a key the server echoes in it is shown, as
 // the Python SDK shows it. Header and the request id show "***" for a value
 // that holds the key, as the log records do (R87).
-func newAPIError(meta *wire.ResponseMeta, endpoint string, r headerRedactor) *APIError {
+func newAPIError(meta *wire.ResponseMeta, endpoint string, r engine.HeaderRedactor) *APIError {
 	eb := codec.ReadErrorBody(meta.Body)
 	msg := "status code (no body)"
 	if !eb.NoBody {
-		msg = safeMessage(eb.Message)
+		msg = engine.SafeMessage(eb.Message)
 	}
 	return &APIError{
 		Kind:       apiErrorKind(meta.Status),
@@ -374,12 +375,12 @@ func (*ResponseValidationError) typesafeError() {}
 
 // newResponseValidationError returns the *ResponseValidationError for a
 // successful response whose body the decoder refused with err, with the
-// response header's credentials redacted by r ([headerRedactor]). The
+// response header's credentials redacted by r ([engine.HeaderRedactor]). The
 // path's names, an answer's name and a probability or legend key, are not
 // redacted (ruling R103-rev): a key the server echoes in them is shown, as
 // the Python SDK shows it. Header and the request id show "***" for a value
 // that holds the key, as the log records do (R87).
-func newResponseValidationError(meta *wire.ResponseMeta, endpoint string, r headerRedactor, err error) *ResponseValidationError {
+func newResponseValidationError(meta *wire.ResponseMeta, endpoint string, r engine.HeaderRedactor, err error) *ResponseValidationError {
 	var path codec.FieldPath
 	if de, ok := errors.AsType[*codec.DecodeError](err); ok {
 		path = de.Path
@@ -390,7 +391,7 @@ func newResponseValidationError(meta *wire.ResponseMeta, endpoint string, r head
 // newResponseValidationErrorAt is [newResponseValidationError] with the field
 // path already rendered, as fieldPath, for a caller that renders it its own
 // way ([typedError]) and so renders it once.
-func newResponseValidationErrorAt(meta *wire.ResponseMeta, endpoint string, r headerRedactor, err error, fieldPath string) *ResponseValidationError {
+func newResponseValidationErrorAt(meta *wire.ResponseMeta, endpoint string, r engine.HeaderRedactor, err error, fieldPath string) *ResponseValidationError {
 	return &ResponseValidationError{
 		StatusCode: meta.Status,
 		Header:     r.Header(meta.Header),
@@ -436,8 +437,8 @@ func (*ResponseTooLargeError) typesafeError() {}
 
 // newResponseTooLargeError returns the *ResponseTooLargeError for a
 // successful response whose body passed limit, with the response header's
-// credentials redacted by r ([headerRedactor]).
-func newResponseTooLargeError(meta *wire.ResponseMeta, endpoint string, r headerRedactor, limit int64) *ResponseTooLargeError {
+// credentials redacted by r ([engine.HeaderRedactor]).
+func newResponseTooLargeError(meta *wire.ResponseMeta, endpoint string, r engine.HeaderRedactor, limit int64) *ResponseTooLargeError {
 	return &ResponseTooLargeError{StatusCode: meta.Status, Header: r.Header(meta.Header), Endpoint: endpoint, Limit: limit}
 }
 
@@ -493,7 +494,7 @@ type ConnectionError struct {
 // failure of the proxy hop. The transport classification (transportError,
 // Client.attemptError) does the redaction; this only renders.
 func newConnectionError(text string, cause error, proxy bool) *ConnectionError {
-	return &ConnectionError{msg: "Connection error: " + safeMessage(text), err: cause, proxy: proxy}
+	return &ConnectionError{msg: "Connection error: " + engine.SafeMessage(text), err: cause, proxy: proxy}
 }
 
 // Error returns "Connection error: <cause>".
@@ -587,7 +588,7 @@ func renderResponseError(endpoint string, status int, message string, h http.Hea
 	b = append(b, message...)
 	if id, ok := requestID(h); ok {
 		b = append(b, " (request_id="...)
-		b = appendSafeText(b, id, maxNameChars, false)
+		b = engine.AppendSafeText(b, id, engine.MaxNameChars, false)
 		b = append(b, ')')
 	}
 	return string(b)

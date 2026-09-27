@@ -100,7 +100,7 @@ func (r *SystemOneResponse) respMeta() *wire.ResponseMeta { return (*engine.Resp
 // redactor returns the redactor of the client whose request r answers, or
 // the zero redactor, by name alone, for a response read back with
 // UnmarshalJSON (ruling R114).
-func (r *SystemOneResponse) redactor() headerRedactor { return (*engine.Response)(r).Redactor() }
+func (r *SystemOneResponse) redactor() engine.HeaderRedactor { return (*engine.Response)(r).Redactor() }
 
 // Model returns the model that answered.
 func (r *SystemOneResponse) Model() string { return r.result().Model }
@@ -160,7 +160,7 @@ func (r *SystemOneResponse) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 	if _, err := codec.DecodeSystemOne(data, nil, "", r.result()); err != nil {
-		return newResponseValidationError(&wire.ResponseMeta{}, "", headerRedactor{}, err)
+		return newResponseValidationError(&wire.ResponseMeta{}, "", engine.HeaderRedactor{}, err)
 	}
 	*r.respMeta() = wire.ResponseMeta{}
 	(*engine.Response)(r).SetRedactor(nil)
@@ -241,7 +241,7 @@ func (r *ModelsResponse) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 	if err := codec.DecodeModels(data, &r.list); err != nil {
-		return newResponseValidationError(&wire.ResponseMeta{}, "", headerRedactor{}, err)
+		return newResponseValidationError(&wire.ResponseMeta{}, "", engine.HeaderRedactor{}, err)
 	}
 	r.meta = wire.ResponseMeta{}
 	return nil

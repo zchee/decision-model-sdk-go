@@ -32,6 +32,7 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
@@ -45,7 +46,7 @@ func serverCounts(srv *testsupport.LoopbackServer) []string {
 	var out []string
 	for _, r := range srv.Requests() {
 		v := absent
-		if vs := r.Header.Values(headerRetryCount); len(vs) > 0 {
+		if vs := r.Header.Values(engine.HeaderRetryCount); len(vs) > 0 {
 			v = strings.Join(vs, ",")
 		}
 		out = append(out, v)
@@ -299,12 +300,8 @@ func TestConnectionErrorsRetried(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				tg := tt.target(t)
 				clearEnv(t)
-				c, err := NewClient(append([]ClientOption{WithAPIKey(testKey), WithBaseURL(tg.srv.URL()), WithRetry(tt.policy)}, tg.opts...)...)
-				if err != nil {
-					t.Fatalf("NewClient: %v", err)
-				}
-				t.Cleanup(func() { _ = c.Close() })
-				_, err = callWithinBound(t, func(ctx context.Context) error { return listCall(ctx, c, tt.call...) })
+				c := mustClient(t, append([]ClientOption{WithAPIKey(testKey), WithBaseURL(tg.srv.URL()), WithRetry(tt.policy)}, tg.opts...)...)
+				_, err := callWithinBound(t, func(ctx context.Context) error { return listCall(ctx, c, tt.call...) })
 				if tt.check != nil {
 					tt.check(t, err)
 				} else if err != nil {
@@ -531,11 +528,7 @@ func TestEarlyAnswerToLargeUpload(t *testing.T) {
 			srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: earlyThenRead(&mu, seen, got)})
 			opts, sums := tt.client(t)
 			clearEnv(t)
-			c, err := NewClient(append([]ClientOption{WithAPIKey(testKey), WithBaseURL(srv.URL()), WithRetry(policy)}, opts...)...)
-			if err != nil {
-				t.Fatalf("NewClient: %v", err)
-			}
-			t.Cleanup(func() { _ = c.Close() })
+			c := mustClient(t, append([]ClientOption{WithAPIKey(testKey), WithBaseURL(srv.URL()), WithRetry(policy)}, opts...)...)
 			qs := noulQuestion(t)
 			var wg sync.WaitGroup
 			for _, call := range calls {

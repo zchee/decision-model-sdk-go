@@ -163,17 +163,27 @@ func scrubProxyCredential(s string, proxyURL *url.URL) string {
 	if proxyURL == nil || proxyURL.User == nil {
 		return s
 	}
-	user := proxyURL.User.Username()
-	password, _ := proxyURL.User.Password()
-	s = strings.ReplaceAll(s, base64.StdEncoding.EncodeToString([]byte(user+":"+password)), redacted)
+	token, password, escaped := ProxyCredentialForms(proxyURL.User)
+	s = strings.ReplaceAll(s, token, redacted)
 	if password == "" {
 		return s
 	}
 	s = strings.ReplaceAll(s, password, redacted)
-	if escaped := strings.TrimPrefix(url.UserPassword("", password).String(), ":"); escaped != password {
+	if escaped != password {
 		s = strings.ReplaceAll(s, escaped, redacted)
 	}
 	return s
+}
+
+// ProxyCredentialForms returns the forms of the credential that a request
+// through a proxy whose URL has the userinfo u carries: the token of the
+// Basic Proxy-Authorization value net/http sends, the password as it is, and
+// the password as the URL escapes it.
+func ProxyCredentialForms(u *url.Userinfo) (token, password, escaped string) {
+	password, _ = u.Password()
+	token = base64.StdEncoding.EncodeToString([]byte(u.Username() + ":" + password))
+	escaped = strings.TrimPrefix(url.UserPassword("", password).String(), ":")
+	return token, password, escaped
 }
 
 // redacted stands for a credential in text, as the root package writes it.

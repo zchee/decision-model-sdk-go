@@ -186,7 +186,7 @@ func TestErrorHeadersRedacted(t *testing.T) {
 		"X-Typesafe-Request-Id", "req_123", "Retry-After-Ms", "125", "X-Visible", "response-visible",
 	}
 	want := http.Header{
-		"Content-Type": {"application/json"}, "Set-Cookie": {redacted}, "X-Api-Key": {redacted}, "Authorization": {redacted}, "X-Echo": {redacted},
+		"Content-Type": {"application/json"}, "Set-Cookie": {engine.Redacted}, "X-Api-Key": {engine.Redacted}, "Authorization": {engine.Redacted}, "X-Echo": {engine.Redacted},
 		"X-Typesafe-Request-Id": {"req_123"}, "Retry-After-Ms": {"125"}, "X-Visible": {"response-visible"},
 	}
 	type holder struct {
@@ -348,8 +348,8 @@ func TestServerEchoedKeyShownAsReceived(t *testing.T) {
 		},
 		"error: a request id that echoes the key is *** in Error and in the INFO record (R87)": {
 			status: http.StatusUnauthorized, body: `{"message":"no"}`, id: "req " + key,
-			message: "no", shownID: redacted,
-			want: models + "401 no (request_id=" + redacted + ")",
+			message: "no", shownID: engine.Redacted,
+			want: models + "401 no (request_id=" + engine.Redacted + ")",
 		},
 		"error: an unrecognized answer named with the key is logged at WARN as received": {
 			status: http.StatusOK, systemOne: true,
@@ -434,7 +434,7 @@ func TestServerEchoedKeyShownAsReceived(t *testing.T) {
 				RequestID: tt.shownID, InfoID: tt.shownID,
 				Body: tt.body,
 				Header: http.Header{
-					"Content-Type": {"application/json"}, "X-Echo": {redacted},
+					"Content-Type": {"application/json"}, "X-Echo": {engine.Redacted},
 					"X-Typesafe-Request-Id": {tt.shownID},
 				},
 				Warned: tt.warned, Logged: wantLogged, TraceBody: tt.body,

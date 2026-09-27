@@ -357,11 +357,7 @@ func TestTransportErrorsBecomeConnectionOrTimeout(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			tg := tt.target(t)
 			clearEnv(t)
-			c, err := NewClient(append(append([]ClientOption{WithAPIKey(testKey), WithBaseURL(tg.base), WithRetry(NoRetry())}, tg.opts...), tt.client...)...)
-			if err != nil {
-				t.Fatalf("NewClient: %v", err)
-			}
-			t.Cleanup(func() { _ = c.Close() })
+			c := mustClient(t, append(append([]ClientOption{WithAPIKey(testKey), WithBaseURL(tg.base), WithRetry(NoRetry())}, tg.opts...), tt.client...)...)
 			elapsed, err := callWithin(t, func(ctx context.Context) error {
 				_, err := c.Models().List(ctx, tt.call...)
 				return err
@@ -433,7 +429,7 @@ func TestTransportErrorsHoldNoCredential(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			rt := testsupport.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
 				// The error repeats the Authorization value quoted, the visible
 				// header, every header raw (the map's %v, cut by the SDK's 200
 				// characters), and wraps an error that repeats the key and the
@@ -462,7 +458,7 @@ func TestTransportErrorsHoldNoCredential(t *testing.T) {
 				if !ok {
 					t.Fatalf("List error = %T %v, want a *ConnectionError", err, err)
 				}
-				for _, visible := range []string{"Illegal header value", "request-visible", redacted} {
+				for _, visible := range []string{"Illegal header value", "request-visible", engine.Redacted} {
 					if !strings.Contains(ce.Error(), visible) {
 						t.Errorf("Error() = %q lacks %q", ce.Error(), visible)
 					}
@@ -483,7 +479,7 @@ func TestTransportErrorsHoldNoCredential(t *testing.T) {
 				t.Errorf("no record of the failure:\n%s", records)
 			}
 			for _, secret := range secrets {
-				assertNotPrinted(t, err, secret)
+				testsupport.AssertNotPrinted(t, err, secret)
 				if strings.Contains(records, secret) {
 					t.Errorf("the records hold %q:\n%s", secret, records)
 				}
@@ -536,7 +532,7 @@ func TestTransportErrorsHoldNoCredentialOverTheNetwork(t *testing.T) {
 				if !ok || !ce.Proxy() {
 					t.Errorf("error = %T %v, want a proxy *ConnectionError", err, err)
 				}
-				assertNotPrinted(t, err, "hunter2")
+				testsupport.AssertNotPrinted(t, err, "hunter2")
 			},
 		},
 	}
@@ -544,17 +540,13 @@ func TestTransportErrorsHoldNoCredentialOverTheNetwork(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			logs := testsupport.NewLogRecorder(slog.LevelInfo)
 			clearEnv(t)
-			c, err := NewClient(append([]ClientOption{WithAPIKey(key), WithLogger(logs.Logger()), WithRetry(NoRetry())}, tt.opts...)...)
-			if err != nil {
-				t.Fatalf("NewClient: %v", err)
-			}
-			t.Cleanup(func() { _ = c.Close() })
-			_, err = callWithin(t, func(ctx context.Context) error {
+			c := mustClient(t, append([]ClientOption{WithAPIKey(key), WithLogger(logs.Logger()), WithRetry(NoRetry())}, tt.opts...)...)
+			_, err := callWithin(t, func(ctx context.Context) error {
 				_, err := c.Models().List(ctx)
 				return err
 			})
 			tt.check(t, err)
-			assertNotPrinted(t, err, key)
+			testsupport.AssertNotPrinted(t, err, key)
 			if strings.Contains(recordsText(logs), key) {
 				t.Errorf("the records hold the key:\n%s", recordsText(logs))
 			}
@@ -598,11 +590,7 @@ func TestCallerTransportOwnsItsTimeouts(t *testing.T) {
 			})})
 			t.Cleanup(func() { close(release) })
 			clearEnv(t)
-			c, err := NewClient(WithAPIKey(testKey), WithBaseURL(srv.URL()), WithRetry(NoRetry()), tt.option(t))
-			if err != nil {
-				t.Fatalf("NewClient: %v", err)
-			}
-			t.Cleanup(func() { _ = c.Close() })
+			c := mustClient(t, WithAPIKey(testKey), WithBaseURL(srv.URL()), WithRetry(NoRetry()), tt.option(t))
 			elapsed, err := callWithin(t, func(ctx context.Context) error {
 				_, err := c.Models().List(ctx)
 				return err
@@ -673,7 +661,7 @@ func TestTransportErrorFieldsHoldNoCredential(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			rt := roundTripFunc(func(req *http.Request) (*http.Response, error) { return nil, tt.fail(req) })
+			rt := testsupport.RoundTripFunc(func(req *http.Request) (*http.Response, error) { return nil, tt.fail(req) })
 			clearEnv(t)
 			c := newEnvClient(t, rt, WithAPIKey(key))
 			_, err := c.Models().List(t.Context())
@@ -685,7 +673,7 @@ func TestTransportErrorFieldsHoldNoCredential(t *testing.T) {
 			// Every printed form of err and of each error it unwraps to: no
 			// form of the key, raw or quoted, may appear, so the check is on
 			// its prefix.
-			assertNotPrinted(t, err, "ts_live_q")
+			testsupport.AssertNotPrinted(t, err, "ts_live_q")
 			standIn := isStandIn(ce.Unwrap()) // the direct cause is the stand-in
 			re, reached := errors.AsType[*reqErr](err)
 			if tt.keptAs {
@@ -703,7 +691,7 @@ func TestTransportErrorFieldsHoldNoCredential(t *testing.T) {
 
 // TestTransportErrorTextScrubbedBeforeCut pins the order of the scrub and
 // the render (review W2.5 MINOR 1): a credential is replaced in the
-// transport error's whole text before safeMessage escapes it and cuts it at
+// transport error's whole text before engine.SafeMessage escapes it and cuts it at
 // 200 characters, so a key that straddles the cut leaves "***" and not its
 // first bytes. The key sits after pads of 176 to 195 characters, across the
 // boundary, in the text of a caller RoundTripper's error (attemptError) and
@@ -720,7 +708,7 @@ func TestTransportErrorTextScrubbedBeforeCut(t *testing.T) {
 			return err
 		},
 		"transportError": func(_ *testing.T, text string) error {
-			return transportError(&h2gate.DialError{Err: errors.New(text)}, time.Second, requestCredentials(header))
+			return transportError(&h2gate.DialError{Err: errors.New(text)}, time.Second, engine.RequestCredentials(header))
 		},
 	}
 	type test struct {
@@ -741,8 +729,8 @@ func TestTransportErrorTextScrubbedBeforeCut(t *testing.T) {
 				t.Fatalf("error = %T %v, want a *ConnectionError", err, err)
 			}
 			got := ce.Error()
-			if !strings.Contains(got, strings.Repeat("a", tt.pad)+redacted) {
-				t.Errorf("Error() = %q, want the pad then %q", got, redacted)
+			if !strings.Contains(got, strings.Repeat("a", tt.pad)+engine.Redacted) {
+				t.Errorf("Error() = %q, want the pad then %q", got, engine.Redacted)
 			}
 			for i := 0; i+engine.MinKeyNeedleBytes <= len(key); i++ {
 				if piece := key[i : i+engine.MinKeyNeedleBytes]; strings.Contains(got, piece) {

@@ -61,12 +61,7 @@ func (c *capture) RoundTrip(req *http.Request) (*http.Response, error) {
 // Its calls make one attempt each, as newTestClient's do.
 func newEnvClient(t *testing.T, rt http.RoundTripper, opts ...ClientOption) *Client {
 	t.Helper()
-	c, err := NewClient(append([]ClientOption{WithRoundTripper(rt), WithRetry(NoRetry())}, opts...)...)
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
-	}
-	t.Cleanup(func() { _ = c.Close() })
-	return c
+	return mustClient(t, append([]ClientOption{WithRoundTripper(rt), WithRetry(NoRetry())}, opts...)...)
 }
 
 // TestClientExtraBodyShallowOverride re-asserts test_extra_body_shallow_override
@@ -646,8 +641,8 @@ func TestCallOptionsRefused(t *testing.T) {
 			if _, ok := errors.AsType[*ConfigError](err); !ok || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("call error = %v (%T), want a *ConfigError with %q", err, err, tt.want)
 			}
-			assertNotPrinted(t, err, longKey)
-			assertNotPrinted(t, err, "secret-value")
+			testsupport.AssertNotPrinted(t, err, longKey)
+			testsupport.AssertNotPrinted(t, err, "secret-value")
 			if rec.Count() != 0 {
 				t.Errorf("the transport saw %d requests, want 0", rec.Count())
 			}
@@ -716,7 +711,7 @@ func TestRequestBodyIdenticalAcrossReaders(t *testing.T) {
 	rec := replying(http.StatusOK, testsupport.Fixture(t, "result.json"))
 	var sums []testsupport.BodySum
 	var lengths []int64
-	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	rt := testsupport.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		if req.GetBody == nil {
 			t.Error("the request has no GetBody")
 			return rec.RoundTrip(req)
@@ -862,7 +857,7 @@ func TestWithPretouch(t *testing.T) {
 func TestRequestURLIsCopied(t *testing.T) {
 	rec := replying(http.StatusOK, []byte(`{"models":[]}`))
 	var sent []string
-	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	rt := testsupport.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		sent = append(sent, req.URL.String())
 		req.URL.Path = "/evil"
 		req.URL.Host = "evil.test"
@@ -922,7 +917,7 @@ func TestRetryURLIsCopied(t *testing.T) {
 					sent []string
 					urls []*url.URL
 				)
-				rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				rt := testsupport.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
 					sent = append(sent, req.URL.String())
 					urls = append(urls, req.URL)
 					first := len(sent)%2 == 1

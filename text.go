@@ -15,7 +15,6 @@
 package typesafe
 
 import (
-	"net/http"
 	"strconv"
 	"unicode/utf8"
 
@@ -23,42 +22,16 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/engine"
 )
 
-// Text the SDK did not write is escaped and cut by internal/engine (NF7,
-// rulings R58 and R58b); these names keep the root package's call sites as
-// they were.
-const (
-	maxNameChars    = engine.MaxNameChars
-	maxMessageChars = engine.MaxMessageChars
-	maxPathChars    = engine.MaxPathChars
-)
-
-// appendSafeText is [engine.AppendSafeText].
-func appendSafeText(dst []byte, s string, limit int, double bool) []byte {
-	return engine.AppendSafeText(dst, s, limit, double)
-}
-
-// quotedName is [engine.QuotedName].
-func quotedName(name string) string { return engine.QuotedName(name) }
-
-// safeName is [engine.SafeName].
-func safeName(name string) string { return engine.SafeName(name) }
-
-// safeMessage is [engine.SafeMessage].
-func safeMessage(s string) string { return engine.SafeMessage(s) }
-
-// requestCredentials is [engine.RequestCredentials].
-func requestCredentials(h http.Header) engine.Credentials { return engine.RequestCredentials(h) }
-
 // renderFieldPath returns p as a *ResponseValidationError prints it: the
 // Python SDK's dotted field_path, "." for the root, with each name the server
 // chose (an answer name, a probability or legend key) escaped with its
-// backslashes doubled and cut at [maxNameChars], and the whole cut at
-// [maxPathChars].
+// backslashes doubled and cut at [engine.MaxNameChars], and the whole cut at
+// [engine.MaxPathChars].
 func renderFieldPath(p codec.FieldPath) string {
 	if p.Top == "" {
 		return "."
 	}
-	t := pathText{limit: maxPathChars}
+	t := pathText{limit: engine.MaxPathChars}
 	t.fixed(p.Top)
 	if p.HasIndex {
 		t.fixed("[" + strconv.Itoa(p.Index) + "]")
@@ -103,16 +76,16 @@ func (t *pathText) fixed(s string) {
 }
 
 // name appends s, a name the server chose, escaped and cut at
-// [maxNameChars] and at what remains of the limit.
+// [engine.MaxNameChars] and at what remains of the limit.
 func (t *pathText) name(s string) {
 	if t.full {
 		return
 	}
-	room := min(maxNameChars, t.limit-t.n)
+	room := min(engine.MaxNameChars, t.limit-t.n)
 	start := len(t.b)
-	t.b = appendSafeText(t.b, s, room, true)
+	t.b = engine.AppendSafeText(t.b, s, room, true)
 	written := utf8.RuneCount(t.b[start:])
-	if room < maxNameChars && written > room {
+	if room < engine.MaxNameChars && written > room {
 		// The name was cut by the whole path's limit, not its own.
 		t.full = true
 	}

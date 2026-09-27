@@ -86,8 +86,8 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 			if t != nil {
 				name = t.String()
 			}
-			return nil, newConfigError("The type "+strconv.Itoa(i+1)+" passed to WithPretouch, "+safeName(name)+
-				", cannot be prepared for the JSON encoder: "+safeMessage(err.Error())+".", err)
+			return nil, newConfigError("The type "+strconv.Itoa(i+1)+" passed to WithPretouch, "+engine.SafeName(name)+
+				", cannot be prepared for the JSON encoder: "+engine.SafeMessage(err.Error())+".", err)
 		}
 	}
 	return (*Client)(engine.NewClient(cfg, cfg.Redactor, endpointOf(http.MethodPost, cfg.SystemOneURL), endpointOf(http.MethodGet, cfg.ModelsURL))), nil
@@ -204,7 +204,7 @@ func (c *Client) SystemOne(ctx context.Context, state any, qs *Prepared, opts ..
 // systemOne is [Client.SystemOne], which also stores in *red, when red is
 // not nil, the redactor of the header of the response it returns
 // ([engine.Transport.ResponseRedactor]), for [Ask]'s decode.
-func (c *Client) systemOne(ctx context.Context, state any, qs *Prepared, opts []CallOption, red *headerRedactor) (*SystemOneResponse, error) {
+func (c *Client) systemOne(ctx context.Context, state any, qs *Prepared, opts []CallOption, red *engine.HeaderRedactor) (*SystemOneResponse, error) {
 	if err := c.usable(); err != nil {
 		return nil, err
 	}
@@ -239,7 +239,7 @@ func (c *Client) systemOne(ctx context.Context, state any, qs *Prepared, opts []
 		GetBody:  body.GetBody,
 	}
 	resp := (*SystemOneResponse)(&call.Resp)
-	r, err := c.send(ctx, &rq, s.retry, resp.respMeta(), func(r headerRedactor) error {
+	r, err := c.send(ctx, &rq, s.retry, resp.respMeta(), func(r engine.HeaderRedactor) error {
 		return decodeSystemOneInto(ctx, cfg.Logger, resp.respMeta(), c.eng().SystemOneEndpoint(), r, qs, model, resp.result(), spare)
 	})
 	if err != nil {
@@ -298,7 +298,7 @@ func (m Models) List(ctx context.Context, opts ...CallOption) (*ModelsResponse, 
 		Timeout:  s.timeout,
 	}
 	resp := &call.resp
-	_, err = c.send(ctx, &rq, s.retry, &resp.meta, func(red headerRedactor) error {
+	_, err = c.send(ctx, &rq, s.retry, &resp.meta, func(red engine.HeaderRedactor) error {
 		return decodeModels(&resp.meta, c.eng().ModelsEndpoint(), red, &resp.list)
 	})
 	if err != nil {
@@ -316,11 +316,11 @@ func (m Models) List(ctx context.Context, opts ...CallOption) (*ModelsResponse, 
 // which send also returns. One loop serves every endpoint (ruling R79 NIT
 // 9). Neither decode nor the policy, a copy on send's stack, escapes, so a
 // first attempt that succeeds allocates nothing here.
-func (c *Client) send(ctx context.Context, rq *engine.Request, policy RetryPolicy, meta *wire.ResponseMeta, decode func(headerRedactor) error) (headerRedactor, error) {
+func (c *Client) send(ctx context.Context, rq *engine.Request, policy RetryPolicy, meta *wire.ResponseMeta, decode func(engine.HeaderRedactor) error) (engine.HeaderRedactor, error) {
 	r := retryState{policy: &policy, start: time.Now(), random: c.cfg().Random}
 	for attempt := 0; ; attempt++ {
 		var (
-			red headerRedactor
+			red engine.HeaderRedactor
 			err error
 		)
 		*meta, red, err = c.attempt(ctx, rq, attempt)
@@ -343,7 +343,7 @@ func (c *Client) send(ctx context.Context, rq *engine.Request, policy RetryPolic
 // failure as a *ConnectionError or a *TimeoutError; and the redactor of
 // the response's header ([engine.Transport.ResponseRedactor]), which the
 // errors, the records and decode redact it with.
-func (c *Client) attempt(ctx context.Context, rq *engine.Request, attempt int) (wire.ResponseMeta, headerRedactor, error) {
+func (c *Client) attempt(ctx context.Context, rq *engine.Request, attempt int) (wire.ResponseMeta, engine.HeaderRedactor, error) {
 	h := rq.AttemptHeader(attempt)
 	// Each request carries its own copy of the endpoint URL, so a
 	// RoundTripper that rewrites req.URL, which the RoundTripper contract
@@ -373,7 +373,7 @@ func (c *Client) attempt(ctx context.Context, rq *engine.Request, attempt int) (
 		rc, err := rq.Body.Open()
 		if err != nil {
 			// The call holds its reference until it returns: unreachable.
-			return wire.ResponseMeta{}, headerRedactor{}, newConnectionError(err.Error(), err, false)
+			return wire.ResponseMeta{}, engine.HeaderRedactor{}, newConnectionError(err.Error(), err, false)
 		}
 		r.Body, r.GetBody, r.ContentLength = rc, rq.GetBody, int64(rq.Body.Len())
 	}
@@ -386,7 +386,7 @@ func (c *Client) attempt(ctx context.Context, rq *engine.Request, attempt int) (
 	if err != nil {
 		err = c.attemptError(ctx, actx, rq.Timeout, req, err)
 		c.logFailure(ctx, rq, attempt, start, err)
-		return wire.ResponseMeta{}, headerRedactor{}, err
+		return wire.ResponseMeta{}, engine.HeaderRedactor{}, err
 	}
 	red := c.cfg().Transport.ResponseRedactor(c.cfg().Redactor(), resp)
 	meta := wire.ResponseMeta{Status: resp.StatusCode, Header: resp.Header}
@@ -405,7 +405,7 @@ func (c *Client) attempt(ctx context.Context, rq *engine.Request, attempt int) (
 	case err != nil:
 		err = c.attemptError(ctx, actx, rq.Timeout, req, err)
 		c.logFailure(ctx, rq, attempt, start, err)
-		return wire.ResponseMeta{}, headerRedactor{}, err
+		return wire.ResponseMeta{}, engine.HeaderRedactor{}, err
 	}
 	meta.Body = raw
 	c.logResponse(ctx, rq, attempt, start, &meta, red)
@@ -493,14 +493,14 @@ func (c *Client) logRequest(ctx context.Context, rq *engine.Request, h http.Head
 // client's API key or, for a response to a plain-HTTP request through a
 // proxy, the proxy's credential (ruling R87; typesafe-sdk-python logs the id
 // as it arrived); the body is as it arrived.
-func (c *Client) logResponse(ctx context.Context, rq *engine.Request, attempt int, start time.Time, meta *wire.ResponseMeta, r headerRedactor) {
+func (c *Client) logResponse(ctx context.Context, rq *engine.Request, attempt int, start time.Time, meta *wire.ResponseMeta, r engine.HeaderRedactor) {
 	logger := c.cfg().Logger
 	if !logger.Enabled(ctx, slog.LevelInfo) {
 		return
 	}
 	id := "-"
 	if v, ok := r.RequestID(meta.Header); ok {
-		id = safeName(v)
+		id = engine.SafeName(v)
 	}
 	logger.LogAttrs(ctx, slog.LevelInfo, "response", slog.String("method", rq.Method), slog.String("endpoint", rq.LogURL),
 		slog.Int("status", meta.Status), slog.Duration("duration", time.Since(start)), slog.String("request_id", id),

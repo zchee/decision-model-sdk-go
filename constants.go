@@ -16,8 +16,6 @@ package typesafe
 
 import (
 	"time"
-
-	"github.com/zchee/typesafe-sdk-go/internal/engine"
 )
 
 // The environment variables a client reads for a setting its options leave
@@ -63,13 +61,6 @@ const (
 // much memory.
 const maxMaxResponseBytes = 1 << 30
 
-// The API endpoints, appended to the base URL (internal/engine's
-// SystemOnePath and ModelsPath).
-const (
-	systemOnePath = engine.SystemOnePath
-	modelsPath    = engine.ModelsPath
-)
-
 // The request and response headers the SDK reads or writes, spelled as
 // typesafe-sdk-python spells them (py:_core/constants.py:11-18). An
 // [net/http.Header] stores a name in its canonical form ("X-Typesafe-Sdk"),
@@ -83,7 +74,6 @@ const (
 	headerUserAgent     = "User-Agent"
 	headerSDK           = "X-TypeSafe-SDK"
 	headerRuntime       = "X-TypeSafe-Runtime"
-	headerRetryCount    = engine.HeaderRetryCount
 )
 
 // jsonContentType is the media type of every request body and of every

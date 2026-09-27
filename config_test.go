@@ -90,40 +90,6 @@ func resolveError(t *testing.T, getenv func(string) string, opts ...ClientOption
 	return ce
 }
 
-// errorTexts returns every way err and each error it wraps can be printed:
-// %v, %+v, %#v and %q.
-func errorTexts(err error) []string {
-	var texts []string
-	var walk func(error)
-	walk = func(err error) {
-		if err == nil {
-			return
-		}
-		texts = append(texts, fmt.Sprintf("%v", err), fmt.Sprintf("%+v", err), fmt.Sprintf("%#v", err), fmt.Sprintf("%q", err))
-		switch u := err.(type) { //nolint:errorlint // visits each link of the chain as it is; errors.As would skip links.
-		case interface{ Unwrap() error }:
-			walk(u.Unwrap())
-		case interface{ Unwrap() []error }:
-			for _, e := range u.Unwrap() {
-				walk(e)
-			}
-		}
-	}
-	walk(err)
-	return texts
-}
-
-// assertNotPrinted fails the test when any printed form of err, or of an
-// error it wraps, contains secret.
-func assertNotPrinted(t *testing.T, err error, secret string) {
-	t.Helper()
-	for _, text := range errorTexts(err) {
-		if strings.Contains(text, secret) {
-			t.Errorf("error text %q contains %q", text, secret)
-		}
-	}
-}
-
 // TestMissingAPIKey ports test_missing_key (F4): no key from any source, an
 // empty variable and a blank one are the same error, which names the
 // variable to set.
@@ -231,7 +197,7 @@ func TestInvalidExplicitKeyDoesNotFallBack(t *testing.T) {
 			if got := err.Error(); got != tt.want {
 				t.Errorf("Error() = %q, want %q", got, tt.want)
 			}
-			assertNotPrinted(t, err, "private")
+			testsupport.AssertNotPrinted(t, err, "private")
 		})
 	}
 }
@@ -292,8 +258,8 @@ func TestInvalidAPIKeyNeverEchoed(t *testing.T) {
 				if got := err.Error(); got != tt.want {
 					t.Errorf("Error() = %q, want %q", got, tt.want)
 				}
-				assertNotPrinted(t, err, credential)
-				assertNotPrinted(t, err, "suffix")
+				testsupport.AssertNotPrinted(t, err, credential)
+				testsupport.AssertNotPrinted(t, err, "suffix")
 			})
 		}
 	}
@@ -630,7 +596,7 @@ func TestBaseURL(t *testing.T) {
 				if errs := err.Unwrap(); errs != nil {
 					t.Errorf("Unwrap() = %v, want nil: a url.Error prints the URL", errs)
 				}
-				assertNotPrinted(t, err, "hunter2")
+				testsupport.AssertNotPrinted(t, err, "hunter2")
 				return
 			}
 			c := mustResolve(t, mapEnv(tt.env), opts...)
@@ -1016,7 +982,7 @@ func TestInvalidHeader(t *testing.T) {
 			if got := err.Error(); got != tt.want {
 				t.Errorf("Error() = %q, want %q", got, tt.want)
 			}
-			assertNotPrinted(t, err, secret)
+			testsupport.AssertNotPrinted(t, err, secret)
 		})
 	}
 }
@@ -1080,7 +1046,7 @@ func TestHeaderNameHoldingKey(t *testing.T) {
 			if got := err.Error(); got != tt.want {
 				t.Errorf("Error() = %q, want %q", got, tt.want)
 			}
-			for _, text := range errorTexts(err) {
+			for _, text := range testsupport.ErrorTexts(err) {
 				if strings.Contains(strings.ToLower(text), key) {
 					t.Errorf("error text %q contains the key", text)
 				}
@@ -1131,7 +1097,7 @@ func TestUserAgentProductRules(t *testing.T) {
 				t.Errorf("Error() = %q, want %q", got, want)
 			}
 			if tt.product != "" {
-				assertNotPrinted(t, err, tt.product)
+				testsupport.AssertNotPrinted(t, err, tt.product)
 			}
 		})
 	}

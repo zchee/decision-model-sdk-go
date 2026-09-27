@@ -169,7 +169,7 @@ func TestAttemptHeader(t *testing.T) {
 	rq := engine.Request{Header: tmpl}
 	first := rq.AttemptHeader(0)
 	if _, ok := first[engine.CanonicalRetryCount]; ok {
-		t.Errorf("the first attempt carries %s", headerRetryCount)
+		t.Errorf("the first attempt carries %s", engine.HeaderRetryCount)
 	}
 	first["X-Probe"] = []string{"shared"}
 	if tmpl.Get("X-Probe") != "shared" {
@@ -180,7 +180,7 @@ func TestAttemptHeader(t *testing.T) {
 	var counts []string
 	for _, attempt := range []int{1, 2, 16, 17, 100} {
 		h := rq.AttemptHeader(attempt)
-		counts = append(counts, h.Get(headerRetryCount))
+		counts = append(counts, h.Get(engine.HeaderRetryCount))
 		if len(h) != len(tmpl)+1 || h.Get("Authorization") != tmpl.Get("Authorization") {
 			t.Errorf("attempt %d header %v, want the template plus the retry count", attempt, h)
 		}

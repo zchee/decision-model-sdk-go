@@ -134,8 +134,8 @@ func TestRenderFieldPath(t *testing.T) {
 			if diff := gocmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("renderFieldPath (-want +got):\n%s", diff)
 			}
-			if n := utf8.RuneCountInString(got); n > maxPathChars+1 {
-				t.Errorf("rendered path has %d characters, want at most %d", n, maxPathChars+1)
+			if n := utf8.RuneCountInString(got); n > engine.MaxPathChars+1 {
+				t.Errorf("rendered path has %d characters, want at most %d", n, engine.MaxPathChars+1)
 			}
 		})
 	}
@@ -183,7 +183,7 @@ func TestRedactionKeepsCleanChains(t *testing.T) {
 	t.Run("success: through a RoundTripper", func(t *testing.T) {
 		want := unreachable()
 		clearEnv(t)
-		c := newEnvClient(t, roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, want }), WithAPIKey(key))
+		c := newEnvClient(t, testsupport.RoundTripFunc(func(*http.Request) (*http.Response, error) { return nil, want }), WithAPIKey(key))
 		_, err := c.Models().List(t.Context(), Retry(NoRetry()))
 		ce, ok := errors.AsType[*ConnectionError](err)
 		if !ok || ce.Error() != "Connection error: "+want.Error() || errors.Unwrap(err) != want { //nolint:errorlint // identity is the assertion
@@ -195,12 +195,8 @@ func TestRedactionKeepsCleanChains(t *testing.T) {
 		want := unreachable()
 		clearEnv(t)
 		tr := &http.Transport{DialContext: func(context.Context, string, string) (net.Conn, error) { return nil, want }}
-		c, err := NewClient(WithAPIKey(key), WithBaseURL("https://example.com"), WithHTTPTransport(tr))
-		if err != nil {
-			t.Fatalf("NewClient: %v", err)
-		}
-		t.Cleanup(func() { _ = c.Close() })
-		_, err = c.Models().List(t.Context(), Retry(NoRetry()))
+		c := mustClient(t, WithAPIKey(key), WithBaseURL("https://example.com"), WithHTTPTransport(tr))
+		_, err := c.Models().List(t.Context(), Retry(NoRetry()))
 		if ce, ok := errors.AsType[*ConnectionError](err); !ok || ce.Error() != "Connection error: "+want.Error() {
 			t.Fatalf("error = %T %v, want a *ConnectionError with the dialer's text", err, err)
 		}
@@ -265,7 +261,7 @@ func TestScrubbedErrorFormat(t *testing.T) {
 	// after 8 to 27 of its bytes.
 	for _, pad := range []int{975, 985, 993} {
 		t.Run("success: the key after "+strconv.Itoa(pad)+" characters, through the client", func(t *testing.T) {
-			rt := roundTripFunc(func(*http.Request) (*http.Response, error) {
+			rt := testsupport.RoundTripFunc(func(*http.Request) (*http.Response, error) {
 				return nil, unwrapOnly{msg: "Illegal header value", cause: errors.New(strings.Repeat("p", pad) + " " + longKey)}
 			})
 			clearEnv(t)

@@ -21,6 +21,7 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
@@ -36,8 +37,8 @@ func TestConstantsMatchPython(t *testing.T) {
 		"DEFAULT_BASE_URL":              DefaultBaseURL,
 		"DEFAULT_MODEL":                 DefaultModel,
 		"DEFAULT_TIMEOUT":               DefaultTimeout,
-		"SYSTEM_ONE_PATH":               systemOnePath,
-		"MODELS_PATH":                   modelsPath,
+		"SYSTEM_ONE_PATH":               engine.SystemOnePath,
+		"MODELS_PATH":                   engine.ModelsPath,
 		"JSON_CONTENT_TYPE":             jsonContentType,
 		"AUTHORIZATION_HEADER":          headerAuthorization,
 		"ACCEPT_HEADER":                 headerAccept,
@@ -45,7 +46,7 @@ func TestConstantsMatchPython(t *testing.T) {
 		"USER_AGENT_HEADER":             headerUserAgent,
 		"SDK_HEADER":                    headerSDK,
 		"RUNTIME_HEADER":                headerRuntime,
-		"RETRY_COUNT_HEADER":            headerRetryCount,
+		"RETRY_COUNT_HEADER":            engine.HeaderRetryCount,
 		"REQUEST_ID_HEADER":             strings.ToLower(wire.RequestIDHeader),
 		"DefaultConnectTimeout":         DefaultConnectTimeout,
 		"DefaultMaxResponseBytes (NF5)": int64(DefaultMaxResponseBytes),

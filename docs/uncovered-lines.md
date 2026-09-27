@@ -38,7 +38,7 @@ Each reason starts with its class:
 
 | File | Function | Code | Blocks | Reason |
 | --- | --- | --- | --- | --- |
-| `client.go` | `(*Client).attempt` | `return wire.ResponseMeta{}, headerRedactor{}, newConnectionError(err.Error(), err, false)` | 1 | Defensive: `Body.Open` fails only after the body's last reference is dropped, and the call holds one until it returns. |
+| `client.go` | `(*Client).attempt` | `return wire.ResponseMeta{}, engine.HeaderRedactor{}, newConnectionError(err.Error(), err, false)` | 1 | Defensive: `Body.Open` fails only after the body's last reference is dropped, and the call holds one until it returns. |
 | `config.go` | `resolveEndpoints` | `return nil, nil, newConfigError(source + " is not a valid URL.")` | 2 | Defensive: `baseURLRule` has parsed the base, and a valid base followed by a fixed path always parses. |
 | `config.go` | `dropDefaultPort` | `return raw` | 2 | Defensive: `baseURLRule` admits only http and https URLs with a host, so the text always holds `://` and one of the two schemes. |
 | `errors.go` | `(*ConfigError).typesafeError` | `{}` | 1 | Defensive: the unexported marker method that seals the `Error` interface; nothing calls it. |

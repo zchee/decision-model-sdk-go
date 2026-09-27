@@ -16,7 +16,6 @@ package engine
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -29,6 +28,8 @@ import (
 	"strings"
 	"syscall"
 	"unicode/utf8"
+
+	"github.com/zchee/typesafe-sdk-go/internal/h2gate"
 )
 
 // This file renders text the SDK did not write: a server's message, a name
@@ -228,10 +229,10 @@ func (c *Credentials) addAny(v string) {
 // the password as it is and as the URL escapes it: a response header's
 // needles ([ProxyCreds.inHeader]).
 func (c *Credentials) addProxy(user *url.Userinfo, words bool) {
-	password, _ := user.Password()
-	c.addAny(base64.StdEncoding.EncodeToString([]byte(user.Username() + ":" + password)))
+	token, password, escaped := h2gate.ProxyCredentialForms(user)
+	c.addAny(token)
 	c.addAny(password)
-	c.addAny(strings.TrimPrefix(url.UserPassword("", password).String(), ":"))
+	c.addAny(escaped)
 	if !words {
 		return
 	}

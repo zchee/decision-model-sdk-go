@@ -321,7 +321,7 @@ func TestTransportDebugRecordsHoldNoCredential(t *testing.T) {
 				if strings.Contains(records, s) {
 					t.Errorf("the records hold %q:\n%s", s, records)
 				}
-				assertNotPrinted(t, err, s)
+				testsupport.AssertNotPrinted(t, err, s)
 			}
 		})
 	}
@@ -333,12 +333,7 @@ func TestTransportDebugRecordsHoldNoCredential(t *testing.T) {
 func newCredentialClient(t *testing.T, logger *slog.Logger, opts ...ClientOption) *Client {
 	t.Helper()
 	clearEnv(t)
-	c, err := NewClient(append([]ClientOption{WithAPIKey(quirkyKey), WithHeader("X-Client-Secret", "provider-credential"), WithLogger(logger)}, opts...)...)
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
-	}
-	t.Cleanup(func() { _ = c.Close() })
-	return c
+	return mustClient(t, append([]ClientOption{WithAPIKey(quirkyKey), WithHeader("X-Client-Secret", "provider-credential"), WithLogger(logger)}, opts...)...)
 }
 
 // TestLogLevelEnvNotRead pins the deviation "`TYPESAFE_LOG_LEVEL` not read"
@@ -478,7 +473,7 @@ func TestLogLevelsPerAttempt(t *testing.T) {
 				case "request":
 					auth, _ := r.Attr("headers.Authorization")
 					vis, _ := r.Attr("headers.X-Visible")
-					if auth.String() != redacted || vis.String() != "request-visible" {
+					if auth.String() != engine.Redacted || vis.String() != "request-visible" {
 						t.Errorf("request record %s, want the headers with Authorization redacted", r)
 					}
 				case "response headers":
@@ -499,12 +494,7 @@ func TestLogLevelsPerAttempt(t *testing.T) {
 func newLoopbackClient(t *testing.T, srv *testsupport.LoopbackServer, logger *slog.Logger, opts ...ClientOption) *Client {
 	t.Helper()
 	clearEnv(t)
-	c, err := NewClient(append([]ClientOption{WithAPIKey(testKey), WithBaseURL(srv.URL()), WithRootCAs(testsupport.RootCAs(t)), WithProxy(nil), WithLogger(logger)}, opts...)...)
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
-	}
-	t.Cleanup(func() { _ = c.Close() })
-	return c
+	return mustClient(t, append([]ClientOption{WithAPIKey(testKey), WithBaseURL(srv.URL()), WithRootCAs(testsupport.RootCAs(t)), WithProxy(nil), WithLogger(logger)}, opts...)...)
 }
 
 // TestLogTransportRecords pins the section 9 rows that need the SDK's own
@@ -725,11 +715,11 @@ func TestProxyEchoHoldsNoCredential(t *testing.T) {
 				if ce.Proxy() != sh.proxy {
 					t.Errorf("Proxy() = %t, want %t", ce.Proxy(), sh.proxy)
 				}
-				if !strings.Contains(ce.Error(), redacted) {
-					t.Errorf("Error() = %q, want the credential replaced by %q", ce.Error(), redacted)
+				if !strings.Contains(ce.Error(), engine.Redacted) {
+					t.Errorf("Error() = %q, want the credential replaced by %q", ce.Error(), engine.Redacted)
 				}
 				for _, secret := range secrets {
-					assertNotPrinted(t, err, secret)
+					testsupport.AssertNotPrinted(t, err, secret)
 				}
 				records := recordsText(logs)
 				wantRecords := []string{"INFO request failed", "DEBUG h2: gate error"}
@@ -744,8 +734,8 @@ func TestProxyEchoHoldsNoCredential(t *testing.T) {
 							break
 						}
 					}
-					if !strings.Contains(line, redacted) {
-						t.Errorf("the %q record %q lacks %q:\n%s", want, line, redacted, records)
+					if !strings.Contains(line, engine.Redacted) {
+						t.Errorf("the %q record %q lacks %q:\n%s", want, line, engine.Redacted, records)
 					}
 				}
 				for _, secret := range secrets {
@@ -773,8 +763,8 @@ func assertRecordsScrubbed(t *testing.T, logs *testsupport.LogRecorder, secrets 
 			continue
 		}
 		failed++
-		if !strings.Contains(l, redacted) {
-			t.Errorf("the record %q lacks %q", l, redacted)
+		if !strings.Contains(l, engine.Redacted) {
+			t.Errorf("the record %q lacks %q", l, engine.Redacted)
 		}
 	}
 	if failed != want {
@@ -878,11 +868,11 @@ func TestProxyEchoConcurrentColdClient(t *testing.T) {
 				if !ok {
 					t.Fatalf("call %d: error = %T %v, want a *ConnectionError", i, err, err)
 				}
-				if !strings.Contains(ce.Error(), redacted) {
-					t.Errorf("call %d: Error() = %q, want the credential replaced by %q", i, ce.Error(), redacted)
+				if !strings.Contains(ce.Error(), engine.Redacted) {
+					t.Errorf("call %d: Error() = %q, want the credential replaced by %q", i, ce.Error(), engine.Redacted)
 				}
 				for _, secret := range secrets {
-					assertNotPrinted(t, err, secret)
+					testsupport.AssertNotPrinted(t, err, secret)
 				}
 			}
 			assertRecordsScrubbed(t, logs, secrets, n)
@@ -948,7 +938,7 @@ func TestProxyCredentialSetEvictsTheOldest(t *testing.T) {
 		if _, ok := errors.AsType[*ConnectionError](err); !ok {
 			t.Fatalf("call %d: error = %T %v, want a *ConnectionError", i, err, err)
 		}
-		assertNotPrinted(t, err, pw)
+		testsupport.AssertNotPrinted(t, err, pw)
 		if i == n-1 {
 			got := passwordsIn()
 			if len(got) != engine.MaxProxyUserinfos || slices.Contains(got, "proxy-password-0-of-17") || !slices.Contains(got, pw) {
@@ -1032,11 +1022,11 @@ func TestProxyFuncAskedOncePerAttempt(t *testing.T) {
 			if !ok {
 				t.Fatalf("List error = %T %v, want a *ConnectionError", err, err)
 			}
-			if !strings.Contains(ce.Error(), redacted) {
-				t.Errorf("Error() = %q, want the credential replaced by %q", ce.Error(), redacted)
+			if !strings.Contains(ce.Error(), engine.Redacted) {
+				t.Errorf("Error() = %q, want the credential replaced by %q", ce.Error(), engine.Redacted)
 			}
 			for _, secret := range secrets {
-				assertNotPrinted(t, err, secret)
+				testsupport.AssertNotPrinted(t, err, secret)
 			}
 			assertRecordsScrubbed(t, logs, secrets, attempts)
 		})
@@ -1075,7 +1065,7 @@ func TestProxyAnswerHeadersRedacted(t *testing.T) {
 		t.Fatalf("List error = %T %v, want the proxy's 407 as an *APIError", err, err)
 	}
 	for _, secret := range secrets {
-		assertNotPrinted(t, err, secret)
+		testsupport.AssertNotPrinted(t, err, secret)
 	}
 	records := recordsText(logs)
 	recordWith := func(msg string) string {
@@ -1089,24 +1079,24 @@ func TestProxyAnswerHeadersRedacted(t *testing.T) {
 
 	t.Run("error: the error's Header (headerRedactor.header)", func(t *testing.T) {
 		for _, name := range []string{"X-Proxy-Echo", "X-Proxy-Password", "X-Typesafe-Request-Id"} {
-			if got := ae.Header.Values(name); !slices.Equal(got, []string{redacted}) {
-				t.Errorf("Header[%s] = %q, want [%q]", name, got, redacted)
+			if got := ae.Header.Values(name); !slices.Equal(got, []string{engine.Redacted}) {
+				t.Errorf("Header[%s] = %q, want [%q]", name, got, engine.Redacted)
 			}
 		}
 	})
 	t.Run("error: the request id (headerRedactor.requestID)", func(t *testing.T) {
-		if line := recordWith("INFO response"); !strings.Contains(line, "request_id="+redacted) {
-			t.Errorf("the INFO response record %q lacks request_id=%s", line, redacted)
+		if line := recordWith("INFO response"); !strings.Contains(line, "request_id="+engine.Redacted) {
+			t.Errorf("the INFO response record %q lacks request_id=%s", line, engine.Redacted)
 		}
-		if got, ok := ae.RequestID(); !ok || got != redacted {
-			t.Errorf("RequestID() = %q, %t; want %q, true", got, ok, redacted)
+		if got, ok := ae.RequestID(); !ok || got != engine.Redacted {
+			t.Errorf("RequestID() = %q, %t; want %q, true", got, ok, engine.Redacted)
 		}
 	})
 	t.Run("error: the DEBUG response headers record (engine.NewRedactedHeaders)", func(t *testing.T) {
 		line := recordWith("DEBUG response headers")
 		for _, name := range []string{"X-Proxy-Echo", "X-Proxy-Password", "X-Typesafe-Request-Id"} {
-			if !strings.Contains(line, name+"="+redacted) {
-				t.Errorf("the record %q lacks %s=%s", line, name, redacted)
+			if !strings.Contains(line, name+"="+engine.Redacted) {
+				t.Errorf("the record %q lacks %s=%s", line, name, engine.Redacted)
 			}
 		}
 	})
@@ -1146,12 +1136,8 @@ func TestProxyCredentialParityWithAPIKey(t *testing.T) {
 		proxyURL.User = url.UserPassword(user, proxyPassword)
 		logs := testsupport.NewLogRecorder(LevelTrace)
 		clearEnv(t)
-		c, err := NewClient(WithAPIKey(key), WithBaseURL("http://example.com"), WithProxy(http.ProxyURL(proxyURL)), WithLogger(logs.Logger()))
-		if err != nil {
-			t.Fatalf("NewClient: %v", err)
-		}
-		t.Cleanup(func() { _ = c.Close() })
-		_, err = callWithin(t, func(ctx context.Context) error {
+		c := mustClient(t, WithAPIKey(key), WithBaseURL("http://example.com"), WithProxy(http.ProxyURL(proxyURL)), WithLogger(logs.Logger()))
+		_, err := callWithin(t, func(ctx context.Context) error {
 			_, err := c.Models().List(ctx, Retry(NoRetry()))
 			return err
 		})
@@ -1195,8 +1181,8 @@ func TestProxyCredentialParityWithAPIKey(t *testing.T) {
 	}
 	// What each treatment is, for the record: shown in the message, "***" in
 	// the headers.
-	if !strings.Contains(withKey["Message"], placeholder) || withKey["Header X-Echo"] != redacted || withKey["RequestID()"] != redacted {
-		t.Errorf("Message %q, X-Echo %q, RequestID %q; want the secret shown, %q and %q", withKey["Message"], withKey["Header X-Echo"], withKey["RequestID()"], redacted, redacted)
+	if !strings.Contains(withKey["Message"], placeholder) || withKey["Header X-Echo"] != engine.Redacted || withKey["RequestID()"] != engine.Redacted {
+		t.Errorf("Message %q, X-Echo %q, RequestID %q; want the secret shown, %q and %q", withKey["Message"], withKey["Header X-Echo"], withKey["RequestID()"], engine.Redacted, engine.Redacted)
 	}
 }
 
@@ -1311,8 +1297,8 @@ func TestProxyHeaderScanScope(t *testing.T) {
 		c := newCredentialClient(t, logs.Logger(), WithBaseURL("http://example.com"), WithProxy(http.ProxyURL(pu)))
 		err := listOnce(t, c)
 		assertHeaderShown(t, err, logs, map[string]string{"X-Typesafe-Request-Id": "req_plain", "X-Word": "seen sesame-street"})
-		if ae, _ := errors.AsType[*APIError](err); ae == nil || ae.Header.Get("X-Whole") != redacted {
-			t.Errorf("X-Whole = %q, want %q: the whole password is a header's needle", ae.Header.Get("X-Whole"), redacted)
+		if ae, _ := errors.AsType[*APIError](err); ae == nil || ae.Header.Get("X-Whole") != engine.Redacted {
+			t.Errorf("X-Whole = %q, want %q: the whole password is a header's needle", ae.Header.Get("X-Whole"), engine.Redacted)
 		}
 	})
 
@@ -1518,12 +1504,12 @@ func TestProxyKeepAliveSecondRequestHidden(t *testing.T) {
 			t.Fatalf("request %d: error = %T %v, want the proxy's 407 as an *APIError", i+1, err, err)
 		}
 		for _, name := range []string{"X-Echo", "X-Password", "X-Typesafe-Request-Id"} {
-			if got := ae.Header.Values(name); !slices.Equal(got, []string{redacted}) {
-				t.Errorf("request %d: Header[%s] = %q, want [%q]", i+1, name, got, redacted)
+			if got := ae.Header.Values(name); !slices.Equal(got, []string{engine.Redacted}) {
+				t.Errorf("request %d: Header[%s] = %q, want [%q]", i+1, name, got, engine.Redacted)
 			}
 		}
-		if id, _ := ae.RequestID(); id != redacted {
-			t.Errorf("request %d: RequestID() = %q, want %q", i+1, id, redacted)
+		if id, _ := ae.RequestID(); id != engine.Redacted {
+			t.Errorf("request %d: RequestID() = %q, want %q", i+1, id, engine.Redacted)
 		}
 		if !strings.Contains(ae.Message, password) {
 			t.Errorf("request %d: Message = %q, want the password shown as the proxy wrote it (parity with the API key)", i+1, ae.Message)
@@ -1538,7 +1524,7 @@ func TestProxyKeepAliveSecondRequestHidden(t *testing.T) {
 			continue
 		}
 		headerRecords++
-		if !strings.Contains(l, "X-Echo="+redacted) || !strings.Contains(l, "X-Password="+redacted) {
+		if !strings.Contains(l, "X-Echo="+engine.Redacted) || !strings.Contains(l, "X-Password="+engine.Redacted) {
 			t.Errorf("the record %q shows the proxy's echo", l)
 		}
 	}

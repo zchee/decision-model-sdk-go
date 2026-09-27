@@ -22,6 +22,7 @@ import (
 	"strconv"
 
 	"github.com/zchee/typesafe-sdk-go/internal/codec"
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
@@ -54,7 +55,7 @@ func Ask[T any](ctx context.Context, c *Client, state any, opts ...CallOption) (
 		var zero T
 		return zero, p.err
 	}
-	var red headerRedactor
+	var red engine.HeaderRedactor
 	resp, err := c.systemOne(ctx, state, p.prepared, opts, &red)
 	if err != nil {
 		var zero T
@@ -143,7 +144,7 @@ func DecodeAs[T any](resp *SystemOneResponse) (T, error) {
 // written into t through the offsets of p (decodeas_store.go), so t stays
 // on this frame: a plan of another type would write outside it, so that is
 // a panic, not an error (the callers always pass T's own plan).
-func decodeTyped[T any](p *typedPlan, resp *SystemOneResponse, endpoint string, r headerRedactor) (T, error) {
+func decodeTyped[T any](p *typedPlan, resp *SystemOneResponse, endpoint string, r engine.HeaderRedactor) (T, error) {
 	var t T
 	if p.err == nil && p.typ != reflect.TypeFor[T]() {
 		panic("typesafe: decodeTyped[" + reflect.TypeFor[T]().String() + "] given the plan of " + p.typ.String())
@@ -168,7 +169,7 @@ var (
 // the type p was built for, field by field in p's order, and names endpoint
 // in a validation error, whose header r redacts. It returns p's own error
 // for a refused type.
-func (p *typedPlan) decode(resp *SystemOneResponse, endpoint string, r headerRedactor, b fieldBase) error {
+func (p *typedPlan) decode(resp *SystemOneResponse, endpoint string, r engine.HeaderRedactor, b fieldBase) error {
 	if p.err != nil {
 		return p.err
 	}
@@ -275,7 +276,7 @@ func undeclaredLevel(a *wire.ScoreAnswer, levels uint64) (at codec.FieldPath, ba
 // answer's place in the body, under "answers"; its FieldPath is that
 // path's lifted form ([typedFieldPath]), rendered once (review-w4.2 NIT F:
 // the decoder's form was rendered first and then replaced).
-func typedError(resp *SystemOneResponse, endpoint string, r headerRedactor, name string, at codec.FieldPath, reason error) *ResponseValidationError {
+func typedError(resp *SystemOneResponse, endpoint string, r engine.HeaderRedactor, name string, at codec.FieldPath, reason error) *ResponseValidationError {
 	at.Top, at.Name, at.HasName = "answers", name, true
 	return newResponseValidationErrorAt(resp.respMeta(), endpoint, r, &codec.DecodeError{Path: at, Err: reason}, typedFieldPath(at))
 }
@@ -287,7 +288,7 @@ func typedError(resp *SystemOneResponse, endpoint string, r headerRedactor, name
 // name and the key are escaped and cut as [renderFieldPath] writes the
 // decoder's.
 func typedFieldPath(p codec.FieldPath) string {
-	t := pathText{limit: maxPathChars}
+	t := pathText{limit: engine.MaxPathChars}
 	t.name(p.Name)
 	if p.Member != "" {
 		t.fixed(".")
