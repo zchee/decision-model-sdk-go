@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import logging
 import os
 import re
 import subprocess
@@ -71,6 +72,7 @@ LINE_SUFFIX = re.compile(r":\d+(?:-\d+)?$")
 HEX = re.compile(r"(?<![0-9A-Za-z])[0-9a-f]{7,40}(?![0-9A-Za-z])")
 ANCHOR_LINK = re.compile(r"\]\(([^)\s]*#[^)\s]+)\)")
 ENV_ARCHIVE, ENV_HISTORY = "SPIKES_ARCHIVE", "SDK_HISTORY"
+_LOG = logging.getLogger("spikes-citations")
 MAP = "w6.7/commit-map.tsv"
 # This checker, its table and its tests name the old tree and malformed
 # citations on purpose.
@@ -123,12 +125,23 @@ ALLOWED = _load_allowed(ALLOWED_FILE)
 def _git(
     repo: Path, *args: str, check: bool = True
 ) -> subprocess.CompletedProcess[str]:
+    """Run ``git -C repo <args>`` and return the finished process, text mode."""
     return subprocess.run(
         ["git", "-C", str(repo), *args], capture_output=True, text=True, check=check
     )
 
 
-def _grep(repo: Path, needle: str, regex: bool = False) -> list[tuple[str, int, str]]:
+def _grep(
+    repo: Path, needle: str, *, regex: bool = False
+) -> list[tuple[str, int, str]]:
+    """Return (file, line number, text) of each tracked line holding ``needle``.
+
+    The needle is a fixed string, or an extended regular expression with
+    ``regex``; this checker's own files are left out (SELF).
+
+    Raises:
+        RuntimeError: git grep failed.
+    """
     proc = _git(
         repo,
         "grep",
@@ -190,6 +203,7 @@ def citation_body(token: str) -> str:
 
 
 def digest(text: str) -> str:
+    """Return the SHA-256 of ``text`` in UTF-8, as 64 hex digits."""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
@@ -233,21 +247,22 @@ def part1(repo: Path) -> tuple[list[str], list[tuple[str, int, str, str | None]]
         entry = allowed.get((path, h))
         if entry is None or entry[0] != tokens:
             failures.append(
-                f"{path}:{number}: {' '.join(tokens)} names the old spike tree on a line that is not "
-                "allowed; cite spikes@<commit>:<path>"
+                f"{path}:{number}: {' '.join(tokens)} names the old spike tree on a "
+                "line that is not allowed; cite spikes@<commit>:<path>"
             )
         elif count > entry[1]:
             failures.append(
-                f"{path}:{number}: an allowed line naming {' '.join(tokens)} occurs {count} times, "
-                f"{entry[1]} allowed"
+                f"{path}:{number}: an allowed line naming {' '.join(tokens)} occurs "
+                f"{count} times, {entry[1]} allowed"
             )
     for f, h, toks, n in sorted(ALLOWED):
         got = found.get((f, h))
         have = got[1] if got is not None and got[0] == toks else 0
         if have < n:
             failures.append(
-                f"{f}: an allowed line naming {' '.join(toks)} occurs {have} times, {n} allowed; a quoted "
-                "command keeps its bytes, and a line removed on purpose takes its entry with it"
+                f"{f}: an allowed line naming {' '.join(toks)} occurs {have} times, "
+                f"{n} allowed; a quoted command keeps its bytes, and a line removed "
+                "on purpose takes its entry with it"
             )
     citations = []
     for path, number, text in _grep(repo, "spikes@"):
@@ -263,13 +278,21 @@ def part1(repo: Path) -> tuple[list[str], list[tuple[str, int, str, str | None]]
 
 
 class Clone:
+    """A local clone that citations and SHA tokens are resolved against."""
+
     def __init__(self, repo: Path) -> None:
+        """Open ``repo``.
+
+        Raises:
+            ValueError: ``repo`` is not a git repository.
+        """
         if _git(repo, "rev-parse", "--git-dir", check=False).returncode != 0:
             raise ValueError(f"{repo} is not a git repository")
         self.repo = repo
         self._paths: dict[str, tuple[set[str], set[str]]] = {}
 
     def commit(self, rev: str) -> str | None:
+        """Return the full SHA of the commit ``rev`` names, or None."""
         proc = _git(
             self.repo,
             "rev-parse",
@@ -281,6 +304,10 @@ class Clone:
         return proc.stdout.strip() or None
 
     def resolves(self, commit: str, path: str) -> bool:
+        """Report whether ``path``, less a line suffix, exists at ``commit``.
+
+        It exists when it names a file or a directory of that commit's tree.
+        """
         if commit not in self._paths:
             files = set(
                 _git(
@@ -301,6 +328,10 @@ class Clone:
 def part2_archive(
     citations: list[tuple[str, int, str, str | None]], archive: Clone
 ) -> list[str]:
+    """Return the failures of check 4: citations the archive does not resolve.
+
+    No citation at all is a failure too, since the check would pass vacuously.
+    """
     failures = []
     for path, number, commit, target in citations:
         full = archive.commit(commit)
@@ -341,7 +372,10 @@ def in_named_brace_group(line: str, start: int, end: int) -> bool:
 
 
 def sha_tokens(repo: Path) -> list[tuple[str, int, str]]:
-    """Hex tokens that stand as commit citations: not glued into a name (an anchor link counts)."""
+    """Hex tokens that stand as commit citations.
+
+    A token glued into a name is not one, and a token in an anchor link is.
+    """
     out = []
     for path, number, line in _grep(repo, "[0-9a-f]{7,40}", regex=True):
         links = [(m.start(1), m.end(1)) for m in ANCHOR_LINK.finditer(line)]
@@ -367,6 +401,13 @@ def sha_tokens(repo: Path) -> list[tuple[str, int, str]]:
 def part2_history(
     repo: Path, history: Clone, archive: Clone
 ) -> tuple[list[str], int, int]:
+    """Return the failures of check 5 and two counts.
+
+    Returns:
+        One failure per SHA token that names a commit from before the
+        rewrite, the number of tokens that name a commit of ``history``, and
+        the number that name none (trees, run ids, digests).
+    """
     table = _git(archive.repo, "show", f"HEAD:{MAP}", check=False)
     if table.returncode != 0:
         return [f"the archive holds no {MAP} at HEAD"], 0, 0
@@ -380,12 +421,13 @@ def part2_history(
         hit = next((o for o in old if o.startswith(tok)), None)
         if hit is not None and final_of[hit] == "not rewritten":
             failures.append(
-                f"{path}:{number}: {tok} is a commit no rewritten ref carries; cite its patch in the "
-                "archive (the commit map's patch column)"
+                f"{path}:{number}: {tok} is a commit no rewritten ref carries; cite "
+                "its patch in the archive (the commit map's patch column)"
             )
         elif hit is not None:
             failures.append(
-                f"{path}:{number}: {tok} is a commit from before the rewrite; cite its final SHA"
+                f"{path}:{number}: {tok} is a commit from before the rewrite; "
+                "cite its final SHA"
             )
         elif history.commit(tok) is not None:
             commits += 1
@@ -395,6 +437,16 @@ def part2_history(
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run part 1, and part 2 where clones are given.
+
+    Args:
+        argv: the command-line arguments without the program name; ``None``
+            reads ``sys.argv``.
+
+    Returns:
+        The exit status: 0 when every check that ran passes, 1 on a failure,
+        2 when a clone is not a git repository.
+    """
     parser = argparse.ArgumentParser(
         description="Check the citations of the spike archive (W6.7)."
     )
@@ -424,7 +476,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             clones[name] = Clone(location.resolve()) if location else None
         except ValueError as err:
-            print(f"spikes-citations: {err}", file=sys.stderr)
+            _LOG.error("spikes-citations: %s", err)
             return 2
     repo = args.repo.resolve()
     failures, citations = part1(repo)
@@ -438,25 +490,28 @@ def main(argv: list[str] | None = None) -> int:
     else:
         more = part2_archive(citations, archive)
         print(
-            f"part 2: {len(citations) - len(more)} of {len(citations)} citations resolve in {archive.repo}"
+            f"part 2: {len(citations) - len(more)} of {len(citations)} citations "
+            f"resolve in {archive.repo}"
         )
         failures += more
     if archive is None or history is None:
         print(
-            f"part 2: checked NO commit SHA: it needs the archive and a full clone (--history or {ENV_HISTORY}); "
-            f"{len(sha_tokens(repo))} SHA tokens skipped"
+            "part 2: checked NO commit SHA: it needs the archive and a full clone "
+            f"(--history or {ENV_HISTORY}); {len(sha_tokens(repo))} SHA tokens skipped"
         )
     else:
         more, commits, other = part2_history(repo, history, archive)
         print(
-            f"part 2: {commits} SHA tokens name commits of the history, {other} name none (trees, run ids, digests), "
-            f"{len(more)} name commits from before the rewrite"
+            f"part 2: {commits} SHA tokens name commits of the history, {other} name "
+            f"none (trees, run ids, digests), {len(more)} name commits from before "
+            "the rewrite"
         )
         failures += more
     for failure in failures:
-        print(failure, file=sys.stderr)
+        _LOG.error("%s", failure)
     return 1 if failures else 0
 
 
 if __name__ == "__main__":
+    logging.basicConfig(format="%(message)s")
     sys.exit(main())

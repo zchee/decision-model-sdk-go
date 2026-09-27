@@ -37,10 +37,11 @@ KEPT = "0badc0de0badc0de0badc0de0badc0de0badc0de"
 
 @pytest.fixture
 def archive(tmp_path: Path) -> tuple[Path, str, str]:
-    """An archive with two commits: A holds w1.2/, B adds w7/c.txt and the commit map.
+    """An archive of two commits: A holds w1.2/, B adds w7/c.txt and the map.
 
-    The map has a row for a commit of main, one for a commit only wave/w7 reached, and one for
-    a commit that no rewritten ref carries (kept as a patch).
+    The commit map has a row for a commit of main, one for a commit only
+    wave/w7 reached, and one for a commit that no rewritten ref carries (kept
+    as a patch).
     """
     repo, a = _repo(
         tmp_path / "archive", {"w1.2/results/a.txt": "1\n2\n3\n", "w1.2/b.py": "x\n"}
@@ -49,7 +50,8 @@ def archive(tmp_path: Path) -> tuple[Path, str, str]:
         "sdk_old\tsdk_final\tsdk_checkout\tarchive\tpatch\trefs\tsubject\n"
         f"{OLD}\tremoved\t\t\t\tmain wave/w7\ts\n"
         f"{OLD_W7}\tremoved\t\t\t\twave/w7\tt\n"
-        f"{KEPT}\tnot rewritten\t\t\tw6.5-design/prototype/0001-p.patch\tspike/w6.5-design (deleted on origin)\tp\n"
+        f"{KEPT}\tnot rewritten\t\t\tw6.5-design/prototype/0001-p.patch"
+        "\tspike/w6.5-design (deleted on origin)\tp\n"
     )
     _, b = _repo(repo, {"w7/c.txt": "c\n", "w6.7/commit-map.tsv": table})
     return repo, a, b
@@ -58,7 +60,10 @@ def archive(tmp_path: Path) -> tuple[Path, str, str]:
 COMMAND_LINE = (
     "commands keep their bytes: `go test ./_spikes/s-d1/`, `R=_spikes/s-c1/run.sh`,"
 )
-PROSE_LINE = "`ok github.com/zchee/typesafe-sdk-go/_spikes/s-c1`, and prose names `_spikes`; spikes@<commit>:<path> is a placeholder."
+PROSE_LINE = (
+    "`ok github.com/zchee/typesafe-sdk-go/_spikes/s-c1`, and prose names "
+    "`_spikes`; spikes@<commit>:<path> is a placeholder."
+)
 
 
 def _entry(text: str, count: int = 1) -> tuple[str, str, tuple[str, ...], int]:
@@ -74,8 +79,14 @@ ALLOWED = frozenset({_entry(COMMAND_LINE), _entry(PROSE_LINE)})
 
 GOOD = [
     "raw `spikes@{a}:w1.2/results/a.txt` and spikes@{a}:w1.2/results/a.txt:2-3",
-    "the directory spikes@{a}:w1.2/ and spikes@{a}:w1.2/results; in spikes@{a}:w1.2/b.py: a clause.",
-    "a later file spikes@{b}:w7/c.txt; the earlier one still at spikes@{a}:w1.2/b.py. The commit spikes@{a}, pruned.",
+    (
+        "the directory spikes@{a}:w1.2/ and spikes@{a}:w1.2/results; "
+        "in spikes@{a}:w1.2/b.py: a clause."
+    ),
+    (
+        "a later file spikes@{b}:w7/c.txt; the earlier one still at "
+        "spikes@{a}:w1.2/b.py. The commit spikes@{a}, pruned."
+    ),
     COMMAND_LINE,
     PROSE_LINE,
 ]
@@ -94,6 +105,7 @@ def no_allowed_lines(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 TAIL = "\n" + COMMAND_LINE + "\n" + PROSE_LINE + "\n"
+NOT_ALLOWED = "names the old spike tree on a line that is not allowed"
 
 
 @pytest.mark.usefixtures("allowed_lines")
@@ -117,15 +129,15 @@ def test_success(tmp_path: Path, archive: tuple[Path, str, str]) -> None:
     [
         (
             "raw `_spikes/w1.2/b.py`",
-            "docs/x.md:1: _spikes/w1.2/b.py names the old spike tree on a line that is not allowed",
+            f"docs/x.md:1: _spikes/w1.2/b.py {NOT_ALLOWED}",
         ),
         (
             "raw internal/spikes/w7/c.txt",
-            "docs/x.md:1: internal/spikes/w7/c.txt names the old spike tree on a line that is not allowed",
+            f"docs/x.md:1: internal/spikes/w7/c.txt {NOT_ALLOWED}",
         ),
         (
             "a new command `go test ./_spikes/w9/`",
-            "docs/x.md:1: ./_spikes/w9/ names the old spike tree on a line that is not allowed",
+            f"docs/x.md:1: ./_spikes/w9/ {NOT_ALLOWED}",
         ),
         (
             "short spikes@{a11}:w1.2/b.py",
@@ -157,7 +169,10 @@ def test_success(tmp_path: Path, archive: tuple[Path, str, str]) -> None:
         ),
         (
             "a glob spikes@{a}:w1.2/results/*.txt",
-            "docs/x.md:1: spikes@{a}:w1.2/results/*.txt is not spikes@<12 hex>[:<path>]",
+            (
+                "docs/x.md:1: spikes@{a}:w1.2/results/*.txt "
+                "is not spikes@<12 hex>[:<path>]"
+            ),
         ),
         (
             "a glob spikes@{a}:w1.2/b.p?",
@@ -199,8 +214,8 @@ def test_part1_allowed_lines_are_keyed_by_their_text(tmp_path: Path) -> None:
 
 
 GONE = (
-    "docs/x.md: an allowed line naming ./_spikes/s-d1/ R=_spikes/s-c1/run.sh occurs 0 times, 1 allowed; "
-    "a quoted command keeps its bytes"
+    "docs/x.md: an allowed line naming ./_spikes/s-d1/ R=_spikes/s-c1/run.sh "
+    "occurs 0 times, 1 allowed; a quoted command keeps its bytes"
 )
 
 
@@ -210,20 +225,21 @@ GONE = (
     [
         (
             COMMAND_LINE + "\nrerun: `go test ./_spikes/s-d1/`\n",
-            [
-                "docs/x.md:2: ./_spikes/s-d1/ names the old spike tree on a line that is not allowed"
-            ],
+            [f"docs/x.md:2: ./_spikes/s-d1/ {NOT_ALLOWED}"],
         ),
         (
             COMMAND_LINE + "\n" + COMMAND_LINE + "\n",
             [
-                "docs/x.md:1: an allowed line naming ./_spikes/s-d1/ R=_spikes/s-c1/run.sh occurs 2 times, 1 allowed"
+                (
+                    "docs/x.md:1: an allowed line naming ./_spikes/s-d1/ "
+                    "R=_spikes/s-c1/run.sh occurs 2 times, 1 allowed"
+                )
             ],
         ),
         (
             COMMAND_LINE.replace("run.sh", "run2.sh") + "\n",
             [
-                "docs/x.md:1: ./_spikes/s-d1/ R=_spikes/s-c1/run2.sh names the old spike tree on a line that is not allowed",
+                f"docs/x.md:1: ./_spikes/s-d1/ R=_spikes/s-c1/run2.sh {NOT_ALLOWED}",
                 GONE,
             ],
         ),
@@ -231,7 +247,7 @@ GONE = (
             COMMAND_LINE.replace("keep their bytes", "keep their bytes, and more")
             + "\n",
             [
-                "docs/x.md:1: ./_spikes/s-d1/ R=_spikes/s-c1/run.sh names the old spike tree on a line that is not allowed",
+                f"docs/x.md:1: ./_spikes/s-d1/ R=_spikes/s-c1/run.sh {NOT_ALLOWED}",
                 GONE,
             ],
         ),
@@ -240,8 +256,8 @@ GONE = (
             + "\n`go test ./_spikes/s-d1/` wrote `_spikes/s-d1/results/x.txt`\n",
             [
                 (
-                    "docs/x.md:2: ./_spikes/s-d1/ _spikes/s-d1/results/x.txt names the old spike tree on a line that is not "
-                    "allowed"
+                    "docs/x.md:2: ./_spikes/s-d1/ _spikes/s-d1/results/x.txt "
+                    f"{NOT_ALLOWED}"
                 )
             ],
         ),
@@ -251,7 +267,7 @@ GONE = (
             )
             + "\n",
             [
-                "docs/x.md:1: ./_spikes/s-d1/ names the old spike tree on a line that is not allowed",
+                f"docs/x.md:1: ./_spikes/s-d1/ {NOT_ALLOWED}",
                 GONE,
             ],
         ),
@@ -337,28 +353,35 @@ def test_part2_archive_with_nothing_to_resolve_fails(
 
 
 def test_part2_history(tmp_path: Path, archive: tuple[Path, str, str]) -> None:
-    """An old SHA of main or of wave/w7 fails, after ':' too; a SHA of the history counts; a raw file
-    name, brace-expanded or not, is skipped; a tree hash and a run id name no commit."""
+    """An old SHA of main or of wave/w7 fails, after ':' too.
+
+    A SHA of the history counts; a raw file name, brace-expanded or not, is
+    skipped; a tree hash and a run id name no commit.
+    """
     arch = archive[0]
     history, _ = _repo(tmp_path / "history", {"f": "1\n"})
     head = git(history, "rev-parse", "HEAD")
     tree = git(history, "rev-parse", "HEAD^{tree}")
     text = (
-        f"at {head[:7]} and {head[:12]}..{head[:7]}; tree {tree[:7]}; run 36296146429;\n"
-        f"raw results/alloc-M-{OLD[:7]}.txt keeps its name; the old commit {OLD[:7]} was rewritten.\n"
-        f"raw results/b6allocs-M-{{{OLD[:7]},{OLD_W7[:7]}}}.txt keeps its name too.\n"
+        f"at {head[:7]} and {head[:12]}..{head[:7]}; tree {tree[:7]}; "
+        "run 36296146429;\n"
+        f"raw results/alloc-M-{OLD[:7]}.txt keeps its name; the old commit "
+        f"{OLD[:7]} was rewritten.\n"
+        f"raw results/b6allocs-M-{{{OLD[:7]},{OLD_W7[:7]}}}.txt keeps its name "
+        "too.\n"
         f"wave/w7 had {OLD_W7[:9]}; a status line said base:{OLD[:7]}.\n"
         f"the prototype {KEPT[:7]} was never merged.\n"
     )
     repo, _ = _repo(tmp_path / "co", {"docs/x.md": text})
     failures, commits, other = sc.part2_history(repo, sc.Clone(history), sc.Clone(arch))
+    before = "is a commit from before the rewrite; cite its final SHA"
     assert failures == [
-        f"docs/x.md:2: {OLD[:7]} is a commit from before the rewrite; cite its final SHA",
-        f"docs/x.md:4: {OLD_W7[:9]} is a commit from before the rewrite; cite its final SHA",
-        f"docs/x.md:4: {OLD[:7]} is a commit from before the rewrite; cite its final SHA",
+        f"docs/x.md:2: {OLD[:7]} {before}",
+        f"docs/x.md:4: {OLD_W7[:9]} {before}",
+        f"docs/x.md:4: {OLD[:7]} {before}",
         (
-            f"docs/x.md:5: {KEPT[:7]} is a commit no rewritten ref carries; cite its patch in the archive "
-            "(the commit map's patch column)"
+            f"docs/x.md:5: {KEPT[:7]} is a commit no rewritten ref carries; cite "
+            "its patch in the archive (the commit map's patch column)"
         ),
     ]
     assert (commits, other) == (3, 2)
@@ -381,8 +404,8 @@ def test_main_without_clones_says_it_checked_nothing(
     out = capsys.readouterr().out
     assert "part 1: 8 citations well-formed, 0 failures" in out
     assert (
-        "part 2: resolved NOTHING: no archive clone (--archive or SPIKES_ARCHIVE); 8 citations skipped"
-        in out
+        "part 2: resolved NOTHING: no archive clone (--archive or SPIKES_ARCHIVE); "
+        "8 citations skipped" in out
     )
     assert "part 2: checked NO commit SHA" in out
     monkeypatch.setenv(sc.ENV_ARCHIVE, str(arch))
@@ -395,17 +418,17 @@ def test_main_without_clones_says_it_checked_nothing(
 
 @pytest.mark.usefixtures("no_allowed_lines")
 def test_main_exit_status(
-    tmp_path: Path, archive: tuple[Path, str, str], capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, archive: tuple[Path, str, str], caplog: pytest.LogCaptureFixture
 ) -> None:
     arch, a, _ = archive
     repo, _ = _repo(tmp_path / "co", {"docs/x.md": f"spikes@{a}:w1.2/nope.txt\n"})
     assert sc.main(["--repo", str(repo), "--archive", str(arch)]) == 1
     assert (
-        f"docs/x.md:1: spikes@{a}:w1.2/nope.txt: no such path at {a}"
-        in capsys.readouterr().err
+        f"docs/x.md:1: spikes@{a}:w1.2/nope.txt: no such path at {a}" in caplog.messages
     )
+    caplog.clear()
     assert sc.main(["--repo", str(repo), "--archive", str(tmp_path / "missing")]) == 2
-    assert "is not a git repository" in capsys.readouterr().err
+    assert any("is not a git repository" in m for m in caplog.messages)
 
 
 def test_load_allowed_reads_each_row(tmp_path: Path) -> None:
