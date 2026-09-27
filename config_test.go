@@ -41,19 +41,6 @@ func mapEnv(m map[string]string) func(string) string {
 	return func(name string) string { return m[name] }
 }
 
-// clearEnv unsets, for the rest of the test, the three variables a client
-// reads, whatever the shell running the test holds (a developer's
-// TYPESAFE_API_KEY among them); t.Setenv restores them when the test ends.
-func clearEnv(t *testing.T) {
-	t.Helper()
-	for _, name := range []string{APIKeyEnv, BaseURLEnv, DefaultModelEnv} {
-		t.Setenv(name, "")
-		if err := os.Unsetenv(name); err != nil {
-			t.Fatalf("unset %s: %v", name, err)
-		}
-	}
-}
-
 // resolveConfig resolves opts against the environment getenv reads, as
 // NewClient does against the process environment.
 func resolveConfig(getenv func(string) string, opts ...ClientOption) (*config, error) {

@@ -128,15 +128,6 @@ func mustURL(t *testing.T, raw string) *url.URL {
 	return u
 }
 
-// headers returns an http.Header with the pairs set as a server sends them.
-func headers(kv ...string) http.Header {
-	h := http.Header{}
-	for i := 0; i+1 < len(kv); i += 2 {
-		h.Add(kv[i], kv[i+1])
-	}
-	return h
-}
-
 // TestEndpointOmitsCredentialsQueryFragment ports
 // test_api_error_endpoint_omits_url_credentials (row E4 of
 // docs/port-test-matrix.md, tests/test_errors.py:104-110): the endpoint keeps

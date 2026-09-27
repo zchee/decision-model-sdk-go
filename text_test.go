@@ -22,7 +22,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"reflect"
 	"strconv"
 	"strings"
 	"syscall"
@@ -35,64 +34,6 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
-
-// standInType is the type of the stand-in internal/engine's credential scrub
-// returns for a transport error whose chain printed a credential
-// (engine.Credentials.Cause). The type is unexported there, so the root
-// package's tests take it from a stand-in the scrub itself built.
-var standInType = func() reflect.Type {
-	const key = "ts_live_0123456789abcdef"
-	plain := errors.New("rejected " + key)
-	s := engine.RequestCredentials(http.Header{"Authorization": {"Bearer " + key}}).Cause(plain)
-	if s == plain { //nolint:errorlint // identity: the scrub kept the error
-		panic("engine.Credentials.Cause kept an error whose text holds the key; there is no stand-in to recognise")
-	}
-	return reflect.TypeOf(s)
-}()
-
-// isStandIn reports whether err is the scrub's stand-in (standInType).
-func isStandIn(err error) bool { return err != nil && reflect.TypeOf(err) == standInType }
-
-// chainHolds reports whether err, or an error its chain wraps (errors.Unwrap,
-// both forms, as errors.As walks it), satisfies match.
-func chainHolds(err error, match func(error) bool) bool {
-	if err == nil {
-		return false
-	}
-	if match(err) {
-		return true
-	}
-	switch u := err.(type) { //nolint:errorlint // visits each link of the chain as it is.
-	case interface{ Unwrap() error }:
-		return chainHolds(u.Unwrap(), match)
-	case interface{ Unwrap() []error }:
-		for _, e := range u.Unwrap() {
-			if chainHolds(e, match) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// quoted returns v as Go's %q quotes it, without the quotes: a form in
-// which an error text may show a credential.
-func quoted(v string) string {
-	q := strconv.Quote(v)
-	return q[1 : len(q)-1]
-}
-
-// jsonQuoted returns v as encoding/json writes it inside a JSON string
-// (through testsupport.StdlibMarshal: the root package's tests import no JSON
-// library), without the quotes: another such form.
-func jsonQuoted(t *testing.T, v string) string {
-	t.Helper()
-	b, err := testsupport.StdlibMarshal(v)
-	if err != nil {
-		t.Fatalf("StdlibMarshal: %v", err)
-	}
-	return string(b[1 : len(b)-1])
-}
 
 // TestRenderFieldPath checks how a field path is printed: the Python SDK's
 // dotted field_path, "." for the root, each name the server chose escaped with
@@ -139,11 +80,6 @@ func TestRenderFieldPath(t *testing.T) {
 		})
 	}
 }
-
-// quirkyKey is an API key with a quote, a double quote and a backslash, the
-// upstream credential "ts_live_quo'te\"slash\\tail"
-// (tests/test_logging.py:88), whose quoted forms differ from its raw one.
-const quirkyKey = `ts_live_quo'te"slash\tail`
 
 // TestRedactionKeepsCleanChains ports
 // test_exception_redaction_preserves_network_diagnostics

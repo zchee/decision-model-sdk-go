@@ -388,8 +388,3 @@ func TestClientLogRecords(t *testing.T) {
 		}
 	})
 }
-
-// errString is an error with a fixed text.
-type errString string
-
-func (e errString) Error() string { return string(e) }

@@ -15,7 +15,6 @@
 package typesafe
 
 import (
-	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -30,27 +29,6 @@ import (
 )
 
 const systemOneEndpoint = "POST https://api.typesafe.ai/v1/systemone"
-
-// noulQuestion is the question set of the upstream response tests,
-// {"q": {"type": "noul", "instructions": "?"}}.
-func noulQuestion(t *testing.T) *Prepared {
-	t.Helper()
-	qs, err := NewQuestions().Noul("q", Noul{Instructions: Text("?")}).Prepare()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return qs
-}
-
-// validationError asserts that err is a *ResponseValidationError.
-func validationError(t *testing.T, err error) *ResponseValidationError {
-	t.Helper()
-	rve, ok := errors.AsType[*ResponseValidationError](err)
-	if !ok {
-		t.Fatalf("err = %v (%T), want a *ResponseValidationError", err, err)
-	}
-	return rve
-}
 
 // TestModelsMissingMemberPath ports test_nested_missing_field_path
 // (tests/test_responses.py:61-68): a model card without one of its three

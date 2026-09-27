@@ -532,14 +532,6 @@ func TestConcurrentCalls(t *testing.T) {
 	}
 }
 
-// netTimeout is a net.Error whose Timeout is true, as a dial or read
-// deadline reports.
-type netTimeout struct{}
-
-func (netTimeout) Error() string   { return "i/o timeout" }
-func (netTimeout) Timeout() bool   { return true }
-func (netTimeout) Temporary() bool { return true }
-
 // TestAttemptErrorClassification pins the attempt's classification of an
 // error that ended it without a response: the attempt's
 // own deadline is a *TimeoutError naming the attempt's timeout, whether it

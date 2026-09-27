@@ -37,33 +37,6 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
-// testKey is the root tests' default API key (the upstream tests' key):
-// 8 bytes long, so the checks that look for the key inside other text
-// apply to it.
-const testKey = "test-key"
-
-// getResult is what a GET through a client's transport produced.
-type getResult struct {
-	status, protoMajor int
-	err                error
-}
-
-// getVia sends GET rawURL through tr with the attempt timeout timeout, reads
-// the whole response body and closes it.
-func getVia(ctx context.Context, tr *engine.Transport, rawURL string, timeout time.Duration) getResult {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
-	if err != nil {
-		return getResult{err: err}
-	}
-	resp, err := roundTrip(tr, req, timeout)
-	if err != nil {
-		return getResult{err: err}
-	}
-	defer resp.Body.Close()
-	_, err = io.Copy(io.Discard, resp.Body)
-	return getResult{status: resp.StatusCode, protoMajor: resp.ProtoMajor, err: err}
-}
-
 // getWithin is getVia under a deadline of d.
 func getWithin(t *testing.T, tr *engine.Transport, rawURL string, timeout, d time.Duration) getResult {
 	t.Helper()

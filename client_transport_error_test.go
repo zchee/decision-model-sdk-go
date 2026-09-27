@@ -35,45 +35,6 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
-// The timing rules of the transport tests: every measured span
-// is at least 250 ms, a lower bound allows one tick of the coarsest CI clock,
-// and every wait has a deadline.
-const (
-	// span is the length of every deadline and every delay a test measures.
-	span = 300 * time.Millisecond
-	// coarseTick is one tick of the coarsest CI clock (windows-2025).
-	coarseTick = 20 * time.Millisecond
-	// callBound is the longest any call of these tests may take.
-	callBound = 15 * time.Second
-)
-
-// callWithin runs call on its own goroutine and returns how long it took
-// and its error, failing the test when it does not return within callBound
-// plus 5 s: the call's context carries callBound, so a transport that
-// honours it returns first.
-func callWithin(t *testing.T, call func(ctx context.Context) error) (time.Duration, error) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), callBound)
-	defer cancel()
-	type result struct {
-		err     error
-		elapsed time.Duration
-	}
-	done := make(chan result, 1)
-	go func() {
-		start := time.Now()
-		err := call(ctx)
-		done <- result{err: err, elapsed: time.Since(start)}
-	}()
-	select {
-	case r := <-done:
-		return r.elapsed, r.err
-	case <-time.After(callBound + 5*time.Second):
-		t.Fatalf("the call did not return within %v", callBound+5*time.Second)
-		return 0, nil
-	}
-}
-
 // partialBody is what a mid-body failure sends before it fails: the start of
 // a models response.
 const partialBody = `{"models":[`
