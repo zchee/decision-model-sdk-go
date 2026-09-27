@@ -55,12 +55,11 @@ jobs:
           go install golang.org/dl/gotip@latest
           gotip download
 
-      # gotip carries the go1.28 release tag, so internal/codec refuses to build
-      # there by design (D1), and so does every package that imports it. The
-      # canary builds only the packages the seam test keeps free of both (PM1).
-      # The root package left this list when it began to import internal/codec
-      # (W1.2, ruling R41). internal/h2gate is the stock HTTP/2 transport's
-      # gate, so the canary also runs its tests (K5).
+      # gotip carries the go1.28 release tag, so internal/codec refuses to
+      # build there by design (the D1 refusal), and so does every package
+      # that imports it. The canary builds only the packages the seam test
+      # keeps free of both. internal/h2gate is the stock HTTP/2 transport's
+      # gate, so the canary also runs its tests.
       - name: Build, vet and test with gotip
         timeout-minutes: 15
         run: |
@@ -97,7 +96,7 @@ jobs:
             fi
           done
 
-      # PM5 needs two signals (ruling R15b), and this step sets both outputs
+      # The PM5 probe needs two signals, and this step sets both outputs
       # on every run:
       # - rc_exists: go.dev/dl lists a go1.28 release candidate or release
       #   (gotip itself always reports a development version);

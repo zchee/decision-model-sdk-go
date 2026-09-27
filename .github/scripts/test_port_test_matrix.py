@@ -1,9 +1,10 @@
 """Tests for port-test-matrix.py.
 
-Run from the repository root with ``uvx pytest -q .github/scripts``. Type-check
-the scripts and these tests with ``uvx --with pytest --with types-PyYAML mypy
---strict .github/scripts``: mypy needs pytest installed next to it to see its
-types, and types-PyYAML for the yaml import of uncovered-lines.py.
+Run from the repository root with
+``uvx --with pyyaml pytest -q .github/scripts``. Type-check the scripts and
+these tests with ``uvx --with pytest --with types-PyYAML mypy --strict
+.github/scripts``: mypy needs pytest installed next to it to see its types,
+and types-PyYAML for the yaml import of uncovered-lines.py.
 """
 
 from __future__ import annotations
@@ -403,7 +404,7 @@ class TestParseMatrix:
         ]
 
     def test_a_table_without_header_and_separator_fails(self) -> None:
-        # P7: GitHub renders these lines as a paragraph, not a table.
+        # GitHub renders these lines as a paragraph, not a table.
         text = "### `tests/test_a.py` (2)\n\n" + "\n".join(PORTED_A) + "\n"
         matrix = ptm.parse_matrix(text, "m.md")
         assert matrix.failures == [
@@ -465,7 +466,7 @@ class TestParseMatrix:
 
     @pytest.mark.parametrize("spaces", [1, 2, 3])
     def test_rows_indented_up_to_three_spaces_are_rows(self, spaces: int) -> None:
-        # P6: GitHub renders them as table rows, so they are checked.
+        # GitHub renders them as table rows, so they are checked.
         indented = " " * spaces + "| A9 | `test_two` | `TestNope` | ported |"
         text = _matrix(PORTED_A[0], indented)
         assert [row.row_id for row in _rows(text)] == ["A1", "A9"]
@@ -478,7 +479,7 @@ class TestParseMatrix:
 
     @pytest.mark.parametrize("level", ["#", "##", "####", "######"])
     def test_file_headings_must_be_level_three(self, level: str) -> None:
-        # P11: a group heading at another level would leave its rows outside
+        # A group heading at another level would leave its rows outside
         # any group, or before the first one.
         text = f"{level} `tests/test_a.py` (1)\n\n{HEADER}\n{PORTED_A[0]}\n"
         matrix = ptm.parse_matrix(text, "m.md")

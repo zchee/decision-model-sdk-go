@@ -3,7 +3,7 @@
 # requires-python = ">=3.12"
 # dependencies = []
 # ///
-"""Check the citations of the spike archive (W6.7, D-W6.7-C-citation, D-W6.7-C-ready).
+"""Check the citations of the spike archive.
 
 The spikes left this repository for a private archive repository that keeps
 their history, and main's history was rewritten without them on 2026-09-27.
@@ -75,9 +75,9 @@ SELF = (":(exclude).github/scripts/spikes-citations.py", ":(exclude).github/scri
 
 # The lines where the old name stands, as (file, SHA-256 of the line's text,
 # its old-name tokens, how many times the line occurs in the file): the
-# record of a command line, or a word of prose. Written by W6.7's docs commit
-# from the rewritten tree (D-W6.7-C-allowed); a new entry is a decision, not a
-# pattern, and an allowed line whose text is edited needs its entry updated.
+# record of a command line, or a word of prose. A new entry is a decision,
+# not a pattern, and an allowed line whose text is edited needs its entry
+# updated.
 # BEGIN ALLOWED
 ALLOWED: frozenset[tuple[str, str, tuple[str, ...], int]] = frozenset(
     {

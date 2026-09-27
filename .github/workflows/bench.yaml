@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - main
-  # The repository takes no pull requests (ruling R2), so AC-P7's "PR run"
-  # is a workflow_dispatch run on the wave branch before it lands, then the
-  # main run after it (docs/perf/codspeed.md).
   pull_request:
   workflow_dispatch:
 
@@ -23,23 +20,21 @@ permissions:
 jobs:
   codspeed:
     name: CodSpeed (walltime)
-    # Plan decision D4: CodSpeed accepted ubuntu-26.04 on 2026-09-25 (runs
-    # 36102193024 and 36102197550, both green), so no runner exception applies.
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     permissions:
       contents: read
       # CodSpeed authenticates with the job's OIDC id-token when its GitHub App
-      # is installed on the repository (owner gate G1); the action has no token
-      # input set and no separate OIDC switch.
+      # is installed on the repository; the action has no token input set and
+      # no separate OIDC switch.
       id-token: write
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
-      # setup-go reads go.mod's toolchain line (go1.27.1) before its go line
-      # unless GOTOOLCHAIN=local is set (setup-go v7 src/installer.ts,
+      # setup-go reads go.mod's toolchain line before its go line unless
+      # GOTOOLCHAIN=local is set (setup-go v7 src/installer.ts,
       # parseGoVersionFile).
       - uses: actions/setup-go@v7
         with:
@@ -63,16 +58,10 @@ jobs:
           TMPDIR: ${{ runner.temp }}
         with:
           mode: walltime
-          # The action's `go` shim hands every `go test` to codspeed-go-runner,
-          # which runs benchmarks only: it keeps -bench and -benchtime, drops any
-          # other flag with a warning, and takes the first non-flag argument and
-          # everything after it as package patterns (so `-run '^$'` fails with
-          # malformed import path "^$"). It then runs the real
-          # `go test -bench <p> -benchtime <d> -run=^$ <packages>` itself, so no
-          # unit test runs in this job. Source: CodSpeedHQ/codspeed v5.2.1
-          # src/executor/helpers/introspected_golang/go.sh (default go-runner
-          # 1.3.0); CodSpeedHQ/codspeed-go v1.3.0 go-runner/src/cli.rs and
-          # go-runner/src/runner/mod.rs.
+          # The action's go shim runs benchmarks only: it keeps -bench and
+          # -benchtime, drops other flags, and reads the first non-flag
+          # argument as a package pattern, so no -run here (`-run '^$'` fails
+          # as a malformed import path) and no unit test runs in this job.
           # The log copy feeds the guard below; pipefail keeps go's status.
           run: set -o pipefail; go test -bench=. ./... 2>&1 | tee "${{ runner.temp }}/codspeed.log"
 
@@ -113,23 +102,15 @@ jobs:
           fi
           exit "$fail"
 
-      # AC-P7 is a gate (owner rulings G8-a, Q1 (c), and G8-b, Q1b): the job
-      # fails when BenchmarkCall/sdk's mean is not below BenchmarkCall/naive's
-      # mean in this run, a same-run ratio at or above 1.0, the two numbers
-      # coming from one machine whatever host the runner got. The mean is go
-      # test's ns/op (ruling R108); the verdict compares the two means as the
-      # results hold them, and the printed means and ratio are rounded. Every
-      # absolute time, the min and median ratios and the -q20 rows are
-      # report-only; K7's 20-run/5 % switch is withdrawn, and its host groups
-      # (R109b) and segments (R109c) stay report bookkeeping in
-      # docs/perf/codspeed.md. The table gives the three statistics of every
-      # BenchmarkCall row with the facts a ledger row needs, and the log lists
-      # every row the results hold, under the name CodSpeed keys its history
-      # by. The step also fails when it cannot read what it compares: no
-      # results file, a file jq cannot read, no BenchmarkCall/sdk or /naive
-      # row or one of them twice, or a row without a positive mean, since a
-      # green job with an empty report is how K35 hid lost rows (Phase 4
-      # critic m-8).
+      # The gate: the job fails unless BenchmarkCall/sdk's mean (go test's
+      # ns/op) is below BenchmarkCall/naive's in this run, two numbers from
+      # one machine whatever host the runner got; the verdict compares the
+      # means as the results hold them, and the printed values are rounded.
+      # Absolute times, the min and median ratios and the -q20 rows are
+      # report-only. The step also fails when it cannot read what it
+      # compares (no results file, a file jq cannot read, a missing or
+      # repeated sdk or naive row, a mean that is not positive), so an empty
+      # report cannot pass.
       - name: AC-P7 gate (sdk mean below naive mean)
         run: |
           set -euo pipefail
@@ -146,8 +127,8 @@ jobs:
             # Hosts of one model name differ in the CPU flags the VM exposes:
             # two EPYC 9V74 runs, without and with AVX-512, ran 123 of 125
             # rows 15 to 50 % apart and BenchmarkCall/sdk's mean 29.01 %
-            # apart (docs/perf/codspeed.md; ledger W5.4-19), so the line
-            # names AVX-512 and a digest of the sorted flags.
+            # apart (docs/perf/codspeed.md), so the line names AVX-512 and a
+            # digest of the sorted flags.
             flags=$(sed -n '/^flags[[:space:]]*:/{s/^[^:]*: //p;q;}' /proc/cpuinfo 2>/dev/null || true)
             case " $flags " in *" avx512f "*) avx512=yes ;; *) avx512=no ;; esac
             digest=$(tr ' ' '\n' <<<"$flags" | LC_ALL=C sort | tr '\n' ' ' | sha256sum | cut -c1-12)

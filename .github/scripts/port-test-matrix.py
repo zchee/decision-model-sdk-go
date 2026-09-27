@@ -11,7 +11,8 @@ or to a documented deviation. This script enforces that mapping.
 Usage (from the repository root)::
 
     .github/scripts/port-test-matrix.py --upstream PATH [--write FILE]
-        [--names FILE] [--matrix FILE] [--deviations FILE]
+        [--names FILE] [--matrix FILE] [--repo DIR] [--deviations FILE]
+        [--as-built FILE]
 
 Checks, in order. Every failure is logged to stderr on its own line, followed
 by a failure count; on success one summary line goes to stdout. The exit

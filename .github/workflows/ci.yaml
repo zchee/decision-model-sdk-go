@@ -8,8 +8,9 @@ on:
   workflow_dispatch:
 
 # Every commit on main gets its own group, so no main run is cancelled or
-# collapsed into a later one (K7 counts main runs); other refs share a group
-# per ref and cancel superseded runs.
+# collapsed into a later one and each commit keeps its own result and
+# Codecov status; other refs share a group per ref and cancel superseded
+# runs.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
@@ -61,9 +62,9 @@ jobs:
           fi
           modernize -test ./... && go vet ./... && staticcheck ./... && govulncheck ./... && go mod tidy -diff
 
-      # Import confinement (sonic, unsafe, x/net, JSON libraries), the per-file D1
-      # constraint lines and the sonic JIT-path guard (AC-Q4). The test job runs
-      # the same tests on every image; this step names them in the lint result.
+      # Import confinement (sonic, unsafe, x/net, JSON libraries), the per-file
+      # D1 constraint lines and the sonic JIT-path guard. The test job runs the
+      # same tests on every image; this step names them in the lint result.
       - name: internal/codec seam tests
         run: go test -run 'Seam' -count=1 -v ./internal/codec/
 
@@ -74,32 +75,18 @@ jobs:
       - name: Test the checker scripts
         run: uvx --with pyyaml pytest -q -p no:cacheprovider .github/scripts
 
-      # --deviations: every deviation the matrix cites is a row of
-      # docs/deviations.md, and each row lists exactly the rows citing it.
-      # --as-built: docs/as-built.md transcribes the plan's Appendix B row by
-      # row; every bold row names the docs/deviations.md rows that carry it
-      # or the rulings that replaced it, every citation there is a key, every
-      # key comes from an Appendix B row or a ruling, and every test the page
-      # names is listed by go test -list.
       - name: Check the port test matrix against the upstream tests
         run: uv run --script .github/scripts/port-test-matrix.py --upstream upstream --deviations docs/deviations.md --as-built docs/as-built.md
-      # uncovered-lines.py runs in the test job, which has the coverage profile.
 
-      # XD1: every Go block of README.md and docs/**/*.md sits under an
-      # <!-- example: <path> --> marker and equals that file of examples/ byte
-      # for byte, and every examples/ source is shown by a block. The
-      # examples are packages of this module, so go vet ./... above compiles
-      # them.
       - name: Every Go block in README.md and docs/ equals its examples/ source (XD1)
         run: uv run --script .github/scripts/docs-snippets.py --readme README.md --docs docs --examples examples
 
-      # XT1: the examples are the Go counterpart of the Python SDK's positive
+      # The examples are the Go counterpart of the Python SDK's positive
       # typing fixtures, so they must compile. go vet ./... above covers
       # them too; this step names them, and fails when examples/ holds no
       # program or one that go list does not report as a package, so it
       # cannot pass with nothing to check. The live tests compile only with
-      # -tags live, so they are vetted here as well. Like every other step,
-      # it sets no GOEXPERIMENT: the runner's default is the baseline.
+      # -tags live, so they are vetted here as well.
       - name: go vet the examples (XT1) and the live tests
         run: |
           mapfile -t dirs < <(git ls-files -- 'examples/*.go' | grep -v '_test\.go$' | xargs -r -n1 dirname | sort -u)
@@ -121,9 +108,9 @@ jobs:
       - name: Report available dependency updates
         run: go list -m -u all
 
-      # D1 / AC-Q4 / PM5: off the support matrix internal/codec must refuse to
-      # compile, and go vet and go build must both exit non-zero with output
-      # naming the D1 identifier. -tags go1.28 stands in for a Go 1.28 toolchain.
+      # Off the support matrix internal/codec must refuse to compile, and go
+      # vet and go build must both exit non-zero with output naming the D1
+      # identifier. -tags go1.28 stands in for a Go 1.28 toolchain.
       - name: D1 refusal off the support matrix
         env:
           D1_IDENTIFIER: typesafe_sdk_go_requires_go1_17_to_go1_27_on_amd64_or_arm64
@@ -164,7 +151,7 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-      id-token: write # Codecov upload through OIDC; no token secret exists.
+      id-token: write
     defaults:
       run:
         shell: bash
@@ -181,29 +168,22 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # -coverpkg=./... instruments every package of the module in every test
-      # binary, so a block counts as covered when any test of the module runs
-      # it, not only a test of its own package (AC-Q2 as built from W6.5,
-      # owner ruling G10): code that one package's tests drive through
-      # another's API, such as a call stage below the root package, is
-      # credited where it lives.
+      # -coverpkg=./... instruments every package in every test binary, so a
+      # block counts as covered when any test of the module runs it: code
+      # that one package's tests drive through another's API is credited
+      # where it lives.
       #
-      # ETXTBSY (rulings D-W6.5-covdata-flake, D-W6.5-covdata-flake-2 and
-      # D-W6.5-covdata-flake-2-add): for each package without tests (the
-      # examples) go test runs `go tool covdata` in a process of its own.
-      # When the tool is not in the build cache, each of those processes
-      # builds it and writes it into the same cache entry, in place, so one
-      # can exec the file while another still writes it; on Linux the step
-      # then fails with "fork/exec .../covdata: text file busy" although
-      # every package is ok. `go tool -n covdata` runs first, in this step's
-      # environment (the entry depends on it) and without `|| true`: it
-      # builds the tool into the cache and prints its path, or fails the
-      # step. The test command's processes then find the tool there and
-      # write nothing. On Linux the step lists the files named covdata in
-      # GOCACHE, with inode, size and mtime, after the warm-up and again
-      # after the test command, and fails when the first list lacks the
-      # path the warm-up printed or when the two lists differ: either means
-      # the test command's processes may still build the tool.
+      # `go tool -n covdata` builds the covdata tool into the build cache
+      # before the tests, in this step's environment (the cache entry
+      # depends on it) and without `|| true`. Otherwise go test's covdata
+      # processes for the packages without tests (the examples) each build
+      # it into the same cache entry, in place, and one can exec the file
+      # while another writes it: "fork/exec .../covdata: text file busy" on
+      # Linux although every package is ok. On Linux the step lists the
+      # files named covdata in GOCACHE (inode, size, mtime) after the warm-up
+      # and after the test command, and fails when the first list lacks the
+      # path the warm-up printed or the two lists differ: either means the
+      # test command's processes may still build the tool.
       - name: go test -race with coverage
         run: |
           tool="$(go tool -n covdata)"
@@ -237,31 +217,29 @@ jobs:
           exit "$status"
 
       # Allocation counts need a normal build: under -race sync.Pool.Put drops
-      # one value in four, so the codec allocation tests skip themselves there
-      # (ruling R18).
+      # one value in four, so the codec allocation tests skip themselves there.
       - name: go test without -race (allocation tests)
         run: |
           read -ra pkgs <<<"$NORACE_PKGS"
           go test -count=1 "${pkgs[@]}"
 
       # The allocation budgets: the root package's, which internal/alloctest
-      # holds since W6.5 (it measures the stages internal/engine holds, which
-      # the root package's calls run), each built with //go:build !race
+      # holds (it measures the stages internal/engine holds, which the root
+      # package's calls run), each built with //go:build !race
       # (GOROOT/src/sync/pool.go:104-107: under -race Put drops one value in
-      # four), with the AC-P8 time ratio, whose bound is asserted here,
+      # four), with the floods' time ratio, whose bound is asserted here,
       # without -race (the -race step runs its spans without asserting it);
       # and internal/codec's, which skip themselves under -race (the step
       # above runs them too, without their output). Each list is the one
-      # place that names its package's tests (plan section 11, ruling R92):
-      # the pattern is built from it and the -list guard counts the tests the
-      # pattern matches against its length, so a renamed or deleted test
-      # fails the step instead of leaving it with less to run; and a test
-      # that the step should run but its list lacks fails it too: a test of a
-      # !race file of internal/alloctest, or an internal/codec test that
-      # calls raceEnabled() (review-w5-2 NIT 3; ruling D-W6.5-design 6.4). A
-      # tracked test file built only without -race in a package that no step
-      # without -race runs, one neither this step's nor $NORACE_PKGS, fails
-      # the step by name (critic-p6 m-1 and n-11).
+      # place that names its package's tests: the pattern is built from it
+      # and the -list guard counts the tests the pattern matches against its
+      # length, so a renamed or deleted test fails the step instead of
+      # leaving it with less to run; and a test that the step should run but
+      # its list lacks fails it too: a test of a !race file of
+      # internal/alloctest, or an internal/codec test that calls
+      # raceEnabled(). A tracked test file built only without -race in a
+      # package that no step without -race runs, one neither this step's nor
+      # $NORACE_PKGS, fails the step by name.
       - name: go test without -race (allocation budgets)
         run: |
           # The two packages whose lists this step runs; the !race guard
@@ -269,30 +247,30 @@ jobs:
           root_pkg=./internal/alloctest/
           codec_pkg=./internal/codec/
           root=(
-            TestAllocPrepare         # Prepare's pinned counts (ruling R50)
-            TestAllocFalsyJSON       # Prepare P2: truthy criteria not copied (W5.3)
-            TestAllocEncode          # AC-P1 single size, every state kind (W5.2)
-            TestAllocScratchSequence # AC-P1 mixed-size sequence (W5.2)
-            TestAllocDecodeFixtures  # AC-P2 (W2.0)
-            TestLinearityFlood       # AC-P8 allocation ratio and members visited (W2.0)
-            TestLinearityFloodTime   # AC-P8 time, its bound asserted only here, without -race (W5.2)
-            TestAllocWholeCall       # AC-P6, N = 12 (W5.3; 14 at W3.4)
-            TestAllocAnswersInlineBound # AC-P6, the inline entries' bound (W5.3)
-            TestMemStatsCap          # AC-P5 (W2.3)
-            TestMemStatsFlood        # AC-P5 (viii), the structured flood's peak and what stays live (W6-secfix)
-            TestAllocResponseJSON    # response payloads (W2.4)
-            TestAllocTypedDecode     # AC-P3 (W4.2)
-            TestAllocTypedFailure    # a typed failure's error, its path rendered once (W5.3)
-            TestAllocLoggedCall      # what logging costs a call (W3.3, ruling R102)
-            TestAllocRequestID       # a logged request id's cost (R103 revert)
-            TestAllocSecretHeaderName # redaction by name without a copy (W5.3)
+            TestAllocPrepare         # Prepare's pinned counts
+            TestAllocFalsyJSON       # Prepare: truthy criteria not copied
+            TestAllocEncode          # one request body per size, every state kind
+            TestAllocScratchSequence # the mixed-size sequence of 32 calls
+            TestAllocDecodeFixtures  # one decode of every fixture
+            TestLinearityFlood       # the floods' allocation ratio and members visited
+            TestLinearityFloodTime   # the floods' time ratio, its bound asserted only here, without -race
+            TestAllocWholeCall       # one whole call, N = 12
+            TestAllocAnswersInlineBound # a call's inline answer entries' bound
+            TestMemStatsCap          # the response cap's heap bounds per attempt
+            TestMemStatsFlood        # the structured flood's peak and what stays live
+            TestAllocResponseJSON    # response payloads
+            TestAllocTypedDecode     # DecodeAs against the Answers() decode
+            TestAllocTypedFailure    # a typed failure's error, its path rendered once
+            TestAllocLoggedCall      # what logging costs a call
+            TestAllocRequestID       # a logged request id's cost
+            TestAllocSecretHeaderName # redaction by name without a copy
           )
           codec=(
-            TestEncodeStateAllocations          # AC-P1, the state encode alone (W1.2)
-            TestLazyPassAllocations             # AC-P8, c0 + c1 x members visited (W2.0, ruling R110)
-            TestNewBodyAllocations              # AC-P1, the sequence's call 23 (W1.2)
-            TestPretouchFirstCallCostsAWarmCall # after Pretouch a first encode costs a warm one (W2.3)
-            TestDecoderPoolRetention            # the decoder pool's ceiling, GOMAXPROCS 1 (W6-secfix)
+            TestEncodeStateAllocations          # the state encode alone
+            TestLazyPassAllocations             # the lazy pass, c0 + c1 x members visited
+            TestNewBodyAllocations              # taking a body, and the sequence's call 23
+            TestPretouchFirstCallCostsAWarmCall # after Pretouch a first encode costs a warm one
+            TestDecoderPoolRetention            # the decoder pool's ceiling, GOMAXPROCS 1
           )
           # require_listed WHAT NAMES LIST...: every name of NAMES (one per
           # line) must be in LIST, or no step shows its output.
@@ -359,8 +337,8 @@ jobs:
           run_budgets "$codec_pkg" "${codec[@]}"
 
       # OIDC authentication: the action exchanges the job's id-token (hence
-      # `id-token: write` above) and ignores any token input. It needs the Codecov
-      # GitHub App installed on the repository (owner gate G1). For a pull request
+      # `id-token: write` above) and ignores any token input. It needs the
+      # Codecov GitHub App installed on the repository. For a pull request
       # from a fork, which gets no id-token, the action detects the fork
       # (CC_FORK), skips OIDC and uploads without a token under the fork's head
       # label as the branch, the tokenless path Codecov accepts for public
@@ -373,15 +351,12 @@ jobs:
           files: coverage.out
           disable_search: true
           flags: ${{ matrix.os }}
-          # W2.0 produces coverage (plan section 12, ruling R70).
           fail_ci_if_error: true
 
-      # setup-uv publishes no floating major tag (only vX.Y.Z tags since v8), so
-      # the major-only pin rule cannot apply; Dependabot bumps this full version.
       - if: matrix.os == 'ubuntu-26.04'
         uses: astral-sh/setup-uv@v10.2.0
 
-      # AC-Q2: every block that the -race step's profile leaves at zero,
+      # Every block that the -race step's profile leaves at zero,
       # outside the paths .codecov.yaml ignores, has a row with a reason in
       # docs/uncovered-lines.md, and no row outlives its block. It runs after
       # the upload, so a failure here still leaves Codecov its report, and on
@@ -391,8 +366,8 @@ jobs:
         if: matrix.os == 'ubuntu-26.04'
         run: uv run --script .github/scripts/uncovered-lines.py --profile coverage.out --doc docs/uncovered-lines.md
 
-  # AC-Q3 (W6.1): every fuzz target for 60 s, in turn, one package per go test
-  # -fuzz invocation; the job fails when any target finds an input that fails
+  # Every fuzz target for 60 s, in turn, one package per go test -fuzz
+  # invocation; the job fails when any target finds an input that fails
   # (a panic, a failed property, or an input past the targets' 10 s
   # per-input bound, internal/testsupport/fuzz.go) and uploads those inputs.
   # The seed corpora (testdata/fuzz) also run in the test job, as tests.
@@ -429,14 +404,14 @@ jobs:
             "./internal/codec FuzzDecodePaths"     # the visitor vs lazy pass differential
             ". FuzzRetryAfter"                     # the Retry-After parser
             ". FuzzTagGrammar"                     # the struct tag grammar
-            "./internal/engine FuzzFalsyJSON"      # the falsy-value check (W5.3; internal/engine since W6.5)
-            "./internal/engine FuzzIsSecretHeader" # the secret header names (W5.3; internal/engine since W6.5)
-            "./internal/codec FuzzValidUTF8"       # sonic's UTF-8 check vs utf8.Valid (G8-b, R54)
+            "./internal/engine FuzzFalsyJSON"      # the falsy-value check
+            "./internal/engine FuzzIsSecretHeader" # the secret header names
+            "./internal/codec FuzzValidUTF8"       # sonic's UTF-8 check vs utf8.Valid
           )
           seeded=(
-            "./internal/codec FuzzAppendJSON"  # compaction vs encoding/json (R44)
-            "./internal/codec FuzzValidString" # the string check (R44)
-            "./internal/wire FuzzAppendJSON"   # compaction invariants (R44)
+            "./internal/codec FuzzAppendJSON"  # compaction vs encoding/json
+            "./internal/codec FuzzValidString" # the string check
+            "./internal/wire FuzzAppendJSON"   # compaction invariants
           )
           if [ "${#fuzzed[@]}" -eq 0 ]; then
             echo "::error::no fuzz target listed"
