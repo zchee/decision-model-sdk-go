@@ -41,8 +41,8 @@ import (
 // An SDK error is a pointer to a struct that no read changes: where the
 // Python SDK copies, pickles and rebuilds its exceptions, a Go caller shares
 // the pointer between goroutines, or copies the struct as c := *e and uses
-// &c. [errors.As] needs the address of a variable of the pointer type
-// (var e *APIError).
+// &c. [errors.As] takes the address of a variable of the pointer type (var e
+// *APIError) or of the interface (var e Error), never of a struct value.
 //
 // The SDK never writes a credential into an error's text itself, and in text
 // that others wrote it replaces the credentials it knows of with "***", under

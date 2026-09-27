@@ -424,8 +424,8 @@ func TestDecodeTypedPlanMismatch(t *testing.T) {
 // writes past the offset its bound checked, such as
 // *(*F)(unsafe.Add(b.p, off+8)) = v, corrupts memory in the first test that
 // decodes a typed answer, and that test hangs until the binary's timeout;
-// checked first, the package fails at once, with a failure line that names
-// the check TestStoreWritesTyped.
+// checked first, the package fails at once, with a failure line that still
+// carries the name TestStoreWritesTyped, the test that ran this check before.
 func TestMain(m *testing.M) {
 	var failures shapeFailures
 	checkStoreShape(&failures)

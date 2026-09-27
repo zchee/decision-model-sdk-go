@@ -985,10 +985,10 @@ func TestProxyFuncAskedOncePerAttempt(t *testing.T) {
 // headers the Proxy-Authorization it was sent, or the password. Each of the
 // three places that print a response header redacts a value holding a
 // credential of a proxy the client's transport chose: the error types' Header
-// (headerRedactor.header), the request id of the INFO "response" record and
-// of the error (headerRedactor.requestID), and the DEBUG "response headers"
-// record (engine.NewRedactedHeaders). The body is shown as the proxy wrote
-// it, by design; this one is empty.
+// (engine.HeaderRedactor.Header), the request id of the INFO "response"
+// record and of the error (engine.HeaderRedactor.RequestID), and the DEBUG
+// "response headers" record (engine.NewRedactedHeaders). The body is shown as
+// the proxy wrote it, by design; this one is empty.
 func TestProxyAnswerHeadersRedacted(t *testing.T) {
 	const password = "hunter2@proxy-password"
 	secrets := proxySecrets(password)
