@@ -21,6 +21,7 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -77,7 +78,7 @@ func (g *gzipAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (g *gzipAPI) requests() []gzipSeen {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return append([]gzipSeen(nil), g.seen...)
+	return slices.Clone(g.seen)
 }
 
 // TestCompressionOption pins WithCompression against FakeAPI behind a server

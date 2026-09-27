@@ -101,8 +101,8 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 // Close does nothing and returns nil. Every call made after Close fails
 // with a [*ConfigError] wrapping [ErrClientClosed].
 func (c *Client) Close() error {
-	if err := c.built(); err != nil {
-		return err
+	if !c.built() {
+		return newConfigError(msgNotBuilt)
 	}
 	if !c.eng().Closed().CompareAndSwap(false, true) {
 		return nil
@@ -114,13 +114,8 @@ func (c *Client) Close() error {
 // NewClient did not build.
 const msgNotBuilt = "The client was not built by NewClient."
 
-// built returns a *ConfigError for a Client that NewClient did not build.
-func (c *Client) built() error {
-	if !c.eng().Built() {
-		return newConfigError(msgNotBuilt)
-	}
-	return nil
-}
+// built reports whether NewClient built c.
+func (c *Client) built() bool { return c.eng().Built() }
 
 // usable returns the error a call fails with before it starts: a client that
 // NewClient did not build, or one that has been closed.
@@ -155,7 +150,7 @@ type Stats struct {
 // Stats returns the client's counters. A Client that NewClient did not build
 // counts nothing.
 func (c *Client) Stats() Stats {
-	if c.built() != nil {
+	if !c.built() {
 		return Stats{}
 	}
 	return Stats{Dials: c.cfg().Transport.Stats().Dials, Attempts: c.eng().Attempts().Load()}

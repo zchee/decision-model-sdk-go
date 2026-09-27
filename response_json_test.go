@@ -230,10 +230,10 @@ func TestResponseJSONFixtures(t *testing.T) {
 	// the length and SHA-256 instead of the 57 KB and 616 KB).
 	tests := map[string]struct {
 		python string
-		// r73 is {Go's bytes, Python's} of a structured level whose
+		// escapedLevel is {Go's bytes, Python's} of a structured level whose
 		// received bytes hold an escape: Go's payload is python with the
 		// one occurrence of Python's replaced by Go's.
-		r73 [2]string
+		escapedLevel [2]string
 		// pythonRefuses is Go's payload for a body Python refuses.
 		pythonRefuses string
 		// goRefuses is the field path of a body Go refuses
@@ -252,8 +252,8 @@ func TestResponseJSONFixtures(t *testing.T) {
 			python: `{"model":"jev-latest","usage":{"input_tokens":12,"output_tokens":null},"answers":{"tone":{"type":"choice","choice":"friendly","confidence":0.9,"probabilities":{"friendly":0.9,"hostile":0.1}},"spam":{"type":"noul","noul":0.98},"quality":{"type":"score","score":1.7,"confidence":0.8,"legend":{"0":"bad","1":"fine","2":"great"},"probabilities":{"0":0.1,"1":0.1,"2":0.8}},"risk":{"type":"score","score":0.0,"confidence":1.0,"legend":{"0":{"summary":"low"}},"probabilities":{"0":1.0}}}}`,
 		},
 		"escaped-member-names.json": {
-			python: `{"model":"jev-latest","usage":{"input_tokens":12,"output_tokens":3},"answers":{"spam":{"type":"noul","noul":0.98},"tone":{"type":"choice","choice":"friendly","confidence":0.9,"probabilities":{"friendly":0.9,"hostile":0.1}},"risk":{"type":"score","score":0.0,"confidence":1.0,"legend":{"0":{"summary":"duplicated","examples":["charged \"twice\""]}},"probabilities":{"0":1.0}}}}`,
-			r73:    [2]string{`{"summ\u0061ry":`, `{"summary":`},
+			python:       `{"model":"jev-latest","usage":{"input_tokens":12,"output_tokens":3},"answers":{"spam":{"type":"noul","noul":0.98},"tone":{"type":"choice","choice":"friendly","confidence":0.9,"probabilities":{"friendly":0.9,"hostile":0.1}},"risk":{"type":"score","score":0.0,"confidence":1.0,"legend":{"0":{"summary":"duplicated","examples":["charged \"twice\""]}},"probabilities":{"0":1.0}}}}`,
+			escapedLevel: [2]string{`{"summ\u0061ry":`, `{"summary":`},
 		},
 		"escaped-names.json": {
 			python: `{"model":"jev-latest","usage":{"input_tokens":40,"output_tokens":6},"answers":{"spécial":{"type":"noul","noul":0.5},"quote\"d":{"type":"noul","noul":0.25},"back\\slash":{"type":"choice","choice":"a","confidence":0.6,"probabilities":{"a":0.6,"b":0.4}},"new\nline":{"type":"noul","noul":0.75},"globe 🌍":{"type":"score","score":1.5,"confidence":0.5,"legend":{"0":"low","1":"mid","2":"high"},"probabilities":{"0":0.0,"1":0.5,"2":0.5}},"sl/ash":{"type":"noul","noul":1.0}}}`,
@@ -321,11 +321,11 @@ func TestResponseJSONFixtures(t *testing.T) {
 				want = tt.pythonRefuses
 			case want == "":
 				want = string(body)
-			case tt.r73 != [2]string{}:
-				if n := strings.Count(want, tt.r73[1]); n != 1 {
-					t.Fatalf("Python's payload holds %q %d times, want once", tt.r73[1], n)
+			case tt.escapedLevel != [2]string{}:
+				if n := strings.Count(want, tt.escapedLevel[1]); n != 1 {
+					t.Fatalf("Python's payload holds %q %d times, want once", tt.escapedLevel[1], n)
 				}
-				want = strings.Replace(want, tt.r73[1], tt.r73[0], 1)
+				want = strings.Replace(want, tt.escapedLevel[1], tt.escapedLevel[0], 1)
 			}
 
 			if name == "models.json" {
