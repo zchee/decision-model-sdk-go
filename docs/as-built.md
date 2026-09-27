@@ -100,7 +100,7 @@ no critic.
 | K25 | 2026-09-25 11:56Z | risk | A replay flake seen once in about 38 000 runs; W6.1 added a regression test for its known race, and 5 000 contended runs per host did not reproduce it. | `TestGoAwayRaceWithFinish`; ledger W6.1-09..11 | — |
 | R42, R42-ev | 2026-09-25 12:13Z | §6.1.1 (raw-field floats) | A float in a raw question field is spelled as pydantic-core 2.46.5's `to_json` spells it, derived from its source (parity; a 249 938-value sweep agreed). | `TestPreparedBytesMatchPython` | — |
 | R44 | 2026-09-25 12:13Z | §8 AC-Q3 (four fuzz targets) | `FuzzAppendJSON` (invariants in `internal/wire`, a differential against encoding/json in `internal/codec`) and `FuzzValidString` were added. W6.1 ruled on a fifth target: CI fuzzes eight targets for 60 s each (AC-Q3's four, `FuzzDecodePaths`, `FuzzFalsyJSON`, `FuzzIsSecretHeader` and `FuzzValidUTF8`) and runs these three as seed corpora only. | CI `fuzz` job | — |
-| R42b, R46, R59 | 2026-09-25 12:47Z | Appendix B (a new row); §6.1.2 | Floats in the state and in extra values keep sonic's spelling: an integral float loses `.0`, `-0.0` is `0` on arm64 and `-0` on amd64 (K27), 1e16 ≤ \|x\| < 1e21 is written as digits, and 1e-6 ≤ \|x\| < 1e-5 in fixed notation; a `RawJSON` or string state is the way to exact bytes. (deviation "state encoding") | `TestBodyDeviationsFromPython` | G6 (4): KEPT (D1 stands) |
+| R42b, R46, R59 | 2026-09-25 12:13Z | Appendix B (a new row); §6.1.2 | Floats in the state and in extra values keep sonic's spelling: an integral float loses `.0`, `-0.0` is `0` on arm64 and `-0` on amd64 (K27), 1e16 ≤ \|x\| < 1e21 is written as digits, and 1e-6 ≤ \|x\| < 1e-5 in fixed notation; a `RawJSON` or string state is the way to exact bytes. (deviation "state encoding") | `TestBodyDeviationsFromPython` | G6 (4): KEPT (D1 stands) |
 | R47 | 2026-09-25 12:47Z | Appendix B ("state encoding") | `\b` and `\f` in a string state go out as `\u0008` and `\u000c`, sonic's forms; `Text` content writes `\b` and `\f`. | `TestBodyDeviationsFromPython` | — |
 | R48, R54 | 2026-09-25 12:47Z | NF1; Appendix B (state row) | A state that is not valid UTF-8 is an `*InvalidRequestError` before the network, as Python refuses a lone surrogate; the check is sonic's validator on amd64 and `utf8.Valid` on arm64 since the owner's G8-b (Phase 5). (deviation "`any` state") | `TestClientInvalidUTF8StateFailsBeforeNetwork`, `TestValidUTF8Parity` | G8-b Q4 |
 | R49, R56, R59b | 2026-09-25 12:47Z | §5 (a "slice" state) | A plain top-level `[]byte` (or a named byte-slice type without a Marshaler) as the state or an extra value is refused, naming `string(b)` and `RawJSON(b)`; a nested `[]byte` stays base64. An extra `state` member that is nil, a number or a boolean is refused where Python sends it, and an extra `questions` nil is sent. | `TestUnencodableBodyFailsBeforeNetwork`, `TestClientUnencodableBodyFailsBeforeNetwork`, `TestExtraBodyShallowOverride` | — |
@@ -453,7 +453,21 @@ each key replaces, or `—` when no upstream test reaches the behaviour.
 | 46 | `1e400` in a float member (`noul`, `probabilities`): `from_json` → ±inf, accepted (`py:_core/json.py:29-35`) | yes | deviation "non-finite numbers in a response" | R73 |
 | 47 | pyrefly expectation fixtures (`tests/typing/`: negative expectations and three positive fixtures) | no | deviation "pyrefly fixtures"; deviation "typed tag rules" | R96 |
 
-Rows 8, 9, 11, 34 and 40 are parity, as the plan wrote them. Row 33 is
-parity for the order of failures since R70; its residual is the legend
-value path. Row 45 splits: a raw control character is refused as Python
-refuses it (R14), and a lone surrogate is the deviation.
+Rows 8, 9, 11, 34, 40 and 44 are parity, as the plan wrote them; row 44's
+snapshots are the public-API goldens, which also hold constant values
+since R120. Row 33 is parity for the order of failures since R70; its
+residual is the legend value path. Row 45 splits: a raw control character
+is refused as Python refuses it (R14), and a lone surrogate is the
+deviation.
+
+Ten keys of [`deviations.md`](deviations.md) are cited only by rows the
+plan did not mark bold, and by no ruling: `iter.Seq2` filters (row 5),
+typed answers by struct tags (6), responses are values and no process
+pools (7), unexported fields with getters (12), the typed noul's `null`
+outcomes and empty criteria (30), root path (32), not representable (39),
+no sybil (43) and pyrefly fixtures (47). The plan wrote each as the Go
+form of the same capability, with a reason in its Why column such as
+"nothing to cache", "immutable" or "type system", and so did not mark it
+a deviation. The deviation table lists them all the same, because a
+caller who knows the Python SDK meets each one as a difference, and the
+table is where such a caller looks.
