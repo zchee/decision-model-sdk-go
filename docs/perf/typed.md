@@ -1,11 +1,15 @@
 # Typed answers: the cost of `DecodeAs` and `PreparedFor`
 
+Citations of the form `spikes@<commit>:<path>` name files in the private
+spike archive; the [performance ledger's opening section](ledger.md)
+says what such a citation tells a reader who cannot open the archive.
+
 This page states what W4.3 measured about the typed path (`PreparedFor`,
 `DecodeAs`, `Ask`) and what was decided from it. Every number here is a
 row of the [ledger](ledger.md#w43-s-d2-how-the-typed-decode-stores-an-answer-and-preparedfors-first-call)
 (W4.3-01 to W4.3-13), measured on (M), darwin/arm64, and (L),
 linux/amd64, at d7a5968, whose Go code the branch carries rebased as
-6c65b9c. The code is `_spikes/w4.3/`.
+spikes@098ad2439758. The code is `spikes@815453827b43:w4.3/`.
 
 ## S-D2: reflect or `unsafe` field offsets
 

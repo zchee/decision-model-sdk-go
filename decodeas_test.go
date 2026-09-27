@@ -38,6 +38,10 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
+// Citations of the form spikes@<commit>:<path> in this file name files in the
+// private spike archive; the opening section of docs/perf/ledger.md says what
+// such a citation tells a reader who cannot open the archive.
+
 // The answers of the upstream RESULT body (tests/test_clients.py:42-56), one
 // answers member each, for bodies that change one of them.
 const (
@@ -456,7 +460,7 @@ func decodeAs[T any]() decodeAsFunc {
 // SystemOne returns, which gives the same path without the endpoint.
 //
 // Paths, next to what the Python SDK reports (probed with
-// _spikes/w4.2/python_typed_paths.py): T's fields are the answers lifted
+// spikes@815453827b43:w4.2/python_typed_paths.py): T's fields are the answers lifted
 // out of "answers", so a typed failure is named as the Python SDK names it
 // for a SystemOneResponse subclass with one field per answer, as the
 // upstream TypedSystemOneResponse is (ruling R99-rev):

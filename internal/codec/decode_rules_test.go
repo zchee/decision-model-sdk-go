@@ -30,6 +30,10 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
+// Citations of the form spikes@<commit>:<path> in this file name files in the
+// private spike archive; the opening section of docs/perf/ledger.md says what
+// such a citation tells a reader who cannot open the archive.
+
 // TestControlRule checks ruling R23: a raw control character anywhere inside
 // a string or a key is refused at the root, one that came from an escape is
 // accepted, and the body is scanned only when a delivered string holds a
@@ -80,7 +84,7 @@ func unescapeU(s string) string { return strings.ReplaceAll(s, "@U@", `\u`) }
 
 // TestDecodeFieldPaths checks where the decoder reports a failure against the
 // Python SDK 0.7.1 (probed on the upstream checkout's venv; the script and
-// its output are in _spikes/w2.0/results/python-paths.txt): the eight rows of
+// its output are in spikes@815453827b43:w2.0/results/python-paths.txt): the eight rows of
 // test_malformed_response_raises_validation_error (R1), the order in which
 // the Python SDK reports a body with several faults (its answer-type
 // pre-pass, then model, usage and answers, then each answer's members in

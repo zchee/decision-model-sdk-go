@@ -27,10 +27,14 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
+// Citations of the form spikes@<commit>:<path> in this file name files in the
+// private spike archive; the opening section of docs/perf/ledger.md says what
+// such a citation tells a reader who cannot open the archive.
+
 // The byte strings attributed to Python below are the output of
-// _spikes/w2.4/python_dump.py (typesafe-sdk-python 0.7.1 at 0ffd094, its own
+// spikes@815453827b43:w2.4/python_dump.py (typesafe-sdk-python 0.7.1 at 0ffd094, its own
 // .venv, pydantic-core 2.46.5), committed in
-// _spikes/w2.4/results/python-dump.txt, probed 2026-09-26 05:30:45 JST (time
+// spikes@815453827b43:w2.4/results/python-dump.txt, probed 2026-09-26 05:30:45 JST (time
 // from date).
 
 // marshaler and unmarshaler are encoding/json's Marshaler and Unmarshaler,

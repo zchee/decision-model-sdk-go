@@ -1,5 +1,9 @@
 # Benchmarks (B1–B6)
 
+Citations of the form `spikes@<commit>:<path>` name files in the private
+spike archive; the [performance ledger's opening section](ledger.md)
+says what such a citation tells a reader who cannot open the archive.
+
 The SDK's benchmark set follows the Rust port's B1–B6. Every benchmark uses
 `for b.Loop()` and reports allocations when run with `-benchmem`, as every
 command below is. CodSpeed runs all of them on every
@@ -101,30 +105,28 @@ gates the time clause on amd64 only.
 
 ## Running them
 
-On (M) (darwin/arm64), always with the experiment override and under the
-shared lock, one benchmark run at a time:
+From a checkout of the SDK, with nothing but Go and `benchstat`
+(`go install golang.org/x/perf/cmd/benchstat@latest`), one run at a time
+on an otherwise quiet host:
 
 ```sh
-SP=<the lead's scratchpad>   # holds bench.lock
-BASE=$(git rev-parse --short HEAD) GOEXPERIMENT=nosimd,noruntimesecret \
-  FLOCK=/opt/homebrew/opt/util-linux/bin/flock MAXLOAD=16 \
-  sh _spikes/s-c1/run.sh '(M)' _spikes/w5.1/results "$SP/bench.lock" bench-M \
-  -run '^$' -bench . -benchmem -count=5 ./...
-benchstat _spikes/w5.1/results/bench-M.txt
+go test -run '^$' -bench . -benchmem -count=5 ./... > bench.txt
+benchstat bench.txt
 ```
 
-On (L) (linux/amd64): copy the tree with the section 11 `tar | ssh` pipe.
-Then use the toolchain under `/tmp/ts-spike/go`, with `GOPATH`, `GOMODCACHE`
-and `GOCACHE` under `/tmp/ts-spike`, no `GOEXPERIMENT`, and the lock
-`/tmp/ts-spike/bench.lock`:
+The file name is yours to choose; `benchstat old.txt new.txt` compares two
+runs. On a host whose Go env file sets experiments, add
+`GOEXPERIMENT=nosimd,noruntimesecret` to measure the Go 1.27 baseline, as
+the ledger's runs on (M) (darwin/arm64) do (the
+[measurement rule](../support.md#measurement-rule)); its runs on (L)
+(linux/amd64) set no experiment.
 
-```sh
-BASE=<sha> MAXLOAD=44 sh _spikes/s-c1/run.sh '(L)' _spikes/w5.1/results /tmp/ts-spike/bench.lock bench-L \
-  -run '^$' -bench . -benchmem -count=5 ./...
-```
-
-`run.sh` writes the date, the load before and after, `go version` and the
-ToolTags into the raw file's header. Each ledger row copies them.
+The ledger's runs of record were taken one at a time, under a lock that kept
+every other measurement off the host, and only while the load stayed under a
+limit (16 on (M), 44 on (L)). Each raw file starts with a header that holds
+the date, the load before and after the run, the base commit, `go version`
+and the ToolTags, and each ledger row copies them. The runner that did this
+is kept in the spike archive, spikes@815453827b43:s-c1/run.sh.
 
 ### CodSpeed
 
@@ -157,7 +159,7 @@ bytes per iteration and the default 3 s, the 125 rows leave 5.9 GiB there;
 `EncodeState/ascii/1KiB/check` alone leaves 631 MiB. On `ubuntu-26.04`, `/tmp`
 is a tmpfs of half the RAM (7.8 GiB) mounted with `usrquota`, and the runner
 user may fill 80 % of it: 6.24 GiB, of which the job's build files take
-0.6 GiB. From W5.1's landing (ca226bb) the go runner printed `failed to write
+0.6 GiB. From W5.1's landing (c7d0acb) the go runner printed `failed to write
 raw results: … disk quota exceeded` for the 11 `EncodeState` rows after
 `ascii/1KiB/encode`, and the job still passed with 114 rows (risk K35).
 `bench.yaml` now points the CodSpeed step's `TMPDIR` at the job's temp

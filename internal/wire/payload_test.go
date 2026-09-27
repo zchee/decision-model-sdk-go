@@ -22,6 +22,10 @@ import (
 	gocmp "github.com/google/go-cmp/cmp"
 )
 
+// Citations of the form spikes@<commit>:<path> in this file name files in the
+// private spike archive; the opening section of docs/perf/ledger.md says what
+// such a citation tells a reader who cannot open the archive.
+
 // answersOf returns an Answers holding entries in order, through Put.
 func answersOf(entries ...AnswerEntry) Answers {
 	var s Answers
@@ -55,7 +59,7 @@ func upstreamResult() SystemOneResult {
 // resultJSON is testdata/result.json: the upstream RESULT as
 // pydantic_core.to_json writes it, which is also what
 // SystemOneResponse.model_dump_json writes for it
-// (_spikes/w2.4/results/python-dump.txt, "result.json: equals the fixture:
+// (spikes@815453827b43:w2.4/results/python-dump.txt, "result.json: equals the fixture:
 // True").
 const resultJSON = `{"model":"jev-latest","usage":{"input_tokens":12,"output_tokens":3},"answers":{"spam":{"type":"noul","noul":0.98},"tone":{"type":"choice","choice":"friendly","confidence":0.9,"probabilities":{"friendly":0.9,"hostile":0.1}},"quality":{"type":"score","score":1.7,"confidence":0.8,"legend":{"0":"bad","1":"ok","2":"great"},"probabilities":{"0":0.1,"1":0.1,"2":0.8}}}}`
 

@@ -1,0 +1,487 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.12"
+# dependencies = []
+# ///
+"""Check the citations of the spike archive (W6.7, D-W6.7-C-citation, D-W6.7-C-ready).
+
+The spikes left this repository for a private archive repository that keeps
+their history, and main's history was rewritten without them on 2026-09-27.
+The documents cite a file or a directory there as ``spikes@<commit>:<path>``
+(git's ``<rev>:<path>`` behind a fixed prefix, the archive commit in 12 hex
+digits, the path below the archive's root, an optional ``:N`` or ``:N-M``
+line suffix) and a commit, with its whole tree, as ``spikes@<commit>``. A
+path is never empty and holds no glob and no ellipsis: a citation names one
+file or one directory that exists. Run from the repository root.
+
+Part 1, everywhere (CI's lint step runs it through pytest):
+
+1. no tracked file lies under ``_spikes/`` or ``internal/spikes/``;
+2. every line that names the old tree is on ALLOWED below, an explicit list
+   of (file, SHA-256 of the line's text, the old-name tokens on it, how many
+   times that line occurs in the file): every token of a quoted command keeps
+   its bytes as it ran (a package path, a variable, a script and its
+   arguments, a pathspec), a sentence that says what a commit changed names
+   the paths as they were in that commit, and a few prose words name the old
+   directory. The list is data, keyed by the
+   text and not by the line number: an edit elsewhere in the file moves
+   nothing, while a new line in the form of a command, an allowed line
+   copied to a second place, or an allowed line whose text changed fails;
+   so does an entry whose line is gone (a command token rewritten into a
+   citation, or a line removed without its entry);
+3. every ``spikes@`` token has the form (a ``spikes@<`` placeholder in prose
+   is not a citation).
+
+Part 2, with local clones:
+
+4. ``--archive DIR`` (or $SPIKES_ARCHIVE): every citation names a commit of
+   the archive, and its path exists at that commit;
+5. ``--history DIR`` (or $SDK_HISTORY), a full clone of this repository,
+   together with the archive: no commit SHA cited in a tracked file is one
+   of the SHAs before the rewrite (the archive's w6.7/commit-map.tsv lists
+   them, for every rewritten ref), and the report counts the cited SHAs that
+   name commits of the history. A hex token glued into a name (a raw file
+   name such as ``alloc-M-<sha>.txt`` or ``b6allocs-M-{<sha>,<sha>}.txt``, an
+   archive path) is not a citation.
+
+Without a clone, part 2 prints that it resolved NOTHING and how many
+citations and SHA tokens it skipped; that is the only way it exits 0
+without checking them. A clone that is not a git repository is a usage
+error (exit 2). Exit status 1 names each failure as file:line.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+OLD_ROOTS = ("_spikes", "internal/spikes")
+DELIM = r"[^\s`'\"|()\[\],;<>]"
+OLD_TOKEN = re.compile(rf"(?<![\w.-])[\w./=-]*?(?:_spikes|internal/spikes)(?:/{DELIM}*)?")
+CITATION = re.compile(rf"(?<![\w.-])spikes@(?!<)({DELIM}*)")
+FORM = re.compile(r"([0-9a-f]{12})(?::(.*))?")
+LINE_SUFFIX = re.compile(r":\d+(?:-\d+)?$")
+HEX = re.compile(r"(?<![0-9A-Za-z])[0-9a-f]{7,40}(?![0-9A-Za-z])")
+ANCHOR_LINK = re.compile(r"\]\(([^)\s]*#[^)\s]+)\)")
+ENV_ARCHIVE, ENV_HISTORY = "SPIKES_ARCHIVE", "SDK_HISTORY"
+MAP = "w6.7/commit-map.tsv"
+# This checker and its tests name the old tree and malformed citations on purpose.
+SELF = (":(exclude).github/scripts/spikes-citations.py", ":(exclude).github/scripts/test_spikes_citations.py")
+
+# The lines where the old name stands, as (file, SHA-256 of the line's text,
+# its old-name tokens, how many times the line occurs in the file): the
+# record of a command line, or a word of prose. Written by W6.7's docs commit
+# from the rewritten tree (D-W6.7-C-allowed); a new entry is a decision, not a
+# pattern, and an allowed line whose text is edited needs its entry updated.
+# BEGIN ALLOWED
+ALLOWED: frozenset[tuple[str, str, tuple[str, ...], int]] = frozenset(
+    {
+        ('.gitignore', '8dc5d875ac3c5ea3e647243686a5125389ec8351a0e0d0a4bb2436e0242945e6', ('/_spikes/',), 1),
+        ('docs/perf/frozen-budgets.md', '38b71f0abda3aae8ed7ba3b875e8233caf6f006c1d4ad47962f07764d5df8897', ('_spikes',), 1),
+        ('docs/perf/frozen-budgets.md', '4f0f832603440064e8255330013bda4cb63a32fbf005811238983cf98ce8f22c', ('_spikes/.gitignore:5',), 1),
+        ('docs/perf/frozen-budgets.md', 'e4f2cd383400771a118220e91b6ebeafc4a0ccce64d2f7803861c7500cf57231', ('_spikes/s-t',), 1),
+        ('docs/perf/ledger.md', '0090f091976b503d100a4e6c5e1b7b48d8822252dccd4ebe088b59d13c349535', ('O=_spikes/w2.3/results',), 1),
+        ('docs/perf/ledger.md', '01ff8e80de4babc20e5f7f83961770b5cc9818e5348f882a2b354a8e42503653', ('_spikes',), 1),
+        ('docs/perf/ledger.md', '0403cc8d0899d0ba8b78e3d0b4a9fca4dd58f16afd37e48b0672b21218aca32d', ('R=_spikes/s-c1/run.sh',), 1),
+        ('docs/perf/ledger.md', '04b71109f11787b7bd0bea95deec0c2ef49e1cf90ef9219f0ef208ec5b4ea301', ('./_spikes/s-t/',), 1),
+        ('docs/perf/ledger.md', '05a3785ff4b7057fbecca29a2300966aa4eb5a042b99ae42e5955cb9088fe736', ('./_spikes/s-c1/',), 1),
+        ('docs/perf/ledger.md', '06caedea9ef6764fee8f446736232ec15a8b6e4639ae5f53de233621f9c088d0', ('R=_spikes/s-c1/run.sh', 'O=_spikes/w4.2/results'), 1),
+        ('docs/perf/ledger.md', '06d5e4a983dfaf9a714f6a27b5066184bf286f2b51d919cc49356b152c2939d4', ('_spikes',), 1),
+        ('docs/perf/ledger.md', '0a7cde13b01820aa26c23e09f3b4f0692df4744021df7cd6a1af58d1ea5be8c0', ('./_spikes/s-t/',), 1),
+        ('docs/perf/ledger.md', '0ae7520e4e43720b2e5f94df9f6e289da63b513f3daf1b4a87bb17583c0bfcd0', ('O=_spikes/w3.2/results',), 1),
+        ('docs/perf/ledger.md', '0f4c717bb9a50aed9b48663f012c0740902387e1f81dda6564021139993bd0d5', ('./_spikes/s-d1/',), 1),
+        ('docs/perf/ledger.md', '12e6c2a3ae06386796da49b56582069ecde08004a3658aa0f36794f95b5a0a07', ('O=_spikes/w1.3/results',), 1),
+        ('docs/perf/ledger.md', '15cd61767ed9ed8b1471486de5870fb4396709369b34af74e5d178b6f3355c8b', ('R=_spikes/s-t/run.sh',), 1),
+        ('docs/perf/ledger.md', '1777d5960660293e30e99a2f5cff3c2cca7a01f3137961c440a65fd46b7a90a1', ('./_spikes/w4.3/',), 1),
+        ('docs/perf/ledger.md', '18b16fbc2a5703c6e893901c21277b0603c476ddf51fdb9d83661fe81be97691', ('R=_spikes/s-c1/run.sh',), 1),
+        ('docs/perf/ledger.md', '1a3b0c64388d15b52470c51c7feb28a97d38c24b94f9450a8fe181b6266f9a58', ('_spikes/',), 1),
+        ('docs/perf/ledger.md', '1c29bb14e16166e2a20d9c7d9e08f96d996bcdbce5ff36acf4b984ab39fbe7ec', ('./_spikes/s-t/',), 1),
+        ('docs/perf/ledger.md', '1c84bdca05279cc3bf85ceed17aef7c6ef8f0ed0eba23dc90e85a7e225cf6699', ('./_spikes/s-c1/',), 1),
+        ('docs/perf/ledger.md', '1ce33b14ae5ca76ec4c1449b42e29353332eb42f53bb8cc483d74ddb25a9e6ad', ('_spikes/w4.3/render.py', '_spikes/w4.3/results'), 1),
+        ('docs/perf/ledger.md', '1eddd6b1e422bc844a48f6120f009c8ce9cc9663910f9687dd914e5b67bd46a7', ('./_spikes/s-t/',), 1),
+        ('docs/perf/ledger.md', '204eb0d95b8df0b96d574cac5dade6bc0d87d55f6a4784ac60ec429f835eb6d5', ('S=_spikes/w4.3/series.sh',), 1),
+        ('docs/perf/ledger.md', '20525542ccb20772ef4e8b9ab796e04e0ee8f00911ca6f661328c664810c1ce6', ('./_spikes/s-t/',), 1),
+        ('docs/perf/ledger.md', '25771e8d1bdfbfe46048f71d2d3f6f8f132fd8837612d5225f2e693a89dc7889', ('C=_spikes/w5.3/cs.sh',), 1),
+        ('docs/perf/ledger.md', '259f92ab8df30edf0c77e246b177c52477d178889699f6363a3cd2d49de58d32', ('_spikes/w5.1/gates.sh',), 1),
+        ('docs/perf/ledger.md', '25d009ac2da0d528ad75039371cb6ca0ee6ed380e311adee0aefb1e967e4b9b5', ('R=_spikes/s-c1/run.sh', 'O=_spikes/w2.0/results'), 1),
+        ('docs/perf/ledger.md', '2620efb8850b7c4de75c89e87479732bf7e48170f7b56e5db14d4a82d3b63c39', ('./_spikes/s-t/',), 1),
+        ('docs/perf/ledger.md', '295b2263d94369faa7eba35894601e6ebc1945e1c3e7f113fedd84985c754870', ('./_spikes/w4.3/',), 1),
+        ('docs/perf/ledger.md', '2b00b8a1d6f4aa6bd2a50896465ea62f233e420d4720154d467aafa6d22ec23e', ('_spikes/w6-secfix/acp6.sh',), 1),
+        ('docs/perf/ledger.md', '2ed09e05171e0dbeb2fde42e6993ca2142f75552567fa75778e77515f75b3856', ('_spikes', '_spikes/w6.5/'), 1),
+        ('docs/perf/ledger.md', '30c59a1f8196f12d285698c6fcc9be1d6fc06444df5970f855efadc69cf07b2a', ('O=_spikes/w5.2/results',), 1),
+        ('docs/perf/ledger.md', '319f0d7a2d2814a805fa9a445d9e6e54dafed760e5a480261e04207d7a1fccde', ('_spikes',), 1),
+        ('docs/perf/ledger.md', '331c4705f145f33cac54ed958cd48ed6b6ac97aaccb288109ae52431b00119d1', ('./_spikes/s-t/',), 1),
+        ('docs/perf/ledger.md', '34bf4997b84e55cb062577e4134dbb4eaba380fdba6d922fd2e229a62c991e2f', ('_spikes/w6-secfix/min5.sh',), 1),
+        ('docs/perf/ledger.md', '37062a5848b09086cb70ec8efae9be022a182268a03b4033b965224be1c78f25', ('./_spikes/s-d1/',), 1),
+        ('docs/perf/ledger.md', '377a9e23c4c280725175d90be0ee9b7ab74ec4c12c5b117d521c71dd01ede0df', ('_spikes/w4.3',), 1),
+        ('docs/perf/ledger.md', '39fdf4b5f2b407b39f875e76b68870fcbcb13955e2ea9f966d83b7261b74a003', ('_spikes/w5.1/gates.sh',), 1),
+        ('docs/perf/ledger.md', '3aaf89cd16ac3330d8ef4634629a931d20138318ed85cb1d5972398dfbe232dd', ('./_spikes/s-d1/',), 1),
+        ('docs/perf/ledger.md', '3d6676402f175e9d9eb5e1c802c32d478588f44c0bdb7ce54f618a33557ae11e', ('R=_spikes/s-c1/run.sh',), 1),
+        ('docs/perf/ledger.md', '3d901612ab2d457a2d1273df62195aaf29a5aadf16737112c0f3357e9c2f7dde', ('_spikes/w6-secfix/padcost.sh',), 1),
+        ('docs/perf/ledger.md', '3dbdfee1681a5fb8034bf75493aba59dd793de67aa3a4d11ba295525f6dfda94', ('./_spikes/s-e1/',), 1),
+        ('docs/perf/ledger.md', '3fc8872674549d930a05e4db2cf46122df2535a17205c752ce2a20901e8c2efc', ('O=_spikes/w5.3/results',), 1),
+        ('docs/perf/ledger.md', '403edbf920f945b4cfb36080434b5de02c61e01f628c2ebdefd202d6f9f13705', ('./_spikes/s-d1/',), 1),
+        ('docs/perf/ledger.md', '40d07cf78f34186f9b14e861de55106760a570799b7ee75c0732afe026c19cd1', ('./_spikes/s-t/',), 1),
+        ('docs/perf/ledger.md', '41c9e1cffb95c5f8721fc98dce69fb608d1178e1e831c1a0e595e15898f5acfd', ('./_spikes/w5.3/k41',), 1),
+        ('docs/perf/ledger.md', '44bde5d42874754d6d9a5e6e6fa554435850c8a5da04f4bb1ada2201d14b8943', ('O=_spikes/w3.3/results',), 1),
+        ('docs/perf/ledger.md', '44ccd457e166cf2aab294fa167c93c511cc359646b4fee48876521c9d8617352', ('R=_spikes/s-c1/run.sh',), 1),
+        ('docs/perf/ledger.md', '47dc3dd8c831592cf4cc66c288fca525160cdfb001f998c930d345ff183abee2', ('O=_spikes/w4.3/results',), 1),
+        ('docs/perf/ledger.md', '4df66d49432048b7481b1a4cba3e52c0fedc54d37b1fc7555a389dd95147b5d3', ('./_spikes/s-t/',), 1),
+        ('docs/perf/ledger.md', '4f1f1e0ec23b3fd9459704f7f538d7f6ca863a93285190387ed39dc22655ece1', ('_spikes/w6-secfix/min1.sh',), 1),
+        ('docs/perf/ledger.md', '50199f6c5af5939692ab93bd0bad61b3863f2e0e5c447ef68d64714da8da6d38', ('./_spikes/s-e1/',), 1),
+        ('docs/perf/ledger.md', '50e37f8b2cc5221e037e957cfac6b33012e1668c5e7d3a1797caf5a730180bd5', ('O=_spikes/w2.5/results',), 1),
+        ('docs/perf/ledger.md', '5281a98069f7173395115e59283cdef5d251959ed1ba59284e78bf7892683e98', ('./_spikes/s-t/',), 1),
+        ('docs/perf/ledger.md', '5395ba8c2f9e58be43de2ea7d3e20bda04460195624c4e0b5cd35c74840fc265', ('./_spikes/s-e1/',), 1),
+        ('docs/perf/ledger.md', '55fb696486a464412d969a23362fcefefa719bea859708abea14fd23800d2121', ('_spikes',), 1),
+        ('docs/perf/ledger.md', '56c5c8db1cc45198245f90b4f193426ead1aeb88e243dea1bc43c09027166a4f', ('_spikes/w2.2/contend.sh',), 1),
+        ('docs/perf/ledger.md', '5804738a51111f173d2e214e722bce6bf32cd05381d7c1ba3b628e117db8fde7', ('_spikes/w6.1/mutants.sh',), 1),
+        ('docs/perf/ledger.md', '58564dd64ca69433b242b9e9555d64981cd2fb68379209099bd08303e6d8f2b0', ('_spikes/w6-secfix/acp6.sh',), 1),
+        ('docs/perf/ledger.md', '58b1f5a16ecab60e0916fe03cb78db6c2dbb78049b10ad3fb38e03937ca10321', ('R=_spikes/s-c1/run.sh',), 1),
+        ('docs/perf/ledger.md', '5b1a594bebcb5a4f8cdcfbf5875a27e3a0b0b7b0f4d9327de6677fa60de14210', ('R=_spikes/s-c1/run.sh', 'O=_spikes/w2.4/results'), 1),
+        ('docs/perf/ledger.md', '5d1b4fe8bf421e3775d0b47f3f5492765c4dc71460e4ba33b393893162da675f', ('./_spikes/s-d1/',), 1),
+        ('docs/perf/ledger.md', '609ab10e92c83673530c64d988218cd1ceb1fa6f8dd25ba33b0961fc61f8155d', ('./_spikes/s-c1/',), 1),
+        ('docs/perf/ledger.md', '61df9fb11a50a5d148bbad29496d1834d13a03d9bb77338b42c072c702525ccb', ('./_spikes/s-d1/',), 1),
+        ('docs/perf/ledger.md', '65349cd3d563644028063efabb6d6f0b7d5f86b8326ca9091390e15b6fac0bcc', ('_spikes/w5.1/gates.sh',), 1),
+        ('docs/perf/ledger.md', '65f415d31010d0c93ddac2a322fc6a2dadf47c824149759f58a6b47e8acd7652', ('_spikes/w2.2/contend.sh',), 1),
+        ('docs/perf/ledger.md', '66b995607bb0d685b3ce17906e4a81a7944e692a3a9367dc481fb41be86a6505', ('_spikes/w6-secfix/padshort.sh',), 1),
+        ('docs/perf/ledger.md', '67b4e891ac01dfed655815f9a66a63d4bb26d166df28835919c154bf4c2d610d', ('./_spikes/s-d1/',), 1),
+        ('docs/perf/ledger.md', '6a71829a211cc854b132aa9a027baf1f729ae10ddb2398cbce37c27bf5255933', ('_spikes/w6-secfix/min2.sh',), 1),
+        ('docs/perf/ledger.md', '6a7fdd80b54afca44faa82d55b2900b546b19d7a90414a62a3386c7672a30ae5', ('./_spikes/s-t/',), 1),
+        ('docs/perf/ledger.md', '6acf53d8ec7c73b3b4d4bc1dabaeeb47c9681a58ffc812638b4d18c1a2714444', ('./_spikes/s-e1/',), 1),
+        ('docs/perf/ledger.md', '6b16324b1d26d524930db565c32e0df00dfa620a3bfed608c669006ace24e1d5', ('R=_spikes/s-c1/run.sh',), 2),
+        ('docs/perf/ledger.md', '6d8336cb248f58cef9958cc80cba044748f45e0ae6b314723656001834203c3c', ('_spikes/w6.5/',), 1),
+        ('docs/perf/ledger.md', '6ef24a34069a13fc1d3e9b06911214435bb2db69e347ca9efb706b38cd7c24bf', ('./_spikes/s-e1/',), 1),
+        ('docs/perf/ledger.md', '700c0151477608029becb616e8289819a838dbc410d41a183db6790279c28d02', ('MO=_spikes/w2.2/results',), 1),
+        ('docs/perf/ledger.md', '77006fdef5afff21232f083f1fef8c32cd0289f6324d18d99a3b4d48c72475d8', ('./_spikes/s-t/',), 1),
+        ('docs/perf/ledger.md', '770f1b574333a3147eeb640fdffb1a7b0aeba7ef02ea66ce36345b37d2c645b5', ('./_spikes/s-t/',), 1),
+        ('docs/perf/ledger.md', '7d3274a6ee9be3e5c5ae96fcdf181ea5062d1947827670770813a262c18e92c0', ('_spikes/w6-secfix/maj1.sh',), 1),
+        ('docs/perf/ledger.md', '803fbe55eef9e799bfaebea1e742526fbc74d11ecc70ed74c0249a3517d7601f', ('_spikes/',), 1),
+        ('docs/perf/ledger.md', '83fd578d79c4d41493320252a957e4615da7110f680b981fc73be6d1ee8a8a94', ('./_spikes/s-t/',), 1),
+        ('docs/perf/ledger.md', '84866d6085f7e7b32dc82dee6204afaf4d9bfe871ccd9765294c7cceb7ef83a0', ('_spikes',), 1),
+        ('docs/perf/ledger.md', '85910c844040b4ba829ca99a11553a68a25dee903851eaf22382ea5e0d043c65', ('C=_spikes/w2.2/contend.sh',), 1),
+        ('docs/perf/ledger.md', '85fd095df598863315101495072e8e1d0b9a3800cee4daa56495e2482b51c383', ('R=_spikes/s-t/run.sh', 'MO=_spikes/s-t/results'), 1),
+        ('docs/perf/ledger.md', '8793e70aba2145d9adf6aa920666194f782c034008f539393cf77dc065ab2d86', ('_spikes/w1.3/breakdown.sh',), 1),
+        ('docs/perf/ledger.md', '888bdf4c0e3883d9042eb2da7c86f34a9d583c7c4d83886e48c37120a9f0d9d9', ('./_spikes/s-t/',), 1),
+        ('docs/perf/ledger.md', '8ce3907c2d16c753b5abc3caff918ec101968ade33d87bed52ffc5d12c244834', ('_spikes',), 1),
+        ('docs/perf/ledger.md', '8e52431f31b8445ce87bc605c4019b4372917f2086b02fbe395bae891abdc5eb', ('_spikes/w6-secfix/gate.sh',), 1),
+        ('docs/perf/ledger.md', '8f71f432db8a822ed704cdcedddfec19a209a0f265585b1d66812eec6e7e4931', ('./_spikes/s-d1/',), 1),
+        ('docs/perf/ledger.md', '906f236688093d6eddc2699fc97e92dc66ce0ad0099115f919730d340a0fc25c', ('./_spikes/s-c1/',), 1),
+        ('docs/perf/ledger.md', '93904c879aabd74156efd83263c52fab6c52bc368a8284fdb104eb387a070fca', ('_spikes/w6-secfix/min1.sh',), 1),
+        ('docs/perf/ledger.md', '93a8df8f8cd453901ad5ebdd35883f222eaef73688683c00e9c3c45338ffea0b', ('./_spikes/s-e1/',), 1),
+        ('docs/perf/ledger.md', '96401b62b7d40869027f7f886f6ef077d5ce3bea9086214e2a45ed952188e7d3', ('./_spikes/s-t/',), 1),
+        ('docs/perf/ledger.md', '99063178a7561fad6e8d9c879a238d35739864bc9fe8f8926b907fef3095fdc2', ('_spikes/w2.5/proof-k34.sh',), 1),
+        ('docs/perf/ledger.md', '9b37aab7c5e3ea94bac53f6a65fb63a24201fcb9aea91d9ebd1118b0070a39f0', ('./_spikes/s-t/',), 1),
+        ('docs/perf/ledger.md', '9b7df2d7a6814340959941fff5b61cc843b10b8aa9927583bcbf60747aa8cee7', ('./_spikes/s-t/',), 1),
+        ('docs/perf/ledger.md', '9c218e05be97a25a3204a9b1a3643dd5e2df55d15c44efb5e03b5226ac82bc72', ('./_spikes/s-t/',), 1),
+        ('docs/perf/ledger.md', '9c4aa016bc728b23313ac61462cdb52d251a6a8918c7c514b826dd114593bf5b', ('_spikes/w4.3',), 1),
+        ('docs/perf/ledger.md', '9ddd367ae056fd447d5841e6952269a3ae918ba4cd5b6f7da84bf7eabc523bd7', ('./_spikes/s-d1/',), 1),
+        ('docs/perf/ledger.md', 'a0a91ec60576fee21cac62a9ac659212d5f25a9c6171c54f8966c3093514eeba', ('./_spikes/s-t/',), 1),
+        ('docs/perf/ledger.md', 'a5882b89969baaa1b89a052987d7dd9b3a89826111f01c86541173cbb4653947', ('./_spikes/w6.4/gzip/',), 1),
+        ('docs/perf/ledger.md', 'a5c04bd9282f0071d666e02bac73547fdae1c6eabf1aa41720c08c0a8eedca7a', ('A=_spikes/w5.3/ab.sh',), 1),
+        ('docs/perf/ledger.md', 'a79afeda72cc96b74bbe90766efc9785e3e4dc36653198e8646be40a6b435d15', ('_spikes/w4.2/gates.sh',), 1),
+        ('docs/perf/ledger.md', 'a853b03df3b5e7ee37df01a2135ec3f1190a51a9e0b3b5c710d770c0d357f47f', ('./_spikes/s-t/',), 1),
+        ('docs/perf/ledger.md', 'a9179ed02e6a08fb9a49f2cad244e1800caf8d1959380a3e882e96e90f21d3dd', ('./_spikes/s-t/',), 1),
+        ('docs/perf/ledger.md', 'a9d7901c6f9666ce864281625c260f22125d919d7eeee67ff172fb123d15bd9d', ('./_spikes/s-t/',), 1),
+        ('docs/perf/ledger.md', 'aae7398348cfaba14417e5782c3964484dc3688f4b26875b29e0403870b8f981', ('_spikes/w4.3',), 1),
+        ('docs/perf/ledger.md', 'adb3fc3d074ba32711f13d548424432d4256fd40aa1025fe4eba5ef48334d060', ('./_spikes/s-c1/',), 1),
+        ('docs/perf/ledger.md', 'aecd82aa3dd1d82e097d73ed5b7e2f6deaec975be0fa33f462fb50811418ba30', ('_spikes/w2.2/flakefix-inject.sh',), 1),
+        ('docs/perf/ledger.md', 'b0ac493cb3d7e42791bddecccee6e95cca8027c043756f3bdca4b87438a6d621', ('A=_spikes/w5.3/ab.sh',), 1),
+        ('docs/perf/ledger.md', 'b4bfd76d3ccb0ba3bf223979deb2b6dded6bba3323d31c90ebb32355d2d35685', ('_spikes/w6-secfix/min7.sh',), 1),
+        ('docs/perf/ledger.md', 'b5d723576d3e1d3d4de4da393f8fede681b9e87bf7408d144d26e42d960f15d1', ('_spikes/w4.2/gates.sh',), 1),
+        ('docs/perf/ledger.md', 'b5f11faaef0a5f9506b29325bf9f0d5eb8af98a1894728c24c223f3af95c1d00', ('./_spikes/s-t/',), 1),
+        ('docs/perf/ledger.md', 'b5fc78e9764adf5e35bec12f5c04062b59b22118f1a9fed5085ab87ebb9150a5', ('R=_spikes/s-c1/run.sh', 'O=_spikes/w5.1/results'), 1),
+        ('docs/perf/ledger.md', 'b882e853f59774e44ecded9e37a37eabff56f7004e0385af317e87a0b2919433', ('./_spikes/w6.4/diag',), 1),
+        ('docs/perf/ledger.md', 'ba47628c217ac604525bd397c2444e84110236c9982b506179b1819698a2eddd', ('_spikes/w6-secfix/min9.sh',), 1),
+        ('docs/perf/ledger.md', 'c3ca4f35f4da5c333fd0fd0aecac405bea3a4288906fabe2965845896fd849da', ('_spikes/w2.5/proof-k34.sh',), 1),
+        ('docs/perf/ledger.md', 'c5244fc222a4390d8cbd1d6fba0fe3ef9fe12db63576497e3579e6db624fa70c', ('./_spikes/s-e1/',), 1),
+        ('docs/perf/ledger.md', 'c5381fa212c9284f08f91afd68b39221da5a4be9449d5286289e2a16707cbda2', ('_spikes/w6.1/mutants.sh',), 1),
+        ('docs/perf/ledger.md', 'c53bf8efb11a2d4b1d61d374e5e6b83e04ac4c89491f693916a50c05df4fb4e1', ('_spikes/**',), 1),
+        ('docs/perf/ledger.md', 'c8added10a4618d685ede57517fc09c4bf0ad1b23a1dc07c2e20b427c2190d80', ('./_spikes/s-e1/',), 1),
+        ('docs/perf/ledger.md', 'cb54ced814d080713a88f22812c6730cc5c4248f5d6be0248c8333fac62a9c6e', ('_spikes/s-c1/*.go', '_spikes/s-c1/run.sh'), 1),
+        ('docs/perf/ledger.md', 'cc0d4c3326d7bbc28d2dd5f3669f594628cfef886811d72ef165eeb2ef0ccc4d', ('_spikes',), 1),
+        ('docs/perf/ledger.md', 'ccc9c4e38e076df6c0b022cde37c6016446adb88b5f6bf3c8e93d22101354f1f', ('./_spikes/s-t/',), 1),
+        ('docs/perf/ledger.md', 'ccf53f97e1b7e8270c62833633cac45c203d8af13ad07e54146be0ce1ad722c8', ('R=_spikes/s-c1/run.sh',), 1),
+        ('docs/perf/ledger.md', 'cd6cc6fc58a54a9ba163aed4bbecf3522805a0ba3e07c4297b1edb09070aae60', ('./_spikes/s-c1/',), 1),
+        ('docs/perf/ledger.md', 'ce1bb2a2223291649dfb9092a7d4a68e5ec4f6119788da8bbbb36aeaaa6b71bf', ('./_spikes/s-t/',), 1),
+        ('docs/perf/ledger.md', 'ce505e71799d0c86853a0caf5c3e41089dacd07d80684caa2028f5c8fe2097a2', ('_spikes/',), 1),
+        ('docs/perf/ledger.md', 'cf7782869dfa37ac585c9578d4a8511a1e8616da8457ddcf25c608d27ab240c7', ('_spikes/w6-secfix/min8.sh',), 1),
+        ('docs/perf/ledger.md', 'cf7c245f98d8691581e2252464e7f3f2ce11579282dd8ca24493b59e752a8e8e', ('./_spikes/s-c1/',), 1),
+        ('docs/perf/ledger.md', 'cfe24d1b1022bd836e7d6fa4dcddfbb1b8da2674c264d24d3535ad6fae36dec3', ('_spikes/w6-secfix/min4.sh',), 1),
+        ('docs/perf/ledger.md', 'd008914d37b73c36af6c828c455c740f7ede27c902513f7008175dcb6ff8c6d0', ('O=_spikes/s-c1/results',), 1),
+        ('docs/perf/ledger.md', 'd03cea75949a91bc418323974053d333a3f7a7682a97c1ea959b29b3860a21d5', ('_spikes/w6.5/',), 1),
+        ('docs/perf/ledger.md', 'd502e43cbea91a39eff4663cbefb8ca83ad53ed8352f022abd7c94dc7896399c', ('_spikes/w2.2/contend.sh',), 1),
+        ('docs/perf/ledger.md', 'd734596124d2ed03483163ef7888b17321dcd665383f5a0b4c6e8a07a1acc9de', ('_spikes/s-d1',), 1),
+        ('docs/perf/ledger.md', 'd77937fa55eddad3c5f4b19f11317b51c44a80eb538ffb3331c3331826b44cf3', ('_spikes/w6-secfix/acp6.sh',), 1),
+        ('docs/perf/ledger.md', 'da12dc79ef538d29a0d7ed0a9b0ad4859eb1a12a37c83ef5ade6ee20ef0430d4', ('O=_spikes/w3.4/results',), 1),
+        ('docs/perf/ledger.md', 'dae5b86468fae6497573999c9535b057b6ea08c4ef53d9a392b0790d024c2219', ('./_spikes/w4.3/',), 1),
+        ('docs/perf/ledger.md', 'db38aae869187e4d64fce6ad241e73426457c3a9b67f7ad9e1780f16c980b0d6', ('./_spikes/s-e1/',), 1),
+        ('docs/perf/ledger.md', 'dbe736500f37cd9e8d6e067762009c548a5549c664b0548f86433efd94fd335f', ('_spikes/…',), 1),
+        ('docs/perf/ledger.md', 'e08e7585c4b7a2779a8c4c05189306c6e8a469c3359d23279cdd9fc0f205979f', ('_spikes/w4.3',), 1),
+        ('docs/perf/ledger.md', 'e0cbe527cc17b61ee8fefadefd673a32b46aedc94ca5dbddef46c7a549181929', ('./_spikes/s-d1/',), 1),
+        ('docs/perf/ledger.md', 'e1adcb2f83ff86be1062ce9bd62636cceb2357f2b033422d6b7c965ddc29c458', ('./_spikes/s-c1/',), 1),
+        ('docs/perf/ledger.md', 'e28c95a345c7637b1345e48fcc317f6ec3d354554acd578fd16d547a9179b53e', ('./_spikes/s-d1/',), 1),
+        ('docs/perf/ledger.md', 'e32c50c194b1c06a0dfeaa1210ecae94863bde64f086a1f09feb66fd09ffabc9', ('./_spikes/w4.3/',), 1),
+        ('docs/perf/ledger.md', 'e8428f921fd462f636220e81e49b6fc4fdf662007ce6691dd93f052235c9795e', ('./_spikes/w4.3/',), 1),
+        ('docs/perf/ledger.md', 'ea013c6309e8ee213132ba679146e9715034389ade602f7c6da5ba947f02d038', ('./_spikes/s-t/',), 1),
+        ('docs/perf/ledger.md', 'eaff107255dbcd22dff0110ec419d3107a7f04fec33fb46cdc793a9f0d593393', ('./_spikes/s-e1/',), 1),
+        ('docs/perf/ledger.md', 'eb2751aa50fe9f66d2733d8758095e66c0ea6d26546db3864dda90ab59d93289', ('C=_spikes/w2.2/contend.sh', 'O=_spikes/w2.5/results'), 2),
+        ('docs/perf/ledger.md', 'ee5a73bf833aaa032b09369799bc36c94534ca9a58d982ba54a66ee84c61c7e7', ('_spikes/w2.5/proof-k34.sh',), 1),
+        ('docs/perf/ledger.md', 'f07918b663f297454a46dc59939ecd87f1b004c71cfd7ea05fbe9ef378fb6ad0', ('./_spikes/s-c1/',), 1),
+        ('docs/perf/ledger.md', 'f1f8c9545e9377f9da2bcdf40d400d03d919b59b7e22cef35224e52ed5d8cd47', ('R=_spikes/s-c1/run.sh',), 1),
+        ('docs/perf/ledger.md', 'f51f8e95e5648ab36f88209b89f031c99dec316dca04e5500a3cca711cf03192', ('_spikes/w4.3',), 1),
+        ('docs/perf/ledger.md', 'f53360ef627763361f039dac10a0cceb75ff775f903f61a50cbd7c0c0216dfc9', ('./_spikes/s-d1/',), 1),
+        ('docs/perf/ledger.md', 'f6a3917240cb775ca1e341e06bf55c1d535cf9bfb75cd2f21232075aa4098147', ('_spikes/w6-fixes/',), 1),
+        ('docs/perf/ledger.md', 'f7aae50d494c936ba4e6dfd89bef7543bda7bc425f771ed5f3e576129d637b0c', ('_spikes/w2.5/proof-k34.sh',), 1),
+        ('docs/perf/ledger.md', 'facb771f38a1e4f6abd0d36a84210d8fc3753ff59a33b455e2da9e4cbc0b576a', ('_spikes/w6-secfix/coldburst.sh',), 1),
+        ('docs/perf/ledger.md', 'fda17a564f354decb2095ed3863d572ec999e78917b3e58693a190b6d7c9a2f4', ('_spikes/w1.3/render.py',), 1),
+        ('docs/perf/ledger.md', 'fda93588b53a362bb898b5a41d2d17737e79ba9d1c74b24e4b37f67e620c8daa', ('C=_spikes/w2.2/contend.sh',), 1),
+        ('docs/perf/ledger.md', 'fde8f3130de4a4fd0672a05eac18fff921d4ca9b3cb167c71ba9125b9db3d6af', ('./_spikes/s-d1/',), 1),
+        ('docs/perf/ledger.md', 'fec7edd9b762855fd425522a337a1e74500296b867e1225210e354dd28739590', ('_spikes/w6-secfix/maj1.sh',), 1),
+    }
+)
+# END ALLOWED
+
+
+def _git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, check=check)
+
+
+def _grep(repo: Path, needle: str, regex: bool = False) -> list[tuple[str, int, str]]:
+    proc = _git(repo, "grep", "-n", "-I", "-E" if regex else "-F", "-e", needle, "--", ".", *SELF, check=False)
+    if proc.returncode not in (0, 1):
+        raise RuntimeError(f"git grep failed: {proc.stderr}")
+    hits = []
+    for line in proc.stdout.splitlines():
+        path, number, text = line.split(":", 2)
+        hits.append((path, int(number), text))
+    return hits
+
+
+def parse(body: str) -> tuple[str, str | None] | None:
+    """Return (commit, path or None) of a well-formed citation body, else None.
+
+    The path is refused when it is empty, absolute, holds ``..`` (an escape
+    or an ellipsis), ``…``, or a glob character, or ends in a dot.
+    """
+    m = FORM.fullmatch(body)
+    if not m:
+        return None
+    path = m.group(2)
+    if path is not None:
+        bare = LINE_SUFFIX.sub("", path)
+        if (not bare or bare.startswith("/") or bare.endswith(".") or ".." in bare or "…" in bare
+                or any(c in bare for c in "*?[")):
+            return None
+    return m.group(1), path
+
+
+def citation_body(token: str) -> str:
+    """The body of a CITATION match without the punctuation of the sentence around it.
+
+    One trailing '.', ',' or ';' ends the sentence; a trailing ':' after a
+    path ends a clause (``spikes@<c>:<path>: ...``). ``spikes@<c>:`` keeps its
+    colon, so its empty path is refused.
+    """
+    if token[-1:] in (".", ",", ";"):
+        token = token[:-1]
+    if token.endswith(":") and token.count(":") >= 2:
+        token = token[:-1]
+    return token
+
+
+def digest(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def old_name_lines(repo: Path) -> dict[tuple[str, str], tuple[tuple[str, ...], int, int]]:
+    """Every line of a tracked file that names the old tree.
+
+    Keyed by (file, SHA-256 of the text); the value is (its old-name tokens,
+    how many times the line occurs in the file, the first line number).
+    """
+    found: dict[tuple[str, str], tuple[tuple[str, ...], int, int]] = {}
+    seen: set[tuple[str, int]] = set()
+    for root in OLD_ROOTS:
+        for path, number, text in _grep(repo, root):
+            if (path, number) in seen:
+                continue
+            seen.add((path, number))
+            tokens = tuple(m.group(0) for m in OLD_TOKEN.finditer(text))
+            if not tokens:
+                continue
+            key = (path, digest(text))
+            prev = found.get(key)
+            found[key] = (tokens, prev[1] + 1, prev[2]) if prev else (tokens, 1, number)
+    return found
+
+
+def allowed_entries(repo: Path) -> list[tuple[str, str, tuple[str, ...], int]]:
+    """ALLOWED as the rewritten tree would have it (W6.7's docs commit writes it)."""
+    return sorted((f, h, toks, n) for (f, h), (toks, n, _) in old_name_lines(repo).items())
+
+
+def part1(repo: Path) -> tuple[list[str], list[tuple[str, int, str, str | None]]]:
+    """Return (failures, citations as (file, line, commit, path or None))."""
+    failures = [f"{p}: tracked under the old spike tree"
+                for p in _git(repo, "ls-files", "--", "_spikes/", "internal/spikes/").stdout.split()]
+    allowed = {(f, h): (toks, n) for f, h, toks, n in ALLOWED}
+    found = old_name_lines(repo)
+    for (path, h), (tokens, count, number) in sorted(found.items(), key=lambda kv: (kv[0][0], kv[1][2])):
+        entry = allowed.get((path, h))
+        if entry is None or entry[0] != tokens:
+            failures.append(f"{path}:{number}: {' '.join(tokens)} names the old spike tree on a line that is not "
+                            "allowed; cite spikes@<commit>:<path>")
+        elif count > entry[1]:
+            failures.append(f"{path}:{number}: an allowed line naming {' '.join(tokens)} occurs {count} times, "
+                            f"{entry[1]} allowed")
+    for f, h, toks, n in sorted(ALLOWED):
+        got = found.get((f, h))
+        have = got[1] if got is not None and got[0] == toks else 0
+        if have < n:
+            failures.append(f"{f}: an allowed line naming {' '.join(toks)} occurs {have} times, {n} allowed; a quoted "
+                            "command keeps its bytes, and a line removed on purpose takes its entry with it")
+    citations = []
+    for path, number, text in _grep(repo, "spikes@"):
+        for m in CITATION.finditer(text):
+            parsed = parse(citation_body(m.group(1)))
+            if parsed is None:
+                failures.append(f"{path}:{number}: {m.group(0)} is not spikes@<12 hex>[:<path>]")
+            else:
+                citations.append((path, number, *parsed))
+    return failures, citations
+
+
+class Clone:
+    def __init__(self, repo: Path) -> None:
+        if _git(repo, "rev-parse", "--git-dir", check=False).returncode != 0:
+            raise ValueError(f"{repo} is not a git repository")
+        self.repo = repo
+        self._paths: dict[str, tuple[set[str], set[str]]] = {}
+
+    def commit(self, rev: str) -> str | None:
+        proc = _git(self.repo, "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}", check=False)
+        return proc.stdout.strip() or None
+
+    def resolves(self, commit: str, path: str) -> bool:
+        if commit not in self._paths:
+            files = set(_git(self.repo, "ls-tree", "-r", "--name-only", "-z", commit).stdout.split("\0")) - {""}
+            dirs = {"/".join(f.split("/")[:i]) for f in files for i in range(1, f.count("/") + 1)} | {""}
+            self._paths[commit] = (files, dirs)
+        files, dirs = self._paths[commit]
+        p = LINE_SUFFIX.sub("", path).rstrip("/")
+        return p in files or p in dirs
+
+
+def part2_archive(citations: list[tuple[str, int, str, str | None]], archive: Clone) -> list[str]:
+    failures = []
+    for path, number, commit, target in citations:
+        full = archive.commit(commit)
+        if full is None:
+            failures.append(f"{path}:{number}: spikes@{commit}: no such commit in the archive")
+        elif target is not None and not archive.resolves(full, target):
+            failures.append(f"{path}:{number}: spikes@{commit}:{target}: no such path at {commit}")
+    if not citations:
+        failures.append("no spikes@ citation found; part 2 would pass vacuously")
+    return failures
+
+
+def in_named_brace_group(line: str, start: int, end: int) -> bool:
+    """A token that is one member of a brace group glued to a name, as in
+    results/b6allocs-M-{b002bd5,ddec26a}.txt: part of a raw file NAME."""
+    if start == 0 or line[start - 1] not in "{," or end >= len(line) or line[end] not in ",}":
+        return False
+    open_, close = line.rfind("{", 0, start), line.find("}", end)
+    if open_ < 0 or close < 0 or "}" in line[open_ + 1 : start] or "{" in line[end:close]:
+        return False
+    before = line[open_ - 1] if open_ > 0 else " "
+    after = line[close + 1] if close + 1 < len(line) else " "
+    return any(c.isalnum() or c in "-_./" for c in (before, after))
+
+
+def sha_tokens(repo: Path) -> list[tuple[str, int, str]]:
+    """Hex tokens that stand as commit citations: not glued into a name (an anchor link counts)."""
+    out = []
+    for path, number, line in _grep(repo, "[0-9a-f]{7,40}", regex=True):
+        links = [(m.start(1), m.end(1)) for m in ANCHOR_LINK.finditer(line)]
+        for m in HEX.finditer(line):
+            left = line[m.start() - 1] if m.start() > 0 else " "
+            right = line[m.end():m.end() + 2]
+            glued_right = right[:1] != "" and (right[:1] in "-_/" or (right[:1] == "." and right[1:2].isalnum()))
+            glued = left in "-_/@" or glued_right or in_named_brace_group(line, m.start(), m.end())
+            if left == "." and line[max(0, m.start() - 2):m.start()] == "..":
+                glued = glued_right
+            if glued and not any(s <= m.start() < e for s, e in links):
+                continue
+            out.append((path, number, m.group(0)))
+    return out
+
+
+def part2_history(repo: Path, history: Clone, archive: Clone) -> tuple[list[str], int, int]:
+    table = _git(archive.repo, "show", f"HEAD:{MAP}", check=False)
+    if table.returncode != 0:
+        return [f"the archive holds no {MAP} at HEAD"], 0, 0
+    lines = table.stdout.splitlines()
+    header = lines[0].split("\t")
+    col = header.index("sdk_final") if "sdk_final" in header else 1
+    final_of = {r.split("\t")[0]: r.split("\t")[col] for r in lines[1:] if r}
+    old = sorted(final_of)
+    failures, commits, other = [], 0, 0
+    for path, number, tok in sha_tokens(repo):
+        hit = next((o for o in old if o.startswith(tok)), None)
+        if hit is not None and final_of[hit] == "not rewritten":
+            failures.append(f"{path}:{number}: {tok} is a commit no rewritten ref carries; cite its patch in the "
+                            "archive (the commit map's patch column)")
+        elif hit is not None:
+            failures.append(f"{path}:{number}: {tok} is a commit from before the rewrite; cite its final SHA")
+        elif history.commit(tok) is not None:
+            commits += 1
+        else:
+            other += 1
+    return failures, commits, other
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Check the citations of the spike archive (W6.7).")
+    parser.add_argument("--archive", type=Path, help=f"a local clone of the archive (default: ${ENV_ARCHIVE})")
+    parser.add_argument("--history", type=Path, help=f"a full clone of this repository (default: ${ENV_HISTORY})")
+    parser.add_argument("--repo", type=Path, default=Path("."), help="the repository to check (default: .)")
+    args = parser.parse_args(argv)
+    clones: dict[str, Clone | None] = {}
+    for name, flag, env in (("archive", args.archive, ENV_ARCHIVE), ("history", args.history, ENV_HISTORY)):
+        location = flag or (Path(os.environ[env]) if os.environ.get(env) else None)
+        try:
+            clones[name] = Clone(location.resolve()) if location else None
+        except ValueError as err:
+            print(f"spikes-citations: {err}", file=sys.stderr)
+            return 2
+    repo = args.repo.resolve()
+    failures, citations = part1(repo)
+    print(f"part 1: {len(citations)} citations well-formed, {len(failures)} failures")
+    archive, history = clones["archive"], clones["history"]
+    if archive is None:
+        print(f"part 2: resolved NOTHING: no archive clone (--archive or {ENV_ARCHIVE}); "
+              f"{len(citations)} citations skipped")
+    else:
+        more = part2_archive(citations, archive)
+        print(f"part 2: {len(citations) - len(more)} of {len(citations)} citations resolve in {archive.repo}")
+        failures += more
+    if archive is None or history is None:
+        print(f"part 2: checked NO commit SHA: it needs the archive and a full clone (--history or {ENV_HISTORY}); "
+              f"{len(sha_tokens(repo))} SHA tokens skipped")
+    else:
+        more, commits, other = part2_history(repo, history, archive)
+        print(f"part 2: {commits} SHA tokens name commits of the history, {other} name none (trees, run ids, digests), "
+              f"{len(more)} name commits from before the rewrite")
+        failures += more
+    for failure in failures:
+        print(failure, file=sys.stderr)
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

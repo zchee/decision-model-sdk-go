@@ -19,7 +19,7 @@ statement are in the [ledger](ledger.md), sections W5.4 and W6-fixes.
 | Experiments | No `GOEXPERIMENT`. The `nosimd,noruntimesecret` override of the [measurement rule](../support.md#measurement-rule) is for a host whose Go env file sets experiments. The runner has none, so its default already is the Go 1.27 baseline. The report step prints the ToolTags. |
 | Instrument | `CodSpeedHQ/action@v5` (runner 5.2.1, go runner 1.3.0), `mode: walltime`. Walltime is the only instrument CodSpeed has for Go (plan decision D4). |
 | Command | `go test -bench=. ./...`. The action's go runner keeps only `-bench` and `-benchtime` and adds `-run=^$` itself, so no unit test runs and the workflow never passes `-run` (rulings R5, R5-corr). |
-| Rows | Every benchmark in the module: 15 functions, 125 rows since aaa9698, unchanged at 653b5b9 |
+| Rows | Every benchmark in the module: 15 functions, 125 rows since 39c8dab, unchanged at e038908 |
 | Authentication | The job's OIDC id-token (`id-token: write`), which CodSpeed accepts because its GitHub App is installed on the repository (G1, R4). No token secret exists. |
 | Raw samples | Under `$RUNNER_TEMP`, on the runner's disk, not on `/tmp` (K35) |
 | Duration | About 10 minutes for the CodSpeed step and 30 s for the guard |
@@ -99,11 +99,11 @@ The GitHub job log does not print the run id.
 - **Noise.** The banner "Unknown Walltime execution environment detected"
   means CodSpeed sees a hosted runner, not one of its own machines. On
   these runners, rows whose code did not change move by more than 10 %:
-  - At 3ffe77b the `EncodeBody/rawjson/{64KiB,1MiB}/naive-json` rows,
+  - At 21b2c88 the `EncodeBody/rawjson/{64KiB,1MiB}/naive-json` rows,
     which that commit did not touch, were 13 to 14 % faster.
   - `Loopback/cold-fanout-64` (B6) has measured from 4.8 to 5.5 ms on
-    the EPYC 7763 alone. It failed the check at 1f694b0 (−11.92 %) and at
-    aaa9698 (−12.24 %), and aaa9698 changed only the workflow and
+    the EPYC 7763 alone. It failed the check at 0ac3ef0 (−11.92 %) and at
+    39c8dab (−12.24 %), and 39c8dab changed only the workflow and
     documents.
   - A run on an EPYC 9V74 moved 21 rows by 18 to 30 % against one on an
     EPYC 7763.
@@ -132,9 +132,9 @@ code, with only documents, tests and CI changed between them:
 
 | `main` run | Commit | `BenchmarkCall/sdk` mean | min |
 | --- | --- | ---: | ---: |
-| 36244496855, W5.3's landing | 653b5b9 | 6.406 µs | 4.829 µs |
-| 36249189420, W5.4's landing | f73ab2b | 5.947 µs | 4.859 µs |
-| 36255318871, W6.3's landing | 93e9db1 | 5.850 µs | 4.769 µs |
+| 36244496855, W5.3's landing | e038908 | 6.406 µs | 4.829 µs |
+| 36249189420, W5.4's landing | 017302f | 5.947 µs | 4.859 µs |
+| 36255318871, W6.3's landing | e91fa13 | 5.850 µs | 4.769 µs |
 
 Their means are 9.5 % apart by K7's spread formula, (largest − smallest) /
 smallest, and their minimums 1.9 %. A segment's spread can only grow, so
@@ -164,10 +164,10 @@ the ledger keeps them so that an absolute change stays visible within one
 kind of host, and a count on the minimum may be kept beside them as a
 report (G8-a).
 
-- The count starts at `main`'s run of aaa9698 (GitHub run 36221839206,
+- The count starts at `main`'s run of 39c8dab (GitHub run 36221839206,
   CodSpeed run 6ab75ed2e412c1cc664ef2d7), where the K35 fix landed. The
-  runs from ca226bb to 3ffe77b lost 11 rows and do not count. Runs before
-  ca226bb have other names (G5). Only successful push runs on `main`
+  runs from c7d0acb to 21b2c88 lost 11 rows and do not count. Runs before
+  c7d0acb have other names (G5). Only successful push runs on `main`
   count; dispatched runs on branches do not. `BenchmarkLoopback` never
   counts (R101).
 - **Per CPU host (R109, ratified as R115, refined by R109b).** Hosted
@@ -188,9 +188,9 @@ report (G8-a).
   `internal/h2gate`) and moves `BenchmarkCall/sdk`'s mean by 5 % or more
   by K7's spread formula between the group's last `main` run before it
   and its first after it. Documents, CI and tests never open one. W5.3's
-  landing, 653b5b9, opened the 7763's second segment by that rule: its run
-  read 5.19 % below a4cbb5d's. The 7763 reads: segment 1, aaa9698 to
-  a4cbb5d, 3 runs, mean spread 1.29 %; segment 2, from 653b5b9, the three
+  landing, e038908, opened the 7763's second segment by that rule: its run
+  read 5.19 % below a0e11ac's. The 7763 reads: segment 1, 39c8dab to
+  a0e11ac, 3 runs, mean spread 1.29 %; segment 2, from e038908, the three
   runs in the table above.
 - Every row of the ledger's section W5.4 carries the run's CPU model, its
   AVX-512 exposure and its GitHub and CodSpeed run ids, and the ledger
@@ -230,7 +230,7 @@ every run: the AC-P7 gate step fails a run whose same-run mean ratio is
 1.0 or more (see "K7" above), so each of the two runs either holds AC-P7
 or goes red. The ledger still records the three statistics and the three
 ratios of every run. **Status: the first half held on the mean at W5.4
-(ledger W5.4-29, de27718: 0.835), before the gate existed. The second
+(ledger W5.4-29, 0f7a554: 0.835), before the gate existed. The second
 half, `main`'s first run after W5.4 lands, is recorded in the as-built
 appendix that Phase 7 (W7) writes.**
 
@@ -241,7 +241,7 @@ The three statistics disagree on these two rows:
 - **median**: the middle iteration.
 - **mean**: the total time divided by the rounds. It is what AC-P7 reads.
 
-On every run up to aaa9698, `BenchmarkCall/sdk` is 12 to 16 % slower than
+On every run up to 39c8dab, `BenchmarkCall/sdk` is 12 to 16 % slower than
 `BenchmarkCall/naive` by minimum and 2 to 8 % slower by median, but 2 to
 12 % faster by mean. The overlay times each iteration on its own. Measured
 that way, one naive call is shorter than one SDK call. The SDK comes out
@@ -261,7 +261,7 @@ That the SDK's single call is slower than the naive client's (by about
 0.7 µs on amd64) is risk K36. Taking that time off the SDK's call path is
 a best-effort target for W5.3, not part of AC-P7.
 
-W5.3 (on `main` from 653b5b9) scans a well-formed body once. The
+W5.3 (on `main` from e038908) scans a well-formed body once. The
 traversal runs over the body cut just before the root's closing brace,
 and the second pass, `internal/codec.trailing` running sonic's
 `decoder.Skip` over the whole body to find where the root value ends, now

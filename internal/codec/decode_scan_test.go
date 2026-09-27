@@ -29,6 +29,10 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
+// Citations of the form spikes@<commit>:<path> in this file name files in the
+// private spike archive; the opening section of docs/perf/ledger.md says what
+// such a citation tells a reader who cannot open the archive.
+
 // systemOneWhole is systemOne as it was before W5.3 (K36): the traversal
 // over the whole body, then the trailing-data scan with decoder.Skip.
 func (d *decoder) systemOneWhole(body []byte, q *wire.Prepared, model string, dst *wire.SystemOneResult) (Skipped, error) {
@@ -278,7 +282,7 @@ func TestOneScanTakesValidBodies(t *testing.T) {
 }
 
 // TestK41ScannerBoundary pins what the decoder does with the shape of fuzz
-// finding 4 (c) (ruling K41; _spikes/w5.3/k41 reproduces the scanner bug
+// finding 4 (c) (ruling K41; spikes@815453827b43:w5.3/k41 reproduces the scanner bug
 // with sonic alone): sonic's scanner takes a string that runs to the end of
 // its input without its closing quote as a complete string when the string's
 // content is a multiple of 32 bytes long. Every body here is refused, on the

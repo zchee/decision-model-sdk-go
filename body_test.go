@@ -34,6 +34,10 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
+// Citations of the form spikes@<commit>:<path> in this file name files in the
+// private spike archive; the opening section of docs/perf/ledger.md says what
+// such a citation tells a reader who cannot open the archive.
+
 // probeQuestions is the question set of the Python probe,
 // {"q":{"type":"noul","instructions":"?"}}.
 const probeQuestions = `{"q":{"type":"noul","instructions":"?"}}`
@@ -120,8 +124,8 @@ type ticketState struct {
 // TestBodyBytesMatchPython pins request bodies byte for byte against what
 // typesafe-sdk-python 0.7.1 sends for the same call: want is
 // prepare_system_one(...).content from the upstream venv (pydantic-core
-// 2.46.5; probe _spikes/w1.2/body_probe.py, run of 2026-09-25 21:50:14 JST in
-// _spikes/w1.2/results/body_probe-M.txt). A map state has one member per
+// 2.46.5; probe spikes@815453827b43:w1.2/body_probe.py, run of 2026-09-25 21:50:14 JST in
+// spikes@815453827b43:w1.2/results/body_probe-M.txt). A map state has one member per
 // level, because a Go map with more is sent in Go's iteration order (sonic
 // does not sort keys); the struct case shows the nested order.
 func TestBodyBytesMatchPython(t *testing.T) {
@@ -197,9 +201,9 @@ func TestBodyBytesMatchPython(t *testing.T) {
 // TestBodyDeviationsFromPython pins the two ruled differences between the
 // state bytes sonic writes and Python's, with Python's bytes from the same
 // probe (2026-09-25 21:50:14 JST) next to them; sonic's own bytes for the
-// values are in _spikes/w1.2/results/sonic-*-M.txt (arm64) and
-// sonic-*-L.txt (amd64). A sonic upgrade that changes either spelling fails
-// here.
+// values are in the files sonic-*-M.txt (arm64) and sonic-*-L.txt (amd64)
+// of spikes@815453827b43:w1.2/results/. A sonic upgrade that changes either
+// spelling fails here.
 //
 //   - R47: sonic escapes U+0008 and U+000C as \u0008 and \u000c where Python
 //     writes \b and \f; the other 30 control characters, DEL, the HTML
@@ -947,7 +951,7 @@ func TestNestedContentEncodesAsContent(t *testing.T) {
 		},
 		// Under -race, sonic's own check of a MarshalJSON output accepts
 		// a few complete but invalid outputs ({"a":}, [1 2], a trailing
-		// comma: K26, _spikes/w1.2/validrace); wire's scanner refuses them
+		// comma: K26, spikes@815453827b43:w1.2/validrace); wire's scanner refuses them
 		// first, in every build (R60).
 		"error: complete but invalid JSON content nested in the state": {
 			state:   map[string]any{"c": JSON([]byte(`{"a":}`))},

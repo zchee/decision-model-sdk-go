@@ -1,5 +1,10 @@
 # Port test matrix
 
+Citations of the form `spikes@<commit>:<path>` name files in the private
+spike archive; the [performance ledger's opening
+section](perf/ledger.md) says what such a citation tells a reader who
+cannot open the archive.
+
 Every upstream test function of typesafe-sdk-python 0.7.1 maps to a Go test
 or to a documented deviation. Upstream is `typesafe-ai/typesafe-sdk-python` at
 `0ffd094c72ed9445223060b24ffd7a56aa781fb4`: the 129 test functions that
@@ -125,7 +130,7 @@ Rows by status: 35 deviation, 0 planned, 94 ported.
 | P1 | `test_standalone_pydantic_response_model` | `TestDecodeAsWithSeparateQuestions` (questions built separately, `{"spam": Noul()}`; `DecodeAs[knownResponse]`; an extra `explanation` member ignored; the field is tagged `name=spam`, since a question's default name is the Go field name as written, W4.1, R94) | ported |
 | P2 | `test_explicit_default_response_model` | `TestSystemOneDefaultResponse` (both parametrizations are the default response `SystemOne` returns; a typed struct is a separate step, `DecodeAs`) | ported |
 | P3 | `test_pydantic_system_one_response_subclass` | `TestDecodeAsOptionalFieldAndUnknownAnswer` (`optional` field absent → `Present() == false`; user struct with `options=friendly\|hostile`; unknown `future` type dropped with the WARN; `Answers()` still complete; request id and raw body through the two-step form, `SystemOne` then `DecodeAs`, since `Ask[T]` returns only `T`; `Ask` gives the same struct; fields tagged `name=spam`, `name=tone`, `name=missing` as in P1), `TestDecodeAsOptional` (AC-F8's three `optional` decode halves) | ported |
-| P4 | `test_pydantic_response_validation` | `TestAskValidationFieldPaths` (field path, request id and body as upstream checks them, plus status, endpoint and text; a typed failure is named as upstream's `SystemOneResponse` subclass names it, since the struct's fields are the answers lifted out of `answers` (ruling R99-rev): case 2 is the upstream `tone.choice`, a missing answer is `spam`, another kind `spam.type`; case 1's body has no `usage`, which `Ask` validates first as a subclass does, so Go fails at `usage`, and at the upstream `answers.spam.noul`, the decoder's path, once `usage` is there; an answer of an unknown type is skipped, as the subclass skips it, so under a required field's name it fails as absent (`spam`) and a body without `answers` fails at the first required field (`spam`); probe `_spikes/w4.2/python_typed_paths.py`; also every row of `DecodeAs`'s path table), `TestDecodeAsStoredResponse` | ported |
+| P4 | `test_pydantic_response_validation` | `TestAskValidationFieldPaths` (field path, request id and body as upstream checks them, plus status, endpoint and text; a typed failure is named as upstream's `SystemOneResponse` subclass names it, since the struct's fields are the answers lifted out of `answers` (ruling R99-rev): case 2 is the upstream `tone.choice`, a missing answer is `spam`, another kind `spam.type`; case 1's body has no `usage`, which `Ask` validates first as a subclass does, so Go fails at `usage`, and at the upstream `answers.spam.noul`, the decoder's path, once `usage` is there; an answer of an unknown type is skipped, as the subclass skips it, so under a required field's name it fails as absent (`spam`) and a body without `answers` fails at the first required field (`spam`); probe `spikes@815453827b43:w4.2/python_typed_paths.py`; also every row of `DecodeAs`'s path table), `TestDecodeAsStoredResponse` | ported |
 | P5 | `test_custom_response_preserves_api_errors` | `TestAskPreservesAPIErrors` (the upstream 400 with its body and request id; also a 429 with its `RetryAfter`, a transport failure as `*ConnectionError`, and `PreparedFor`'s `*ConfigError` before any request) | ported |
 
 ### `tests/test_questions.py` (11)

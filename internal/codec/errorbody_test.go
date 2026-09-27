@@ -27,8 +27,12 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
+// Citations of the form spikes@<commit>:<path> in this file name files in the
+// private spike archive; the opening section of docs/perf/ledger.md says what
+// such a citation tells a reader who cannot open the archive.
+
 // TestReadErrorBody checks the lenient error-body reader against the Python
-// SDK 0.7.1 (_spikes/w2.0/results/python-errors.txt, which prints str() of
+// SDK 0.7.1 (spikes@815453827b43:w2.0/results/python-errors.txt, which prints str() of
 // the APIError the SDK builds for each body): the message it finds, "no
 // body" for an empty or null body, and the replacement of ill-formed UTF-8.
 // The reader neither escapes nor cuts; the root package renders the message

@@ -103,7 +103,7 @@ Each reason starts with its class:
 | `internal/h2gate/config.go` | `Wrap` | `return nil, err` | 2 | Gap: `Wrap` with an API URL that `resolveTarget` refuses (tested through `NewTransport` only), and the `proxyMayApply` failure. |
 | `internal/h2gate/errors.go` | `walk` | `return` | 1 | Gap: an error whose `Unwrap() error` returns nil; the dial errors in tests always wrap a cause. |
 | `internal/h2gate/transport.go` | `nopLogger.WarnContext` | `{}` | 1 | Gap: the one warning, `h2: response not HTTP/2`, is reached only by tests that attach a logger. |
-| `internal/h2gate/transport.go` | `(*Transport).RoundTrip` | `t.mu.Unlock()` | 0-1 | Race: a waiter that loops back and finds the connection warm; covered in 4 of 15 runs at 67dcbb0 and in 3 of 6 on f73ab2b's production files ((M) on 16 cores, (L) on 44 and pinned to 4; -race and not). |
+| `internal/h2gate/transport.go` | `(*Transport).RoundTrip` | `t.mu.Unlock()` | 0-1 | Race: a waiter that loops back and finds the connection warm; covered in 4 of 15 runs at 4a1b73f and in 3 of 6 on 017302f's production files ((M) on 16 cores, (L) on 44 and pinned to 4; -race and not). |
 | `internal/h2gate/transport.go` | `(*Transport).RoundTrip` | `t.leave(gen)` | 0-1 | Race: a waiter whose context ends while the leader dials; no test cancels a waiter on purpose. |
 | `internal/h2gate/transport.go` | `reason` | `return "not-negotiated"` | 1 | Gap: no test logs a failed ALPN negotiation with a logger attached. |
 | `internal/h2gate/transport.go` | `(*call).gotConn` | `{}` | 1 | Gap: a new HTTP/2 connection for a call that holds the token on a transport with `firstHold` cleared. |
