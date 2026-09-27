@@ -77,15 +77,17 @@ func dialPhaseTrace(t *testing.T, hook string, release <-chan struct{}, late boo
 // holds the permit, so the call fails at its own wait bound. Once the hook
 // returns, the next call succeeds.
 //
-// The bounds are the configured connect timeout, not a measurement
-// (STANDING 9): a call the bound did not end waits until the watchdog frees
-// its hook, hold after the start, beyond the upper limit. The clock is real:
-// the lower limit allows one coarse tick (K29), and the upper one slack for a
-// slow -race runner, far below hold. It runs in CI's -race test step (go
-// test -race with coverage) on ubuntu-26.04, xcode-27 and windows-2025.
+// The bounds are the configured connect timeout and the dial bound's grace
+// past it, not a measurement (STANDING 9): a call the bound did not end
+// waits until the watchdog frees its hook, hold after the start, beyond the
+// upper limit. The clock is real: the lower limit allows one coarse tick
+// (K29), and the upper one slack for a slow -race runner, far below hold. It
+// runs in CI's -race test step (go test -race with coverage) on
+// ubuntu-26.04, xcode-27 and windows-2025.
 func TestClientTraceDialPhaseBound(t *testing.T) {
 	const (
 		connect = 250 * time.Millisecond
+		grace   = 100 * time.Millisecond // internal/h2gate's dialGrace, past the connect timeout
 		slack   = 2 * time.Second
 		hold    = 10 * time.Second
 		coarse  = 20 * time.Millisecond
@@ -98,11 +100,11 @@ func TestClientTraceDialPhaseBound(t *testing.T) {
 		// otherwise it waits behind the held dial and fails at its bound.
 		redials bool
 	}{
-		"error: a blocking DNSStart ends the call at the connect timeout": {
-			hook: "DNSStart", host: "localhost", bound: connect, record: "h2: dial bound expired", redials: true,
+		"error: a blocking DNSStart ends the call at the connect timeout and grace": {
+			hook: "DNSStart", host: "localhost", bound: connect + grace, record: "h2: dial bound expired", redials: true,
 		},
-		"error: a blocking ConnectStart ends the call at the connect timeout": {
-			hook: "ConnectStart", host: "127.0.0.1", bound: connect, record: "h2: dial bound expired", redials: true,
+		"error: a blocking ConnectStart ends the call at the connect timeout and grace": {
+			hook: "ConnectStart", host: "127.0.0.1", bound: connect + grace, record: "h2: dial bound expired", redials: true,
 		},
 		"error: a blocking TLSHandshakeStart ends the call at the wait bound": {
 			hook: "TLSHandshakeStart", host: "127.0.0.1", bound: 2 * connect, record: "h2: connection wait expired",

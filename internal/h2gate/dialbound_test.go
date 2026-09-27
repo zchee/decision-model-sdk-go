@@ -28,6 +28,7 @@ import (
 	"net/http/httptrace"
 	"net/url"
 	"reflect"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -178,10 +179,10 @@ func boundCause(err error) (*DialError, *boundError) {
 // a hook and started 100 ms later, waits for the first at the gate.
 //
 // NewTransport's dialer runs the DNS and connect hooks inside the dial,
-// which it ends at the connect timeout: both calls fail with a timeout
-// then, while the hook still blocks, the dial's connection permit is free,
-// and a third call dials anew and succeeds; the dial the bound abandoned
-// closes the connection it gets once the hook returns. The TLS hooks run in
+// which it abandons at the connect timeout plus its grace (dialGrace): both
+// calls fail with a timeout then, while the hook still blocks, the dial's
+// connection permit is free, and a third call dials anew and succeeds. The
+// TLS hooks run in
 // net/http's handshake, after the dial, and a caller's dialer under Wrap is
 // not the transport's to end: there the first call's wait for a connection
 // ends at the wait bound (the connect timeout plus the TLS handshake
@@ -211,12 +212,12 @@ func TestDialPhaseBound(t *testing.T) {
 		events         []string      // the DEBUG events
 	}
 	dialBound := outcome{
-		first:         connect,
+		first:         connect + dialGrace,
 		what:          "dial tcp example.com:443",
 		thirdSucceeds: true,
 		dialExp:       1,
 		events: []string{
-			"h2: dial bound expired bound=1s", "h2: gate error reason=timeout", // the first call
+			"h2: dial bound expired bound=1.1s", "h2: gate error reason=timeout", // the first call
 			"h2: dial h2=true", "h2: gate release", // the third
 		},
 	}
@@ -235,14 +236,14 @@ func TestDialPhaseBound(t *testing.T) {
 		wrap bool // Wrap over a caller transport with the same dialer, instead of NewTransport
 		want outcome
 	}{
-		"error: a blocking DNSStart fails the dial at the connect timeout":           {hook: "DNSStart", want: dialBound},
-		"error: a blocking DNSDone fails the dial at the connect timeout":            {hook: "DNSDone", want: dialBound},
-		"error: a blocking ConnectStart fails the dial at the connect timeout":       {hook: "ConnectStart", want: dialBound},
-		"error: a blocking ConnectDone fails the dial at the connect timeout":        {hook: "ConnectDone", want: dialBound},
-		"error: a blocking TLSHandshakeStart ends the wait at the wait bound":        {hook: "TLSHandshakeStart", want: waitBound},
-		"error: a blocking TLSHandshakeDone ends the wait at the wait bound":         {hook: "TLSHandshakeDone", want: waitBound},
-		"error: a blocking DNSStart in a caller's dialer ends the wait at the bound": {hook: "DNSStart", wrap: true, want: waitBound},
-		"error: a blocking DNSDone in a caller's dialer ends the wait at the bound":  {hook: "DNSDone", wrap: true, want: waitBound},
+		"error: a blocking DNSStart fails the dial at the connect timeout and grace":     {hook: "DNSStart", want: dialBound},
+		"error: a blocking DNSDone fails the dial at the connect timeout and grace":      {hook: "DNSDone", want: dialBound},
+		"error: a blocking ConnectStart fails the dial at the connect timeout and grace": {hook: "ConnectStart", want: dialBound},
+		"error: a blocking ConnectDone fails the dial at the connect timeout and grace":  {hook: "ConnectDone", want: dialBound},
+		"error: a blocking TLSHandshakeStart ends the wait at the wait bound":            {hook: "TLSHandshakeStart", want: waitBound},
+		"error: a blocking TLSHandshakeDone ends the wait at the wait bound":             {hook: "TLSHandshakeDone", want: waitBound},
+		"error: a blocking DNSStart in a caller's dialer ends the wait at the bound":     {hook: "DNSStart", wrap: true, want: waitBound},
+		"error: a blocking DNSDone in a caller's dialer ends the wait at the bound":      {hook: "DNSDone", wrap: true, want: waitBound},
 		"error: a blocking ConnectStart in a caller's dialer ends the wait at the bound": {
 			hook: "ConnectStart", wrap: true, want: waitBound,
 		},
@@ -374,9 +375,12 @@ func TestDialPhaseBound(t *testing.T) {
 					t.Errorf("DEBUG events (-want +got):\n%s", diff)
 				}
 				if tt.want.dialExp > 0 {
-					// The abandoned dial got its connection once the hook returned
-					// and closed it: the server saw it open and close, and the third
-					// call's connection open.
+					// The server saw the third call's connection open, and one more
+					// open and close: under ConnectDone the connection the abandoned
+					// dial got once the hook returned, which its goroutine closed;
+					// under the DNS and ConnectStart hooks the dial ran after the
+					// bound, on an ended context, and aborted its own.
+					// TestBoundedDialGrace pins the goroutine's close alone.
 					if n, c := srv.news.Load(), srv.closes.Load(); n != 2 || c != 1 {
 						t.Errorf("the server accepted %d connections and saw %d close; want 2 and 1: the abandoned dial's connection is closed", n, c)
 					}
@@ -543,18 +547,26 @@ func fakeGetTLS(t *testing.T, tr http.RoundTripper, path string) result {
 // fake time, by driving one call's hooks as net/http drives them: GetConn
 // arms the bound, GotConn stops it before it ends, and the GetConn of a
 // retry that looks for a connection again re-arms it for the whole bound,
-// at whose end the call's context ends with the bound's error and the
-// transport is marked stalled. The instants are the bound (STANDING 9): a
-// timer that GotConn leaves running, or that the retry arms for longer,
-// fails it. It runs in CI's -race test step (go test -race with coverage)
-// on ubuntu-26.04, xcode-27 and windows-2025.
+// at whose end the transport is marked stalled and then the call's context
+// ends with the bound's error: the mark comes first, so the token the call
+// gives back on its way out reaches the next holder after it (review W6.6
+// NIT 2). The instants are the bound (STANDING 9): a timer that GotConn
+// leaves running, or that the retry arms for longer, fails it. It runs in
+// CI's -race test step (go test -race with coverage) on ubuntu-26.04,
+// xcode-27 and windows-2025.
 func TestWaitBoundRearms(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		srv := testsupport.NewFakeH2CServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 		tr := fakeTransport(t, srv.Client().Transport)
 		ctx, cancel := context.WithCancelCause(t.Context())
 		defer cancel(nil)
-		c := &call{t: tr, bound: &waitState{cancel: cancel}}
+		var markedFirst atomic.Bool // the transport was marked when the bound ended the context
+		c := &call{t: tr, bound: &waitState{cancel: func(cause error) {
+			if cause != nil {
+				markedFirst.Store(tr.stalled.Load())
+			}
+			cancel(cause)
+		}}}
 		c.Context = t.Context()
 
 		c.getConn("example.com:80")
@@ -580,6 +592,9 @@ func TestWaitBoundRearms(t *testing.T) {
 		be, ok := errors.AsType[*boundError](context.Cause(ctx))
 		if !ok || be.bound != tr.waitBound || !tr.stalled.Load() || tr.Stats().WaitExpiries != 1 {
 			t.Errorf("at the re-armed bound: cause %v, stalled %t, stats %+v; want the %v bound's error, the mark and 1 wait expiry", context.Cause(ctx), tr.stalled.Load(), tr.Stats(), tr.waitBound)
+		}
+		if !markedFirst.Load() {
+			t.Error("the bound ended the call's context before it marked the transport stalled; want the mark first")
 		}
 	})
 }
@@ -633,6 +648,128 @@ func TestWaitBoundContext(t *testing.T) {
 				}
 			})
 		})
+	}
+}
+
+// TestBoundedDialGrace pins the dial bound's grace on fake time (review
+// W6.6 MINOR 1, ruling D-W6.6-dialbound-grace). A dialer that honours its
+// context answers when the connect timeout ends it, or up to the end of the
+// grace after, with its own error, which the transport returns as it is,
+// counting and logging nothing. A dial a hook holds past the grace is
+// abandoned then, with the bound's timeout, counted and logged, and the
+// connection it returns once the hook lets it go is closed, twenty held
+// dials in a row: a hand-over that raced the abandon would leave it open
+// about half the time (review W6.6 NIT 1). The instants are the configured
+// bounds (STANDING 9). It runs in CI's -race test step (go test -race with
+// coverage) on ubuntu-26.04, xcode-27 and windows-2025.
+func TestBoundedDialGrace(t *testing.T) {
+	const timeout = time.Second
+	tests := map[string]struct {
+		after  time.Duration // how long after its deadline the dialer answers; held until released when negative
+		rounds int
+	}{
+		"success: a dialer that answers at its deadline keeps its own error":            {after: 0, rounds: 1},
+		"success: a dialer that answers 1 ms after its deadline keeps its own error":    {after: time.Millisecond, rounds: 1},
+		"success: a dialer that answers as the grace ends keeps its own error":          {after: dialGrace - time.Millisecond, rounds: 1},
+		"error: a dial held past the grace is abandoned and its late connection closed": {after: -1, rounds: 20},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				logs := testsupport.NewLogRecorder(slog.LevelDebug)
+				tr := &Transport{log: logs.Logger()}
+				own := &net.OpError{Op: "dial", Net: "tcp", Err: context.DeadlineExceeded}
+				var wantEvents []string
+				for round := range tt.rounds {
+					release, late := make(chan struct{}), &lateConn{}
+					dial := tr.boundedDial(func(ctx context.Context, _, _ string) (net.Conn, error) {
+						if tt.after < 0 {
+							<-release
+							return late, nil
+						}
+						<-ctx.Done()
+						time.Sleep(tt.after)
+						return nil, own
+					}, timeout)
+					start := time.Now()
+					_, err := dial(t.Context(), "tcp", "example.com:443")
+					elapsed := time.Since(start)
+					close(release)
+					synctest.Wait() // a held dial has returned, and its goroutine is done with the connection
+					if tt.after >= 0 {
+						if !errors.Is(err, own) || elapsed != timeout+tt.after {
+							t.Errorf("err %v (%s) after %v; want the dialer's own error after %v", err, chain(err), elapsed, timeout+tt.after)
+						}
+						continue
+					}
+					be, ok := errors.AsType[*boundError](err)
+					if !ok || be.bound != timeout+dialGrace || elapsed != timeout+dialGrace || !late.closed.Load() {
+						t.Fatalf("round %d: err %v after %v, late connection closed %t; want the bound's error after %v and the connection closed", round, err, elapsed, late.closed.Load(), timeout+dialGrace)
+					}
+					wantEvents = append(wantEvents, "h2: dial bound expired bound=1.1s")
+				}
+				if got, want := tr.dialExpiries.Load(), uint64(len(wantEvents)); got != want {
+					t.Errorf("dial expiries %d, want %d", got, want)
+				}
+				if diff := gocmp.Diff(wantEvents, debugEvents(logs, map[string]string{"h2: dial bound expired": "bound"})); diff != "" {
+					t.Errorf("DEBUG events (-want +got):\n%s", diff)
+				}
+			})
+		})
+	}
+}
+
+// lateConn is the connection a held dial returns after the bound abandoned
+// it; its Close is recorded.
+type lateConn struct {
+	net.Conn
+	closed atomic.Bool
+}
+
+// Close records the close.
+func (c *lateConn) Close() error {
+	c.closed.Store(true)
+	return nil
+}
+
+// TestDialUnreachableHostKeepsItsError pins, on the real network, that a
+// connect timeout to a host that does not answer is the dialer's own
+// (review W6.6 MINOR 1, ruling D-W6.6-dialbound-grace). A request without a
+// trace to 192.0.2.1, in TEST-NET-1 (RFC 5737), which no host answers,
+// through NewTransport with a 20 ms connect timeout fails with net.Dialer's
+// *net.OpError in its chain, not the bound's error, and neither counts a
+// dial expiry nor logs "h2: dial bound expired". Before the grace the bound
+// won the race with the dialer's own timer in 598 of 600 dials on (M) and
+// 543 of 600 on (L) (ledger W6.6-04). A network that refuses the address at
+// once answers with a *net.OpError too.
+func TestDialUnreachableHostKeepsItsError(t *testing.T) {
+	logs := testsupport.NewLogRecorder(slog.LevelDebug)
+	tr, err := NewTransport(Config{
+		APIURL:         mustURL(t, "https://192.0.2.1"),
+		ConnectTimeout: 20 * time.Millisecond,
+		Proxy:          func(*http.Request) (*url.URL, error) { return nil, nil },
+		Logger:         logs.Logger(),
+	})
+	if err != nil {
+		t.Fatalf("NewTransport: %v", err)
+	}
+	t.Cleanup(tr.CloseIdleConnections)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://192.0.2.1/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := tr.RoundTrip(req)
+	if err == nil {
+		_ = resp.Body.Close()
+		t.Fatal("a request to 192.0.2.1 succeeded; the test needs an address no host answers")
+	}
+	_, isOp := errors.AsType[*net.OpError](err)
+	_, be := boundCause(err)
+	events := debugEvents(logs, nil)
+	if !isOp || be != nil || tr.Stats().DialExpiries != 0 || slices.Contains(events, "h2: dial bound expired") {
+		t.Errorf("err %v (%s), %d dial expiries, DEBUG events %q; want the dialer's own *net.OpError, none counted and no dial bound event", err, chain(err), tr.Stats().DialExpiries, events)
 	}
 }
 

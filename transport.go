@@ -218,10 +218,11 @@ func WithRoundTripper(rt http.RoundTripper) ClientOption {
 //     [WithNoTimeout] too. The call that dials, and every call that waits
 //     for a connection meanwhile, then fails with a [*TimeoutError] while
 //     the hook runs on. The default transport's dial, which runs the DNS
-//     and connect hooks, ends at the connect timeout, so the next call can
-//     dial again; a TLS handshake hook, or a hook that blocks the dialer of
-//     [WithHTTPTransport]'s transport, keeps the client's one connection to
-//     the host from being made until it returns.
+//     and connect hooks, ends at the connect timeout plus a grace of
+//     100 ms, so the next call can dial again; a TLS handshake hook, or a
+//     hook that blocks the dialer of [WithHTTPTransport]'s transport, keeps
+//     the client's one connection to the host from being made until it
+//     returns.
 //
 // A hook the bound leaves running goes on with its dial, beside the calls
 // that come after it: the rest of that dial's hooks run once it returns,

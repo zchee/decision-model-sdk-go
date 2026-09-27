@@ -140,10 +140,13 @@
 //
 //   - The dial bound: NewTransport's dialer, inside which the DNS and
 //     connect hooks run, runs in a goroutine of its own, and the transport
-//     waits for it at most ConnectTimeout. A dial that has not returned by
-//     then fails with a timeout, counted in Stats.DialExpiries, which frees
-//     the permit for the next dial. The goroutine is abandoned, not
-//     stopped: the dial's context ended with the bound, so the dialer
+//     waits for it at most ConnectTimeout plus a grace of 100 ms. A dialer
+//     that honours its context answers within the grace with its own
+//     error, such as the i/o timeout of a host that does not answer, which
+//     the transport returns as it is. A dial that has not returned by then
+//     fails with a timeout, counted in Stats.DialExpiries, which frees the
+//     permit for the next dial. The goroutine is abandoned, not stopped:
+//     the dial's context ended at the connect timeout, so the dialer
 //     returns as soon as the hook does, and a connection it returns then is
 //     closed. Wrap keeps a caller's dialer as it is.
 //   - The wait bound: a request whose trace has one of these hooks, one that

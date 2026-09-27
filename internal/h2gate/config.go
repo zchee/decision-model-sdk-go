@@ -88,7 +88,8 @@ const (
 // Logger receives the transport's events: DEBUG "h2: dial", "h2: gate
 // release", "h2: gate error" (with a reason), "h2: redial error", "h2:
 // token wait expired", "h2: dial bound expired" and "h2: connection wait
-// expired" (each with its bound), and WARN "h2: response not HTTP/2". A
+// expired" (each with its bound; the dial bound's is the connect timeout
+// plus a grace of 100 ms), and WARN "h2: response not HTTP/2". A
 // *log/slog.Logger satisfies it.
 //
 // A Logger that also has the method Enabled(context.Context, slog.Level)
@@ -382,16 +383,31 @@ func waitBound(connect, handshake time.Duration, mayProxy bool) time.Duration {
 	return d
 }
 
+// dialGrace is how long, past the connect timeout, boundedDial waits for a
+// dial whose context the timeout has ended before it abandons the dial. A
+// dialer that honours its context, as net.Dialer does, answers within it
+// with its own error, such as the *net.OpError of a host that does not
+// answer, which the transport returns as it is and neither counts nor logs;
+// only a dial still running then, which a caller's DNS or connect hook
+// holds, is abandoned (review W6.6 MINOR 1, ruling D-W6.6-dialbound-grace).
+// Without it the bound raced the dialer's own timeout, which fires at the
+// same instant, and won most of the time. 100 ms is far above the time a
+// dialer takes to see its deadline and small next to the connect timeout,
+// 10 s by default.
+const dialGrace = 100 * time.Millisecond
+
 // boundedDial bounds dial by timeout, as net.Dialer.Timeout does, and runs
 // it in its own goroutine, so that a dial that has not returned when the
 // bound ends still ends for the transport: a caller's DNS or connect trace
-// hook runs inside dial and can block it past its context (risk K28d). The
-// transport then fails the dial at once with a timeout, which frees the
-// connection permit (MaxConnsPerHost 1) for the next dial, and abandons the
-// goroutine rather than stopping it: dial's context has ended with the
-// bound, so the dialer returns as soon as the hook does, and the goroutine
-// closes a connection the dialer returns after it was abandoned. A dial
-// that net/http cancels ends the same way, with the context's error.
+// hook runs inside dial and can block it past its context (risk K28d).
+// When timeout ends dial's context, the transport waits dialGrace more for
+// dial's own answer, which a dialer that honours its context gives. A dial
+// still running then fails with a timeout, which frees the connection
+// permit (MaxConnsPerHost 1) for the next dial, and the transport abandons
+// the goroutine rather than stopping it: dial's context has ended, so the
+// dialer returns as soon as the hook does, and the goroutine closes a
+// connection the dialer returns after it was abandoned. A dial that
+// net/http cancels ends at once, with the context's error.
 func (t *Transport) boundedDial(dial func(context.Context, string, string) (net.Conn, error), timeout time.Duration) func(context.Context, string, string) (net.Conn, error) {
 	type dialed struct {
 		conn net.Conn
@@ -418,14 +434,23 @@ func (t *Transport) boundedDial(dial func(context.Context, string, string) (net.
 		case d := <-got:
 			return d.conn, d.err
 		case <-ctx.Done():
-			close(abandoned)
-			if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				return nil, ctx.Err()
-			}
-			t.dialExpiries.Add(1)
-			t.log.DebugContext(ctx, "h2: dial bound expired", "bound", timeout)
-			return nil, &boundError{what: "dial " + network + " " + addr, bound: timeout}
 		}
+		if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			close(abandoned)
+			return nil, ctx.Err()
+		}
+		grace := time.NewTimer(dialGrace)
+		defer grace.Stop()
+		select {
+		case d := <-got:
+			return d.conn, d.err
+		case <-grace.C:
+		}
+		close(abandoned)
+		bound := timeout + dialGrace
+		t.dialExpiries.Add(1)
+		t.log.DebugContext(ctx, "h2: dial bound expired", "bound", bound)
+		return nil, &boundError{what: "dial " + network + " " + addr, bound: bound}
 	}
 }
 

@@ -99,10 +99,12 @@ type Stats struct {
 	// TokenExpiries counts requests that waited the hold bound for the
 	// header-write token and went out without it (R85).
 	TokenExpiries uint64
-	// DialExpiries counts dials of NewTransport's own dialer that had not
-	// returned when the connect timeout ended, and that the transport
-	// failed and abandoned (K28d): a caller's DNS or connect hook blocked
-	// them.
+	// DialExpiries counts dials of NewTransport's own dialer that were
+	// still running a grace of 100 ms after the connect timeout ended them,
+	// and that the transport then failed and abandoned (K28d): a caller's
+	// DNS or connect hook held them. A dial that ends at the connect timeout
+	// with the dialer's own error, as one to a host that does not answer
+	// does, is not counted.
 	DialExpiries uint64
 	// WaitExpiries counts requests whose wait for a connection the wait
 	// bound ended (K28d).
