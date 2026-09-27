@@ -53,7 +53,7 @@ func TestTokenWaitBound(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				srv := testsupport.NewFakeH2CServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+				srv := testsupport.NewFakeH2CServer(t, okHandler)
 				tr := fakeTransport(t, srv.Client().Transport)
 				release := make(chan struct{})
 				var returned atomic.Uint64 // traceSeq when the hook returned
@@ -76,7 +76,7 @@ func TestTokenWaitBound(t *testing.T) {
 
 				others := fanOut(waiters, func(i int) result {
 					if tt.deadline == 0 {
-						return fakeGet(t, tr, "/other/"+strconv.Itoa(i))
+						return fakeGet(t, tr, "http://example.com/other/"+strconv.Itoa(i))
 					}
 					ctx, cancel := context.WithTimeout(t.Context(), tt.deadline)
 					defer cancel()
@@ -128,10 +128,10 @@ func TestTokenWaitBound(t *testing.T) {
 // that the count counts.
 func TestTokenFreeTakesNoWait(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		srv := testsupport.NewFakeH2CServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+		srv := testsupport.NewFakeH2CServer(t, okHandler)
 		tr := fakeTransport(t, srv.Client().Transport)
 		for i := range 8 {
-			if r := fakeGet(t, tr, "/free/"+strconv.Itoa(i)); r.Err != nil || r.Status != http.StatusOK {
+			if r := fakeGet(t, tr, "http://example.com/free/"+strconv.Itoa(i)); r.Err != nil || r.Status != http.StatusOK {
 				t.Fatalf("uncontended call %d: %d %v", i, r.Status, r.Err)
 			}
 		}
@@ -149,7 +149,7 @@ func TestTokenFreeTakesNoWait(t *testing.T) {
 		}()
 		synctest.Wait() // the call holds the token, blocked in its hook
 		waiter := make(chan result, 1)
-		go func() { waiter <- fakeGet(t, tr, "/waiter") }()
+		go func() { waiter <- fakeGet(t, tr, "http://example.com/waiter") }()
 		synctest.Wait() // the waiter is in waitToken
 		if n := tr.tokenWaits.Load(); n != 1 {
 			t.Errorf("a call made while the token is held entered waitToken %d times, want 1", n)

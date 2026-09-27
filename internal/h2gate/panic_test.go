@@ -133,7 +133,7 @@ func TestPanicUnwind(t *testing.T) {
 		go func() {
 			recovered <- panicking(t.Context(), tr, srv.URL()+"/panic", &httptrace.ClientTrace{GetConn: func(string) { panic(errPanic) }})
 		}()
-		waitUntil(t, "the leader to take its role", func() bool { return tr.Stats().Leaders == 1 })
+		testsupport.WaitUntil(t, "the leader to take its role", func() bool { return tr.Stats().Leaders == 1 })
 		waitersDone := make(chan []result, 1)
 		go func() {
 			waitersDone <- fanOut(fanN-1, func(i int) result {
@@ -142,7 +142,7 @@ func TestPanicUnwind(t *testing.T) {
 				return get(ctx, tr, srv.URL()+"/w/"+strconv.Itoa(i))
 			})
 		}()
-		waitUntil(t, "63 parked waiters", func() bool { return tr.parked.Load() == fanN-1 })
+		testsupport.WaitUntil(t, "63 parked waiters", func() bool { return tr.parked.Load() == fanN-1 })
 		<-tr.token
 		if got := <-recovered; got != errPanic {
 			t.Fatalf("recovered %v, want the hook's panic", got)

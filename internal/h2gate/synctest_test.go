@@ -62,11 +62,11 @@ func fakeTransport(t *testing.T, rt http.RoundTripper) *Transport {
 	return newTransport(base, settings{mode: HTTP2Only, waitBound: bound, holdBound: bound})
 }
 
-// fakeGet sends a GET for http://example.com+path with the fake deadline.
-func fakeGet(t *testing.T, tr http.RoundTripper, path string) result {
+// fakeGet sends a GET for rawURL with the fake deadline.
+func fakeGet(t *testing.T, tr http.RoundTripper, rawURL string) result {
 	ctx, cancel := context.WithTimeout(t.Context(), fakeDeadline)
 	defer cancel()
-	return get(ctx, tr, "http://example.com"+path)
+	return get(ctx, tr, rawURL)
 }
 
 // limitedFake is a fake-network h2c server advertising limit concurrent
@@ -102,11 +102,11 @@ func limitedFake(t *testing.T, limit int, service time.Duration) (*httptest.Serv
 func TestSynctestFanOut(t *testing.T) {
 	t.Run("success: cold 64 on 1 connection, warm 64 on none, then the ping and idle timers", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
-			srv := testsupport.NewFakeH2CServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+			srv := testsupport.NewFakeH2CServer(t, okHandler)
 			tr := fakeTransport(t, srv.Client().Transport)
-			cold := fanOut(fanN, func(i int) result { return fakeGet(t, tr, "/cold/"+strconv.Itoa(i)) })
+			cold := fanOut(fanN, func(i int) result { return fakeGet(t, tr, "http://example.com/cold/"+strconv.Itoa(i)) })
 			accCold := srv.Accepts()
-			warm := fanOut(fanN, func(i int) result { return fakeGet(t, tr, "/warm/"+strconv.Itoa(i)) })
+			warm := fanOut(fanN, func(i int) result { return fakeGet(t, tr, "http://example.com/warm/"+strconv.Itoa(i)) })
 			accWarm := srv.Accepts()
 			for i, r := range append(cold, warm...) {
 				if r.Err != nil || r.Status != http.StatusOK || r.ProtoMajor != 2 {
@@ -115,11 +115,11 @@ func TestSynctestFanOut(t *testing.T) {
 			}
 			time.Sleep(sendPingTimeout + time.Second) // the client pings an idle connection; the server answers
 			synctest.Wait()
-			afterPing := fakeGet(t, tr, "/after-ping")
+			afterPing := fakeGet(t, tr, "http://example.com/after-ping")
 			accPing := srv.Accepts()
 			time.Sleep(idleConnTimeout + time.Second) // the client closes the idle connection
 			synctest.Wait()
-			afterIdle := fakeGet(t, tr, "/after-idle")
+			afterIdle := fakeGet(t, tr, "http://example.com/after-idle")
 			accIdle := srv.Accepts()
 			st := tr.Stats()
 			record(t, "case", "st2-fanout+timers", "accepts_cold", accCold, "accepts_warm", accWarm, "accepts_after_ping", accPing,
@@ -178,7 +178,7 @@ func testHoldBoundOnFakeTime(t *testing.T) {
 		}))
 		tr := fakeTransport(t, srv.Client().Transport)
 		start := time.Now()
-		calls := fanOut(fanN, func(i int) result { return fakeGet(t, tr, "/hold/"+strconv.Itoa(i)) })
+		calls := fanOut(fanN, func(i int) result { return fakeGet(t, tr, "http://example.com/hold/"+strconv.Itoa(i)) })
 		leader := -1
 		for i, r := range calls {
 			if r.Err != nil || r.Status != http.StatusOK {

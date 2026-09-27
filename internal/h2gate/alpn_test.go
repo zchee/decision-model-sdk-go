@@ -72,7 +72,7 @@ func TestNoALPN(t *testing.T) {
 		go func() {
 			done <- fanOut(n, func(i int) result { return get(t.Context(), tr, srv.URL()+"/"+strconv.Itoa(i)) })
 		}()
-		waitUntil(t, "the leader's dial and 7 parked waiters", func() bool { return gd.Waiting() == 1 && tr.parked.Load() == n-1 })
+		testsupport.WaitUntil(t, "the leader's dial and 7 parked waiters", func() bool { return gd.Waiting() == 1 && tr.parked.Load() == n-1 })
 		close(gate)
 		calls := <-done
 		distinct := map[*DialError]bool{}
@@ -123,7 +123,7 @@ func TestALPNHTTP1Only(t *testing.T) {
 	// The server records its side of the refused handshake after its
 	// Handshake returns, which can be after the client read the alert and
 	// returned: wait for the record instead of reading it at once.
-	waitUntil(t, "the server's record of the refused handshake", func() bool {
+	testsupport.WaitUntil(t, "the server's record of the refused handshake", func() bool {
 		conns := srv.Conns()
 		return len(conns) == 1 && conns[0].HandshakeErr != ""
 	})

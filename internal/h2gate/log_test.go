@@ -62,7 +62,7 @@ func TestLogEvents(t *testing.T) {
 		go func() {
 			done <- fanOut(n, func(i int) result { return get(t.Context(), tr, srv.URL()+"/"+strconv.Itoa(i)) })
 		}()
-		waitUntil(t, "the leader's dial and 7 parked waiters", func() bool { return gd.Waiting() == 1 && tr.parked.Load() == n-1 })
+		testsupport.WaitUntil(t, "the leader's dial and 7 parked waiters", func() bool { return gd.Waiting() == 1 && tr.parked.Load() == n-1 })
 		close(gate)
 		if cl := classes(<-done); cl["ok"] != n {
 			t.Fatalf("classes %v", cl)
@@ -98,7 +98,7 @@ func TestLogEvents(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		done := make(chan result, 1)
 		go func() { done <- get(ctx, tr, srv.URL()+"/") }()
-		waitUntil(t, "the leader's dial at the gate", func() bool { return gd.Waiting() == 1 })
+		testsupport.WaitUntil(t, "the leader's dial at the gate", func() bool { return gd.Waiting() == 1 })
 		cancel()
 		if r := <-done; !errors.Is(r.Err, context.Canceled) {
 			t.Fatalf("leader error %v", r.Err)

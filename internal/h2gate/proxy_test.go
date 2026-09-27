@@ -46,16 +46,6 @@ import (
 // exampleURL is the API URL of the proxy tests.
 const exampleURL = "https://example.com"
 
-// answerExample answers 200 "h2 example.com" to an HTTP/2 request for
-// example.com and 400 otherwise.
-func answerExample(w http.ResponseWriter, r *http.Request) {
-	if r.ProtoMajor != 2 || r.Host != "example.com" {
-		http.Error(w, "not an HTTP/2 request for example.com", http.StatusBadRequest)
-		return
-	}
-	_, _ = io.WriteString(w, "h2 example.com")
-}
-
 // hops records the ConnectionState of every TLS handshake the client ran,
 // through the caller VerifyConnection hook the ALPN check runs after.
 type hops struct {
@@ -99,9 +89,12 @@ func proxiedTransport(t *testing.T, api string, p *testsupport.Proxy, h *hops) *
 // the API hop by its SNI; the handshake the check sees through a plain proxy
 // is the API hop's alone.
 func TestProxy(t *testing.T) {
+	//nolint:gocritic // unlambda: the closure is the point; it is another func than ProxyFromEnvironment
+	closure := func(r *http.Request) (*url.URL, error) { return http.ProxyFromEnvironment(r) }
+
 	t.Run("success: a 16-way cold burst through a plain proxy: 1 CONNECT, 1 connection, the API hop checked", func(t *testing.T) {
 		const n = 16
-		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(answerExample)})
+		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(testsupport.AnswerH2ExampleCom)})
 		p := testsupport.NewProxy(t, testsupport.ProxyPlain, testsupport.Routes{"example.com:443": srv.Addr()})
 		var h hops
 		tr := proxiedTransport(t, exampleURL, p, &h)
@@ -131,7 +124,7 @@ func TestProxy(t *testing.T) {
 	})
 
 	t.Run("error: an API host without h2 behind the proxy is refused on the API hop", func(t *testing.T) {
-		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{ALPN: testsupport.ALPNNone, Handler: http.HandlerFunc(answerExample)})
+		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{ALPN: testsupport.ALPNNone, Handler: http.HandlerFunc(testsupport.AnswerH2ExampleCom)})
 		p := testsupport.NewProxy(t, testsupport.ProxyPlain, testsupport.Routes{"example.com:443": srv.Addr()})
 		var h hops
 		tr := proxiedTransport(t, exampleURL, p, &h)
@@ -214,8 +207,6 @@ func TestProxy(t *testing.T) {
 		api := mustURL(t, exampleURL)
 		ipAPI := mustURL(t, "https://127.0.0.1:8443")
 		byURL := http.ProxyURL(&url.URL{Scheme: "http", Host: "127.0.0.1:1"})
-		//nolint:gocritic // unlambda: the closure is the point; it is another func than ProxyFromEnvironment
-		closure := func(r *http.Request) (*url.URL, error) { return http.ProxyFromEnvironment(r) }
 		// ProxyFromEnvironment reads the environment once per process, so
 		// the expectation asks it rather than assuming an empty environment.
 		envProxy, err := http.ProxyFromEnvironment(&http.Request{URL: api, Header: http.Header{}})
@@ -264,8 +255,6 @@ func TestProxy(t *testing.T) {
 	t.Run("success: ProxyFromEnvironment is recognised by function identity only", func(t *testing.T) {
 		clone := (&http.Transport{Proxy: http.ProxyFromEnvironment}).Clone()
 		held := http.ProxyFromEnvironment
-		//nolint:gocritic // unlambda: the closure is the point; it is another func than ProxyFromEnvironment
-		closure := func(r *http.Request) (*url.URL, error) { return http.ProxyFromEnvironment(r) }
 		got := map[string]bool{
 			"ProxyFromEnvironment":    isProxyFromEnvironment(http.ProxyFromEnvironment),
 			"DefaultTransport.Proxy":  isProxyFromEnvironment(http.DefaultTransport.(*http.Transport).Proxy),
@@ -327,7 +316,7 @@ func TestProxy(t *testing.T) {
 // protocol is checked after the fact.
 func TestProxyTLS(t *testing.T) {
 	t.Run("success: lenient proxy: the proxy hop is not checked, the API hop is", func(t *testing.T) {
-		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(answerExample)})
+		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(testsupport.AnswerH2ExampleCom)})
 		p := testsupport.NewProxy(t, testsupport.ProxyTLSLenient, testsupport.Routes{"example.com:443": srv.Addr()})
 		var h hops
 		tr := proxiedTransport(t, exampleURL, p, &h)
@@ -341,7 +330,7 @@ func TestProxyTLS(t *testing.T) {
 	})
 
 	t.Run("error: strict proxy refuses h2 with alert 120: a proxy failure, not a negotiation failure", func(t *testing.T) {
-		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(answerExample)})
+		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(testsupport.AnswerH2ExampleCom)})
 		p := testsupport.NewProxy(t, testsupport.ProxyTLSStrict, testsupport.Routes{"example.com:443": srv.Addr()})
 		var h hops
 		tr := proxiedTransport(t, exampleURL, p, &h)
@@ -364,7 +353,7 @@ func TestProxyTLS(t *testing.T) {
 		// any case, so the call succeeds. A proxy that speaks h2 after
 		// negotiating it would fail: not supported (docs/deviations.md, "the
 		// ALPN check applies to the API hop").
-		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(answerExample)})
+		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(testsupport.AnswerH2ExampleCom)})
 		p := testsupport.NewProxy(t, testsupport.ProxyTLSOfferH2, testsupport.Routes{"example.com:443": srv.Addr()})
 		var h hops
 		tr := proxiedTransport(t, exampleURL, p, &h)
@@ -616,7 +605,7 @@ func TestOnProxySeesEveryConsult(t *testing.T) {
 	}
 
 	t.Run("success: the request that dials asks the func; those on its connection do not", func(t *testing.T) {
-		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(answerExample)})
+		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(testsupport.AnswerH2ExampleCom)})
 		p := testsupport.NewProxy(t, testsupport.ProxyPlain, testsupport.Routes{"example.com:443": srv.Addr()})
 		pu := p.URL()
 		pu.User = url.UserPassword("proxy-user", "hunter2-proxy-password")
@@ -647,7 +636,7 @@ func TestOnProxySeesEveryConsult(t *testing.T) {
 		for i := range n {
 			wg.Go(func() { results[i] = get(t.Context(), tr, exampleURL+"/"+strconv.Itoa(i)) })
 		}
-		waitUntil(t, "the leader's CONNECT and 11 parked waiters", func() bool { return a.requests.Load() == 1 && tr.Parked() == n-1 })
+		testsupport.WaitUntil(t, "the leader's CONNECT and 11 parked waiters", func() bool { return a.requests.Load() == 1 && tr.Parked() == n-1 })
 		a.open()
 		wg.Wait()
 		for i, r := range results {
@@ -721,7 +710,7 @@ func TestProxied(t *testing.T) {
 		_, _ = io.Copy(io.Discard, resp.Body)
 		return Proxied(resp)
 	}
-	srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(answerExample)})
+	srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(testsupport.AnswerH2ExampleCom)})
 	p := testsupport.NewProxy(t, testsupport.ProxyPlain, testsupport.Routes{"example.com:443": srv.Addr()})
 
 	t.Run("success: the request the func chose a proxy for, then one on its connection", func(t *testing.T) {
@@ -735,7 +724,7 @@ func TestProxied(t *testing.T) {
 	})
 
 	t.Run("success: a func that returns no proxy", func(t *testing.T) {
-		direct := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(answerExample)})
+		direct := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(testsupport.AnswerH2ExampleCom)})
 		tr := newTestTransport(t, Config{APIURL: mustURL(t, direct.URL()), Proxy: func(*http.Request) (*url.URL, error) { return nil, nil }})
 		if proxied(t, tr, direct.URL()+"/") {
 			t.Error("Proxied = true with no proxy returned")
@@ -743,7 +732,7 @@ func TestProxied(t *testing.T) {
 	})
 
 	t.Run("success: no func", func(t *testing.T) {
-		direct := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(answerExample)})
+		direct := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(testsupport.AnswerH2ExampleCom)})
 		tr := newTestTransport(t, Config{APIURL: mustURL(t, direct.URL())})
 		if proxied(t, tr, direct.URL()+"/") {
 			t.Error("Proxied = true with no Proxy func")

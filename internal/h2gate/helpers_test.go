@@ -29,7 +29,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"testing"
 	"time"
 
@@ -211,18 +210,6 @@ func fanOut(n int, fn func(i int) result) []result {
 	return out
 }
 
-// waitUntil polls cond every millisecond for up to 5 s.
-func waitUntil(tb testing.TB, what string, cond func() bool) {
-	tb.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for !cond() {
-		if time.Now().After(deadline) {
-			tb.Fatalf("timed out waiting for %s", what)
-		}
-		time.Sleep(time.Millisecond)
-	}
-}
-
 // pct returns the nearest-rank percentile p (0 < p <= 1) of ds.
 func pct(ds []time.Duration, p float64) time.Duration {
 	if len(ds) == 0 {
@@ -303,12 +290,6 @@ func chain(err error) string {
 	var parts []string
 	walk(err, func(e error) { parts = append(parts, fmt.Sprintf("%T(%s)", e, e.Error())) })
 	return strings.Join(parts, " -> ")
-}
-
-// isConnReset reports a TCP reset from the peer: ECONNRESET, or
-// WSAECONNRESET (10054) on Windows.
-func isConnReset(err error) bool {
-	return errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.Errno(10054))
 }
 
 // barrier is TestFanOut's handler: it holds every response of a key (the
@@ -397,6 +378,9 @@ func (b *barrier) firstFree() string {
 	defer b.mu.Unlock()
 	return b.freeFirst
 }
+
+// okHandler answers 200.
+var okHandler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 // serviceHandler answers 200 after d, or ends with the request.
 func serviceHandler(d time.Duration) http.Handler {

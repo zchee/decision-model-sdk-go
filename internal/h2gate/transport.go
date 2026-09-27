@@ -110,22 +110,17 @@ type settings struct {
 	// waitBound bounds a waiter at the gate; holdBound bounds a FirstHold.
 	waitBound, holdBound time.Duration
 	log                  *slog.Logger
-	errorText            func(*http.Request, error) string
+	// errorText renders the error of a DEBUG event (Config.ErrorText).
+	errorText func(*http.Request, error) string
 }
 
 // Transport is the SDK's http.RoundTripper: the cold-start gate and the
 // header-write token in front of a stock *http.Transport. It is safe for
 // concurrent use.
 type Transport struct {
-	base      *http.Transport
-	mode      Mode
-	scope     alpnScope
-	h2c       bool // every connection is HTTP/2 with prior knowledge
-	waitBound time.Duration
-	holdBound time.Duration
-	log       *slog.Logger
-	// errorText renders the error of a DEBUG event (Config.ErrorText).
-	errorText func(*http.Request, error) string
+	settings
+	base *http.Transport
+	h2c  bool // every connection is HTTP/2 with prior knowledge
 
 	// token is the header-write token: a request sends into it before
 	// RoundTrip and receives from it to give it back.
@@ -172,17 +167,7 @@ var _ http.RoundTripper = (*Transport)(nil)
 
 // newTransport wraps base, which the Transport owns from now on.
 func newTransport(base *http.Transport, s settings) *Transport {
-	t := &Transport{
-		base:      base,
-		mode:      s.mode,
-		scope:     s.scope,
-		waitBound: s.waitBound,
-		holdBound: s.holdBound,
-		log:       s.log,
-		errorText: s.errorText,
-		token:     make(chan struct{}, 1),
-		firstHold: true,
-	}
+	t := &Transport{settings: s, base: base, token: make(chan struct{}, 1), firstHold: true}
 	if p := base.Protocols; p != nil && p.UnencryptedHTTP2() && !p.HTTP1() && !p.HTTP2() {
 		t.h2c = true
 	}

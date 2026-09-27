@@ -364,6 +364,22 @@ func waitBound(connect, handshake time.Duration, mayProxy bool) time.Duration {
 	return d
 }
 
+// settingsFor returns the settings of a transport built for cfg, with the
+// ALPN check's scope, TLS handshakes that time out after handshake, and a
+// proxy that may apply when mayProxy is set: the gate's wait bound and the
+// hold bound start from the connect timeout and handshake.
+func settingsFor(cfg Config, scope alpnScope, handshake time.Duration, mayProxy bool) settings {
+	connect := connectTimeout(cfg)
+	return settings{
+		mode:      cfg.Mode,
+		scope:     scope,
+		waitBound: waitBound(connect, handshake, mayProxy),
+		holdBound: connect + handshake,
+		log:       cfg.Logger,
+		errorText: cfg.ErrorText,
+	}
+}
+
 // dialGrace is how long, past the connect timeout, boundedDial waits for a
 // dial whose context the timeout has ended before it abandons the dial (the
 // dial bound of the package doc). Without it the bound would race the
@@ -471,14 +487,7 @@ func NewTransport(cfg Config) (*Transport, error) {
 	}
 	scope := scopeFor(cfg.Mode, tg, mayProxy, tlsConfig.ServerName)
 	installALPNCheck(tr, scope, tg)
-	t := newTransport(tr, settings{
-		mode:      cfg.Mode,
-		scope:     scope,
-		waitBound: waitBound(connect, connect, mayProxy),
-		holdBound: connect + connect,
-		log:       cfg.Logger,
-		errorText: cfg.ErrorText,
-	})
+	t := newTransport(tr, settingsFor(cfg, scope, connect, mayProxy))
 	// Set once t exists, which counts and logs the dials the bound ends;
 	// the stock transport reads it only when it first dials.
 	tr.DialContext = t.boundedDial(dial, connect)
@@ -608,14 +617,7 @@ func Wrap(base *http.Transport, cfg Config) (*Transport, error) {
 			tr.DialTLS = nil //nolint:staticcheck // SA1019: DialTLSContext now carries the caller's dialer
 		}
 	}
-	return newTransport(tr, settings{
-		mode:      cfg.Mode,
-		scope:     scope,
-		waitBound: waitBound(connect, tr.TLSHandshakeTimeout, mayProxy),
-		holdBound: connect + tr.TLSHandshakeTimeout,
-		log:       cfg.Logger,
-		errorText: cfg.ErrorText,
-	}), nil
+	return newTransport(tr, settingsFor(cfg, scope, tr.TLSHandshakeTimeout, mayProxy)), nil
 }
 
 // connectionStater is the interface the stock transport reads a caller TLS

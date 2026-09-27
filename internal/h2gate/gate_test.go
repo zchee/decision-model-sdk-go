@@ -228,7 +228,7 @@ func TestLeaderVanish(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		done := make(chan result, 1)
 		go func() { done <- get(ctx, tr, srv.URL()+"/vanish") }()
-		waitUntil(t, "the leader's dial at the gate", func() bool { return gd.Waiting() == 1 && tr.gateState() == stateDialing })
+		testsupport.WaitUntil(t, "the leader's dial at the gate", func() bool { return gd.Waiting() == 1 && tr.gateState() == stateDialing })
 		cancel()
 		first := <-done
 		if !errors.Is(first.Err, context.Canceled) {
@@ -239,7 +239,7 @@ func TestLeaderVanish(t *testing.T) {
 		}
 		next := make(chan result, 1)
 		go func() { next <- get(t.Context(), tr, srv.URL()+"/next") }()
-		waitUntil(t, "the next caller to lead", func() bool { return tr.Stats().Leaders == 2 })
+		testsupport.WaitUntil(t, "the next caller to lead", func() bool { return tr.Stats().Leaders == 2 })
 		close(gate) // the detached first dial completes only now
 		r := <-next
 		st := tr.Stats()
@@ -257,17 +257,17 @@ func TestLeaderVanish(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		leaderDone := make(chan result, 1)
 		go func() { leaderDone <- get(ctx, tr, srv.URL()+"/leader") }()
-		waitUntil(t, "the leader's dial at the gate", func() bool { return gd.Waiting() == 1 })
+		testsupport.WaitUntil(t, "the leader's dial at the gate", func() bool { return gd.Waiting() == 1 })
 		waitersDone := make(chan []result, 1)
 		go func() {
 			waitersDone <- fanOut(fanN-1, func(i int) result { return get(t.Context(), tr, srv.URL()+"/w/"+strconv.Itoa(i)) })
 		}()
-		waitUntil(t, "63 parked waiters", func() bool { return tr.parked.Load() == fanN-1 })
+		testsupport.WaitUntil(t, "63 parked waiters", func() bool { return tr.parked.Load() == fanN-1 })
 		cancel()
 		leader := <-leaderDone
 		// The dial is still held, so the new leader is a waiter by
 		// construction, and it cannot have reached GotConn yet.
-		waitUntil(t, "a waiter to take over", func() bool { st := tr.Stats(); return st.Leaders == 2 && st.Handovers == 1 })
+		testsupport.WaitUntil(t, "a waiter to take over", func() bool { st := tr.Stats(); return st.Leaders == 2 && st.Handovers == 1 })
 		close(gate)
 		waiters := <-waitersDone
 		cl := classes(waiters)
@@ -300,12 +300,12 @@ func TestLeaderVanish(t *testing.T) {
 			}
 			leaderErr <- err
 		}()
-		waitUntil(t, "the leader to take its role", func() bool { return tr.Stats().Leaders == 1 })
+		testsupport.WaitUntil(t, "the leader to take its role", func() bool { return tr.Stats().Leaders == 1 })
 		waitersDone := make(chan []result, 1)
 		go func() {
 			waitersDone <- fanOut(fanN-1, func(i int) result { return get(t.Context(), tr, srv.URL()+"/w/"+strconv.Itoa(i)) })
 		}()
-		waitUntil(t, "63 parked waiters", func() bool { return tr.parked.Load() == fanN-1 })
+		testsupport.WaitUntil(t, "63 parked waiters", func() bool { return tr.parked.Load() == fanN-1 })
 		<-tr.token
 		err = <-leaderErr
 		waiters := <-waitersDone
@@ -432,7 +432,7 @@ func TestWaiterFallThrough(t *testing.T) {
 		go func() {
 			callsDone <- fanOut(fanN, func(i int) result { return get(t.Context(), tr, srv.URL()+"/"+strconv.Itoa(i)) })
 		}()
-		waitUntil(t, "63 fall-throughs", func() bool { return tr.Stats().FallThroughs == fanN-1 })
+		testsupport.WaitUntil(t, "63 fall-throughs", func() bool { return tr.Stats().FallThroughs == fanN-1 })
 		close(gate) // the leader's dial completes only after every waiter fell through
 		calls := <-callsDone
 		st := tr.Stats()

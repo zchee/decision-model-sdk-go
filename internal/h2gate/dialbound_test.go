@@ -56,7 +56,7 @@ type fakeTLSH2 struct {
 func newFakeTLSH2(t *testing.T) *fakeTLSH2 {
 	t.Helper()
 	f := &fakeTLSH2{}
-	srv := httptest.NewTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	srv := httptest.NewTestServer(t, okHandler)
 	srv.EnableHTTP2 = true
 	// The handshakes the tests abandon end in EOF on the server, which
 	// would print them.
@@ -119,6 +119,30 @@ func hookDialer(dial func(context.Context, string, string) (net.Conn, error)) fu
 		}
 		return conn, err
 	}
+}
+
+// hookedTransport builds, for https://example.com on srv, NewTransport's
+// transport or, with wrap, Wrap's over a caller transport, both dialing
+// through hookDialer, with the connect timeout connect, the Proxy func proxy
+// and the logger of logs.
+func hookedTransport(t *testing.T, srv *fakeTLSH2, connect time.Duration, wrap bool, proxy func(*http.Request) (*url.URL, error), logs *testsupport.LogRecorder) *Transport {
+	t.Helper()
+	api := mustURL(t, "https://example.com")
+	var (
+		tr  *Transport
+		err error
+	)
+	if wrap {
+		base := &http.Transport{DialContext: hookDialer(srv.raw), Proxy: proxy, TLSClientConfig: &tls.Config{RootCAs: srv.pool, MinVersion: tls.VersionTLS12}}
+		tr, err = Wrap(base, Config{APIURL: api, ConnectTimeout: connect, Logger: logs.Logger()})
+	} else {
+		tr, err = NewTransport(Config{APIURL: api, ConnectTimeout: connect, RootCAs: srv.pool, Proxy: proxy, DialContext: hookDialer(srv.raw), Logger: logs.Logger()})
+	}
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	t.Cleanup(tr.CloseIdleConnections)
+	return tr
 }
 
 // blockingTrace returns a trace whose hook named hook blocks until release
@@ -263,21 +287,7 @@ func TestDialPhaseBound(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				srv := newFakeTLSH2(t)
 				logs := testsupport.NewLogRecorder(slog.LevelDebug)
-				api := mustURL(t, "https://example.com")
-				var (
-					tr  *Transport
-					err error
-				)
-				if tt.wrap {
-					base := &http.Transport{DialContext: hookDialer(srv.raw), TLSClientConfig: &tls.Config{RootCAs: srv.pool, MinVersion: tls.VersionTLS12}}
-					tr, err = Wrap(base, Config{APIURL: api, ConnectTimeout: connect, Logger: logs.Logger()})
-				} else {
-					tr, err = NewTransport(Config{APIURL: api, ConnectTimeout: connect, RootCAs: srv.pool, DialContext: hookDialer(srv.raw), Logger: logs.Logger()})
-				}
-				if err != nil {
-					t.Fatalf("build: %v", err)
-				}
-				t.Cleanup(tr.CloseIdleConnections)
+				tr := hookedTransport(t, srv, connect, tt.wrap, nil, logs)
 				if tr.waitBound != wait {
 					t.Fatalf("wait bound %v, want %v", tr.waitBound, wait)
 				}
@@ -292,11 +302,7 @@ func TestDialPhaseBound(t *testing.T) {
 				synctest.Wait() // the first call's dial is blocked in its hook
 				time.Sleep(stagger)
 				second := make(chan result, 1)
-				go func() {
-					ctx, cancel := context.WithTimeout(t.Context(), fakeDeadline)
-					defer cancel()
-					second <- get(ctx, tr, "https://example.com/second")
-				}()
+				go func() { second <- fakeGet(t, tr, "https://example.com/second") }()
 				synctest.Wait() // the second call waits at the gate
 				if entered.Load() != 1 || tr.parked.Load() != 1 {
 					t.Fatalf("hook entered %d times, %d waiters parked; want the first call in its hook and the second at the gate", entered.Load(), tr.parked.Load())
@@ -332,11 +338,7 @@ func TestDialPhaseBound(t *testing.T) {
 				}
 
 				third := make(chan result, 1)
-				go func() {
-					ctx, cancel := context.WithTimeout(t.Context(), fakeDeadline)
-					defer cancel()
-					third <- get(ctx, tr, "https://example.com/third")
-				}()
+				go func() { third <- fakeGet(t, tr, "https://example.com/third") }()
 				if tt.want.thirdSucceeds {
 					synctest.Wait()
 					if r, ok := receive(t, "the third call", third); ok && (r.Err != nil || r.Status != http.StatusOK) {
@@ -354,9 +356,7 @@ func TestDialPhaseBound(t *testing.T) {
 
 				close(release)
 				synctest.Wait() // the hook has returned, and the dial it held with it
-				ctx, cancel := context.WithTimeout(t.Context(), fakeDeadline)
-				defer cancel()
-				if r := get(ctx, tr, "https://example.com/fourth"); r.Err != nil || r.Status != http.StatusOK || r.ProtoMajor != 2 {
+				if r := fakeGet(t, tr, "https://example.com/fourth"); r.Err != nil || r.Status != http.StatusOK || r.ProtoMajor != 2 {
 					t.Errorf("fourth call: %d HTTP/%d %v; want 200 over HTTP/2 once the hook returned", r.Status, r.ProtoMajor, r.Err)
 				}
 				time.Sleep(wait) // a bound left armed by a call that ended would fire by now
@@ -430,25 +430,11 @@ func TestDialPhaseBoundWarm(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				srv := newFakeTLSH2(t)
 				logs := testsupport.NewLogRecorder(slog.LevelDebug)
-				api := mustURL(t, "https://example.com")
-				var (
-					tr  *Transport
-					err error
-				)
-				if tt.wrap {
-					base := &http.Transport{DialContext: hookDialer(srv.raw), Proxy: noProxy, TLSClientConfig: &tls.Config{RootCAs: srv.pool, MinVersion: tls.VersionTLS12}}
-					tr, err = Wrap(base, Config{APIURL: api, ConnectTimeout: connect, Logger: logs.Logger()})
-				} else {
-					tr, err = NewTransport(Config{APIURL: api, ConnectTimeout: connect, RootCAs: srv.pool, Proxy: noProxy, DialContext: hookDialer(srv.raw), Logger: logs.Logger()})
-				}
-				if err != nil {
-					t.Fatalf("build: %v", err)
-				}
-				t.Cleanup(tr.CloseIdleConnections)
+				tr := hookedTransport(t, srv, connect, tt.wrap, noProxy, logs)
 				if tr.waitBound != wait || tr.holdBound != hold {
 					t.Fatalf("bounds wait %v, hold %v; want %v and %v", tr.waitBound, tr.holdBound, wait, hold)
 				}
-				if r := fakeGetTLS(t, tr, "/warm-up"); r.Err != nil || r.Status != http.StatusOK {
+				if r := fakeGet(t, tr, "https://example.com/warm-up"); r.Err != nil || r.Status != http.StatusOK {
 					t.Fatalf("warm-up call: %d %v", r.Status, r.Err)
 				}
 				tr.CloseIdleConnections() // the connection goes: the next call re-dials
@@ -463,7 +449,7 @@ func TestDialPhaseBoundWarm(t *testing.T) {
 				synctest.Wait() // the first call holds the token, its re-dial blocked in the hook
 				time.Sleep(stagger)
 				second := make(chan result, 1)
-				go func() { second <- fakeGetTLS(t, tr, "/second") }()
+				go func() { second <- fakeGet(t, tr, "https://example.com/second") }()
 				synctest.Wait() // the second call waits for the token
 				time.Sleep(hold)
 				synctest.Wait() // it went out without the token and waits behind the held dial
@@ -492,7 +478,7 @@ func TestDialPhaseBoundWarm(t *testing.T) {
 				}
 
 				third := make(chan result, 1)
-				go func() { third <- fakeGetTLS(t, tr, "/third") }()
+				go func() { third <- fakeGet(t, tr, "https://example.com/third") }()
 				time.Sleep(wait)
 				synctest.Wait() // the third call, stalled, waited behind the held dial
 				if r, ok := receive(t, "the third call", third); ok {
@@ -503,7 +489,7 @@ func TestDialPhaseBoundWarm(t *testing.T) {
 
 				close(release)
 				synctest.Wait() // the hook has returned, and the dial it held with it
-				if r := fakeGetTLS(t, tr, "/fourth"); r.Err != nil || r.Status != http.StatusOK {
+				if r := fakeGet(t, tr, "https://example.com/fourth"); r.Err != nil || r.Status != http.StatusOK {
 					t.Errorf("fourth call: %d %v; want 200 once the hook returned", r.Status, r.Err)
 				}
 				time.Sleep(wait) // a bound left armed by a call that ended would fire by now
@@ -530,14 +516,6 @@ func TestDialPhaseBoundWarm(t *testing.T) {
 	}
 }
 
-// fakeGetTLS sends a GET for https://example.com+path with the fake
-// deadline.
-func fakeGetTLS(t *testing.T, tr http.RoundTripper, path string) result {
-	ctx, cancel := context.WithTimeout(t.Context(), fakeDeadline)
-	defer cancel()
-	return get(ctx, tr, "https://example.com"+path)
-}
-
 // TestWaitBoundRearms pins the wait bound's timer through a stock retry, on
 // fake time, by driving one call's hooks as net/http drives them: GetConn
 // arms the bound, GotConn stops it before it ends, and the GetConn of a
@@ -549,7 +527,7 @@ func fakeGetTLS(t *testing.T, tr http.RoundTripper, path string) result {
 // for longer, fails it.
 func TestWaitBoundRearms(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		srv := testsupport.NewFakeH2CServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+		srv := testsupport.NewFakeH2CServer(t, okHandler)
 		tr := fakeTransport(t, srv.Client().Transport)
 		ctx, cancel := context.WithCancelCause(t.Context())
 		defer cancel(nil)
@@ -671,7 +649,8 @@ func TestBoundedDialGrace(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				logs := testsupport.NewLogRecorder(slog.LevelDebug)
-				tr := &Transport{log: logs.Logger()}
+				tr := &Transport{}
+				tr.log = logs.Logger()
 				own := &net.OpError{Op: "dial", Net: "tcp", Err: context.DeadlineExceeded}
 				var wantEvents []string
 				for round := range tt.rounds {

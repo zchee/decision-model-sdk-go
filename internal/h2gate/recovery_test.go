@@ -59,7 +59,7 @@ func warmUp(t *testing.T, tr *Transport, base string) {
 // heldStreams waits until the server's only connection has n open streams.
 func heldStreams(t *testing.T, srv *testsupport.LoopbackServer, n int) *testsupport.H2Conn {
 	t.Helper()
-	waitUntil(t, fmt.Sprintf("%d held streams", n), func() bool {
+	testsupport.WaitUntil(t, fmt.Sprintf("%d held streams", n), func() bool {
 		cs := srv.LiveH2Conns()
 		return len(cs) == 1 && len(cs[0].ActiveStreams()) == n
 	})
@@ -88,7 +88,7 @@ func heldStreams(t *testing.T, srv *testsupport.LoopbackServer, n int) *testsupp
 func closedGracefully(t *testing.T, srv *testsupport.LoopbackServer, goAway, clientFirst bool) {
 	t.Helper()
 	var ci testsupport.ConnInfo
-	waitUntil(t, "the server to close connection 0", func() bool {
+	testsupport.WaitUntil(t, "the server to close connection 0", func() bool {
 		conns := srv.Conns()
 		if len(conns) == 0 {
 			return false
@@ -126,7 +126,7 @@ func TestGoAway(t *testing.T) {
 		if err := conn.GoAway(active[1], testsupport.CodeNoError); err != nil {
 			t.Fatal(err)
 		}
-		waitUntil(t, "the two replays", func() bool { return len(srv.Requests()) == 1+len(paths)+2 })
+		testsupport.WaitUntil(t, "the two replays", func() bool { return len(srv.Requests()) == 1+len(paths)+2 })
 		close(release)
 		wg.Wait()
 		// A replay that marked the new connection cleared its mark when its
@@ -203,7 +203,7 @@ func TestGoAway(t *testing.T) {
 		if err := conn.GoAway(1, testsupport.CodeNoError); err != nil { // both held streams are above 1
 			t.Fatal(err)
 		}
-		waitUntil(t, "the replay of the POST with GetBody", func() bool { return len(seenOn(srv)["/hold/getbody"]) == 2 })
+		testsupport.WaitUntil(t, "the replay of the POST with GetBody", func() bool { return len(seenOn(srv)["/hold/getbody"]) == 2 })
 		close(release)
 		wg.Wait()
 		if out[0].Err != nil || out[0].Status != http.StatusOK {
@@ -241,7 +241,7 @@ func TestConnClose(t *testing.T) {
 			end: func(s *testsupport.LoopbackServer) { s.LiveH2Conns()[0].Reset() },
 			check: func(err error) bool {
 				ne, ok := errors.AsType[net.Error](err)
-				return isConnReset(err) && ok && !ne.Timeout()
+				return testsupport.IsConnReset(err) && ok && !ne.Timeout()
 			},
 			want: "ECONNRESET, a net.Error without Timeout",
 		},
@@ -382,7 +382,7 @@ func TestReplay(t *testing.T) {
 					t.Errorf("error %v, want io.ErrUnexpectedEOF", r.Err)
 				}
 			case "tcp-reset":
-				if !isConnReset(r.Err) {
+				if !testsupport.IsConnReset(r.Err) {
 					t.Errorf("error %v, want ECONNRESET", r.Err)
 				}
 			default:
