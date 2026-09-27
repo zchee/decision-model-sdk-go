@@ -24,7 +24,6 @@ import (
 	"iter"
 	"maps"
 	"math"
-	"net"
 	"net/http"
 	"net/http/httptrace"
 	"os"
@@ -532,71 +531,5 @@ func TestLiveUnauthenticated(t *testing.T) {
 		if st := lc.c.Stats(); st.Attempts != 2 {
 			t.Errorf("%s: Stats().Attempts = %d, want 2 (no retry)", name, st.Attempts)
 		}
-	}
-}
-
-// framingProbe is a RoundTripper over a stock HTTP/2 transport that notes
-// how each response is framed: what the SDK's body reader is handed
-// (ContentLength, and whether the transport undid a gzip encoding).
-type framingProbe struct {
-	base  http.RoundTripper
-	mu    sync.Mutex
-	notes []string
-}
-
-// RoundTrip implements http.RoundTripper; it leaves the request as it is.
-func (p *framingProbe) RoundTrip(r *http.Request) (*http.Response, error) {
-	resp, err := p.base.RoundTrip(r)
-	if err == nil {
-		p.mu.Lock()
-		p.notes = append(p.notes, fmt.Sprintf("%s %s: proto=%s status=%d content_length=%d uncompressed=%t header_content_length=%q content_type=%q",
-			r.Method, r.URL.Path, resp.Proto, resp.StatusCode, resp.ContentLength, resp.Uncompressed, resp.Header.Get("Content-Length"), resp.Header.Get("Content-Type")))
-		p.mu.Unlock()
-	}
-	return resp, err
-}
-
-// TestLiveTransportFacts records the server's transport facts, asserting
-// nothing about their values: the SETTINGS the API sends on a new HTTP/2
-// connection (MAX_CONCURRENT_STREAMS among them; no request, no key), and how
-// the models response is framed through a stock HTTP/2 transport with and
-// without the transparent gzip that the SDK's transport requests.
-func TestLiveTransportFacts(t *testing.T) {
-	env := requireLive(t)
-	addr := env.host
-	if _, _, err := net.SplitHostPort(addr); err != nil {
-		addr = net.JoinHostPort(addr, "443")
-	}
-	settings, err := testsupport.ReadPeerSettings(t.Context(), addr, nil)
-	if err != nil {
-		t.Fatalf("ReadPeerSettings(%s) error = %v", addr, err)
-	}
-	limit, limited := settings.MaxConcurrentStreams()
-	t.Logf("K22 settings: protocol=%s max_concurrent_streams=%d advertised=%t handshake=%s first_settings=%s all=%v",
-		settings.Protocol, limit, limited, settings.Handshake, settings.FirstSettings, settings.Values)
-
-	for _, gzip := range []bool{true, false} {
-		t.Run(fmt.Sprintf("gzip requested %t", gzip), func(t *testing.T) {
-			var p http.Protocols
-			p.SetHTTP2(true)
-			probe := &framingProbe{base: &http.Transport{
-				Proxy:              http.ProxyFromEnvironment,
-				Protocols:          &p,
-				DisableCompression: !gzip,
-			}}
-			c, err := typesafe.NewClient(typesafe.WithTimeout(liveTimeout), typesafe.WithRoundTripper(probe))
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = c.Close() })
-			if _, err := c.Models().List(t.Context()); err != nil {
-				t.Fatalf("Models().List() error = %v", err)
-			}
-			probe.mu.Lock()
-			defer probe.mu.Unlock()
-			for _, n := range probe.notes {
-				t.Logf("K22 framing (gzip requested %t): %s", gzip, n)
-			}
-		})
 	}
 }
