@@ -37,11 +37,9 @@ func mustClient(tb testing.TB, opts ...ClientOption) *Client {
 }
 
 // newTestClient builds a client over rt, the test's transport
-// (WithRoundTripper), with testKey (the upstream tests' key, 8 bytes long, so
-// the checks that look for the key inside other text apply to it) and opts,
-// after clearing the variables a client reads, so a developer's
-// TYPESAFE_API_KEY never reaches a test. The client is closed when the test
-// ends.
+// (WithRoundTripper), with testKey and opts, after clearing the variables a
+// client reads, so a developer's TYPESAFE_API_KEY never reaches a test. The
+// client is closed when the test ends.
 //
 // Its calls make one attempt each (NoRetry), as the upstream tests' clients
 // do unless a test asks for retries (tests/conftest.py:34-35);
