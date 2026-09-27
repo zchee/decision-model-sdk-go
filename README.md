@@ -442,6 +442,12 @@ each System One call; CI does not run these tests
   `BenchmarkCall/sdk`'s mean at or above `BenchmarkCall/naive`'s); every
   absolute time is reported, not enforced
   ([`docs/perf/codspeed.md`](docs/perf/codspeed.md)).
+- The raw measurement files and prototype sources that the
+  [performance ledger](docs/perf/ledger.md) cites are kept, with their
+  history, in a private archive repository maintained by the owner, and
+  cited as `spikes@<commit>:<path>`; this repository's history holds none
+  of them. The ledger's first paragraphs say how a citation resolves; CI
+  checks their form, and resolving them needs a clone of the archive.
 
 ## License
 
