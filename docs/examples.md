@@ -34,8 +34,9 @@ matrix, row XT1).
 ## Quickstart
 
 One choice question about a support ticket. `NewClient` with no options
-reads the key and the base URL from the environment and keeps the
-defaults: model `jev-latest`, 10 s per attempt, two retries.
+reads the key from the environment, and the base URL and the model when
+`TYPESAFE_BASE_URL` and `TYPESAFE_DEFAULT_MODEL` are set. The model is
+otherwise `jev-latest`; each attempt has 10 s, and a call two retries.
 
 <!-- example: quickstart/main.go -->
 ```go

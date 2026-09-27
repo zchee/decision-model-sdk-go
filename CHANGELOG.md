@@ -73,8 +73,8 @@ while it was built.
   `DefaultRetry`, `NoRetry`, backoff with jitter, `Retry-After`, a time
   budget, `WithRetry` for the client and `Retry` per call.
 - Logging through `log/slog` (`WithLogger`): a record per attempt,
-  credentials redacted, bodies only at `LevelTrace`, at most 8 warnings for
-  unknown answers per response.
+  credentials redacted, bodies only at `LevelTrace`, at most 8 warnings
+  naming unknown answers per response, then one that counts the rest.
 - Typed answers from struct tags: `PreparedFor[T]`, `Ask[T]` and
   `DecodeAs[T]`, with `optional` fields and `Present()`. The typed decode
   allocates nothing. A response keeps the redactor its call used, so the

@@ -33,8 +33,9 @@ admits, the SDK refuses to compile there instead.
 
 ## The compile-time refusal
 
-`internal/codec` is the only package that imports sonic. Since wave W0.2 of
-the port plan it carries these build constraints:
+`internal/codec` is the only package of the SDK that imports sonic
+(`internal/testsupport/naive`, the benchmarks' comparator, is test tooling).
+It carries these build constraints:
 
 - `internal/codec/unsupported.go` carries
   `//go:build go1.28 || !(amd64 || arm64)`, and its only statement is
@@ -346,12 +347,13 @@ sections 4, 11 and 12 describe the layout before it):
   (the root package among them) fails the step by name; the allowed
   packages are the ones the steps run, the budget step's and the test
   job's `NORACE_PKGS` (critic-p6 m-1, n-11).
-- `unsafe` stays under `internal/codec` itself (no package below it),
-  `internal/testsupport/naive`, and the root package's typed store,
-  `decodeas_store.go`; `internal/engine` imports no `unsafe` and uses no
-  raw-pointer route (K40, STANDING 3), and no file of the module imports
-  `"C"` (review V81 NIT 1). The seam tests hold `internal/engine` to
-  every rule of the root package.
+- Of the SDK's own files, only `internal/codec/nocopy.go` and the root
+  package's typed store, `decodeas_store.go`, import `unsafe`;
+  `internal/engine` imports no `unsafe` and uses no raw-pointer route, and
+  no file of the module imports `"C"`. The seam tests enforce it (they
+  also permit `unsafe` in the tests of `internal/codec` and in
+  `internal/testsupport/naive`) and hold `internal/engine` to every rule
+  of the root package.
 - CI's `-race` coverage step runs with `-coverpkg=./...` (owner ruling
   G10), so a block is covered when any test of the module runs it.
 

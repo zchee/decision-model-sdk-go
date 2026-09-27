@@ -31,8 +31,8 @@ go get github.com/zchee/typesafe-sdk-go
 
 Set `TYPESAFE_API_KEY` in your environment, then build a client and ask a
 question. `NewClient` without options reads the key from
-`TYPESAFE_API_KEY` and, when set, the API's address from
-`TYPESAFE_BASE_URL`.
+`TYPESAFE_API_KEY` and, when they are set, the API's address from
+`TYPESAFE_BASE_URL` and the default model from `TYPESAFE_DEFAULT_MODEL`.
 
 <!-- example: quickstart/main.go -->
 ```go

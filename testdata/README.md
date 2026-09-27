@@ -92,11 +92,9 @@ for `mystery`. `risk` keeps its structured level, `quality` its text levels.
 ```
 
 To regenerate the flood files after an intended generator change, run
-`go test ./internal/testsupport -run TestStructuredLegendFloodFixtures -update`.
-Without `-update`, the same test and `TestFixtureManifest` fail when the
-files and the generator differ. Under `-update`, `TestFixtureManifest` checks
-the generator's output instead of the files, so running the whole package
-with `-update` also works.
+`go test ./internal/testsupport -run TestFixtureManifest -update`. Without
+`-update`, `TestFixtureManifest` fails when the files and the generator
+differ.
 
 ## Deviations
 

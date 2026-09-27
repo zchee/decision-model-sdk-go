@@ -21,11 +21,12 @@ header-style name holding `token` or `secret`), or a bearer credential. None of 
 the SDK read, after the transport undid the API's gzip encoding (ledger
 W6.4-05).
 
-The files sit in this subdirectory, not beside the other fixtures, because
-the root package's loops over `testdata/*.json` pin an allocation count for
-every body that decodes (`TestAllocDecodeFixtures`), and those pins live in a
-file another wave owns. Checking the decode budgets on these bodies (K6) is
-owed to that wave or to W7.
+The files sit in this subdirectory, not beside the other fixtures, so that
+the loops over `testdata/*.json` do not read them; one of those loops pins
+an allocation count for every body that decodes (`internal/alloctest`'s
+`TestAllocDecodeFixtures`). No test pins the allocations of these bodies;
+measured before the release, `questions.json` and `typed-response.json`
+decode in 4 allocations, as `result.json` does.
 
 | File | Scenario (`livetest`) | Request | Status | Bytes |
 | --- | --- | --- | --- | --- |
