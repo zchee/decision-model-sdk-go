@@ -229,18 +229,16 @@ jobs:
       # package's calls run), each built with //go:build !race
       # (GOROOT/src/sync/pool.go:104-107: under -race Put drops one value in
       # four), with the floods' time ratio, whose bound is asserted here,
-      # without -race (the -race step runs its spans without asserting it);
-      # and internal/codec's, which skip themselves under -race (the step
-      # above runs them too, without their output). Each list is the one
-      # place that names its package's tests: the pattern is built from it
+      # without -race; and internal/codec's, which skip themselves under -race
+      # (the step above runs them too, without their output). Each list is the
+      # one place that names its package's tests: the pattern is built from it
       # and the -list guard counts the tests the pattern matches against its
-      # length, so a renamed or deleted test fails the step instead of
-      # leaving it with less to run; and a test that the step should run but
-      # its list lacks fails it too: a test of a !race file of
-      # internal/alloctest, or an internal/codec test that calls
-      # raceEnabled(). A tracked test file built only without -race in a
-      # package that no step without -race runs, one neither this step's nor
-      # $NORACE_PKGS, fails the step by name.
+      # length, so a renamed or deleted test fails the step instead of leaving
+      # it with less to run; and a test that the step should run but its list
+      # lacks fails it too: a test of a !race file of internal/alloctest, or
+      # an internal/codec test that calls raceEnabled(). A tracked test file
+      # built only without -race in a package that no step without -race runs,
+      # one neither this step's nor $NORACE_PKGS, fails the step by name.
       - name: go test without -race (allocation budgets)
         run: |
           # The two packages whose lists this step runs; the !race guard
