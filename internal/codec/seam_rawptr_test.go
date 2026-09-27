@@ -302,11 +302,13 @@ func TestSeamRawPointerDetector(t *testing.T) {
 // directory, of a package of this module that either imports directly or
 // through others, or of any other package that go list ./... lists.
 //
-// The exemptions: internal/codec and internal/testsupport/naive, exactly,
-// which hold the module's other unsafe uses; a package below either is not
-// exempt. Test files are out of scope: errors_test.go compares two maps'
-// identities with UnsafePointer, which writes nothing. Packages outside the
-// module are not read.
+// The exemptions, exactly and not a package below either: internal/codec,
+// which holds the module's other non-test use of unsafe (NoCopyString), and
+// internal/testsupport/naive, the benchmark comparator, which imports sonic
+// and which TestSeamImports allows to import unsafe, though it imports none.
+// Test files are out of scope: errors_test.go compares two maps' identities
+// with UnsafePointer, which writes nothing. Packages outside the module are
+// not read.
 //
 // The guards: each package the rule covers holds no file other than Go files
 // that the go command compiles (sourceExts: an assembly body, say); and the

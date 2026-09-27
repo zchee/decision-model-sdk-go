@@ -445,7 +445,7 @@ func allocStates() (st *allocState, flat map[string]any, raw []byte) {
 // string 2 (sonic 1, plus boxing the string into the any parameter), a boxed
 // string 1, a boxed json.RawMessage 1, raw bytes 0, a *struct 1 and a flat
 // map 2 (1 + one map); every call at most 112 bytes. The body-level counts of
-// the same kinds are TestAllocEncode in the root package.
+// the same kinds are TestAllocEncode in internal/alloctest.
 func TestEncodeStateAllocations(t *testing.T) {
 	if raceEnabled() {
 		t.Skip("allocation counts need a normal build: under -race sync.Pool.Put drops one value in four")

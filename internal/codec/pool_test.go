@@ -255,10 +255,10 @@ func TestDecoderPoolRetention(t *testing.T) {
 // under -race the test is skipped, since a pooled scratch is dropped one time
 // in four.
 // The members each fixture's pass visits are pinned too (the floods' 1 011
-// and 10 011 are frozen-budgets.md's inputs of the bound, which root's
-// TestLinearityFlood counts from the fixture with encoding/json), so a pass
-// that visits more than the flagged answers fails here, not only through the
-// bound it computes from its own count.
+// and 10 011 are frozen-budgets.md's inputs of the bound, which
+// internal/alloctest's TestLinearityFlood counts from the fixture with
+// encoding/json), so a pass that visits more than the flagged answers fails
+// here, not only through the bound it computes from its own count.
 func TestLazyPassAllocations(t *testing.T) {
 	if raceEnabled() {
 		t.Skip("allocation counts need a build without -race")

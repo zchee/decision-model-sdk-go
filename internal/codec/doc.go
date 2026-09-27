@@ -17,8 +17,9 @@
 // Package codec is the SDK's JSON layer. Of the SDK's code it is the only
 // package that imports github.com/bytedance/sonic (the benchmark comparator
 // internal/testsupport/naive is the module's other importer), and it holds
-// one of the module's two uses of unsafe, the zero-copy bytes-to-string
-// bridge [NoCopyString]; the root package's typed store is the other.
+// one of the module's two non-test uses of unsafe, the zero-copy
+// bytes-to-string bridge [NoCopyString]; the root package's typed store is
+// the other.
 //
 // It builds only where sonic's JIT path does, Go 1.17 to 1.27 on amd64 and
 // arm64; everywhere else the package is unsupported.go alone and fails to
