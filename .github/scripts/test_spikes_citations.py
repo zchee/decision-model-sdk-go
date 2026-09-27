@@ -263,5 +263,38 @@ def test_main_exit_status(tmp_path: Path, archive: tuple[Path, str, str], capsys
     assert "is not a git repository" in capsys.readouterr().err
 
 
+def test_load_allowed_reads_each_row(tmp_path: Path) -> None:
+    path = tmp_path / "allowed.tsv"
+    path.write_text(
+        f"{sc.ALLOWED_HEADER}\ndocs/x.md\tab12\t_spikes ./_spikes/x/\t2\n",
+        encoding="utf-8",
+    )
+    assert sc._load_allowed(path) == frozenset(
+        {("docs/x.md", "ab12", ("_spikes", "./_spikes/x/"), 2)}
+    )
+
+
+@pytest.mark.parametrize(
+    ("text", "want"),
+    [
+        pytest.param(
+            "file\tsha\ttokens\tcount\n", "the first line is not", id="another header"
+        ),
+        pytest.param(
+            "file\tsha256\ttokens\tcount\ndocs/x.md\tab12\t_spikes\n",
+            ":2: 3 fields, want 4",
+            id="a short row",
+        ),
+    ],
+)
+def test_load_allowed_refuses_a_malformed_table(
+    tmp_path: Path, text: str, want: str
+) -> None:
+    path = tmp_path / "allowed.tsv"
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(ValueError, match=want):
+        sc._load_allowed(path)
+
+
 def test_the_repository_passes_part1() -> None:
     assert sc.part1(REPO)[0] == []
