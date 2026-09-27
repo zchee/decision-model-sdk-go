@@ -79,6 +79,23 @@ func pathOf(tb testing.TB, err error) string {
 	return de.Path.String()
 }
 
+// checkPath fails the test unless err is what want names: acceptance when
+// want is empty, else a refusal at the field path want.
+func checkPath(tb testing.TB, err error, want string) {
+	tb.Helper()
+	switch {
+	case want == "" && err != nil:
+		tb.Fatalf("refused at %s (%v), want accepted", pathOf(tb, err), err)
+	case want == "":
+	case err == nil:
+		tb.Fatalf("accepted, want a refusal at %s", want)
+	default:
+		if got := pathOf(tb, err); got != want {
+			tb.Errorf("path = %q (%v), want %q", got, err, want)
+		}
+	}
+}
+
 // questionsFor returns the question set that a response like res answers:
 // each answer's name and kind, a choice's options in the order of its
 // probabilities, and a score's levels from its legend (level i's

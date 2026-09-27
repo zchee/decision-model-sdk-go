@@ -75,9 +75,12 @@ import (
 )
 
 const (
-	modulePath = "github.com/zchee/typesafe-sdk-go"
-	codecPath  = modulePath + "/internal/codec"
-	sonicPath  = "github.com/bytedance/sonic"
+	modulePath      = "github.com/zchee/typesafe-sdk-go"
+	codecPath       = modulePath + "/internal/codec"
+	sonicPath       = "github.com/bytedance/sonic"
+	h2gatePath      = modulePath + "/internal/h2gate"
+	testsupportPath = modulePath + "/internal/testsupport"
+	goCmpPath       = "github.com/google/go-cmp"
 
 	// naiveDir is the directory of internal/testsupport/naive, the naive
 	// comparator that only test files import; it alone may import sonic and
@@ -113,6 +116,17 @@ func goMinor(tag string) int {
 		return -1
 	}
 	return n
+}
+
+// releaseTags returns the build tags that hold for Go 1.minor on arch: every
+// go1.N release tag up to minor, and arch.
+func releaseTags(minor int, arch string) func(string) bool {
+	return func(tag string) bool {
+		if n := goMinor(tag); n >= 0 {
+			return n <= minor
+		}
+		return tag == arch
+	}
 }
 
 // under reports whether the slash-separated path p is dir or lies below it.
@@ -751,12 +765,7 @@ func TestSeamBuildConstraints(t *testing.T) {
 		cutoff := goMinor(d1Cutoff)
 		for minor := 17; minor <= cutoff+3; minor++ {
 			for _, arch := range []string{"amd64", "arm64", "386", "arm", "riscv64", "loong64", "ppc64le", "s390x", "wasm"} {
-				tags := func(tag string) bool {
-					if n := goMinor(tag); n >= 0 {
-						return n <= minor
-					}
-					return tag == arch
-				}
+				tags := releaseTags(minor, arch)
 				wantSupported := minor < cutoff && (arch == "amd64" || arch == "arm64")
 				if got := supported.Eval(tags); got != wantSupported {
 					t.Errorf("go1.%d %s: supported constraint = %t, want %t", minor, arch, got, wantSupported)
@@ -966,12 +975,7 @@ func TestSeamSonicJITPath(t *testing.T) {
 		// Both kinds of file have a build line naming a release here.
 		for minor := from; minor <= goMinor(d1Cutoff)+3; minor++ {
 			for _, arch := range []string{"amd64", "arm64", "386", "riscv64", "wasm"} {
-				tags := func(tag string) bool {
-					if n := goMinor(tag); n >= 0 {
-						return n <= minor
-					}
-					return tag == arch
-				}
+				tags := releaseTags(minor, arch)
 				if !supported.Eval(tags) {
 					continue
 				}
@@ -985,5 +989,90 @@ func TestSeamSonicJITPath(t *testing.T) {
 		if jitSide[pkg] == 0 {
 			t.Errorf("%s: has an encoding/json fallback file but no file with a Go-release constraint on the JIT side", pkg)
 		}
+	}
+}
+
+// The internal/h2gate rows of the seam tests. TestSeamImports already forbids
+// root and internal/codec imports in internal/h2gate, and
+// TestSeamTransitiveImports keeps them out of its dependencies; these rows
+// add that the package itself is standard-library only (it runs on the gotip
+// canary), and that its tests add only internal/testsupport and go-cmp.
+//
+// Mutation checks: each change below, planted in a copy of the tree, makes
+// the named test fail.
+//   - TestSeamH2GateImports: a non-test h2gate file importing
+//     internal/testsupport, golang.org/x/net/http2 or go-cmp; a test file
+//     importing golang.org/x/net/http2 or sonic.
+//   - TestSeamH2GateTransitiveImports: a non-test h2gate file importing any
+//     module package (internal/wire, say): the listing then shows a
+//     non-standard dependency.
+
+// TestSeamH2GateImports checks the direct imports of every internal/h2gate
+// file, whatever its build constraints: the standard library only, and for
+// test files also internal/testsupport (through which x/net's framer serves
+// the loopback server) and go-cmp.
+func TestSeamH2GateImports(t *testing.T) {
+	mod := findModule(t)
+	var prod, tests []goFile
+	for _, f := range moduleFiles(t, mod.root) {
+		if !under(f.dir, "internal/h2gate") {
+			continue
+		}
+		if f.test {
+			tests = append(tests, f)
+		} else {
+			prod = append(prod, f)
+		}
+	}
+	// A walk that found nothing would pass every rule below.
+	if len(prod) == 0 {
+		t.Fatal("the module walk found no internal/h2gate file; the rules would pass vacuously")
+	}
+	if !slices.ContainsFunc(tests, func(f goFile) bool { return slices.Contains(f.imports, testsupportPath) }) {
+		t.Fatal("no internal/h2gate test imports internal/testsupport; the test rule would pass vacuously")
+	}
+	t.Run("non-test files import the standard library only", func(t *testing.T) {
+		for _, f := range prod {
+			for _, p := range f.imports {
+				if !isStandard(p) {
+					t.Errorf("%s imports %q", f.rel, p)
+				}
+			}
+		}
+	})
+	t.Run("test files add only internal/testsupport and go-cmp", func(t *testing.T) {
+		for _, f := range tests {
+			for _, p := range f.imports {
+				if !isStandard(p) && p != testsupportPath && !under(p, goCmpPath) {
+					t.Errorf("%s imports %q", f.rel, p)
+				}
+			}
+		}
+	})
+}
+
+// TestSeamH2GateTransitiveImports checks that internal/h2gate without its
+// tests depends, through any chain, on the standard library alone, in the
+// build configuration of the host.
+func TestSeamH2GateTransitiveImports(t *testing.T) {
+	mod := findModule(t)
+	out := goList(t, mod.root, "-deps", "-f", "{{.ImportPath}}", "./internal/h2gate")
+	n, sawSelf := 0, false
+	for line := range strings.Lines(out) {
+		dep := strings.TrimSpace(line)
+		if dep == "" {
+			continue
+		}
+		n++
+		if dep == h2gatePath {
+			sawSelf = true
+			continue
+		}
+		if !isStandard(dep) {
+			t.Errorf("internal/h2gate depends on %s", dep)
+		}
+	}
+	if n == 0 || !sawSelf {
+		t.Fatalf("go list printed %d dependencies without internal/h2gate itself:\n%s", n, out)
 	}
 }

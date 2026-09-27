@@ -25,6 +25,7 @@ import (
 	"time"
 
 	gocmp "github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
@@ -173,17 +174,7 @@ func TestDecodeFieldPaths(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			_, _, _, err := decodeBody(t, []byte(tt.body), nil, "")
-			switch {
-			case tt.want == "" && err != nil:
-				t.Fatalf("refused at %s (%v), want accepted", pathOf(t, err), err)
-			case tt.want == "":
-			case err == nil:
-				t.Fatalf("accepted, want a refusal at %s", tt.want)
-			default:
-				if got := pathOf(t, err); got != tt.want {
-					t.Errorf("path = %q (%v), want %q", got, err, tt.want)
-				}
-			}
+			checkPath(t, err, tt.want)
 		})
 	}
 }
@@ -216,17 +207,7 @@ func TestModelsFieldPaths(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			err := DecodeModels([]byte(tt.body), new(wire.ModelList))
-			switch {
-			case tt.want == "" && err != nil:
-				t.Fatalf("refused at %s (%v), want accepted", pathOf(t, err), err)
-			case tt.want == "":
-			case err == nil:
-				t.Fatalf("accepted, want a refusal at %s", tt.want)
-			default:
-				if got := pathOf(t, err); got != tt.want {
-					t.Errorf("path = %q (%v), want %q", got, err, tt.want)
-				}
-			}
+			checkPath(t, err, tt.want)
 		})
 	}
 }
@@ -490,9 +471,7 @@ func TestSkippedAnswers(t *testing.T) {
 					t.Errorf("path = %q, want %q", got, tt.wantPath)
 				}
 			}
-			if diff := gocmp.Diff(tt.wantNamed, skipped.Named(), gocmp.Comparer(func(a, b []SkippedAnswer) bool {
-				return len(a) == len(b) && (len(a) == 0 || gocmp.Equal(a, b))
-			})); diff != "" || skipped.Count != tt.wantCount {
+			if diff := gocmp.Diff(tt.wantNamed, skipped.Named(), cmpopts.EquateEmpty()); diff != "" || skipped.Count != tt.wantCount {
 				t.Errorf("count %d, want %d; named (-want +got):\n%s", skipped.Count, tt.wantCount, diff)
 			}
 		})

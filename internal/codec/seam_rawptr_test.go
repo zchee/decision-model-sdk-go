@@ -22,7 +22,6 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
-	"iter"
 	"maps"
 	"os"
 	"path"
@@ -427,14 +426,9 @@ func TestSeamRootRawPointers(t *testing.T) {
 	if checked["."] == 0 || !slices.ContainsFunc(files, func(f goFile) bool { return f.rel == "decodeas.go" }) {
 		t.Fatalf("checked %d root files and found no decodeas.go; the check would pass vacuously", checked["."])
 	}
-	t.Logf("read %d non-test files of %d packages (%d reached from %q)", sum(maps.Values(checked)), len(dirs), len(walked), rootCodeDirs)
-}
-
-// sum returns the sum of the values seq yields.
-func sum(seq iter.Seq[int]) int {
-	n := 0
-	for v := range seq {
-		n += v
+	read := 0
+	for _, n := range checked {
+		read += n
 	}
-	return n
+	t.Logf("read %d non-test files of %d packages (%d reached from %q)", read, len(dirs), len(walked), rootCodeDirs)
 }

@@ -17,6 +17,7 @@
 package codec
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -315,7 +316,11 @@ func TestInterningReturnsRequestStrings(t *testing.T) {
 					for i, p := range e.Answer.Choice.Probabilities {
 						same("label", p.Label, pq.Options[i])
 					}
-					same("choice", e.Answer.Choice.Choice, pq.Options[slicesIndex(pq.Options, e.Answer.Choice.Choice)])
+					i := slices.Index(pq.Options, e.Answer.Choice.Choice)
+					if i < 0 {
+						t.Fatalf("choice %q is not an option of %q", e.Answer.Choice.Choice, e.Name)
+					}
+					same("choice", e.Answer.Choice.Choice, pq.Options[i])
 				case wire.KindScore:
 					for _, l := range e.Answer.Score.Legend {
 						want := pq.Levels[l.Level]
@@ -331,15 +336,6 @@ func TestInterningReturnsRequestStrings(t *testing.T) {
 			}
 		})
 	}
-}
-
-func slicesIndex(s []string, v string) int {
-	for i := range s {
-		if s[i] == v {
-			return i
-		}
-	}
-	return 0
 }
 
 // TestLastWins checks the one duplicate rule at every level: the last
@@ -489,10 +485,6 @@ func TestLastWins(t *testing.T) {
 	}
 }
 
-// duplicatesLastWins is testdata/duplicates.json resolved as Python 0.7.1
-// resolves it (testdata/README.md; internal/testsupport/fixtures_test.go).
-const duplicatesLastWins = `{"model":"jev-latest","usage":{"input_tokens":12},"answers":{"tone":{"type":"choice","choice":"friendly","confidence":0.9,"probabilities":{"friendly":0.9,"hostile":0.1}},"spam":{"type":"noul","noul":0.98},"quality":{"type":"score","score":1.7,"confidence":0.8,"legend":{"0":"bad","1":"fine","2":"great"},"probabilities":{"0":0.1,"1":0.1,"2":0.8}},"risk":{"type":"score","score":0,"confidence":1,"legend":{"0":{"summary":"low"}},"probabilities":{"0":1}}}}`
-
 // TestDuplicatesLastWins decodes testdata/duplicates.json and the same body
 // without repeats: both give the same answers, model and usage (last wins
 // at every level, first position kept), and the unknown answer of the
@@ -505,7 +497,7 @@ func TestDuplicatesLastWins(t *testing.T) {
 	if skipped.Count != 0 {
 		t.Errorf("skipped = %+v, want none (mystery was superseded)", skipped.Named())
 	}
-	want, _, _, err := decodeBody(t, []byte(duplicatesLastWins), nil, "")
+	want, _, _, err := decodeBody(t, []byte(testsupport.DuplicatesLastWins), nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
