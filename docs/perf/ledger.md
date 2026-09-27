@@ -6479,3 +6479,50 @@ take the whole gate on (M). No pin moved (R104).
 | W6.5-46 | 2026-09-27 02:55:29–02:55:49 UTC | W6.5 rebase: the allocation list, c6e9afe and 382cb97 | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 3.44 → 2.75 | as W6.5-44 on (L) (`scripts/lrb2.sh`, `flock /tmp/ts-spike/bench.lock`) | 17 of 17 pass in each; every asserted count equal, as W6.5-16; `LINEARITY time` ratio 9.17 → 9.18 (bound 15); `FLOOD` peak +575 609 624 and +574 955 336 bytes (36.6× the body; bound about +1.31 GB), retained +76 032 to +79 528 and +76 080 to +79 576 bytes over six calls (bound 5 242 880): MemStats readings, not pinned; 28 lines differ on each side: 27 fixtures that do not decode (the reason's text) and one `SEQ` line | `results/rb2/alloc-{base,head}-L.txt`, `pins-alloc-{base,head}-L.txt`, `pins-diff-L.txt` |
 | W6.5-47 | 2026-09-27 02:55:49–02:56:47 UTC | W6.5 rebase at 382cb97: `-race` and the budget step (R62) | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 2.75 → 3.21 | `scripts/lrb2.sh` in the `git archive` tree of 382cb97, git-initialized: `go test -race -count=1 ./...`, then ci.yaml's budget step as written (`bash --noprofile --norc -eo pipefail`, the job's `env`), each in its own hold of the lock | `-race`: 10 test packages ok, 0 DATA RACE, exit 0; the budget step 22 PASS, exit 0 | `results/rb2/race-head-L.txt`, `budget-head-L.txt` |
 | W6.5-48 | 2026-09-27 02:56:48–02:59:14 UTC | W6.5 rebase: `BenchmarkCall` and `BenchmarkDecode`, c6e9afe against 382cb97, interleaved | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 3.21 → 1.37 (Call); 1.34 → 1.20 (Decode) | `scripts/lrb2.sh`: as W6.5-19 and -20 (`sh scripts/ab.sh`, 5 rounds of `-test.count 2`) with `BASE=c6e9afe CAND=382cb97`, alone on the host; `benchstat base=… cand=…` | `Call/sdk` 5.520 → 5.550 µs (+0.53 %, p = 0.022), `naive` ~ (p = 0.684), `sdk-q20` 21.68 → 21.75 µs (+0.33 %, p = 0.029), `naive-q20` ~ (p = 0.796); allocations 20, 68, 41, 247 on both sides, bytes ~; `Decode/result` 2.800 → 2.800 µs (~, p = 0.985), `result-20` ~ (p = 0.971) on `internal/codec`'s unchanged code; `sdk` < `naive` on both sides (AC-P7) | timing on (L) only (D-M-timing-suspended); `results/rb2/call-L-{base,cand}.txt`, `decode-L-{base,cand}.txt`, `bench-{call,decode}-L.benchstat.txt` |
+
+### The covdata warm-up (rulings D-W6.5-covdata-flake, -2 and -2-add)
+
+ci.yaml run 36290737866 at 856cc29 failed in `test (ubuntu-26.04)`,
+step "go test -race with coverage": every package printed `ok`, and the
+exit status came from `# …/examples/logging` and `go tool covdata:
+fork/exec ../../../.cache/go-build/24/…-d/covdata: text file busy`
+(`results/covdata/ci-36290737866-ubuntu-failed-step.log`); ci.yaml runs
+36290205261, 36291285900 and those at 1e6a288 and 9b554a8 passed. The
+mechanism, read in cmd/go at go1.27.1 (`results/covdata/cmd-go-excerpts.txt`):
+for each package without tests, the seven under `examples/`, go test
+runs `$GOROOT/bin/go tool covdata percent` or `textfmt` in a process of
+its own (`work/cover.go`, `CovData`), all of them at once. A process
+whose cache lookup misses builds the tool and copies it into the one
+cache entry `<id>-d/covdata` in place (`cache/cache.go`, `copyFile`:
+`os.OpenFile(name, O_RDWR|O_CREATE)`, no rename) and runs its own build;
+a process whose lookup hits execs the cached file (`tool/tool.go`,
+`builtTool`, the comment on #72824 and #22315). So a hit can exec the
+file while a later miss still writes it, which Linux refuses with
+ETXTBSY. The commit makes `go tool -n covdata` the step's first
+command, in the step's own environment and without `|| true`: it builds
+the tool into the cache, prints its path and exits 0, or fails the
+step. On Linux the step then lists the files named covdata under
+`go env GOCACHE` with inode, size and mtime, after the warm-up and
+again after the test command (whose exit status is kept until both
+lists are printed), and fails when the first list lacks the path the
+warm-up printed or when the two lists differ: either means that the
+test command's processes may still build the tool. No Go file changed;
+ci.yaml, this ledger and `_spikes/w6.5/` only. No pin moved (R104).
+
+On (L), in the `git archive` tree of 856cc29 with this ci.yaml (W6.5-49),
+the step as written passes on a cold cache and on a copy of it, and the
+two lists are equal in both; the test command writes a covdata entry in
+every run without the warm-up (110 of 110, a new inode each time) and in
+no run with it (0 of 110), while the race itself did not show on (L),
+whose GOCACHE is on tmpfs. That is the proof D-W6.5-covdata-flake-2 (2)
+asks for: the lists exclude the write-then-exec race by construction.
+The entry's key depends on the environment (under `GOEXPERIMENT=nosimd`
+the warm-up wrote `54d5ff62…-d/covdata`, the test command then wrote the
+default `2fe38c5e…-d/covdata`), which is why the warm-up runs in the
+step's own environment. The five dispatches of ci.yaml at this commit,
+with the two lists of each ubuntu run, are reported to the lead with
+`W6.5 WARMUP`; a commit cannot hold the logs of the runs made at it.
+
+| # | When | Wave | Host | `go version` | ToolTags | Load | Command | Result | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| W6.5-49 | 2026-09-27 04:45:21–05:00:41 UTC | W6.5, the covdata warm-up: the step as written, its guard's mutants, and the test command with and without the warm-up | (L) | `go1.27.1 linux/amd64` | `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.dwarf5 goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc amd64.v1]` | 0.73 → 6.33 and 5.91 → 7.41 (S); 0.09 → 2.85 (A); 2.85 → 4.45 (W); 4.33 → 5.90 (M) | `flock /tmp/ts-spike/bench.lock bash scripts/covchk.sh R off 10`, then `R on 10`, `S off 100 4`, `S on 100 4`, `A`, `W` and `M`, each in its own hold, in the `git archive` tree of 856cc29 (git-initialized) with this commit's ci.yaml; `GOTOOLCHAIN=local`, no `GOEXPERIMENT` or `GOFLAGS`, the job's `NORACE_PKGS`, `RUNNER_OS=Linux`; the step is ci.yaml's run block (`scripts/extract-step.py`, `results/covdata/step.sh`) run as `bash --noprofile --norc -eo pipefail`; A starts from an empty `GOCACHE`, every other phase from a copy of A's cache; R and S run the test command alone, A, W and M the step in its final form (the test command on its own line, byte-identical to 856cc29's, between `set +e` and `status=$?`) | A: rc 0, 10 test packages ok, 0 FAIL lines; the warm-up printed `…/2f/2fe38c5e…-d/covdata`, the one file named covdata was `2217063 3014816 2026-09-27 04:57:02.6419251500` after the warm-up and after the test command; three more `go tool -n covdata` and one `go tool covdata percent` left it unchanged. W (the restored-cache case): rc 0, 10 ok, the two lists equal. M, each on a copy without the covdata entry: `m1` (the warm-up under `GOEXPERIMENT=nosimd`) rc 1, `::error::the test command changed the files named covdata in GOCACHE: …`, the test command having written `2fe38c5e…-d/covdata`; `m2` (no warm-up) and `m3` (the list's `-name` broken) rc 1, `::error::the path the warm-up printed, …, is not among the files named covdata in GOCACHE`, before the test command; `m4` (the step unchanged, `GOFLAGS=-timeout=1ms` failing the tests: 11 FAIL lines) printed both lists, equal, and exited 1, the test command's status. R and S, `go test -race -count=1 -coverpkg=./... -covermode=atomic ./examples/...` with the entry removed before each run (S under `taskset -c 0-3`): without the warm-up 110 of 110 runs changed the list, with it 0 of 110; rc 0 and no `text file busy` in all 220 | the race did not reproduce on (L) (`GOCACHE` on tmpfs); the lists are the proof. Not under the (M) lock: no (M) run. `results/covdata/A-step-cold.log`, `A-repeat.log`, `W-step-warm.log`, `m{1,2,3,4}-*.log`, `m{1,2,3}-*-diff.txt`, `R-{off,on}.log`, `S-{off,on}-cpu4.txt`, `cmd-go-excerpts.txt` |

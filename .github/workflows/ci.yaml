@@ -183,8 +183,54 @@ jobs:
       # owner ruling G10): code that one package's tests drive through
       # another's API, such as a call stage below the root package, is
       # credited where it lives.
+      #
+      # ETXTBSY (rulings D-W6.5-covdata-flake, D-W6.5-covdata-flake-2 and
+      # D-W6.5-covdata-flake-2-add): for each package without tests (the
+      # examples) go test runs `go tool covdata` in a process of its own.
+      # When the tool is not in the build cache, each of those processes
+      # builds it and writes it into the same cache entry, in place, so one
+      # can exec the file while another still writes it; on Linux the step
+      # then fails with "fork/exec .../covdata: text file busy" although
+      # every package is ok. `go tool -n covdata` runs first, in this step's
+      # environment (the entry depends on it) and without `|| true`: it
+      # builds the tool into the cache and prints its path, or fails the
+      # step. The test command's processes then find the tool there and
+      # write nothing. On Linux the step lists the files named covdata in
+      # GOCACHE, with inode, size and mtime, after the warm-up and again
+      # after the test command, and fails when the first list lacks the
+      # path the warm-up printed or when the two lists differ: either means
+      # the test command's processes may still build the tool.
       - name: go test -race with coverage
-        run: go test -race -count=1 -coverpkg=./... -coverprofile=coverage.out -covermode=atomic ./...
+        run: |
+          tool="$(go tool -n covdata)"
+          echo "go tool -n covdata: $tool"
+          # Each file named covdata in GOCACHE with its inode, size and
+          # mtime; -printf is GNU find's, hence Linux only.
+          covdata_files() {
+            find "$(go env GOCACHE)" -type f -name covdata -printf '%i %s %TY-%Tm-%Td %TT %p\n' | sort
+          }
+          if [ "$RUNNER_OS" = Linux ]; then
+            before="$(covdata_files)"
+            printf 'files named covdata in GOCACHE after the warm-up:\n%s\n' "$before"
+            if ! grep -qF -- " $tool" <<<"$before"; then
+              echo "::error::the path the warm-up printed, $tool, is not among the files named covdata in GOCACHE"
+              exit 1
+            fi
+          fi
+          # The test command's status is kept until the second list is out.
+          set +e
+          go test -race -count=1 -coverpkg=./... -coverprofile=coverage.out -covermode=atomic ./...
+          status=$?
+          set -e
+          if [ "$RUNNER_OS" = Linux ]; then
+            after="$(covdata_files)"
+            printf 'files named covdata in GOCACHE after the test command:\n%s\n' "$after"
+            if [ "$after" != "$before" ]; then
+              echo "::error::the test command changed the files named covdata in GOCACHE: the warm-up did not reach the entry it uses"
+              exit 1
+            fi
+          fi
+          exit "$status"
 
       # Allocation counts need a normal build: under -race sync.Pool.Put drops
       # one value in four, so the codec allocation tests skip themselves there
