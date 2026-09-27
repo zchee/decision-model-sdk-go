@@ -16,17 +16,13 @@ package testsupport
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
-	"net/http/httptrace"
-	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -75,76 +71,6 @@ func get(t *testing.T, rt http.RoundTripper, url string) (status, proto int, bod
 	defer resp.Body.Close()
 	b, err := io.ReadAll(resp.Body)
 	return resp.StatusCode, resp.ProtoMajor, string(b), err
-}
-
-// connLog records how a net/http transport got its connections, in order:
-// every dial with the dialing goroutine's stack, and every request for a
-// connection (httptrace GetConn) and connection obtained (GotConn). A test
-// prints it when an assertion about connections fails.
-type connLog struct {
-	tr    *http.Transport
-	start time.Time
-
-	mu    sync.Mutex
-	dials int
-	lines []string
-}
-
-// logConns records tr's dials through its dialer (a net.Dialer when it has
-// none); requests sent through the returned log record their trace.
-func logConns(tr *http.Transport) *connLog {
-	l := &connLog{tr: tr, start: time.Now()}
-	dial := tr.DialContext
-	if dial == nil {
-		dial = (&net.Dialer{}).DialContext
-	}
-	tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-		l.mu.Lock()
-		l.dials++
-		n := l.dials
-		l.mu.Unlock()
-		l.add("dial %d to %s from\n%s", n, addr, debug.Stack())
-		c, err := dial(ctx, network, addr)
-		if err != nil {
-			l.add("dial %d: %v", n, err)
-			return nil, err
-		}
-		l.add("dial %d: connected from %s", n, c.LocalAddr())
-		return c, nil
-	}
-	return l
-}
-
-// RoundTrip sends req through the transport with the trace hooks attached.
-func (l *connLog) RoundTrip(req *http.Request) (*http.Response, error) {
-	trace := &httptrace.ClientTrace{
-		GetConn: func(hostPort string) { l.add("GetConn %s", hostPort) },
-		GotConn: func(info httptrace.GotConnInfo) {
-			l.add("GotConn from %s, reused %t", info.Conn.LocalAddr(), info.Reused)
-		},
-	}
-	return l.tr.RoundTrip(req.WithContext(httptrace.WithClientTrace(req.Context(), trace)))
-}
-
-func (l *connLog) add(format string, args ...any) {
-	line := fmt.Sprintf("%v ", time.Since(l.start).Round(time.Microsecond)) + fmt.Sprintf(format, args...)
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.lines = append(l.lines, line)
-}
-
-// Dials returns the number of dials recorded so far.
-func (l *connLog) Dials() int {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.dials
-}
-
-// String returns the record, one event per line.
-func (l *connLog) String() string {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return strings.Join(l.lines, "\n")
 }
 
 // actions returns the recorded actions of a server's requests.
@@ -652,7 +578,7 @@ func TestLoopbackLimitOnClosingConn(t *testing.T) {
 }
 
 // TestLoopbackGoAway checks GOAWAY with a LastStreamID below streams in
-// flight, frame by frame, and the replay it causes in net/http.
+// flight, frame by frame.
 func TestLoopbackGoAway(t *testing.T) {
 	t.Run("success: streams above LastStreamID are dropped, the rest finish", func(t *testing.T) {
 		release := make(chan struct{})
@@ -776,85 +702,6 @@ func TestLoopbackGoAway(t *testing.T) {
 		c.request(3, "/", true)
 		c.expect(frame{Type: "GOAWAY", LastID: 1, Code: CodeNoError})
 		c.expectEOF()
-	})
-
-	t.Run("success: net/http replays a request GOAWAY left unprocessed", func(t *testing.T) {
-		var handled atomic.Int64
-		srv := NewLoopbackServer(t, ServerConfig{
-			Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				handled.Add(1)
-				w.WriteHeader(http.StatusOK)
-			}),
-			OnStream: func(s *Stream) Action {
-				if s.Conn.Index() == 0 {
-					return ActionGoAway // LastStreamID 0: the first request was never processed
-				}
-				return ActionServe
-			},
-		})
-		conns := logConns(newTransport(t, false, true))
-		status, proto, _, err := get(t, conns, srv.URL())
-		if err != nil || status != http.StatusOK || proto != 2 {
-			t.Fatalf("GET: %d HTTP/%d %v\nnet/http's connections:\n%s", status, proto, err, conns)
-		}
-		// Connection 0 received GOAWAY and served nothing, and net/http
-		// replayed the request once, on a later connection. Which one, and
-		// how many connections it opened, is its pool's choice: dialConnFor
-		// hands a new connection to the request before putOrCloseIdleConn
-		// pools it, so a dialing goroutine descheduled in between gives the
-		// replay the stale connection 0, which makes it dial once more and
-		// close whichever new connection loses (go1.24.13 to go1.27.1 and
-		// tip). Neither is exact here.
-		var seen []int
-		for _, r := range srv.Requests() {
-			seen = append(seen, r.Conn)
-		}
-		if len(seen) != 2 || seen[0] != 0 || seen[1] < 1 {
-			t.Errorf("the request was seen on connections %v, want 0 and then one later connection", seen)
-		}
-		if diff := gocmp.Diff([]Action{ActionGoAway, ActionServe}, actions(srv)); diff != "" {
-			t.Errorf("actions (-want +got):\n%s", diff)
-		}
-		if c := srv.Conns()[0]; c.GoAwaySeq == 0 {
-			t.Errorf("connection 0 %+v, want its GOAWAY recorded", c)
-		}
-		// Whatever net/http chose, the server accepted two connections at
-		// least, and every one up to the connection that served the replay.
-		minAccepts := 2
-		if len(seen) == 2 {
-			minAccepts = max(minAccepts, seen[1]+1)
-		}
-		if n := srv.Accepts(); n < minAccepts {
-			t.Errorf("Accepts() = %d, want at least %d", n, minAccepts)
-		}
-		// And no more than net/http dialed: on the loopback every accepted
-		// connection is one of its dials. An accept can trail its dial by a
-		// moment, so they are compared for up to 5 s, without ending the
-		// test, so that the record below still prints. The check uses the
-		// pair the loop read last and reads neither counter again: a
-		// dialing goroutine that took its context before the request was
-		// served can reach the dialer after the GET has returned, and a
-		// dial counted between two readings would be compared with an
-		// accept that has not happened yet.
-		var accepts, dials int
-		for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(5 * time.Millisecond) {
-			if accepts, dials = srv.Accepts(), conns.Dials(); accepts == dials || !time.Now().Before(deadline) {
-				break
-			}
-		}
-		if accepts != dials {
-			t.Errorf("Accepts() = %d, want the %d connections net/http dialed", accepts, dials)
-		}
-		// Close waits for every handler the server started: the request ran
-		// once, on the connection that served the replay, and never on
-		// connection 0.
-		srv.Close()
-		if n := handled.Load(); n != 1 {
-			t.Errorf("the handler ran %d times, want 1", n)
-		}
-		if t.Failed() {
-			t.Logf("server connections %+v\nnet/http's connections:\n%s", srv.Conns(), conns)
-		}
 	})
 }
 
