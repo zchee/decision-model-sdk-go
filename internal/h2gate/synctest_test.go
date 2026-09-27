@@ -30,23 +30,22 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
-// The fake-network tests (S-T2) run the transport over an h2c server on the
+// The fake-network tests run the transport over an h2c server on the
 // in-memory network inside a testing/synctest bubble, so its timers (ping,
-// idle, the gate's bounds) run on fake time. Every call carries a deadline:
-// a strict-mode stall is a durable block (cc.cond.Wait,
+// idle, the gate's bounds) run on fake time. Every call carries a deadline: a
+// strict-mode stall is a durable block (cc.cond.Wait,
 // internal/http2/transport.go:1555), and with pings on, a stall without a
-// deadline spins until the test binary's timeout instead of failing (W0.4).
+// deadline spins until the test binary's timeout instead of failing.
 //
 // The fake client transport's DialContext targets the in-memory listener
 // (httptest/server.go:439-444), so NewTransport cannot build it; the tests
-// wrap it directly, as the W0.4 spike did. W2.2 Part B re-runs them through
-// the root package's WithHTTPTransport.
+// wrap it directly.
 
 // fakeDeadline bounds every call on fake time.
 const fakeDeadline = 2 * time.Minute
 
-// fakeTransport sets the section 6.3 HTTP/2 settings on a fake server's
-// client transport and wraps it with the default bounds (20 s each).
+// fakeTransport sets NewTransport's HTTP/2 settings on a fake server's client
+// transport and wraps it with the default bounds (20 s each).
 func fakeTransport(t *testing.T, rt http.RoundTripper) *Transport {
 	t.Helper()
 	base, ok := rt.(*http.Transport)
@@ -71,8 +70,10 @@ func fakeGet(t *testing.T, tr http.RoundTripper, path string) result {
 }
 
 // limitedFake is a fake-network h2c server advertising limit concurrent
-// streams whose handler takes service on fake time. The server's HTTP2
-// config must be set before Client starts the in-memory network.
+// streams whose handler takes service on fake time. It copies
+// testsupport.NewFakeH2CServer rather than calling it: the server's HTTP2
+// config must be set before Client starts the in-memory network, and that
+// constructor calls Client itself.
 func limitedFake(t *testing.T, limit int, service time.Duration) (*httptest.Server, *atomic.Int64) {
 	var accepts atomic.Int64
 	srv := httptest.NewTestServer(t, serviceHandler(service))
@@ -95,9 +96,9 @@ func limitedFake(t *testing.T, limit int, service time.Duration) (*httptest.Serv
 	return srv, &accepts
 }
 
-// TestSynctestFanOut is S-T2 as a test: the cold fan-out, the warm burst,
-// the ping timer and the idle timer on fake time, and F1's 16 calls against
-// a limit of 4, which strict mode alone stalls and the token completes.
+// TestSynctestFanOut runs on fake time the cold fan-out, the warm burst, the
+// ping timer and the idle timer, and 16 calls against a limit of 4, which
+// strict mode alone stalls and the token completes.
 func TestSynctestFanOut(t *testing.T) {
 	t.Run("success: cold 64 on 1 connection, warm 64 on none, then the ping and idle timers", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {

@@ -86,22 +86,20 @@ type Stats struct {
 	// the token until their response headers, SettleHolds included.
 	FirstHolds uint64
 	// SettleHolds counts FirstHolds by the first token holder on a
-	// connection that a stock replay opened without the token (K21c).
+	// connection that a stock replay opened without the token.
 	SettleHolds uint64
 	// HoldExpiries counts FirstHolds that the hold bound ended.
 	HoldExpiries uint64
 	// TokenExpiries counts requests that waited the hold bound for the
-	// header-write token and went out without it (R85).
+	// header-write token and went out without it.
 	TokenExpiries uint64
-	// DialExpiries counts dials of NewTransport's own dialer that were
-	// still running a grace of 100 ms after the connect timeout ended them,
-	// and that the transport then failed and abandoned (K28d): a caller's
-	// DNS or connect hook held them. A dial that ends at the connect timeout
-	// with the dialer's own error, as one to a host that does not answer
-	// does, is not counted.
+	// DialExpiries counts dials of NewTransport's own dialer that the dial
+	// bound failed and abandoned (see the package doc). A dial that ends at
+	// the connect timeout with the dialer's own error, as one to a host that
+	// does not answer does, is not counted.
 	DialExpiries uint64
 	// WaitExpiries counts requests whose wait for a connection the wait
-	// bound ended (K28d).
+	// bound ended.
 	WaitExpiries uint64
 }
 
@@ -133,7 +131,7 @@ type Transport struct {
 	// RoundTrip and receives from it to give it back.
 	token chan struct{}
 	// firstHold engages FirstHold; tests clear it for the plain-token
-	// negative control (option (iv-a)).
+	// negative control of the fan-out record test.
 	firstHold bool
 
 	warm     atomic.Bool // the gate is warm for good
@@ -145,14 +143,13 @@ type Transport struct {
 	parked atomic.Int64 // waiters parked now, for tests
 
 	// stalled is set when a request's wait for a connection ended at the
-	// wait bound, and cleared at the next GotConn: until a connection is
-	// handed over again, a dial may hold the connection permit in a
-	// caller's hook, so every request waits for its connection under the
-	// bound (K28d).
+	// wait bound, and cleared at the next GotConn; while it is set, every
+	// request waits for its connection under the bound (see the package
+	// doc).
 	stalled atomic.Bool
 
 	// unsettled holds the HTTP/2 connections a stock replay opened after
-	// giving the token back (K21c, R69), oldest first, at most maxUnsettled;
+	// giving the token back, oldest first, at most maxUnsettled;
 	// nUnsettled is its length, read without the lock.
 	settleMu   sync.Mutex
 	unsettled  []net.Conn
@@ -321,7 +318,7 @@ func (t *Transport) release(ctx context.Context, gen *generation) {
 }
 
 // lead sends the leader's request and resolves gen when it ends before
-// GotConn (the failure table of section 6.3).
+// GotConn.
 func (t *Transport) lead(req *http.Request, gen *generation) (*http.Response, error) {
 	ctx := req.Context()
 	// A panic unwinding through the stock RoundTrip (a caller's trace hook
@@ -437,15 +434,13 @@ func (t *Transport) send(req *http.Request, gen *generation) (*http.Response, er
 		c.given.Store(true) // out without the token: nothing to give back
 	}
 	// The token goes back on every exit, a panic unwinding through the stock
-	// RoundTrip included; the call below returns it as early as before.
+	// RoundTrip included.
 	defer c.finish()
 	rctx := ctx
 	if !held || t.stalled.Load() || dialHooks(httptrace.ContextClientTrace(ctx)) {
-		// The wait bound (K28d): a request that may wait for a connection
-		// behind a dial held in a caller's hook gets a context the bound can
-		// end. The body of its response ends that context, so it does not
-		// outlive the call among its parent's children; every other exit
-		// ends it in release.
+		// The wait bound (see the package doc). The body of the response
+		// ends the derived context, so it does not outlive the call among
+		// its parent's children; every other exit ends it in release.
 		var cancel context.CancelCauseFunc
 		rctx, cancel = context.WithCancelCause(ctx)
 		c.bound = &waitState{cancel: cancel}
@@ -471,8 +466,8 @@ func (t *Transport) send(req *http.Request, gen *generation) (*http.Response, er
 	}
 	if t.mode == HTTP2Only && resp.ProtoMajor != 2 {
 		// Reached only where no handshake check could apply (an IP-literal
-		// API host or a ServerName override behind a proxy, K16): the request
-		// was sent.
+		// API host or a ServerName override behind a proxy): the request was
+		// sent.
 		_ = resp.Body.Close()
 		t.log.WarnContext(ctx, "h2: response not HTTP/2", "proto", resp.Proto)
 		return nil, &NotNegotiatedError{Detail: "the response is " + resp.Proto}
@@ -487,7 +482,7 @@ func (t *Transport) send(req *http.Request, gen *generation) (*http.Response, er
 // dialHooks reports whether trace has a hook that runs in a new
 // connection's dial phase (DNS, connect or TLS handshake), where a hook
 // that blocks holds the connection permit (MaxConnsPerHost 1) and, under
-// the stock transport, the request's wait for it (K28d).
+// the stock transport, the request's wait for it.
 func dialHooks(trace *httptrace.ClientTrace) bool {
 	return trace != nil && (trace.DNSStart != nil || trace.DNSDone != nil || trace.ConnectStart != nil ||
 		trace.ConnectDone != nil || trace.TLSHandshakeStart != nil || trace.TLSHandshakeDone != nil)
@@ -514,10 +509,10 @@ func (b *boundBody) Close() error {
 // or the context's cause when the context ended first. A holder keeps the
 // token until its HEADERS are written, or under FirstHold until its response
 // headers or the hold bound, unless a caller's trace hook blocks before
-// either (risk K28d): so a waiter that has waited the hold bound goes out
-// without the token, counted in TokenExpiries, as a waiter at the gate falls
-// through when its bound ends (K19, ruling R85). Only a waiter pays for the
-// timer; a free token is taken in send without one.
+// either: so a waiter that has waited the hold bound goes out without the
+// token, counted in TokenExpiries, as a waiter at the gate falls through
+// when its bound ends. Only a waiter pays for the timer; a free token is
+// taken in send without one.
 func (t *Transport) waitToken(ctx context.Context) (bool, error) {
 	t.tokenWaits.Add(1)
 	tm := time.NewTimer(t.holdBound)
@@ -541,10 +536,8 @@ func (t *Transport) waitToken(ctx context.Context) (bool, error) {
 // the context of the request its response carries: the request's own with
 // the hooks' trace, which answers callKey with the call, so that the Proxy
 // func NewTransport installs (observeProxy) can mark the request it chose a
-// proxy for, and [Proxied] can read the mark from the response (ruling
-// D-W6-secfix-header-scope). It costs no context of its own: the call is
-// allocated anyway, and holds the traced context in place of the plain one
-// it held before, so its size is unchanged.
+// proxy for, and [Proxied] can read the mark from the response. It costs no
+// context of its own: the call is allocated anyway.
 type call struct {
 	context.Context // the request's context with trace installed; see Value
 
@@ -558,10 +551,10 @@ type call struct {
 	// marked is the connection this request, a stock replay, marked
 	// unsettled; its own response clears the mark (responded).
 	marked atomic.Pointer[net.Conn]
-	// bound is the wait bound's state (K28d) when send gave the request a
-	// context the bound can end, nil otherwise. It is set before RoundTrip
-	// and never changes. Held apart, it leaves the call's size, and so the
-	// cost of a request without the bound, as it was.
+	// bound is the wait bound's state when send gave the request a context
+	// the bound can end, nil otherwise. It is set before RoundTrip and never
+	// changes. Held behind a pointer, it keeps the call small for a request
+	// without the bound (TestCallSize).
 	bound *waitState
 }
 
@@ -658,10 +651,10 @@ func (c *call) expire() {
 
 // responded clears the unsettled mark this request set, if a holder has not
 // taken it: the replay's response came over the connection, so the client
-// has read the connection's SETTINGS and a later holder need not wait
-// (review W2.2A MINOR 4, R72b). A mark left to a later holder would make it
-// pay a hold for nothing, and one on a dead connection would keep the
-// connection referenced and the marks' fast path off.
+// has read the connection's SETTINGS and a later holder need not wait. A
+// mark left to a later holder would make it pay a hold for nothing, and one
+// on a dead connection would keep the connection referenced and the marks'
+// fast path off.
 func (c *call) responded() {
 	if conn := c.marked.Load(); conn != nil {
 		c.t.takeUnsettled(*conn)
@@ -707,10 +700,8 @@ func (c *call) getConn(string) {
 // replay (GOAWAY, REFUSED_STREAM: the transport retries inside RoundTrip,
 // internal/http2/transport.go:417-446). On a new connection it cannot hold,
 // and until the client reads that connection's SETTINGS it assumes 100
-// streams (:57, :624), so the callers queued for the token could exceed
-// the server's limit (K21c). The connection is marked unsettled, and the
-// next token holder there keeps the token until its response headers,
-// under the same bound (R69).
+// streams (:57, :624), so it marks the connection unsettled for the next
+// token holder there (see the package doc).
 func (c *call) gotConn(info httptrace.GotConnInfo) {
 	t := c.t
 	if b := c.bound; b != nil && b.waiting.CompareAndSwap(true, false) {

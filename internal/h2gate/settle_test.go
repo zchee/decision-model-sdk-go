@@ -88,8 +88,8 @@ func holder(t *testing.T, tr *Transport, conn net.Conn) bool {
 	return held
 }
 
-// TestSettleHold drives the K21c hooks (R69) with fake GotConn sequences: a
-// connection a stock replay opened after giving the token back is marked
+// TestSettleHold drives the replay marks' hooks with fake GotConn sequences:
+// a connection a stock replay opened after giving the token back is marked
 // unsettled, and the next token holder there keeps the token until its
 // response headers, once; a connection without a mark is unaffected.
 func TestSettleHold(t *testing.T) {

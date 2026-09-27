@@ -47,7 +47,7 @@ const (
 	// dial and handshake: new HTTP/1.1 connections are dialled one at a
 	// time, and a burst that needs n of them pays about n dial-and-handshake
 	// latencies (8 calls at a 50 ms dial: 366 ms against 160 ms for the
-	// stock transport, review W2.2A; on loopback the cost is a few ms).
+	// stock transport; on loopback the cost is a few ms).
 	HTTPAuto
 )
 
@@ -74,8 +74,7 @@ func connectTimeout(cfg Config) time.Duration {
 	return cfg.ConnectTimeout
 }
 
-// The stock transport's settings that [NewTransport] fixes (port plan section
-// 6.3).
+// The stock transport's settings that [NewTransport] fixes.
 const (
 	sendPingTimeout = 30 * time.Second
 	pingTimeout     = 15 * time.Second
@@ -113,9 +112,8 @@ type Config struct {
 	// failed; nil renders err.Error(). The text is written by code the
 	// transport does not control (a caller's dialer, a proxy, net/http) and
 	// may repeat a credential of req's header, so the root package scrubs
-	// it here (ruling R84). It runs only for an event the Logger keeps:
-	// never with a nil Logger, nor when the Logger's Enabled method leaves
-	// DEBUG out.
+	// it here. It runs only for an event the Logger keeps: never with a nil
+	// Logger, nor when the Logger's Enabled method leaves DEBUG out.
 	ErrorText func(req *http.Request, err error) string
 
 	// The fields below configure the transport NewTransport builds. Wrap
@@ -139,9 +137,8 @@ type Config struct {
 	// request sent on an HTTP/2 connection the stock transport holds, and
 	// never for a waiter at the gate, which shares its leader's dial. The
 	// root package records the proxy's credential there for its scrub
-	// instead of asking Proxy again (review W6.2 MIN-4, P6 critic m-2). It
-	// runs on the goroutine of RoundTrip, and must be safe for concurrent
-	// use.
+	// instead of asking Proxy again. It runs on the goroutine of RoundTrip,
+	// and must be safe for concurrent use.
 	OnProxy func(proxy *url.URL)
 	// DialContext dials TCP connections; nil uses a net.Dialer. Either way
 	// the dial is bounded by ConnectTimeout.
@@ -188,7 +185,7 @@ const (
 	// scopePostCheck checks no handshake: a proxy may apply and the API
 	// host's effective SNI is empty (an IP literal) or overridden by the TLS
 	// configuration's ServerName, so the hops cannot be told apart; only the
-	// response's ProtoMajor is checked (K16).
+	// response's ProtoMajor is checked.
 	scopePostCheck
 )
 
@@ -248,7 +245,7 @@ func protocols(mode Mode, scheme string) *http.Protocols {
 	return &p
 }
 
-// strictHTTP2 returns the HTTP/2 settings of section 6.3.
+// strictHTTP2 returns the HTTP/2 settings NewTransport fixes.
 func strictHTTP2() *http.HTTP2Config {
 	return &http.HTTP2Config{
 		StrictMaxConcurrentRequests: true,
@@ -289,10 +286,10 @@ func hostnameInSNI(name string) string {
 // applies to both hops (transport.go:1783-1786).
 func eff(serverName, host string) string { return hostnameInSNI(cmp.Or(serverName, host)) }
 
-// proxyMayApply is the build-time proxy decision of section 6.3: with Proxy
-// nil or http.ProxyFromEnvironment it is process-constant (the environment is
-// read once, transport.go:1032-1042), so it is decided now for the API URL;
-// any other func may return a proxy for any request.
+// proxyMayApply decides at build whether a proxy may apply: with Proxy nil
+// or http.ProxyFromEnvironment the answer is process-constant (the
+// environment is read once, transport.go:1032-1042), so it is decided now
+// for the API URL; any other func may return a proxy for any request.
 func proxyMayApply(proxy func(*http.Request) (*url.URL, error), api *url.URL) (bool, error) {
 	switch {
 	case proxy == nil:
@@ -327,7 +324,7 @@ func scopeFor(mode Mode, tg target, mayProxy bool, serverName string) alpnScope 
 // VerifyConnection runs after the protocol is negotiated and before any
 // application byte, in TLS 1.2 and 1.3 (handshake_client.go:588-589,
 // :1198-1199; handshake_client_tls13.go:599-600); ConnectionState's
-// HandshakeComplete is always false there (R20), so it is not read.
+// HandshakeComplete is always false there, so it is not read.
 func alpnCheck(scope alpnScope, want string, next func(tls.ConnectionState) error) func(tls.ConnectionState) error {
 	return func(cs tls.ConnectionState) error {
 		if next != nil {
@@ -368,30 +365,19 @@ func waitBound(connect, handshake time.Duration, mayProxy bool) time.Duration {
 }
 
 // dialGrace is how long, past the connect timeout, boundedDial waits for a
-// dial whose context the timeout has ended before it abandons the dial. A
-// dialer that honours its context, as net.Dialer does, answers within it
-// with its own error, such as the *net.OpError of a host that does not
-// answer, which the transport returns as it is and neither counts nor logs;
-// only a dial still running then, which a caller's DNS or connect hook
-// holds, is abandoned (review W6.6 MINOR 1, ruling D-W6.6-dialbound-grace).
-// Without it the bound raced the dialer's own timeout, which fires at the
-// same instant, and won most of the time. 100 ms is far above the time a
-// dialer takes to see its deadline and small next to the connect timeout,
-// 10 s by default.
+// dial whose context the timeout has ended before it abandons the dial (the
+// dial bound of the package doc). Without it the bound would race the
+// dialer's own timeout, which fires at the same instant. 100 ms is far
+// above the time a dialer takes to see its deadline and small next to the
+// connect timeout, 10 s by default.
 const dialGrace = 100 * time.Millisecond
 
 // boundedDial bounds dial by timeout, as net.Dialer.Timeout does, and runs
-// it in its own goroutine, so that a dial that has not returned when the
-// bound ends still ends for the transport: a caller's DNS or connect trace
-// hook runs inside dial and can block it past its context (risk K28d).
-// When timeout ends dial's context, the transport waits dialGrace more for
-// dial's own answer, which a dialer that honours its context gives. A dial
-// still running then fails with a timeout, which frees the connection
-// permit (MaxConnsPerHost 1) for the next dial, and the transport abandons
-// the goroutine rather than stopping it: dial's context has ended, so the
-// dialer returns as soon as the hook does, and the goroutine closes a
-// connection the dialer returns after it was abandoned. A dial that
-// net/http cancels ends at once, with the context's error.
+// it in its own goroutine: the dial bound of the package doc. When timeout
+// ends dial's context, it waits dialGrace more for dial's own answer; a dial
+// still running then fails with a boundError, and the goroutine, abandoned,
+// closes a connection dial returns later. A dial that net/http cancels ends
+// at once, with the context's error.
 func (t *Transport) boundedDial(dial func(context.Context, string, string) (net.Conn, error), timeout time.Duration) func(context.Context, string, string) (net.Conn, error) {
 	type dialed struct {
 		conn net.Conn
@@ -438,8 +424,8 @@ func (t *Transport) boundedDial(dial func(context.Context, string, string) (net.
 	}
 }
 
-// NewTransport builds the SDK's default transport for cfg (section 6.3): the
-// stock *http.Transport with the mode's Protocols, MaxConnsPerHost 1 under
+// NewTransport builds the SDK's default transport for cfg: the stock
+// *http.Transport with the mode's Protocols, MaxConnsPerHost 1 under
 // HTTP2Only (0 under HTTPAuto), strict HTTP/2 stream accounting with a 30 s
 // ping and a 15 s ping timeout, a 90 s idle timeout, ConnectTimeout as the
 // dial timeout and TLSHandshakeTimeout, cfg's proxy, and a TLS configuration
@@ -476,7 +462,7 @@ func NewTransport(cfg Config) (*Transport, error) {
 		TLSHandshakeTimeout: connect,
 		Proxy:               observeProxy(cfg.Proxy, cfg.OnProxy),
 		TLSClientConfig:     tlsConfig,
-		// A proxy's refusal of the CONNECT is a proxy failure (K16).
+		// A proxy's refusal of the CONNECT is a proxy failure.
 		OnProxyConnectResponse: refusedConnect,
 		DisableCompression:     cfg.DisableCompression,
 	}
@@ -578,8 +564,8 @@ func Wrap(base *http.Transport, cfg Config) (*Transport, error) {
 	h := tr.HTTP2
 	// Strict stream accounting keeps one connection per host (non-strict,
 	// a full connection leaves the per-host count and the transport dials
-	// more: 21 connections in F1-c) and is what the token serialises, so
-	// HTTP2Only forces it whatever base set (R71). Under HTTPAuto it is set
+	// more) and is what the token serialises, so HTTP2Only forces it
+	// whatever base set. Under HTTPAuto it is set
 	// only on an empty config: the stock first-use setup, which Clone runs
 	// on base, stores an empty one there (http2.go:288-290). HTTP2Config
 	// holds a func field and is not comparable.
@@ -647,7 +633,7 @@ type handshaker interface {
 // thinDialTLS wraps a caller's TLS dialer with the h2 check for the API
 // address apiAddr. The customDialTLS path never arms TLSHandshakeTimeout
 // (transport.go:1886-1918 against :1794), so bound is what keeps a TLS-silent
-// peer from holding the single connection permit (K19). A caller dialer that
+// peer from holding the single connection permit. A caller dialer that
 // ignores its context is not bounded by it.
 func thinDialTLS(dial func(context.Context, string, string) (net.Conn, error), apiAddr string, bound time.Duration) func(context.Context, string, string) (net.Conn, error) {
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {

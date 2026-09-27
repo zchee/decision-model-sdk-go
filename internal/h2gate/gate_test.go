@@ -29,24 +29,24 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
-// The AC-P4 constants (docs/perf/frozen-budgets.md, R29c).
+// The constants of the fan-out budget (docs/perf/frozen-budgets.md).
 const (
 	fanN      = 64                    // the cold fan-out width
 	fanReps   = 10                    // bursts per run, each on a fresh server and transport
 	fanGuard  = 5 * time.Second       // the handler's hold guard
-	leadDelay = 20 * time.Millisecond // the leader's response delay (R29c: at least 5 ms)
+	leadDelay = 20 * time.Millisecond // the leader's response delay (at least 5 ms)
 	f1Calls   = 200                   // the 200-vs-8 case
 	f1Limit   = 8                     // its MAX_CONCURRENT_STREAMS
 	f1Service = 10 * time.Millisecond // its handler service time
 	f1Timeout = 2 * time.Second       // its per-call deadline
 )
 
-// checkOrdering checks one cold burst against AC-P4's ordering clause as
-// frozen (G2, R29 (4), R29c) and returns the leader's index and the problems
-// found: (a) the first request the handler saw is the leader's; (b) the
-// client had the leader's first response byte before any other call wrote
-// its HEADERS (client-side traces); (c) the guard released nothing; (d)
-// every request arrived on connection 0; and every call returned 200.
+// checkOrdering checks one cold burst against the fan-out budget's ordering
+// clause and returns the leader's index and the problems found: (a) the first
+// request the handler saw is the leader's; (b) the client had the leader's
+// first response byte before any other call wrote its HEADERS (client-side
+// traces); (c) the guard released nothing; (d) every request arrived on
+// connection 0; and every call returned 200.
 func checkOrdering(b *barrier, srv *testsupport.LoopbackServer, cold []result) (int, []string) {
 	var problems []string
 	leader := -1
@@ -72,7 +72,7 @@ func checkOrdering(b *barrier, srv *testsupport.LoopbackServer, cold []result) (
 	}
 	// (b) reads the order of the client-side events by traceSeq: on a coarse
 	// clock (Windows) a waiter's HEADERS and the leader's first response byte
-	// can carry the same time although one follows the other (K29).
+	// can carry the same time although one follows the other.
 	answered := cold[leader].FirstByteSeq
 	if answered == 0 {
 		problems = append(problems, "(b) the leader's first response byte was never traced")
@@ -96,14 +96,14 @@ func checkOrdering(b *barrier, srv *testsupport.LoopbackServer, cold []result) (
 	return leader, problems
 }
 
-// TestFanOut asserts AC-P4 (NF4) as frozen under option (iv-b): a cold burst
-// of 64 calls opens 1 connection, the leader's request is answered first
-// (after 20 ms) and every other request is then on the wire, on that
-// connection, before any other response; a warm burst opens none; 200 calls
-// against MAX_CONCURRENT_STREAMS 8 all succeed within their 2 s deadline on
-// 1 connection. Each case runs 10 times on a fresh server and transport.
-// Waiter latency is logged, not asserted. The negative control (the plain
-// token, which fails the ordering) is TestRecordFanOut's, not asserted here.
+// TestFanOut asserts the fan-out budget: a cold burst of 64 calls opens 1
+// connection, the leader's request is answered first (after 20 ms) and every
+// other request is then on the wire, on that connection, before any other
+// response; a warm burst opens none; 200 calls against MAX_CONCURRENT_STREAMS
+// 8 all succeed within their 2 s deadline on 1 connection. Each case runs 10
+// times on a fresh server and transport. Waiter latency is logged, not
+// asserted. The negative control (the plain token, which fails the ordering)
+// is TestRecordFanOut's, not asserted here.
 func TestFanOut(t *testing.T) {
 	t.Run("success: cold 64 on 1 connection with the leader answered first; warm 64 on none", func(t *testing.T) {
 		var waiterWire, warmWire, answerGaps, leadGaps []time.Duration
@@ -185,8 +185,8 @@ func TestFanOut(t *testing.T) {
 			maxActive = max(maxActive, srv.MaxActiveStreams())
 			refused += srv.OverLimit()
 		}
-		// The refused-stream count is recorded, not asserted: the loaded (M)
-		// runs of W0.4 saw 1 and 2 with no missed deadline.
+		// The refused-stream count is recorded, not asserted: a loaded runner
+		// refuses a stream or two without missing a deadline.
 		record(t, "case", "200vs8", "reps", fanReps, "deadline_ms", ms(f1Timeout), "service_ms", ms(f1Service),
 			"wall_p50_ms", ms(pct(walls, 0.5)), "wall_max_ms", ms(pct(walls, 1)),
 			"max_active_streams", maxActive, "refused_streams_total", refused)
@@ -321,11 +321,11 @@ func TestLeaderVanish(t *testing.T) {
 	})
 }
 
-// TestWaiterFallThrough covers the two bounds that keep the gate from
-// wedging the client (K19, R29 (3)): the FirstHold bound, after which the
-// token is given back while the first response is still outstanding, and
-// the gate's wait bound, after which a waiter calls the transport itself.
-// Both leave every call on one connection.
+// TestWaiterFallThrough covers the two bounds that keep the gate from wedging
+// the client: the FirstHold bound, after which the token is given back while
+// the first response is still outstanding, and the gate's wait bound, after
+// which a waiter calls the transport itself. Both leave every call on one
+// connection.
 func TestWaiterFallThrough(t *testing.T) {
 	t.Run("success: a hung first response holds the waiters for the hold bound only", func(t *testing.T) {
 		const connect = 250 * time.Millisecond // hold bound = connect + handshake = 500 ms
@@ -407,13 +407,13 @@ func TestWaiterFallThrough(t *testing.T) {
 		// The Transport arms the bound in its WroteHeaders hook, which runs
 		// before the test's; the gap is measured on the clock, so it allows
 		// coarseClock. That every waiter returned before the leader is read
-		// by traceSeq (K29).
+		// by traceSeq.
 		if minGap < tr.holdBound-coarseClock || lastWaiterSeq >= l.DoneSeq {
 			t.Errorf("first waiter HEADERS %v after the leader's (want at least the %v bound); last waiter done at %v, leader done at %v",
 				minGap, tr.holdBound, lastWaiterDone.Sub(l.Start), l.Done.Sub(l.Start))
 		}
 		// No waiter fell through: they were released at the leader's
-		// GotConn, not by the wait bound (review W2.2A NIT 10).
+		// GotConn, not by the wait bound.
 		if st.FirstHolds != 1 || st.HoldExpiries != 1 || st.FallThroughs != 0 {
 			t.Errorf("stats %+v, want 1 FirstHold ended by the bound and no fall-through", st)
 		}
@@ -446,8 +446,8 @@ func TestWaiterFallThrough(t *testing.T) {
 // TestTLSSilentPeer points the transport at a listener that accepts TCP and
 // never answers TLS: the leader's handshake fails after the connect timeout
 // (TLSHandshakeTimeout), the leader and every waiter get a fresh
-// *DialError{Timeout: true} around the same cause (R19), the gate is cold,
-// and the listener saw one connection.
+// *DialError{Timeout: true} around the same cause, the gate is cold, and
+// the listener saw one connection.
 func TestTLSSilentPeer(t *testing.T) {
 	const connect = 500 * time.Millisecond
 	l := testsupport.NewSilentListener(t)

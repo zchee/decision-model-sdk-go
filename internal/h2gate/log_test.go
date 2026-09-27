@@ -45,11 +45,10 @@ func debugEvents(logs *testsupport.LogRecorder, key map[string]string) []string 
 	return out
 }
 
-// TestLogEvents checks the transport's DEBUG events (section 6.3
-// observability): one "h2: dial" per new connection, "h2: gate release"
-// with the waiters it released, "h2: gate error" with the reason of a
-// failed or vanished leader, and "h2: redial error" for a dial that fails
-// after the gate is warm.
+// TestLogEvents checks the transport's DEBUG events: one "h2: dial" per new
+// connection, "h2: gate release" with the waiters it released, "h2: gate
+// error" with the reason of a failed or vanished leader, and "h2: redial
+// error" for a dial that fails after the gate is warm.
 func TestLogEvents(t *testing.T) {
 	attrs := map[string]string{"h2: dial": "h2", "h2: gate error": "reason", "h2: redial error": "reason"}
 
@@ -141,13 +140,12 @@ func errorEvents(logs *testsupport.LogRecorder) []string {
 	return out
 }
 
-// TestLogErrorText checks Config.ErrorText (ruling R84): the DEBUG events
-// that print an error, "h2: gate error" for a leader's failed dial and "h2:
-// redial error" for a dial that fails after the gate is warm, print what
-// ErrorText renders for the request that failed, or err.Error() without
-// one; and a logger that leaves DEBUG out (its Enabled method says so, or
-// there is no logger) never has the error rendered, so a scrub costs
-// nothing at INFO.
+// TestLogErrorText checks Config.ErrorText: the DEBUG events that print an
+// error, "h2: gate error" for a leader's failed dial and "h2: redial error"
+// for a dial that fails after the gate is warm, print what ErrorText renders
+// for the request that failed, or err.Error() without one; and a logger that
+// leaves DEBUG out (its Enabled method says so, or there is no logger) never
+// has the error rendered, so a scrub costs nothing at INFO.
 func TestLogErrorText(t *testing.T) {
 	// The dial's text is a caller dialer's, which may repeat a credential:
 	// the default prints it as it is, escapes included.

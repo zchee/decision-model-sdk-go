@@ -29,10 +29,10 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
-// The recovery tests pin what the stock transport does after GotConn (S-T3,
-// S-T4): the gate is warm and plays no part, re-dials are the stock pool's,
-// and a failure after GotConn is never a *DialError. They are part of the
-// gotip canary (K5): a change in the stock behaviour fails them.
+// The recovery tests pin what the stock transport does after GotConn: the
+// gate is warm and plays no part, re-dials are the stock pool's, and a
+// failure after GotConn is never a *DialError. They are part of the gotip
+// canary: a change in the stock behaviour fails them.
 
 // seenOn maps each path to where the server saw it: c<conn>/<action>, with
 // /dropped when the stream ended before its response.
@@ -66,26 +66,25 @@ func heldStreams(t *testing.T, srv *testsupport.LoopbackServer, n int) *testsupp
 	return srv.LiveH2Conns()[0]
 }
 
-// closedGracefully waits until the server has closed connection 0 and
-// checks its close records (rulings K33, K34), by sequence number (K29):
-// the socket closed only after the reader read the end of the client's
-// side (0 < PeerClosedSeq < ClosedSeq), so nothing the client sent was
-// left unread for the kernel to answer with a reset; the server's
-// close_notify and FIN came before the client's close (CloseWriteSeq <
-// PeerClosedSeq) unless clientFirst allows the client to close first; and
-// a GOAWAY frame, exactly when goAway is set, came before both.
-// clientFirst is for a GOAWAY that a goroutine other than the connection's
-// reader sends, or that leaves streams to finish: net/http closes a
-// connection that GOAWAY ended as soon as its last stream is done, which
-// can precede the server's close (a clean end: the server read to the
+// closedGracefully waits until the server has closed connection 0 and checks
+// its close records by sequence number: the socket closed only after the
+// reader read the end of the client's side (0 < PeerClosedSeq < ClosedSeq),
+// so nothing the client sent was left unread for the kernel to answer with a
+// reset; the server's close_notify and FIN came before the client's close
+// (CloseWriteSeq < PeerClosedSeq) unless clientFirst allows the client to
+// close first; and a GOAWAY frame, exactly when goAway is set, came before
+// both. clientFirst is for a GOAWAY that a goroutine other than the
+// connection's reader sends, or that leaves streams to finish: net/http
+// closes a connection that GOAWAY ended as soon as its last stream is done,
+// which can precede the server's close (a clean end: the server read to the
 // client's EOF). The server closes first when its reader sends the GOAWAY
-// (ActionGoAway: the reader records nothing of the client until its close
-// has begun) or when CloseConns ends a call in flight. A server that closes
-// the socket at once, or that writes after close_notify and closes on the
-// failure, leaves no PeerClosedSeq: on Windows the reset destroys the
-// frames the client has not read (the GOAWAY, so net/http cannot replay),
-// while Linux and macOS let the client read them first and pass every
-// client-side assertion, so these records are what a proof there sees.
+// (ActionGoAway: the reader records nothing of the client until its close has
+// begun) or when CloseConns ends a call in flight. A server that closes the
+// socket at once, or that writes after close_notify and closes on the
+// failure, leaves no PeerClosedSeq: on Windows the reset destroys the frames
+// the client has not read (the GOAWAY, so net/http cannot replay), while
+// Linux and macOS let the client read them first and pass every client-side
+// assertion, so these records are what a proof there sees.
 func closedGracefully(t *testing.T, srv *testsupport.LoopbackServer, goAway, clientFirst bool) {
 	t.Helper()
 	var ci testsupport.ConnInfo
@@ -106,10 +105,10 @@ func closedGracefully(t *testing.T, srv *testsupport.LoopbackServer, goAway, cli
 	t.Logf("connection 0 close records %+v", ci)
 }
 
-// TestGoAway covers GOAWAY on a warm connection (S-T3): streams above
-// LastStreamID are replayed by the stock transport inside their RoundTrip on
-// a second connection, a refused stream is retried on the same one, and a
-// POST without GetBody cannot be replayed.
+// TestGoAway covers GOAWAY on a warm connection: streams above LastStreamID
+// are replayed by the stock transport inside their RoundTrip on a second
+// connection, a refused stream is retried on the same one, and a POST without
+// GetBody cannot be replayed.
 func TestGoAway(t *testing.T) {
 	t.Run("success: GOAWAY below two of four in-flight GETs: two finish, two replay on a second connection", func(t *testing.T) {
 		release := make(chan struct{})
@@ -131,7 +130,7 @@ func TestGoAway(t *testing.T) {
 		close(release)
 		wg.Wait()
 		// A replay that marked the new connection cleared its mark when its
-		// response arrived (R72b); none may outlive the calls.
+		// response arrived; none may outlive the calls.
 		if n := tr.nUnsettled.Load(); n != 0 {
 			t.Errorf("%d unsettled marks left after every replay was answered, want 0", n)
 		}
@@ -218,10 +217,10 @@ func TestGoAway(t *testing.T) {
 	})
 }
 
-// TestConnClose ends the connection under an in-flight request (S-T3): a
-// clean close (close_notify, FIN) gives io.ErrUnexpectedEOF, a TCP reset
-// gives ECONNRESET; neither is retried or a *DialError, and the next request
-// dials a new connection without the gate.
+// TestConnClose ends the connection under an in-flight request: a clean close
+// (close_notify, FIN) gives io.ErrUnexpectedEOF, a TCP reset gives
+// ECONNRESET; neither is retried or a *DialError, and the next request dials
+// a new connection without the gate.
 func TestConnClose(t *testing.T) {
 	tests := map[string]struct {
 		end      func(*testsupport.LoopbackServer)
@@ -278,11 +277,11 @@ func TestConnClose(t *testing.T) {
 	}
 }
 
-// TestReplay pins the stock transport's own replay (S-T4): GOAWAY before the
-// request was processed gives one RoundTrip that returns 200 while the
-// server accepted two connections and saw the request twice (invisible to
-// any wrapper, so it is one SDK attempt); a failure after the body was
-// written is a connection error, never replayed.
+// TestReplay pins the stock transport's own replay: GOAWAY before the request
+// was processed gives one RoundTrip that returns 200 while the server
+// accepted two connections and saw the request twice (invisible to any
+// wrapper, so it is one SDK attempt); a failure after the body was written is
+// a connection error, never replayed.
 func TestReplay(t *testing.T) {
 	for name, post := range map[string]bool{"a GET": false, "a POST with GetBody": true} {
 		t.Run("success: GOAWAY before "+name+" was processed: one RoundTrip, 200, two connections", func(t *testing.T) {
@@ -317,7 +316,7 @@ func TestReplay(t *testing.T) {
 				t.Errorf("seen (-want +got):\n%s", diff)
 			}
 			// A POST's body follows its HEADERS onto connection 0 after the
-			// GOAWAY (ruling K34).
+			// GOAWAY.
 			closedGracefully(t, srv, true, false)
 			want := []string{""}
 			if post {

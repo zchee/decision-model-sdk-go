@@ -90,13 +90,13 @@ func unfinished(ctx context.Context, t *testing.T, network, addr string) (net.Co
 }
 
 // TestCallerDialTLSRefused covers the thin check Wrap puts around a caller's
-// TLS dialer under HTTP2Only (section 6.3 mechanism (2)): a connection that
-// negotiated HTTP/1.1, or that reports no TLS state, is closed with
-// ErrNotNegotiated before the transport writes a byte; a metering wrapper
-// that negotiated h2 is served as HTTP/2; a TLS-silent peer is refused after
-// the connect + handshake bound whether the dialer handshakes itself or
-// returns an unfinished handshake; another address passes unchecked; and a
-// transport that installed its own h2 is refused at build.
+// TLS dialer under HTTP2Only: a connection that negotiated HTTP/1.1, or that
+// reports no TLS state, is closed with ErrNotNegotiated before the transport
+// writes a byte; a metering wrapper that negotiated h2 is served as HTTP/2; a
+// TLS-silent peer is refused after the connect + handshake bound whether the
+// dialer handshakes itself or returns an unfinished handshake; another
+// address passes unchecked; and a transport that installed its own h2 is
+// refused at build.
 func TestCallerDialTLSRefused(t *testing.T) {
 	t.Run("error: an HTTP/1.1 connection is closed before any byte", func(t *testing.T) {
 		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{})
@@ -331,9 +331,9 @@ func TestWrap(t *testing.T) {
 	})
 
 	t.Run("success: a caller HTTP2Config with a ping timeout still runs strict: 200 vs 8 on 1 connection", func(t *testing.T) {
-		// R71: a non-empty caller HTTP2Config without the strict flag would
+		// A non-empty caller HTTP2Config without the strict flag would
 		// otherwise run non-strict, and a full connection would no longer
-		// bound the transport to one (F1-c).
+		// bound the transport to one.
 		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{MaxConcurrentStreams: f1Limit, Handler: serviceHandler(f1Service)})
 		const ping = 7 * time.Second
 		base := &http.Transport{TLSClientConfig: testsupport.ClientTLSConfig(t), HTTP2: &http.HTTP2Config{PingTimeout: ping}}
@@ -408,8 +408,8 @@ func TestWrap(t *testing.T) {
 	})
 }
 
-// TestNewTransport checks the default factory's build: the section 6.3
-// settings, the refusals, and the mode's protocols.
+// TestNewTransport checks the default factory's build: the settings it
+// fixes, the refusals, and the mode's protocols.
 func TestNewTransport(t *testing.T) {
 	t.Run("success: the section 6.3 settings", func(t *testing.T) {
 		pool := testsupport.RootCAs(t)

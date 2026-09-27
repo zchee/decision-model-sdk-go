@@ -172,29 +172,26 @@ func boundCause(err error) (*DialError, *boundError) {
 	return de, be
 }
 
-// TestDialPhaseBound pins the K28d bound (owner decision G11 (5)) on fake
-// time. The first call carries a trace whose DNS, connect or TLS handshake
-// hook blocks the dial of the transport's first connection, and no
-// deadline, as under the root package's WithNoTimeout; the second, without
-// a hook and started 100 ms later, waits for the first at the gate.
+// TestDialPhaseBound pins the dial-phase bound on fake time. The first call
+// carries a trace whose DNS, connect or TLS handshake hook blocks the dial of
+// the transport's first connection, and no deadline, as under the root
+// package's WithNoTimeout; the second, without a hook and started 100 ms
+// later, waits for the first at the gate.
 //
-// NewTransport's dialer runs the DNS and connect hooks inside the dial,
-// which it abandons at the connect timeout plus its grace (dialGrace): both
-// calls fail with a timeout then, while the hook still blocks, the dial's
+// NewTransport's dialer runs the DNS and connect hooks inside the dial, which
+// it abandons at the connect timeout plus its grace (dialGrace): both calls
+// fail with a timeout then, while the hook still blocks, the dial's
 // connection permit is free, and a third call dials anew and succeeds. The
-// TLS hooks run in
-// net/http's handshake, after the dial, and a caller's dialer under Wrap is
-// not the transport's to end: there the first call's wait for a connection
-// ends at the wait bound (the connect timeout plus the TLS handshake
-// timeout), the transport is marked stalled, and the third call, which
-// waits behind the dial the hook holds, ends at its own wait bound. Once
-// the hook returns, a fourth call succeeds and clears the mark.
+// TLS hooks run in net/http's handshake, after the dial, and a caller's
+// dialer under Wrap is not the transport's to end: there the first call's
+// wait for a connection ends at the wait bound (the connect timeout plus the
+// TLS handshake timeout), the transport is marked stalled, and the third
+// call, which waits behind the dial the hook holds, ends at its own wait
+// bound. Once the hook returns, a fourth call succeeds and clears the mark.
 //
-// The instants are the configured bounds, not measurements (STANDING 9): a
-// transport that dials without its own goroutine, never bounds the wait,
-// or doubles either bound leaves a call waiting at the instant the test
-// reads it. It runs in CI's -race test step (go test -race with coverage)
-// on ubuntu-26.04, xcode-27 and windows-2025.
+// The instants are the configured bounds, not measurements: a transport
+// that dials without its own goroutine, never bounds the wait, or doubles
+// either bound leaves a call waiting at the instant the test reads it.
 func TestDialPhaseBound(t *testing.T) {
 	const (
 		connect = time.Second
@@ -325,7 +322,7 @@ func TestDialPhaseBound(t *testing.T) {
 					}
 					if sok {
 						sde, _ := boundCause(s.Err)
-						if sde == nil || sde == de || sde.Err != de.Err || s.Done.Sub(start) != tt.want.first { //nolint:errorlint // identity: a waiter shares the leader's cause (R19)
+						if sde == nil || sde == de || sde.Err != de.Err || s.Done.Sub(start) != tt.want.first { //nolint:errorlint // identity: a waiter shares the leader's cause
 							t.Errorf("second call: %v after %v; want a fresh DialError around the first call's cause at the same instant", s.Err, s.Done.Sub(start))
 						}
 					}
@@ -390,25 +387,23 @@ func TestDialPhaseBound(t *testing.T) {
 	}
 }
 
-// TestDialPhaseBoundWarm pins the K28d bound on a warm transport whose
+// TestDialPhaseBoundWarm pins the dial-phase bound on a warm transport whose
 // connection has gone, on fake time: the next call re-dials, holding the
 // header-write token, and its trace's TLS handshake hook (NewTransport) or
 // connect hook (a caller's dialer under Wrap) blocks the dial. A proxy func
 // that answers "no proxy" makes the wait bound (connect + handshake + the
 // one-minute CONNECT limit + handshake, 63 s) longer than the hold bound
 // (connect + handshake, 2 s), so a call made 100 ms later leaves the token
-// wait at the hold bound without the token, before the first call's wait
-// ends and the transport is marked stalled; it then waits behind the held
-// dial under a wait bound of its own and fails 63 s after it went out. The
-// first call fails at its wait bound, and a call made after both fails at
-// its own, marked stalled. Once the hook returns, the transport dials again
-// and a call succeeds.
+// wait at the hold bound without the token, before the first call's wait ends
+// and the transport is marked stalled; it then waits behind the held dial
+// under a wait bound of its own and fails 63 s after it went out. The first
+// call fails at its wait bound, and a call made after both fails at its own,
+// marked stalled. Once the hook returns, the transport dials again and a call
+// succeeds.
 //
-// The instants are the configured bounds (STANDING 9): a transport that
-// sent the call out without the token unbounded waits for the hook, and so
-// does one that bounds neither a re-dialing call nor the stalled one. It
-// runs in CI's -race test step (go test -race with coverage) on
-// ubuntu-26.04, xcode-27 and windows-2025.
+// The instants are the configured bounds: a transport that sent the call
+// out without the token unbounded waits for the hook, and so does one that
+// bounds neither a re-dialing call nor the stalled one.
 func TestDialPhaseBoundWarm(t *testing.T) {
 	const (
 		connect = time.Second
@@ -549,11 +544,9 @@ func fakeGetTLS(t *testing.T, tr http.RoundTripper, path string) result {
 // retry that looks for a connection again re-arms it for the whole bound,
 // at whose end the transport is marked stalled and then the call's context
 // ends with the bound's error: the mark comes first, so the token the call
-// gives back on its way out reaches the next holder after it (review W6.6
-// NIT 2). The instants are the bound (STANDING 9): a timer that GotConn
-// leaves running, or that the retry arms for longer, fails it. It runs in
-// CI's -race test step (go test -race with coverage) on ubuntu-26.04,
-// xcode-27 and windows-2025.
+// gives back on its way out reaches the next holder after it. The instants
+// are the bound: a timer that GotConn leaves running, or that the retry arms
+// for longer, fails it.
 func TestWaitBoundRearms(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		srv := testsupport.NewFakeH2CServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
@@ -604,8 +597,7 @@ func TestWaitBoundRearms(t *testing.T) {
 // bound can end, which its response's body keeps alive while it is read and
 // ends when it is closed, so the context does not outlive the call; a call
 // without such a hook goes through untouched, its response body the stock
-// transport's own. It runs in CI's -race test step (go test -race with
-// coverage) on ubuntu-26.04, xcode-27 and windows-2025.
+// transport's own.
 func TestWaitBoundContext(t *testing.T) {
 	tests := map[string]struct {
 		trace   *httptrace.ClientTrace
@@ -651,20 +643,17 @@ func TestWaitBoundContext(t *testing.T) {
 	}
 }
 
-// TestBoundedDialGrace pins the dial bound's grace on fake time (review
-// W6.6 MINOR 1, ruling D-W6.6-dialbound-grace). A dialer that honours its
-// context answers when the connect timeout ends it, or up to the end of the
-// grace after, with its own error, which the transport returns as it is,
-// counting and logging nothing. A dial a hook holds past the grace is
-// abandoned then, with the bound's timeout, counted and logged, and the
-// connection it returns once the hook lets it go is closed, twenty held
-// dials in a row: a hand-over that raced the abandon would leave it open
-// about half the time (review W6.6 NIT 1). A held dial that net/http
-// cancels before its deadline ends at the cancel, with the context's error,
-// neither waiting the grace nor counting an expiry, and its late connection
-// is closed too (review W6.6 R-NIT 2). The instants are the configured
-// bounds and the cancel's (STANDING 9). It runs in CI's -race test step (go
-// test -race with coverage) on ubuntu-26.04, xcode-27 and windows-2025.
+// TestBoundedDialGrace pins the dial bound's grace on fake time. A dialer
+// that honours its context answers when the connect timeout ends it, or up to
+// the end of the grace after, with its own error, which the transport returns
+// as it is, counting and logging nothing. A dial a hook holds past the grace
+// is abandoned then, with the bound's timeout, counted and logged, and the
+// connection it returns once the hook lets it go is closed, twenty held dials
+// in a row: a hand-over that raced the abandon would leave it open about half
+// the time. A held dial that net/http cancels before its deadline ends at the
+// cancel, with the context's error, neither waiting the grace nor counting an
+// expiry, and its late connection is closed too. The instants are the
+// configured bounds and the cancel's.
 func TestBoundedDialGrace(t *testing.T) {
 	const timeout = time.Second
 	tests := map[string]struct {
@@ -742,25 +731,21 @@ type lateConn struct {
 	closed atomic.Bool
 }
 
-// Close records the close.
 func (c *lateConn) Close() error {
 	c.closed.Store(true)
 	return nil
 }
 
 // TestDialUnreachableHostKeepsItsError pins, on the real network, that a
-// connect timeout to a host that does not answer is the dialer's own
-// (review W6.6 MINOR 1, ruling D-W6.6-dialbound-grace). A request without a
-// trace to 192.0.2.1, in TEST-NET-1 (RFC 5737), which no host answers,
-// through NewTransport with a 20 ms connect timeout fails with net.Dialer's
-// *net.OpError in its chain, not the bound's error, and neither counts a
-// dial expiry nor logs "h2: dial bound expired". Before the grace the bound
-// won the race with the dialer's own timer in 598 of 600 dials on (M) and
-// 543 of 600 on (L) (ledger W6.6-04). A network that refuses the address at
-// once answers with a *net.OpError too; the test logs how long the request
-// took, so a run with -v, or a failure, shows which of the two the host met:
-// about the connect timeout for a host that does not answer, less for a
-// refusal (review W6.6 R-NOTE B).
+// connect timeout to a host that does not answer is the dialer's own. A
+// request without a trace to 192.0.2.1, in TEST-NET-1 (RFC 5737), which no
+// host answers, through NewTransport with a 20 ms connect timeout fails with
+// net.Dialer's *net.OpError in its chain, not the bound's error, and neither
+// counts a dial expiry nor logs "h2: dial bound expired". A network that
+// refuses the address at once answers with a *net.OpError too; the test logs
+// how long the request took, so a run with -v, or a failure, shows which of
+// the two the host met: about the connect timeout for a host that does not
+// answer, less for a refusal.
 func TestDialUnreachableHostKeepsItsError(t *testing.T) {
 	logs := testsupport.NewLogRecorder(slog.LevelDebug)
 	tr, err := NewTransport(Config{
@@ -800,13 +785,10 @@ func TestDialUnreachableHostKeepsItsError(t *testing.T) {
 // allocated from (size classes 14 to 16 are 192, 208 and 224 bytes,
 // GOROOT/src/internal/runtime/gc/sizeclasses.go). A field that takes it
 // past 192 bytes costs every request the next class, the untraced
-// included: the first cut of the K28d wait bound held its state in the
-// call, which made it 216 bytes, allocated from the 224-byte class, 32
-// bytes more a request (W6.6; ledger W6.6-01). That state lives behind
-// call.bound, allocated only for a request the bound applies to. On 32-bit
-// the call is smaller still. reflect gives the size unsafe.Sizeof would:
-// the module keeps unsafe out of internal/h2gate, tests included
-// (TestSeamImports, NF6).
+// included, which is why the wait bound's state lives behind call.bound,
+// allocated only for a request the bound applies to. On 32-bit the call is
+// smaller still. reflect gives the size unsafe.Sizeof would: the module
+// keeps unsafe out of internal/h2gate, tests included (TestSeamImports).
 func TestCallSize(t *testing.T) {
 	const sizeClass = 192
 	got := reflect.TypeFor[call]().Size()

@@ -39,9 +39,9 @@ import (
 
 // The proxy tests use example.com as the API host (the test certificate
 // covers it): the proxy's Routes resolve it to the loopback server, and the
-// client dials only the proxy, a loopback literal. The proxy is selected
-// with http.ProxyURL, because ProxyFromEnvironment never proxies loopback
-// targets; the two hops then have different effective SNI (plan W2.2).
+// client dials only the proxy, a loopback literal. The proxy is selected with
+// http.ProxyURL, because ProxyFromEnvironment never proxies loopback targets;
+// the two hops then have different effective SNI.
 
 // exampleURL is the API URL of the proxy tests.
 const exampleURL = "https://example.com"
@@ -94,10 +94,10 @@ func proxiedTransport(t *testing.T, api string, p *testsupport.Proxy, h *hops) *
 	})
 }
 
-// TestProxy covers CONNECT through a plain HTTP/1.1 proxy (S-T5) and the
-// build-time ALPN scope of section 6.3: a caller Proxy func may apply a
-// proxy, so the check recognises the API hop by its SNI; the handshake the
-// check sees through a plain proxy is the API hop's alone.
+// TestProxy covers CONNECT through a plain HTTP/1.1 proxy and the build-time
+// ALPN scope: a caller Proxy func may apply a proxy, so the check recognises
+// the API hop by its SNI; the handshake the check sees through a plain proxy
+// is the API hop's alone.
 func TestProxy(t *testing.T) {
 	t.Run("success: a 16-way cold burst through a plain proxy: 1 CONNECT, 1 connection, the API hop checked", func(t *testing.T) {
 		const n = 16
@@ -165,7 +165,7 @@ func TestProxy(t *testing.T) {
 		// OnProxyConnectResponse (refusedConnect) wraps the whole status
 		// line. A caller TLS dialer's unfinished handshake with an https
 		// proxy, which customDialTLS completes and returns unwrapped
-		// (:1905-1910), stays an API-hop failure; W7 records it under K16.
+		// (:1905-1910), stays an API-hop failure.
 		p := testsupport.NewProxy(t, testsupport.ProxyPlain, testsupport.Routes{})
 		var h hops
 		tr := proxiedTransport(t, exampleURL, p, &h)
@@ -184,7 +184,7 @@ func TestProxy(t *testing.T) {
 
 	t.Run("error: a caller transport's refused CONNECT stays as the stock transport returns it (K16)", func(t *testing.T) {
 		// Wrap never installs refusedConnect: a caller's transport keeps its
-		// own OnProxyConnectResponse, or none (ruling R81).
+		// own OnProxyConnectResponse, or none.
 		p := testsupport.NewProxy(t, testsupport.ProxyPlain, testsupport.Routes{})
 		var called atomic.Int64
 		base := &http.Transport{
@@ -320,11 +320,11 @@ func TestProxy(t *testing.T) {
 	})
 }
 
-// TestProxyTLS covers CONNECT through a TLS proxy (S-T5b): the proxy hop's
-// handshake is not checked and the API hop's is; a strict proxy's alert 120
-// is a proxy failure (proxyconnect first, R20); a proxy that negotiates h2
-// on its own hop is recorded (K16); and where the hops cannot be told apart
-// by SNI the response's protocol is checked after the fact.
+// TestProxyTLS covers CONNECT through a TLS proxy: the proxy hop's handshake
+// is not checked and the API hop's is; a strict proxy's alert 120 is a proxy
+// failure (proxyconnect first); a proxy that negotiates h2 on its own hop is
+// recorded; and where the hops cannot be told apart by SNI the response's
+// protocol is checked after the fact.
 func TestProxyTLS(t *testing.T) {
 	t.Run("success: lenient proxy: the proxy hop is not checked, the API hop is", func(t *testing.T) {
 		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(answerExample)})
@@ -362,7 +362,8 @@ func TestProxyTLS(t *testing.T) {
 		// The stock transport writes an HTTP/1.1 CONNECT whatever the proxy
 		// hop negotiated (transport.go:1985); this proxy reads HTTP/1.1 in
 		// any case, so the call succeeds. A proxy that speaks h2 after
-		// negotiating it would fail: not supported (Appendix B).
+		// negotiating it would fail: not supported (docs/deviations.md, "the
+		// ALPN check applies to the API hop").
 		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(answerExample)})
 		p := testsupport.NewProxy(t, testsupport.ProxyTLSOfferH2, testsupport.Routes{"example.com:443": srv.Addr()})
 		var h hops
@@ -379,7 +380,7 @@ func TestProxyTLS(t *testing.T) {
 	// The ambiguous cases: behind a proxy, an IP-literal API host has an
 	// empty effective SNI like the IP-literal proxy, and a ServerName
 	// override applies to both hops. No handshake is checked; the response's
-	// ProtoMajor is (K16): an HTTP/1.1 answer is refused with
+	// ProtoMajor is: an HTTP/1.1 answer is refused with
 	// ErrNotNegotiated and a WARN, after the request was sent once.
 	postChecks := map[string]struct {
 		api, route, serverName string
@@ -455,13 +456,13 @@ func TestProxyTLS(t *testing.T) {
 	})
 }
 
-// TestRefusedConnectScrubsProxyCredential pins review W6.2 MIN-4 at its
-// source: a proxy's refusal whose status line repeats the credential the
-// CONNECT carried becomes an error that holds "***" in its place, the
-// Basic token net/http sends for the proxy URL's userinfo as well as the
-// password, raw and as the URL escapes it. The token is replaced before the
-// password, which a password that is part of its own token shows; a URL
-// without userinfo, and a 200, change nothing.
+// TestRefusedConnectScrubsProxyCredential pins, at its source, that a proxy's
+// refusal whose status line repeats the credential the CONNECT carried
+// becomes an error that holds "***" in its place, the Basic token net/http
+// sends for the proxy URL's userinfo as well as the password, raw and as the
+// URL escapes it. The token is replaced before the password, which a password
+// that is part of its own token shows; a URL without userinfo, and a 200,
+// change nothing.
 func TestRefusedConnectScrubsProxyCredential(t *testing.T) {
 	token := func(user, password string) string {
 		return base64.StdEncoding.EncodeToString([]byte(user + ":" + password))
@@ -597,15 +598,14 @@ func (s *seenProxies) got() []*url.URL {
 	return slices.Clone(s.urls)
 }
 
-// TestOnProxySeesEveryConsult pins Config.OnProxy (ruling D-W6-secfix-m2):
-// the hook of a transport NewTransport built gets the very URL the Proxy
-// func returned, each time the stock transport asks the func and only then.
-// The request that dials asks it; requests sent on the HTTP/2 connection it
-// made ask nothing; a cold burst's waiters, released by their leader's
-// failed dial, ask nothing either, so one consult covers the burst and the
-// hook is the one place its proxy's credential can be recorded; a func that
-// fails reports nothing. A rotating func shows each consult reported in
-// order.
+// TestOnProxySeesEveryConsult pins Config.OnProxy: the hook of a transport
+// NewTransport built gets the very URL the Proxy func returned, each time the
+// stock transport asks the func and only then. The request that dials asks
+// it; requests sent on the HTTP/2 connection it made ask nothing; a cold
+// burst's waiters, released by their leader's failed dial, ask nothing
+// either, so one consult covers the burst and the hook is the one place its
+// proxy's credential can be recorded; a func that fails reports nothing. A
+// rotating func shows each consult reported in order.
 func TestOnProxySeesEveryConsult(t *testing.T) {
 	counting := func(calls *atomic.Int64, pick func(n int64) *url.URL) func(*http.Request) (*url.URL, error) {
 		return func(*http.Request) (*url.URL, error) { return pick(calls.Add(1)), nil }
@@ -699,13 +699,12 @@ func TestOnProxySeesEveryConsult(t *testing.T) {
 	})
 }
 
-// TestProxied pins Proxied (ruling D-W6-secfix-header-scope): a response
-// reports true when the Proxy func of the transport NewTransport built
-// returned a proxy for its request, which the root package's response
-// header redactor needs to know; false for a request sent on the HTTP/2
-// connection the transport held (the func is not asked), for a func that
-// returned no proxy, for a transport with no func, and for a response
-// without a request or with a request no call made.
+// TestProxied pins Proxied: a response reports true when the Proxy func of
+// the transport NewTransport built returned a proxy for its request, which
+// the root package's response header redactor needs to know; false for a
+// request sent on the HTTP/2 connection the transport held (the func is not
+// asked), for a func that returned no proxy, for a transport with no func,
+// and for a response without a request or with a request no call made.
 func TestProxied(t *testing.T) {
 	// proxied sends a GET through tr and returns Proxied of its response.
 	proxied := func(t *testing.T, tr *Transport, rawURL string) bool {

@@ -28,18 +28,17 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
-// TestTokenWaitBound pins ruling R85 (risk K28d) on fake time: the first
-// call's trace hook blocks in GotConn, so the call keeps the header-write
-// token. When the hook blocks past the hold bound (20 s by default), the
-// other calls wait for the token that long and then go out without it, on
-// the one connection, while the hook still blocks; Stats.TokenExpiries
-// counts them. When it returns within the bound, they wait until it returns
-// and no wait expires. A waiter whose own deadline comes before the bound
-// ends on it, with its context's error, and no wait expires either. Every
-// other call carries a deadline two minutes out, so without the bound the
-// waiters end on that deadline instead. The order is read by traceSeq. It
-// runs in CI's -race test step (go test -race with coverage) on
-// ubuntu-26.04, xcode-27 and windows-2025.
+// TestTokenWaitBound pins the bound on a wait for the token, on fake time:
+// the first call's trace hook blocks in GotConn, so the call keeps the
+// header-write token. When the hook blocks past the hold bound (20 s by
+// default), the other calls wait for the token that long and then go out
+// without it, on the one connection, while the hook still blocks;
+// Stats.TokenExpiries counts them. When it returns within the bound, they
+// wait until it returns and no wait expires. A waiter whose own deadline
+// comes before the bound ends on it, with its context's error, and no wait
+// expires either. Every other call carries a deadline two minutes out, so
+// without the bound the waiters end on that deadline instead. The order is
+// read by traceSeq.
 func TestTokenWaitBound(t *testing.T) {
 	const waiters = 2
 	tests := map[string]struct {
@@ -121,14 +120,12 @@ func TestTokenWaitBound(t *testing.T) {
 	}
 }
 
-// TestTokenFreeTakesNoWait pins send's fast path (review SLICE3 MINOR 2): a
-// call that finds the header-write token free takes it at once and never
-// enters waitToken, so it arms no timer; only a call that finds the token
-// held waits there. Eight uncontended calls on one transport enter
-// waitToken 0 times; a call made while another call's trace hook holds the
-// token enters it once, the control that the count counts. It runs in CI's
-// -race test step (go test -race with coverage) on ubuntu-26.04, xcode-27
-// and windows-2025.
+// TestTokenFreeTakesNoWait pins send's fast path: a call that finds the
+// header-write token free takes it at once and never enters waitToken, so it
+// arms no timer; only a call that finds the token held waits there. Eight
+// uncontended calls on one transport enter waitToken 0 times; a call made
+// while another call's trace hook holds the token enters it once, the control
+// that the count counts.
 func TestTokenFreeTakesNoWait(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		srv := testsupport.NewFakeH2CServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))

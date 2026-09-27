@@ -37,14 +37,14 @@ import (
 )
 
 // Every loopback test here builds its own server and transport, so a test
-// that fails leaves nothing behind for the next. Timing assertions carry the
-// margins the W0.4 spike measured (docs/perf/ledger.md, W0.4 and W0.4b).
+// that fails leaves nothing behind for the next. Timing assertions carry
+// measured margins (docs/perf/ledger.md).
 //
 // Assertions about the order of client-side events read sequence numbers,
 // not timestamps: on Windows time.Now advances in ticks (about 15.6 ms at the
 // default timer resolution), so two events in a known order can carry the
-// same time (K29, R75). A lower bound on an elapsed time allows one such
-// tick, coarseClock.
+// same time. A lower bound on an elapsed time allows one such tick,
+// coarseClock.
 
 // coarseClock is the error a measured duration may carry on a host whose
 // clock and timers advance in ticks of up to about 15.6 ms (Windows).
@@ -253,10 +253,9 @@ func record(tb testing.TB, kv ...any) {
 }
 
 // errClass is the class the root package's classification gives a transport
-// error after W2.5 (section 6.3 and plan W2.5): a *DialError keeps its own
-// flags; otherwise a timeout (a context deadline or a net.Error whose
-// Timeout() is true) is "timeout" and anything else is "connection".
-// ErrNotNegotiated is "config". Nil is "ok".
+// error: a *DialError keeps its own flags; otherwise a timeout (a context
+// deadline or a net.Error whose Timeout() is true) is "timeout" and anything
+// else is "connection". ErrNotNegotiated is "config". Nil is "ok".
 func errClass(err error) string {
 	var de *DialError
 	var ne net.Error
@@ -312,11 +311,11 @@ func isConnReset(err error) bool {
 	return errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.Errno(10054))
 }
 
-// barrier is the AC-P4 handler: it holds every response of a key (the first
-// path segment) until n requests of that key have arrived, or until guard
-// expires (the ordering then fails). When free names a key, the first
-// request of that key is answered after freeDelay instead (R29c: the leader
-// is answered first; the handler cannot single the leader out otherwise).
+// barrier is TestFanOut's handler: it holds every response of a key (the
+// first path segment) until n requests of that key have arrived, or until
+// guard expires (the ordering then fails). When free names a key, the first
+// request of that key is answered after freeDelay instead (the leader is
+// answered first; the handler cannot single the leader out otherwise).
 type barrier struct {
 	n         int
 	guard     time.Duration

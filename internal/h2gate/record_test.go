@@ -28,11 +28,11 @@ import (
 // assert nothing and take seconds, so they stay out of the default run.
 const recordEnv = "H2GATE_RECORD"
 
-// TestRecordFanOut records, for docs/perf/ledger.md (section W2.2), what
-// AC-P4 leaves unasserted: K22, the latency cost of FirstHold on a cold
-// burst at 1 s of service time, against the plain token (option (iv-a)) as
-// the comparison; and the negative control of the ordering clause, the
-// plain token at the frozen 20 ms leader delay, which must fail it.
+// TestRecordFanOut records, for docs/perf/ledger.md, what TestFanOut leaves
+// unasserted: the latency cost of FirstHold on a cold burst at 1 s of
+// service time, against the plain token as the comparison; and the negative
+// control of the ordering clause, the plain token at the frozen 20 ms leader
+// delay, which must fail it.
 // Set H2GATE_RECORD=1 to run it.
 func TestRecordFanOut(t *testing.T) {
 	if os.Getenv(recordEnv) != "1" {

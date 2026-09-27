@@ -104,7 +104,7 @@ func TestNoALPN(t *testing.T) {
 
 // TestALPNHTTP1Only points HTTP2Only at a server that offers http/1.1 alone:
 // the server refuses the client's h2-only offer with TLS alert 120, which
-// the classification maps to not-negotiated (R20), before any request.
+// the classification maps to not-negotiated, before any request.
 func TestALPNHTTP1Only(t *testing.T) {
 	srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{ALPN: testsupport.ALPNHTTP1Only})
 	tr := newTestTransport(t, Config{APIURL: mustURL(t, srv.URL())})
@@ -122,7 +122,7 @@ func TestALPNHTTP1Only(t *testing.T) {
 	}
 	// The server records its side of the refused handshake after its
 	// Handshake returns, which can be after the client read the alert and
-	// returned (K29): wait for the record instead of reading it at once.
+	// returned: wait for the record instead of reading it at once.
 	waitUntil(t, "the server's record of the refused handshake", func() bool {
 		conns := srv.Conns()
 		return len(conns) == 1 && conns[0].HandshakeErr != ""
@@ -133,7 +133,7 @@ func TestALPNHTTP1Only(t *testing.T) {
 }
 
 // TestClassify checks the classification of error chains the transport
-// produces (S-T3, S-T4, S-T5b), built by hand so every branch is pinned.
+// produces, built by hand so every branch is pinned.
 func TestClassify(t *testing.T) {
 	alert := &net.OpError{Op: "remote error", Err: errors.New(alertNoApplicationProtocol)}
 	timeout := &net.OpError{Op: "dial", Net: "tcp", Err: os.ErrDeadlineExceeded}

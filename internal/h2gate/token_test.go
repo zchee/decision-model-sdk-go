@@ -28,7 +28,6 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
-// The K21b constants.
 const (
 	k21Limit    = 8               // the MAX_CONCURRENT_STREAMS the server advertises
 	k21Queued   = 64              // callers queued behind the 8 in flight
@@ -49,13 +48,11 @@ const (
 // its HEADERS, and overshoot, how far past its deadline the latest of 8
 // calls that the server never answers returns (each with a 50 ms deadline).
 // The scenario's bounds scale with them: a runner that is slow or loaded
-// now is as slow in the control as in the scenario (critic-p2 n-2; the rule
-// of ruling K30 for durations measured on a host). The control runs no
+// now is as slow in the control as in the scenario. The control runs no
 // h2gate code, so a delay the Transport adds, to every call or only to one
 // that timed out, lengthens the scenario's calls and leaves the bounds
-// alone (D-W6.1-n2-major: calibrated through the Transport under test, a
-// 300 ms linger on a timed-out call raised the slack to about 1.2 s and
-// passed).
+// alone: calibrating through the Transport under test would let a delay it
+// adds raise its own slack.
 func k21Control(t *testing.T) (probe, overshoot time.Duration) {
 	t.Helper()
 	release := make(chan struct{})
@@ -106,7 +103,8 @@ func k21Handler(release <-chan struct{}) http.Handler {
 	})
 }
 
-// k21Burst sends n calls to prefix/i, each with the K21b deadline.
+// k21Burst sends n calls to prefix/i, each with the per-call deadline,
+// k21Deadline.
 func k21Burst(t *testing.T, tr *Transport, base, prefix string, n int) []result {
 	t.Helper()
 	return fanOut(n, func(i int) result {
@@ -117,19 +115,17 @@ func k21Burst(t *testing.T, tr *Transport, base, prefix string, n int) []result 
 }
 
 // TestTokenResidualK21 drives the stock transport's own retries, which write
-// their HEADERS without the token (K21b: GOAWAY replays, REFUSED_STREAM
-// retries, a limit lowered mid-connection), with 8 streams in flight and 64
-// callers queued against a limit of 8. Whatever the retries do, the design
-// must stay bounded: no call returns later than its deadline + 100 ms, every
-// error is a timeout or a connection error, the token is free once every
-// RoundTrip has returned (a probe's HEADERS leave within 50 ms, and before
-// the probe's own deadline, ordered by traceSeq: a token still held, leaked
-// or kept by a hold timer, whose bound is 20 s, would keep it past that
-// deadline), the client opens at most 2 connections, and a fresh burst of
-// 200 calls against the limit of 8 afterwards succeeds 200/200. The 100 ms
-// and 50 ms grow on a host the control (k21Control, which runs no h2gate
-// code) finds slow now. It runs in CI's -race test step (go test -race with
-// coverage) on ubuntu-26.04, xcode-27 and windows-2025.
+// their HEADERS without the token (GOAWAY replays, REFUSED_STREAM retries, a
+// limit lowered mid-connection), with 8 streams in flight and 64 callers
+// queued against a limit of 8. Whatever the retries do, the design must stay
+// bounded: no call returns later than its deadline + 100 ms, every error is a
+// timeout or a connection error, the token is free once every RoundTrip has
+// returned (a probe's HEADERS leave within 50 ms, and before the probe's own
+// deadline, ordered by traceSeq: a token still held, leaked or kept by a hold
+// timer, whose bound is 20 s, would keep it past that deadline), the client
+// opens at most 2 connections, and a fresh burst of 200 calls against the
+// limit of 8 afterwards succeeds 200/200. The 100 ms and 50 ms grow on a host
+// the control (k21Control, which runs no h2gate code) finds slow now.
 func TestTokenResidualK21(t *testing.T) {
 	type scenario struct {
 		prefix string // the burst's paths

@@ -27,9 +27,8 @@ import (
 // TestAutoNoSerialisation covers HTTPAuto: no ALPN refusal, no connection
 // cap, and no serialisation onto one connection when the server speaks
 // HTTP/1.1 (the token is given back at GotConn on an HTTP/1.1 connection and
-// FirstHold never engages there, K21b); the gate stays, and the redundant
-// dials of its release window against an h2 server are counted, not
-// asserted (K20, accepted).
+// FirstHold never engages there); the gate stays, and the redundant dials of
+// its release window against an h2 server are counted, not asserted.
 func TestAutoNoSerialisation(t *testing.T) {
 	for name, mode := range map[string]testsupport.ALPN{"no ALPN": testsupport.ALPNNone, "http/1.1 only": testsupport.ALPNHTTP1Only} {
 		t.Run("success: a server with "+name+" answers over HTTP/1.1", func(t *testing.T) {
@@ -69,9 +68,9 @@ func TestAutoNoSerialisation(t *testing.T) {
 		const reps = 10
 		var accepts, carrying []int
 		for range reps {
-			// The reworded AC-P4 handler (the first request answered at
-			// once): holding every response until all 64 arrive would
-			// deadlock against FirstHold until the guard, by design (G2).
+			// TestFanOut's handler with the first request answered at once:
+			// holding every response until all 64 arrive would deadlock
+			// against FirstHold until the guard, by design.
 			b := newBarrier(fanN)
 			b.free = "cold"
 			srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: b})

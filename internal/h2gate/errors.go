@@ -54,15 +54,14 @@ const alertNoApplicationProtocol = "tls: no application protocol"
 // DialError is a failure before the transport handed the request a
 // connection: the dial, the proxy, the TLS handshake or the ALPN check. Each
 // caller gets its own value; a waiter released by a failed leader shares the
-// leader's Err (R19).
+// leader's Err.
 //
 // The flags classify Err by walking its whole chain. Both can be set, as for
 // a TLS handshake with a proxy that timed out; the root package maps that
-// case to a timeout on the proxy hop (R67 Q3). A failure to negotiate
-// HTTP/2 on the API hop is reported through errors.Is(err,
-// [ErrNotNegotiated]), never together with Proxy: Proxy wins over
-// not-negotiated (R20), so a proxy that refused h2 with alert 120 is a proxy
-// failure.
+// case to a timeout on the proxy hop. A failure to negotiate HTTP/2 on the
+// API hop is reported through errors.Is(err, [ErrNotNegotiated]), never
+// together with Proxy: Proxy wins over not-negotiated, so a proxy that
+// refused h2 with alert 120 is a proxy failure.
 type DialError struct {
 	// Proxy is set when a *net.OpError with Op "proxyconnect" is in the
 	// chain: the dial to the proxy or its TLS handshake failed
@@ -113,11 +112,11 @@ func (e *DialError) clone() *DialError {
 }
 
 // boundError is the cause of a dial, or of a request's wait for a
-// connection, that one of the transport's bounds ended (risk K28d): a
-// caller's trace hook that blocks a new connection's DNS, connect or TLS
-// phase keeps either from ending on its own. It is a net.Error whose
-// Timeout is true, so classify reports a timeout, and errors.Is matches it
-// to context.DeadlineExceeded, as it matches a dial's own timeout.
+// connection, that one of the transport's bounds ended: a caller's trace
+// hook that blocks a new connection's DNS, connect or TLS phase keeps either
+// from ending on its own. It is a net.Error whose Timeout is true, so
+// classify reports a timeout, and errors.Is matches it to
+// context.DeadlineExceeded, as it matches a dial's own timeout.
 type boundError struct {
 	// what names what did not end: "dial tcp example.com:443" or "the wait
 	// for a connection".
@@ -147,14 +146,13 @@ func (*boundError) Is(target error) bool {
 // dial to the proxy takes, so that classify reports a proxy failure. The
 // stock transport returns the status text alone, unwrapped
 // (GOROOT/src/net/http/transport.go:2036-2043), which cannot be told from a
-// failure past the proxy (K16). Wrap leaves a caller's transport its own
-// hook.
+// failure past the proxy. Wrap leaves a caller's transport its own hook.
 //
 // The status line is the proxy's text, and a proxy may repeat in it the
 // credential the CONNECT carried, which the request's own credentials do
 // not name: the error holds it with that credential replaced by "***"
-// (scrubProxyCredential; review W6.2 MIN-4), so neither the SDK's error nor
-// a record that prints it shows the proxy's password.
+// (scrubProxyCredential), so neither the SDK's error nor a record that
+// prints it shows the proxy's password.
 func refusedConnect(_ context.Context, proxyURL *url.URL, _ *http.Request, resp *http.Response) error {
 	if resp.StatusCode == http.StatusOK {
 		return nil
@@ -204,7 +202,7 @@ const redacted = "***"
 
 // classify builds the DialError for err. It walks the whole chain, because
 // errors.As stops at the first match and a proxyconnect *net.OpError wraps
-// the remote-error *net.OpError of an alert 120 from a strict proxy (R20).
+// the remote-error *net.OpError of an alert 120 from a strict proxy.
 func classify(err error) *DialError {
 	d := &DialError{Err: err}
 	notNegotiated := false
