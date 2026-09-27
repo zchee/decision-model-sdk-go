@@ -95,8 +95,9 @@ func Header(name, value string) CallOption {
 // does not know: the call then fails with an [*APIError] whose StatusCode
 // is 400 and whose ErrorType is "api_usage_error" ("Invalid request."), so
 // ExtraBody is for a member the API accepts. The Python SDK's
-// extra_body={"beam_width": 4} (tests/typing/valid.py) is a type check that
-// never runs, not a request the API takes (live pass W6.4).
+// extra_body={"beam_width": 4, "nullable": None} (tests/typing/valid.py)
+// is a type check that never runs, not a request the API takes (live pass
+// W6.4).
 //
 // v may be any value JSON can hold, encoded as the call's state is: a
 // [RawJSON] is sent as it is after a check of its first byte, a [Content]
