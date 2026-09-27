@@ -120,6 +120,7 @@ jobs:
             echo "::error title=AC-P7 gate::no CodSpeed results file under \$RUNNER_TEMP"
             exit 1
           fi
+          call_prefix=internal/benchmark/call_test.go::BenchmarkCall::
           {
             echo "### AC-P7: \`BenchmarkCall/sdk\` against \`BenchmarkCall/naive\` (gate: sdk mean below naive mean)"
             echo
@@ -134,8 +135,8 @@ jobs:
             digest=$(tr ' ' '\n' <<<"$flags" | LC_ALL=C sort | tr '\n' ' ' | sha256sum | cut -c1-12)
             echo "- CPU: $(lscpu | sed -n 's/^Model name: *//p'), $(nproc) CPUs, AVX-512 $avx512, flags digest $digest"
             echo
-            jq -rs '
-              [.[].benchmarks[] | select(.uri | startswith("internal/benchmark/call_test.go::BenchmarkCall::"))
+            jq -rs --arg call "$call_prefix" '
+              [.[].benchmarks[] | select(.uri | startswith($call))
                 | {key: (.uri | split("::")[2]), value: .stats}] | from_entries as $c
               | def us($s): if $s == null then "–" else ($s | round / 1000 | tostring) end;
                 def ratio($a; $b; $f):
@@ -158,8 +159,8 @@ jobs:
           echo "::endgroup::"
           # The gate, on the one sdk row and the one naive row of the results:
           # the first word of the verdict is pass, fail or error.
-          verdict=$(jq -rs '
-            [.[].benchmarks[] | select(.uri | startswith("internal/benchmark/call_test.go::BenchmarkCall::"))
+          verdict=$(jq -rs --arg call "$call_prefix" '
+            [.[].benchmarks[] | select(.uri | startswith($call))
               | {row: (.uri | split("::")[2]), mean: .stats.mean_ns}] as $rows
             | [$rows[] | select(.row == "sdk") | .mean] as $s
             | [$rows[] | select(.row == "naive") | .mean] as $n

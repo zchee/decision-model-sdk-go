@@ -46,12 +46,6 @@ from pathlib import Path
 
 import yaml
 
-# The docstring's first line, kept apart from __doc__, which python -OO
-# strips.
-DESCRIPTION = (
-    "List every zero-count coverage block and require a reason for it (AC-Q2)."
-)
-
 HEADER = ("File", "Function", "Code", "Blocks", "Reason")
 
 _LOG = logging.getLogger("uncovered-lines")
@@ -394,7 +388,7 @@ def parse_doc(text: str, source: str = "doc") -> tuple[list[Row], list[str]]:
             continue
         i += 1
         while i < len(lines) and _TABLE_LINE.match(lines[i]):
-            row = _parse_row(_cells(lines[i]), f"{source}:{i + 1}", i + 1)
+            row = _parse_row(_cells(lines[i]), source, i + 1)
             if isinstance(row, str):
                 failures.append(row)
             else:
@@ -408,8 +402,9 @@ def parse_doc(text: str, source: str = "doc") -> tuple[list[Row], list[str]]:
     return rows, failures
 
 
-def _parse_row(cells: list[str], where: str, lineno: int) -> Row | str:
+def _parse_row(cells: list[str], source: str, lineno: int) -> Row | str:
     """Parse one row's cells, or return the failure."""
+    where = f"{source}:{lineno}"
     if len(cells) != len(HEADER):
         return f"{where}: {len(cells)} cells, want {len(HEADER)}"
     spans = [code_span(c) for c in cells[:3]]
@@ -467,7 +462,10 @@ def compare(keys: Keys, rows: list[Row], source: str = "doc") -> list[str]:
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     repo = Path(__file__).resolve().parents[2]
-    parser = argparse.ArgumentParser(description=DESCRIPTION)
+    parser = argparse.ArgumentParser(
+        description="List every zero-count coverage block and require a reason "
+        "for it (AC-Q2).",
+    )
     parser.add_argument(
         "--profile",
         required=True,

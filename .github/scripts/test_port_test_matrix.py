@@ -9,32 +9,20 @@ and types-PyYAML for the yaml import of uncovered-lines.py.
 
 from __future__ import annotations
 
-import importlib.util
 import logging
 import subprocess
 import sys
 import textwrap
 from collections.abc import Callable
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 
 import pytest
+from conftest import git, load_script
 
 SCRIPT = Path(__file__).with_name("port-test-matrix.py")
 
-
-def _load() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("port_test_matrix", SCRIPT)
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-ptm = _load()
+ptm = load_script(SCRIPT.name)
 
 UPSTREAM = [
     "tests/test_a.py::test_one",
@@ -846,25 +834,6 @@ class TestCheckRows:
         ]
 
 
-def _git(repo: Path, *args: str) -> None:
-    subprocess.run(
-        [
-            "git",
-            "-C",
-            str(repo),
-            "-c",
-            "user.name=t",
-            "-c",
-            "user.email=t@example.com",
-            "-c",
-            "commit.gpgsign=false",
-            *args,
-        ],
-        check=True,
-        capture_output=True,
-    )
-
-
 def _upstream_repo(root: Path) -> Path:
     """Commit a three-test upstream checkout under ``root``; return its path."""
     upstream = root / "upstream"
@@ -874,9 +843,9 @@ def _upstream_repo(root: Path) -> Path:
     )
     (upstream / "tests" / "test_b.py").write_text("def test_three():\n    pass\n")
     (upstream / "README.md").write_text("upstream\n")
-    _git(upstream, "init", "-q")
-    _git(upstream, "add", ".")
-    _git(upstream, "commit", "-q", "-m", "fixture")
+    git(upstream, "init", "-q")
+    git(upstream, "add", ".")
+    git(upstream, "commit", "-q", "-m", "fixture")
     return upstream
 
 
@@ -940,28 +909,32 @@ GO_LIST_OK = "TestOne\nTestTwo\nTestThree\nok  \texample.com/m\t0.1s\n"
 STATUS_LINE = "\nRows by status: 0 deviation, 3 ported.\n"
 
 
+@pytest.fixture
+def upstream(tmp_path: Path) -> Path:
+    """Return a committed three-test upstream checkout."""
+    return _upstream_repo(tmp_path)
+
+
+@pytest.fixture
+def pinned(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pretend the fixture checkout sits at the pinned commit."""
+    monkeypatch.setattr(ptm, "upstream_head", lambda _: ptm.PINNED_COMMIT)
+    monkeypatch.setattr(ptm, "EXPECTED_TEST_COUNT", len(UPSTREAM))
+    _fake_go(monkeypatch, _fake_run(stdout=GO_LIST_OK))
+
+
+def _files(tmp_path: Path, *, matrix: str | None = None) -> list[str]:
+    """Write the name list and the matrix; return the flags that name them."""
+    names = tmp_path / "names.txt"
+    names.write_text("\n".join(UPSTREAM) + "\n")
+    path = tmp_path / "matrix.md"
+    path.write_text(
+        _full(PORTED_A, PORTED_B) + STATUS_LINE if matrix is None else matrix
+    )
+    return ["--names", str(names), "--matrix", str(path), "--repo", str(tmp_path)]
+
+
 class TestMain:
-    @pytest.fixture
-    def upstream(self, tmp_path: Path) -> Path:
-        return _upstream_repo(tmp_path)
-
-    @pytest.fixture
-    def pinned(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Pretend the fixture checkout sits at the pinned commit."""
-        monkeypatch.setattr(ptm, "upstream_head", lambda _: ptm.PINNED_COMMIT)
-        monkeypatch.setattr(ptm, "EXPECTED_TEST_COUNT", len(UPSTREAM))
-        _fake_go(monkeypatch, _fake_run(stdout=GO_LIST_OK))
-
-    @staticmethod
-    def _files(tmp_path: Path, *, matrix: str | None = None) -> list[str]:
-        names = tmp_path / "names.txt"
-        names.write_text("\n".join(UPSTREAM) + "\n")
-        path = tmp_path / "matrix.md"
-        path.write_text(
-            _full(PORTED_A, PORTED_B) + STATUS_LINE if matrix is None else matrix
-        )
-        return ["--names", str(names), "--matrix", str(path), "--repo", str(tmp_path)]
-
     def test_unpinned_checkout_stops_before_any_other_check(
         self,
         upstream: Path,
@@ -999,7 +972,7 @@ class TestMain:
         monkeypatch.setattr(ptm, "upstream_head", lambda _: ptm.PINNED_COMMIT)
         (upstream / "tests" / "test_b.py").write_text("def test_other():\n    pass\n")
 
-        code = ptm.main(["--upstream", str(upstream), *self._files(tmp_path)])
+        code = ptm.main(["--upstream", str(upstream), *_files(tmp_path)])
 
         assert code == 1
         assert caplog.messages == [
@@ -1015,7 +988,7 @@ class TestMain:
         capsys: pytest.CaptureFixture[str],
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        code = ptm.main(["--upstream", str(upstream), *self._files(tmp_path)])
+        code = ptm.main(["--upstream", str(upstream), *_files(tmp_path)])
 
         assert code == 0
         assert caplog.messages == []
@@ -1034,7 +1007,7 @@ class TestMain:
     ) -> None:
         monkeypatch.setattr(ptm, "EXPECTED_TEST_COUNT", 129)
 
-        code = ptm.main(["--upstream", str(upstream), *self._files(tmp_path)])
+        code = ptm.main(["--upstream", str(upstream), *_files(tmp_path)])
 
         assert code == 1
         assert capsys.readouterr().out == ""
@@ -1048,7 +1021,7 @@ class TestMain:
         self, upstream: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         out = tmp_path / "new" / "dir" / "names.txt"
-        args = self._files(tmp_path)
+        args = _files(tmp_path)
         args[1] = str(tmp_path / "absent.txt")  # --names is ignored with --write
 
         code = ptm.main(["--upstream", str(upstream), "--write", str(out), *args])
@@ -1061,7 +1034,7 @@ class TestMain:
     def test_unreadable_matrix_and_stale_names_fail_together(
         self, upstream: Path, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        args = self._files(tmp_path)
+        args = _files(tmp_path)
         (tmp_path / "names.txt").write_text("tests/test_a.py::test_one\n")
         args[3] = str(tmp_path / "absent.md")
 
@@ -1092,9 +1065,7 @@ class TestMain:
             _full(PLANNED_A, PLANNED_B) + "\nRows by status: 0 deviation, 0 ported.\n"
         )
 
-        code = ptm.main(
-            ["--upstream", str(upstream), *self._files(tmp_path, matrix=matrix)]
-        )
+        code = ptm.main(["--upstream", str(upstream), *_files(tmp_path, matrix=matrix)])
 
         assert code == 1
         assert caplog.messages[:2] == [
@@ -1136,7 +1107,7 @@ class TestMain:
         line: str,
         want: str,
     ) -> None:
-        args = self._files(tmp_path, matrix=_full(PORTED_A, PORTED_B) + line)
+        args = _files(tmp_path, matrix=_full(PORTED_A, PORTED_B) + line)
 
         code = ptm.main(["--upstream", str(upstream), *args])
 
@@ -1182,9 +1153,7 @@ class TestMain:
             + "\nRows by status: 0 deviation, 2 ported.\n"
         )
 
-        code = ptm.main(
-            ["--upstream", str(upstream), *self._files(tmp_path, matrix=matrix)]
-        )
+        code = ptm.main(["--upstream", str(upstream), *_files(tmp_path, matrix=matrix)])
 
         assert code == 1
         assert capsys.readouterr().out == ""
@@ -1364,7 +1333,7 @@ class TestDeviations:
             + "\nRows by status: 1 deviation, 2 ported.\n"
         )
         dev = tmp_path / "deviations.md"
-        files = TestMain._files(tmp_path, matrix=matrix)
+        files = _files(tmp_path, matrix=matrix)
 
         dev.write_text(_dev("| a | p | g | w | A1 |"))
         code = ptm.main(["--upstream", str(upstream), *files, "--deviations", str(dev)])
@@ -1393,16 +1362,6 @@ class TestDeviations:
         )
         assert code == 1
         assert caplog.messages[0].startswith(f"{tmp_path / 'no.md'}: cannot read (")
-
-    @pytest.fixture
-    def upstream(self, tmp_path: Path) -> Path:
-        return _upstream_repo(tmp_path)
-
-    @pytest.fixture
-    def pinned(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(ptm, "upstream_head", lambda _: ptm.PINNED_COMMIT)
-        monkeypatch.setattr(ptm, "EXPECTED_TEST_COUNT", len(UPSTREAM))
-        _fake_go(monkeypatch, _fake_run(stdout=GO_LIST_OK))
 
 
 RULING_TABLE = (
@@ -1850,7 +1809,7 @@ class TestAsBuilt:
             )
             + "\nRows by status: 1 deviation, 2 ported.\n"
         )
-        files = TestMain._files(tmp_path, matrix=matrix)
+        files = _files(tmp_path, matrix=matrix)
         dev = tmp_path / "deviations.md"
         dev.write_text(AS_BUILT_DEV)
         built = tmp_path / "as-built.md"
@@ -1890,17 +1849,11 @@ class TestAsBuilt:
         ]
 
     @pytest.fixture
-    def upstream(self, tmp_path: Path) -> Path:
-        return _upstream_repo(tmp_path)
-
-    @pytest.fixture
-    def pinned(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(ptm, "upstream_head", lambda _: ptm.PINNED_COMMIT)
-        monkeypatch.setattr(ptm, "EXPECTED_TEST_COUNT", len(UPSTREAM))
+    def pinned(self, pinned: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Extend the module's pinned fixture with the record's shape."""
         monkeypatch.setattr(ptm, "PLAN_PHASES", 1)
         monkeypatch.setattr(ptm, "APPENDIX_ROWS", len(GOOD_APPENDIX))
         monkeypatch.setattr(ptm, "APPENDIX_BOLD", 1)
-        _fake_go(monkeypatch, _fake_run(stdout=GO_LIST_OK))
 
 
 class TestRepositoryDeviations:

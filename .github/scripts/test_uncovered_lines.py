@@ -7,31 +7,18 @@ Type-check with ``uvx --with pytest --with types-PyYAML mypy --strict
 
 from __future__ import annotations
 
-import importlib.util
 import subprocess
 import sys
 import textwrap
 from pathlib import Path
-from types import ModuleType
 
 import pytest
+from conftest import load_script
 
 SCRIPT = Path(__file__).with_name("uncovered-lines.py")
 REPO = Path(__file__).resolve().parents[2]
 
-
-def _load() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("uncovered_lines", SCRIPT)
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    # dataclasses resolve the module's annotations through sys.modules.
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-ul = _load()
+ul = load_script(SCRIPT.name)
 
 MODULE = "example.com/m"
 
@@ -511,20 +498,6 @@ def test_committed_doc_parses() -> None:
     assert failures == []
     assert rows
     assert len({row.key for row in rows}) == len(rows)
-
-
-def test_help_works_without_docstrings() -> None:
-    # python -OO strips docstrings: the description must not come from one.
-    proc = subprocess.run(
-        [sys.executable, "-OO", str(SCRIPT), "--help"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert proc.returncode == 0, proc.stderr
-    assert ul.DESCRIPTION in " ".join(proc.stdout.split())
-    assert ul.__doc__ is not None
-    assert ul.__doc__.splitlines()[0] == ul.DESCRIPTION
 
 
 def test_script_fails_with_status_1_and_writes_only_stderr(tmp_path: Path) -> None:

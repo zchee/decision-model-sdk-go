@@ -7,49 +7,27 @@ Type-check with ``uvx --with pytest --with types-PyYAML mypy --strict
 
 from __future__ import annotations
 
-import importlib.util
-import subprocess
-import sys
 from pathlib import Path
-from types import ModuleType
 
 import pytest
+from conftest import git, load_script
 
 SCRIPT = Path(__file__).with_name("spikes-citations.py")
 REPO = Path(__file__).resolve().parents[2]
 
-
-def _load() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("spikes_citations", SCRIPT)
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-sc = _load()
-
-
-def _git(repo: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid",
-         "-c", "commit.gpgsign=false", *args],
-        capture_output=True, text=True, check=True,
-    ).stdout.strip()
+sc = load_script(SCRIPT.name)
 
 
 def _repo(root: Path, files: dict[str, str]) -> tuple[Path, str]:
     root.mkdir(parents=True, exist_ok=True)
     if not (root / ".git").exists():
-        _git(root, "init", "-q")
+        git(root, "init", "-q")
     for name, text in files.items():
         (root / name).parent.mkdir(parents=True, exist_ok=True)
         (root / name).write_text(text, encoding="utf-8")
-    _git(root, "add", "-A")
-    _git(root, "commit", "-q", "-m", "c")
-    return root, _git(root, "rev-parse", "HEAD")[:12]
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "c")
+    return root, git(root, "rev-parse", "HEAD")[:12]
 
 
 OLD = "abcdef1234567890abcdef1234567890abcdef12"
@@ -94,19 +72,22 @@ GOOD = [
 ]
 
 
-@pytest.fixture(autouse=True)
-def allowed(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest) -> None:
-    """The fixture's ALLOWED for tests whose files hold its two lines; none for the others."""
-    name = request.node.name
-    if name == "test_the_repository_passes_part1":
-        return
-    with_lines = name.startswith(("test_success", "test_part1", "test_main"))
-    monkeypatch.setattr(sc, "ALLOWED", ALLOWED if with_lines else frozenset())
+@pytest.fixture
+def allowed_lines(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Allow the two old-name lines, COMMAND_LINE and PROSE_LINE, and no other."""
+    monkeypatch.setattr(sc, "ALLOWED", ALLOWED)
+
+
+@pytest.fixture
+def no_allowed_lines(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Allow no old-name line, for a fixture repository that holds none."""
+    monkeypatch.setattr(sc, "ALLOWED", frozenset())
 
 
 TAIL = "\n" + COMMAND_LINE + "\n" + PROSE_LINE + "\n"
 
 
+@pytest.mark.usefixtures("allowed_lines")
 def test_success(tmp_path: Path, archive: tuple[Path, str, str]) -> None:
     arch, a, b = archive
     repo, _ = _repo(tmp_path / "co", {"docs/x.md": "\n".join(GOOD).format(a=a, b=b) + "\n"})
@@ -117,6 +98,7 @@ def test_success(tmp_path: Path, archive: tuple[Path, str, str]) -> None:
     assert sc.part2_archive(citations, sc.Clone(arch)) == []
 
 
+@pytest.mark.usefixtures("allowed_lines")
 @pytest.mark.parametrize(
     ("line", "want"),
     [
@@ -145,6 +127,7 @@ def test_part1_failures(tmp_path: Path, archive: tuple[Path, str, str], line: st
     assert failures[0].startswith(want.format(**subs))
 
 
+@pytest.mark.usefixtures("allowed_lines")
 def test_part1_allowed_lines_are_keyed_by_their_text(tmp_path: Path) -> None:
     """A line inserted above an allowed line moves nothing: 0 failures."""
     text = "a new first line\n\n" + COMMAND_LINE + "\n" + PROSE_LINE + "\n"
@@ -156,6 +139,7 @@ GONE = ("docs/x.md: an allowed line naming ./_spikes/s-d1/ R=_spikes/s-c1/run.sh
         "a quoted command keeps its bytes")
 
 
+@pytest.mark.usefixtures("allowed_lines")
 @pytest.mark.parametrize(
     ("text", "want"),
     [
@@ -188,6 +172,7 @@ def test_part1_old_name_places(tmp_path: Path, text: str, want: list[str]) -> No
         assert got.startswith(prefix), (got, prefix)
 
 
+@pytest.mark.usefixtures("allowed_lines")
 def test_part1_tracked_file_under_the_old_tree(tmp_path: Path) -> None:
     repo, _ = _repo(tmp_path / "co", {"_spikes/w1.2/a.txt": "x\n", "internal/spikes/w7/b.txt": "y\n",
                                       "docs/x.md": TAIL.lstrip("\n")})
@@ -197,6 +182,7 @@ def test_part1_tracked_file_under_the_old_tree(tmp_path: Path) -> None:
     ]
 
 
+@pytest.mark.usefixtures("no_allowed_lines")
 @pytest.mark.parametrize(
     ("line", "want"),
     [
@@ -214,6 +200,7 @@ def test_part2_archive_failures(tmp_path: Path, archive: tuple[Path, str, str], 
     assert sc.part2_archive(citations, sc.Clone(arch)) == [want.format(a=a)]
 
 
+@pytest.mark.usefixtures("no_allowed_lines")
 def test_part2_archive_with_nothing_to_resolve_fails(tmp_path: Path, archive: tuple[Path, str, str]) -> None:
     repo, _ = _repo(tmp_path / "co", {"docs/x.md": "no citation\n"})
     assert sc.part2_archive(sc.part1(repo)[1], sc.Clone(archive[0])) == [
@@ -226,8 +213,8 @@ def test_part2_history(tmp_path: Path, archive: tuple[Path, str, str]) -> None:
     name, brace-expanded or not, is skipped; a tree hash and a run id name no commit."""
     arch = archive[0]
     history, _ = _repo(tmp_path / "history", {"f": "1\n"})
-    head = _git(history, "rev-parse", "HEAD")
-    tree = _git(history, "rev-parse", "HEAD^{tree}")
+    head = git(history, "rev-parse", "HEAD")
+    tree = git(history, "rev-parse", "HEAD^{tree}")
     text = (f"at {head[:7]} and {head[:12]}..{head[:7]}; tree {tree[:7]}; run 36296146429;\n"
             f"raw results/alloc-M-{OLD[:7]}.txt keeps its name; the old commit {OLD[:7]} was rewritten.\n"
             f"raw results/b6allocs-M-{{{OLD[:7]},{OLD_W7[:7]}}}.txt keeps its name too.\n"
@@ -245,6 +232,7 @@ def test_part2_history(tmp_path: Path, archive: tuple[Path, str, str]) -> None:
     assert (commits, other) == (3, 2)
 
 
+@pytest.mark.usefixtures("allowed_lines")
 def test_main_without_clones_says_it_checked_nothing(
     tmp_path: Path, archive: tuple[Path, str, str], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -265,6 +253,7 @@ def test_main_without_clones_says_it_checked_nothing(
     assert "0 name commits from before the rewrite" in out
 
 
+@pytest.mark.usefixtures("no_allowed_lines")
 def test_main_exit_status(tmp_path: Path, archive: tuple[Path, str, str], capsys: pytest.CaptureFixture[str]) -> None:
     arch, a, _ = archive
     repo, _ = _repo(tmp_path / "co", {"docs/x.md": f"spikes@{a}:w1.2/nope.txt\n"})

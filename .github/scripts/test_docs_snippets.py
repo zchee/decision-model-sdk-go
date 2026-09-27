@@ -7,30 +7,17 @@ Type-check with ``uvx --with pytest --with types-PyYAML mypy --strict
 
 from __future__ import annotations
 
-import importlib.util
 import subprocess
 import sys
 from pathlib import Path
-from types import ModuleType
 
 import pytest
+from conftest import load_script
 
 SCRIPT = Path(__file__).with_name("docs-snippets.py")
 REPO = Path(__file__).resolve().parents[2]
 
-
-def _load() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("docs_snippets", SCRIPT)
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    # dataclasses resolve the module's annotations through sys.modules.
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-ds = _load()
+ds = load_script(SCRIPT.name)
 
 MAIN = 'package main\n\nimport "fmt"\n\nfunc main() {\n\tfmt.Println("hi")\n}\n'
 MARKED = "<!-- example: hello/main.go -->\n```go\n" + MAIN + "```\n"
@@ -330,20 +317,6 @@ def test_repository_docs_pass() -> None:
         )
         == 0
     )
-
-
-def test_help_works_without_docstrings() -> None:
-    # python -OO strips docstrings: the description must not come from one.
-    proc = subprocess.run(
-        [sys.executable, "-OO", str(SCRIPT), "--help"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert proc.returncode == 0, proc.stderr
-    assert ds.DESCRIPTION in " ".join(proc.stdout.split())
-    assert ds.__doc__ is not None
-    assert ds.__doc__.splitlines()[0] == ds.DESCRIPTION
 
 
 def test_missing_flags_exit_2() -> None:

@@ -43,12 +43,6 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-# The docstring's first line, kept apart from __doc__, which python -OO
-# strips.
-DESCRIPTION = (
-    "Prove every Go block in README.md and docs/ equals its examples/ source (XD1)."
-)
-
 _LOG = logging.getLogger("docs-snippets")
 
 # A fence opens at any indentation: inside a list item CommonMark measures
@@ -229,7 +223,10 @@ def markdown_files(readme: Path, docs: Path) -> tuple[list[Path], list[str]]:
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=DESCRIPTION)
+    parser = argparse.ArgumentParser(
+        description="Prove every Go block in README.md and docs/ equals its "
+        "examples/ source (XD1).",
+    )
     parser.add_argument(
         "--readme", required=True, type=Path, help="README to scan for Go blocks"
     )

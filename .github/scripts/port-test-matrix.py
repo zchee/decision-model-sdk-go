@@ -541,8 +541,9 @@ def _table_structure(cells: list[str], group: _Group, where: str) -> list[str] |
     return None
 
 
-def _parse_row(cells: list[str], group: str, lineno: int, where: str) -> Row | str:
+def _parse_row(cells: list[str], group: str, source: str, lineno: int) -> Row | str:
     """Turn the cells of one body row into a :class:`Row` or a failure."""
+    where = f"{source}:{lineno}"
     if len(cells) != 4:
         return f"{where}: expected 4 cells, found {len(cells)}"
     row_id, upstream_cell, go_cell, status = cells
@@ -628,7 +629,7 @@ def parse_matrix(text: str, source: str = "matrix") -> Matrix:
                 "followed by a separator row"
             )
         group.rows += 1
-        row = _parse_row(cells, group.file, lineno, where)
+        row = _parse_row(cells, group.file, source, lineno)
         if isinstance(row, Row):
             matrix.rows.append(row)
         else:
@@ -719,12 +720,27 @@ def _missing_tests(
     return failures
 
 
-def _citation(cell: str) -> str | None:
-    """Return the first ``deviation "<reference>"`` with a non-blank reference."""
-    for match in _QUOTED_DEVIATION.finditer(cell):
-        if match.group(1).strip():
-            return match.group(0)
-    return None
+def cited_keys(cell: str) -> list[str]:
+    """Return every non-blank reference a cell cites as ``deviation "<key>"``."""
+    return [m.group(1) for m in _QUOTED_DEVIATION.finditer(cell) if m.group(1).strip()]
+
+
+def _row_citations(rows: list[Row]) -> Iterator[tuple[Row, list[str]]]:
+    """Yield each matrix row with the deviation references it cites.
+
+    A row cites every non-blank ``deviation "<reference>"`` in its Go cell;
+    a row with none that says ``same deviation`` cites what the nearest row
+    above it in its group cites, and rows without a citation in between
+    leave that one in place.
+    """
+    above: dict[str, list[str]] = {}
+    for row in rows:
+        keys = cited_keys(row.go_cell)
+        if keys:
+            above[row.file] = keys
+        elif _SAME_DEVIATION.search(row.go_cell):
+            keys = above.get(row.file, [])
+        yield row, keys
 
 
 def _path_qualified(row: Row) -> list[str]:
@@ -739,9 +755,7 @@ def _path_qualified(row: Row) -> list[str]:
     ]
 
 
-def _status_failures(
-    row: Row, cited: str | None, listed: dict[str, set[str]]
-) -> list[str]:
+def _status_failures(row: Row, cited: bool, listed: dict[str, set[str]]) -> list[str]:
     """Apply the status rule of one row (check 5 of the module docstring)."""
     idents = _test_identifiers(row.go_cell)
     match row.status:
@@ -756,7 +770,7 @@ def _status_failures(
             return failures
         case "deviation":
             failures = _missing_tests(row, idents, listed)
-            if cited is None:
+            if not cited:
                 failures.insert(
                     0,
                     f"row {row.row_id} ({row.key}) is a deviation without an "
@@ -791,8 +805,7 @@ def check_rows(
     by_key: dict[str, Row] = {}
     ids: dict[str, Row] = {}
     known = set(upstream)
-    citation_above: dict[str, str] = {}
-    for row in rows:
+    for row, keys in _row_citations(rows):
         if first := ids.get(row.row_id):
             failures.append(
                 f"row {row.row_id} (line {row.line}) repeats the ID of line "
@@ -810,16 +823,8 @@ def check_rows(
                 f"row {row.row_id} (line {row.line}): {row.key} is not an upstream "
                 "test at the pinned commit"
             )
-
-        # "same deviation" inherits from the nearest row above that cites;
-        # rows without a citation leave the remembered one in place.
-        cited = _citation(row.go_cell)
-        if cited is not None:
-            citation_above[row.file] = cited
-        elif _SAME_DEVIATION.search(row.go_cell):
-            cited = citation_above.get(row.file)
         failures += _path_qualified(row)
-        failures += _status_failures(row, cited, listed)
+        failures += _status_failures(row, bool(keys), listed)
     failures += [
         f"upstream test {name} has no matrix row"
         for name in upstream
@@ -854,10 +859,9 @@ def check_status_line(text: str, summary: str, source: str) -> list[str]:
     return []
 
 
-def _deviation_row(cells: list[str], lineno: int, where: str) -> Deviation | str:
+def _deviation_row(cells: list[str], source: str, lineno: int) -> Deviation | str:
     """Turn the cells of one deviation table row into a row or a failure."""
-    if len(cells) != len(DEVIATION_HEADER):
-        return f"{where}: expected {len(DEVIATION_HEADER)} cells, found {len(cells)}"
+    where = f"{source}:{lineno}"
     key, rows_cell = cells[0], cells[-1]
     if not key:
         return f"{where}: the key cell is blank"
@@ -884,32 +888,12 @@ def parse_deviations(text: str, source: str) -> tuple[list[Deviation], list[str]
         failure per malformed row, repeated key or table without its
         separator; a document without a deviation table is a failure.
     """
+    tables, failures = _tables(
+        text, DEVIATION_HEADER, source, subject="a deviation table's header"
+    )
     rows: list[Deviation] = []
-    failures: list[str] = []
-    lines_in_table = 0
-    deviation_table = False
-    for lineno, line in enumerate(text.splitlines(), start=1):
-        body = _table_line(line)
-        if body is None:
-            lines_in_table, deviation_table = 0, False
-            continue
-        lines_in_table += 1
-        cells = _cells(body)
-        where = f"{source}:{lineno}"
-        if lines_in_table == 1:
-            deviation_table = tuple(cells) == DEVIATION_HEADER
-            continue
-        if not deviation_table:
-            continue
-        if lines_in_table == 2:
-            if not _is_separator(cells) or len(cells) != len(DEVIATION_HEADER):
-                failures.append(
-                    f"{where}: a deviation table's header must be followed by a "
-                    f"separator of {len(DEVIATION_HEADER)} cells"
-                )
-                deviation_table = False
-            continue
-        parsed = _deviation_row(cells, lineno, where)
+    for lineno, cells in (row for table in tables for row in table):
+        parsed = _deviation_row(cells, source, lineno)
         if isinstance(parsed, str):
             failures.append(parsed)
         else:
@@ -935,17 +919,7 @@ def citations(rows: list[Row]) -> dict[str, set[str]]:
     above it in its group cites, as check 5 reads it.
     """
     cited: dict[str, set[str]] = {}
-    above: dict[str, list[str]] = {}
-    for row in rows:
-        keys = [
-            m.group(1)
-            for m in _QUOTED_DEVIATION.finditer(row.go_cell)
-            if m.group(1).strip()
-        ]
-        if keys:
-            above[row.file] = keys
-        elif _SAME_DEVIATION.search(row.go_cell):
-            keys = above.get(row.file, [])
+    for row, keys in _row_citations(rows):
         for key in keys:
             cited.setdefault(key, set()).add(row.row_id)
     return cited
@@ -990,7 +964,7 @@ def check_deviations(
 
 
 def _tables(
-    text: str, header: tuple[str, ...], source: str
+    text: str, header: tuple[str, ...], source: str, subject: str = "the header"
 ) -> tuple[list[list[tuple[int, list[str]]]], list[str]]:
     """Return the body rows of every table of ``text`` headed ``header``.
 
@@ -998,6 +972,7 @@ def _tables(
         text: the Markdown document.
         header: the header cells that select a table.
         source: the name used in failure messages.
+        subject: what the separator failure calls the header.
 
     Returns:
         One list of ``(line number, cells)`` pairs per selected table, in
@@ -1026,7 +1001,7 @@ def _tables(
                 found.append(current)
             else:
                 failures.append(
-                    f"{where}: the header must be followed by a separator of "
+                    f"{where}: {subject} must be followed by a separator of "
                     f"{len(header)} cells"
                 )
         elif current is not None:
@@ -1105,13 +1080,11 @@ def _phase_sections(text: str, source: str) -> tuple[list[int], list[str]]:
     return [lineno for lineno, _ in headings], failures
 
 
-def cited_keys(cell: str) -> list[str]:
-    """Return every non-blank reference a cell cites as ``deviation "<key>"``."""
-    return [m.group(1) for m in _QUOTED_DEVIATION.finditer(cell) if m.group(1).strip()]
-
-
-def _appendix_row(cells: list[str], lineno: int, where: str) -> AppendixRow | list[str]:
+def _appendix_row(
+    cells: list[str], source: str, lineno: int
+) -> AppendixRow | list[str]:
     """Turn the cells of one Appendix B row into a row or its failures."""
+    where = f"{source}:{lineno}"
     number, _, bold, keys_cell, rulings_cell = cells
     failures: list[str] = []
     if bold not in BOLD:
@@ -1177,7 +1150,7 @@ def parse_as_built(text: str, source: str) -> AsBuilt:
         where = f"{source}:{lineno}"
         if cells[0] != str(want):
             record.failures.append(f"{where}: row numbered {cells[0]!r}, want {want}")
-        parsed = _appendix_row(cells, lineno, where)
+        parsed = _appendix_row(cells, source, lineno)
         if isinstance(parsed, list):
             record.failures += parsed
         else:
