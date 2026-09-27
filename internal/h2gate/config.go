@@ -179,7 +179,7 @@ const (
 	scopeNone alpnScope = iota
 	// scopeEvery checks every handshake: no proxy can apply to the API URL.
 	scopeEvery
-	// scopeSNI checks a handshake iff its ServerName is eff(apiHost): a
+	// scopeSNI checks a handshake iff its ServerName is effectiveSNI(apiHost): a
 	// proxy may apply, and the two hops have different effective SNI.
 	scopeSNI
 	// scopePostCheck checks no handshake: a proxy may apply and the API
@@ -215,7 +215,10 @@ func resolveTarget(cfg Config) (target, error) {
 	}
 	port := u.Port()
 	if port == "" {
-		port = map[string]string{"http": "80", "https": "443"}[u.Scheme]
+		port = "443"
+		if u.Scheme == "http" {
+			port = "80"
+		}
 	}
 	return target{scheme: u.Scheme, host: host, addr: net.JoinHostPort(host, port)}, nil
 }
@@ -282,9 +285,9 @@ func hostnameInSNI(name string) string {
 	return name
 }
 
-// eff is the SNI a handshake for host carries: the configured ServerName
+// effectiveSNI is the SNI a handshake for host carries: the configured ServerName
 // applies to both hops (transport.go:1783-1786).
-func eff(serverName, host string) string { return hostnameInSNI(cmp.Or(serverName, host)) }
+func effectiveSNI(serverName, host string) string { return hostnameInSNI(cmp.Or(serverName, host)) }
 
 // proxyMayApply decides at build whether a proxy may apply: with Proxy nil
 // or http.ProxyFromEnvironment the answer is process-constant (the
@@ -312,7 +315,7 @@ func scopeFor(mode Mode, tg target, mayProxy bool, serverName string) alpnScope 
 		return scopeNone
 	case !mayProxy:
 		return scopeEvery
-	case eff(serverName, tg.host) == "" || serverName != "":
+	case effectiveSNI(serverName, tg.host) == "" || serverName != "":
 		return scopePostCheck
 	default:
 		return scopeSNI
@@ -350,7 +353,7 @@ func installALPNCheck(tr *http.Transport, scope alpnScope, tg target) {
 		return
 	}
 	c := tr.TLSClientConfig
-	c.VerifyConnection = alpnCheck(scope, eff(c.ServerName, tg.host), c.VerifyConnection)
+	c.VerifyConnection = alpnCheck(scope, effectiveSNI(c.ServerName, tg.host), c.VerifyConnection)
 }
 
 // waitBound is the gate's bound on a waiter: the dial and the handshake,

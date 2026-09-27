@@ -277,7 +277,7 @@ func TestProxy(t *testing.T) {
 		// With ECH accepted, ConnectionState.ServerName is the configured
 		// name as it is (crypto/tls/handshake_client_tls13.go:102,277), so a
 		// trailing-dot API host would otherwise skip the check.
-		check := alpnCheck(scopeSNI, eff("", "example.com."), nil)
+		check := alpnCheck(scopeSNI, effectiveSNI("", "example.com."), nil)
 		if err := check(tls.ConnectionState{ServerName: "example.com.", NegotiatedProtocol: "http/1.1"}); !errors.Is(err, ErrNotNegotiated) {
 			t.Errorf("API hop reported as %q: %v, want ErrNotNegotiated", "example.com.", err)
 		}
@@ -291,13 +291,13 @@ func TestProxy(t *testing.T) {
 
 	t.Run("success: eff is crypto/tls's SNI form", func(t *testing.T) {
 		got := map[string]string{
-			"example.com":           eff("", "example.com"),
-			"example.com.":          eff("", "example.com."),
-			"127.0.0.1":             eff("", "127.0.0.1"),
-			"[::1]":                 eff("", "[::1]"),
-			"::1":                   eff("", "::1"),
-			"fe80::1%en0":           eff("", "fe80::1%en0"),
-			"override over literal": eff("api.internal", "127.0.0.1"),
+			"example.com":           effectiveSNI("", "example.com"),
+			"example.com.":          effectiveSNI("", "example.com."),
+			"127.0.0.1":             effectiveSNI("", "127.0.0.1"),
+			"[::1]":                 effectiveSNI("", "[::1]"),
+			"::1":                   effectiveSNI("", "::1"),
+			"fe80::1%en0":           effectiveSNI("", "fe80::1%en0"),
+			"override over literal": effectiveSNI("api.internal", "127.0.0.1"),
 		}
 		want := map[string]string{
 			"example.com": "example.com", "example.com.": "example.com", "127.0.0.1": "", "[::1]": "", "::1": "",

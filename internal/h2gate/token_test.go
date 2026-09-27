@@ -29,20 +29,20 @@ import (
 )
 
 const (
-	k21Limit    = 8               // the MAX_CONCURRENT_STREAMS the server advertises
-	k21Queued   = 64              // callers queued behind the 8 in flight
-	k21Deadline = 2 * time.Second // the per-call deadline
-	// k21Slack is how far past its deadline a call may return, and k21Probe
+	residualLimit    = 8               // the MAX_CONCURRENT_STREAMS the server advertises
+	residualQueued   = 64              // callers queued behind the 8 in flight
+	residualDeadline = 2 * time.Second // the per-call deadline
+	// residualSlack is how far past its deadline a call may return, and residualProbe
 	// how long a probe may take to write its HEADERS, on any host; a host
-	// that is slow now gets more (k21Control).
-	k21Slack = 100 * time.Millisecond
-	k21Probe = 50 * time.Millisecond
-	// k21Factor scales the control's times to the scenario, which runs 72
+	// that is slow now gets more (residualControl).
+	residualSlack = 100 * time.Millisecond
+	residualProbe = 50 * time.Millisecond
+	// residualFactor scales the control's times to the scenario, which runs 72
 	// calls where the control runs 8.
-	k21Factor = 4
+	residualFactor = 4
 )
 
-// k21Control measures how fast this host is now, through a stock net/http
+// residualControl measures how fast this host is now, through a stock net/http
 // HTTP/2 transport on a server of its own (so the scenario's counts are not
 // touched): probe, how long a request on a warm connection takes to write
 // its HEADERS, and overshoot, how far past its deadline the latest of 8
@@ -53,10 +53,10 @@ const (
 // that timed out, lengthens the scenario's calls and leaves the bounds
 // alone: calibrating through the Transport under test would let a delay it
 // adds raise its own slack.
-func k21Control(t *testing.T) (probe, overshoot time.Duration) {
+func residualControl(t *testing.T) (probe, overshoot time.Duration) {
 	t.Helper()
 	release := make(chan struct{})
-	srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: k21Handler(release)})
+	srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: residualHandler(release)})
 	defer close(release)
 	var h2 http.Protocols
 	h2.SetHTTP2(true)
@@ -70,7 +70,7 @@ func k21Control(t *testing.T) (probe, overshoot time.Duration) {
 		t.Fatalf("control probe: %v", p.Err)
 	}
 	const deadline = 50 * time.Millisecond
-	calls := fanOut(k21Limit, func(i int) result {
+	calls := fanOut(residualLimit, func(i int) result {
 		ctx, cancel := context.WithTimeout(t.Context(), deadline)
 		defer cancel()
 		return get(ctx, stock, srv.URL()+"/hold/control-"+strconv.Itoa(i))
@@ -84,9 +84,9 @@ func k21Control(t *testing.T) (probe, overshoot time.Duration) {
 	return p.WroteHeaders.Sub(p.Start), overshoot
 }
 
-// k21Handler holds /hold/ paths until release is closed, serves /svc/ paths
+// residualHandler holds /hold/ paths until release is closed, serves /svc/ paths
 // in f1Service and everything else at once.
-func k21Handler(release <-chan struct{}) http.Handler {
+func residualHandler(release <-chan struct{}) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/hold/"):
@@ -103,12 +103,12 @@ func k21Handler(release <-chan struct{}) http.Handler {
 	})
 }
 
-// k21Burst sends n calls to prefix/i, each with the per-call deadline,
-// k21Deadline.
-func k21Burst(t *testing.T, tr *Transport, base, prefix string, n int) []result {
+// residualBurst sends n calls to prefix/i, each with the per-call deadline,
+// residualDeadline.
+func residualBurst(t *testing.T, tr *Transport, base, prefix string, n int) []result {
 	t.Helper()
 	return fanOut(n, func(i int) result {
-		ctx, cancel := context.WithTimeout(t.Context(), k21Deadline)
+		ctx, cancel := context.WithTimeout(t.Context(), residualDeadline)
 		defer cancel()
 		return get(ctx, tr, base+prefix+strconv.Itoa(i))
 	})
@@ -125,7 +125,7 @@ func k21Burst(t *testing.T, tr *Transport, base, prefix string, n int) []result 
 // timer, whose bound is 20 s, would keep it past that deadline), the client
 // opens at most 2 connections, and a fresh burst of 200 calls against the
 // limit of 8 afterwards succeeds 200/200. The 100 ms and 50 ms grow on a host
-// the control (k21Control, which runs no h2gate code) finds slow now.
+// the control (residualControl, which runs no h2gate code) finds slow now.
 func TestTokenResidualK21(t *testing.T) {
 	type scenario struct {
 		prefix string // the burst's paths
@@ -168,15 +168,15 @@ func TestTokenResidualK21(t *testing.T) {
 	}
 	for name, sc := range tests {
 		t.Run(name, func(t *testing.T) {
-			controlProbe, overshoot := k21Control(t)
-			slack := max(k21Slack, k21Factor*overshoot)
-			probeBound := max(k21Probe, k21Factor*controlProbe)
+			controlProbe, overshoot := residualControl(t)
+			slack := max(residualSlack, residualFactor*overshoot)
+			probeBound := max(residualProbe, residualFactor*controlProbe)
 			release := make(chan struct{})
 			var adversarial atomic.Bool
 			adversarial.Store(sc.refuseAbove > 0)
 			srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{
-				MaxConcurrentStreams: k21Limit,
-				Handler:              k21Handler(release),
+				MaxConcurrentStreams: residualLimit,
+				Handler:              residualHandler(release),
 				OnStream: func(s *testsupport.Stream) testsupport.Action {
 					if adversarial.Load() && len(s.Conn.ActiveStreams()) >= sc.refuseAbove {
 						return testsupport.ActionRefuse
@@ -188,9 +188,9 @@ func TestTokenResidualK21(t *testing.T) {
 			warmUp(t, tr, srv.URL())
 
 			done := make(chan []result, 1)
-			go func() { done <- k21Burst(t, tr, srv.URL(), sc.prefix, k21Limit+k21Queued) }()
+			go func() { done <- residualBurst(t, tr, srv.URL(), sc.prefix, residualLimit+residualQueued) }()
 			if sc.act != nil {
-				conn := heldStreams(t, srv, k21Limit)
+				conn := heldStreams(t, srv, residualLimit)
 				sc.act(t, srv, conn)
 			}
 			close(release)
@@ -199,9 +199,9 @@ func TestTokenResidualK21(t *testing.T) {
 
 			late, bad := 0, 0
 			for i, r := range calls {
-				if took := r.Done.Sub(r.Start); took > k21Deadline+slack {
+				if took := r.Done.Sub(r.Start); took > residualDeadline+slack {
 					late++
-					t.Errorf("call %d returned after %v, past its %v deadline + %v", i, took, k21Deadline, slack)
+					t.Errorf("call %d returned after %v, past its %v deadline + %v", i, took, residualDeadline, slack)
 				}
 				switch c := errClass(r.Err); c {
 				case "ok":
@@ -218,7 +218,7 @@ func TestTokenResidualK21(t *testing.T) {
 			if n := len(tr.token); n != 0 {
 				t.Errorf("token held after every RoundTrip returned: %d", n)
 			}
-			probeCtx, cancel := context.WithTimeout(t.Context(), k21Deadline)
+			probeCtx, cancel := context.WithTimeout(t.Context(), residualDeadline)
 			var expiredSeq atomic.Uint64 // traceSeq when the probe's deadline passed
 			stop := context.AfterFunc(probeCtx, func() { expiredSeq.Store(traceSeq.Add(1)) })
 			probe := get(probeCtx, tr, srv.URL()+"/probe")
@@ -247,14 +247,14 @@ func TestTokenResidualK21(t *testing.T) {
 			// and counted.
 			restoreSkipped := 0
 			for _, c := range srv.LiveH2Conns() {
-				switch err := c.SetMaxConcurrentStreams(k21Limit); {
+				switch err := c.SetMaxConcurrentStreams(residualLimit); {
 				case errors.Is(err, testsupport.ErrConnClosing):
 					restoreSkipped++
 				case err != nil:
 					t.Error(err)
 				}
 			}
-			fresh := k21Burst(t, tr, srv.URL(), "/svc/fresh-", f1Calls)
+			fresh := residualBurst(t, tr, srv.URL(), "/svc/fresh-", f1Calls)
 			freshCl := classes(fresh)
 			if freshCl["ok"] != f1Calls {
 				t.Errorf("fresh burst: %v, want %d ok; first error %v", freshCl, f1Calls, firstErr(fresh))

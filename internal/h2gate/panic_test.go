@@ -34,14 +34,17 @@ const errPanic = "h2gate test: the caller's hook panics"
 // may panic, and returns what the panic carried (nil when none unwound out
 // of RoundTrip). The caller of an SDK that recovers, as net/http's server
 // does for a handler, keeps using the transport afterwards.
-func panicking(ctx context.Context, tr *Transport, rawURL string, trace *httptrace.ClientTrace) (recovered any) {
+func panicking(t *testing.T, tr *Transport, rawURL string, trace *httptrace.ClientTrace) (recovered any) {
+	t.Helper()
 	defer func() { recovered = recover() }()
+	ctx := t.Context()
 	if trace != nil {
 		ctx = httptrace.WithClientTrace(ctx, trace)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, http.NoBody)
 	if err != nil {
-		return err
+		t.Error(err) // not Fatal: a caller runs this on a goroutine of its own
+		return nil
 	}
 	resp, err := tr.RoundTrip(req)
 	if err == nil {
@@ -96,7 +99,7 @@ func TestPanicUnwind(t *testing.T) {
 		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{})
 		tr := newTestTransport(t, Config{APIURL: mustURL(t, srv.URL())})
 		warmUp(t, tr, srv.URL())
-		got := panicking(t.Context(), tr, srv.URL()+"/panic", &httptrace.ClientTrace{GotConn: func(httptrace.GotConnInfo) { panic(errPanic) }})
+		got := panicking(t, tr, srv.URL()+"/panic", &httptrace.ClientTrace{GotConn: func(httptrace.GotConnInfo) { panic(errPanic) }})
 		if got != errPanic {
 			t.Fatalf("recovered %v, want the hook's panic", got)
 		}
@@ -113,7 +116,7 @@ func TestPanicUnwind(t *testing.T) {
 			return nil, nil
 		}
 		tr := newTestTransport(t, Config{APIURL: mustURL(t, srv.URL()), Proxy: proxy})
-		if got := panicking(t.Context(), tr, srv.URL()+"/panic", nil); got != errPanic {
+		if got := panicking(t, tr, srv.URL()+"/panic", nil); got != errPanic {
 			t.Fatalf("recovered %v, want the Proxy func's panic", got)
 		}
 		if s := tr.gateState(); s != stateCold {
@@ -131,7 +134,7 @@ func TestPanicUnwind(t *testing.T) {
 		tr.token <- struct{}{} // the leader parks in send until the waiters gather
 		recovered := make(chan any, 1)
 		go func() {
-			recovered <- panicking(t.Context(), tr, srv.URL()+"/panic", &httptrace.ClientTrace{GetConn: func(string) { panic(errPanic) }})
+			recovered <- panicking(t, tr, srv.URL()+"/panic", &httptrace.ClientTrace{GetConn: func(string) { panic(errPanic) }})
 		}()
 		testsupport.WaitUntil(t, "the leader to take its role", func() bool { return tr.Stats().Leaders == 1 })
 		waitersDone := make(chan []result, 1)
