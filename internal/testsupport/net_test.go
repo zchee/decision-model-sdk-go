@@ -172,6 +172,10 @@ func TestFakeH2CServer(t *testing.T) {
 			if err != nil || status != http.StatusOK || proto != 2 || body != "h2 example.com" {
 				t.Fatalf("GET: %d HTTP/%d %q %v", status, proto, body, err)
 			}
+			// net/http pools a new connection on the goroutine that dialed
+			// it, after it has handed it to the request: until then the
+			// next GET finds none and dials again.
+			synctest.Wait()
 		}
 		if srv.Accepts() != 1 {
 			t.Errorf("Accepts() = %d, want 1", srv.Accepts())
