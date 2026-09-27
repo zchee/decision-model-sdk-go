@@ -38,12 +38,12 @@ import (
 // character, a byte that is not UTF-8 or a format character that reorders or
 // hides the text around it is written as a Go escape, so that it cannot break
 // a log line, recolour a terminal or disguise itself; and it is cut at a
-// number of characters counted after escaping (NF7, rulings R58 and R58b).
-// The rules are the Rust port's src/text.rs in Go escapes.
+// number of characters counted after escaping. The rules are the Rust
+// port's src/text.rs in Go escapes.
 
 // The caps on text the SDK did not write, in characters counted after
-// escaping (NF7): a name, such as an extra body member's, and a sentence
-// another layer wrote, such as the encoder's.
+// escaping: a name, such as an extra body member's, and a sentence another
+// layer wrote, such as the encoder's.
 const (
 	MaxNameChars    = 128
 	MaxMessageChars = 200
@@ -59,8 +59,8 @@ func QuotedName(name string) string {
 }
 
 // AppendSafeText appends s, text the SDK did not write, to dst escaped and
-// cut at limit characters, as the Rust port's src/text.rs renders such text
-// (NF7). Printable characters, non-ASCII and U+FFFD included, are written as
+// cut at limit characters, as the Rust port's src/text.rs renders such
+// text. Printable characters, non-ASCII and U+FFFD included, are written as
 // they are; a control character (C0, DEL, C1), a byte that is not UTF-8 and a
 // format character that reorders or hides the text around it (hidesText)
 // are written as Go escapes: \n, \r, \t, \x1b, \xff, \u2028. A backslash is
@@ -147,11 +147,16 @@ func SafeMessage(s string) string {
 // A transport's error text is written by code the SDK does not control (a
 // caller's RoundTripper or dialer, a proxy, net/http), which may repeat a
 // header value, and it reaches the SDK error's message, its log record and
-// the chain errors.Unwrap walks (Appendix B: "Transport error text verbatim
-// → escaped, cut at 200, credentials ***"; note N-W2.5).
+// the chain errors.Unwrap walks.
 type Credentials []string
 
-// RequestCredentials returns the credentials of a request with header h, as
+// RequestCredentials returns the credentials of a request with header h.
+func RequestCredentials(h http.Header) Credentials {
+	return callCredentials(h, nil)
+}
+
+// callCredentials returns the credentials a transport error of a call may
+// repeat. Those of the request with header h are collected as
 // typesafe-sdk-python collects them (py:_core/logging.py:43-51): the value of
 // every header whose name marks a credential ([IsSecretHeader]), and the
 // credential after the scheme of an Authorization or Proxy-Authorization
@@ -160,18 +165,11 @@ type Credentials []string
 // escapes it: the Go analogues of the Python SDK's raw, repr and json.dumps
 // forms, which differ from them above the Basic Multilingual Plane and on
 // '<', '>' and '&'. A value shorter than [MinKeyNeedleBytes] is not looked
-// for, as the API key is not (ruling R68): it would match ordinary text; the
-// Python SDK looks for every value.
-func RequestCredentials(h http.Header) Credentials {
-	return callCredentials(h, nil)
-}
-
-// callCredentials returns the credentials a transport error of a call may
-// repeat: those of the request with header h ([RequestCredentials]) and
-// proxies, the credentials of the proxies the SDK's own transport chose
-// ([ProxyCreds]), which a proxy's answer may repeat in an error net/http
-// builds from it before the SDK's transport sees a response (review W6.2
-// MIN-4, its review's MINOR 1, and ruling D-W6-secfix-m2).
+// for, as the API key is not: it would match ordinary text; the Python SDK
+// looks for every value. proxies are the credentials of the proxies the
+// SDK's own transport chose ([ProxyCreds]), which a proxy's answer may
+// repeat in an error net/http builds from it before the SDK's transport
+// sees a response.
 func callCredentials(h http.Header, proxies Credentials) Credentials {
 	var c Credentials
 	for name, values := range h {
@@ -196,7 +194,7 @@ func callCredentials(h http.Header, proxies Credentials) Credentials {
 }
 
 // add adds v to c in the forms a text may hold it (see
-// [RequestCredentials]), unless it is shorter than [MinKeyNeedleBytes].
+// [callCredentials]), unless it is shorter than [MinKeyNeedleBytes].
 func (c *Credentials) add(v string) {
 	if KeyNeedle(v) {
 		c.addAny(v)
@@ -222,9 +220,9 @@ func (c *Credentials) addAny(v string) {
 // the password as it is and as the URL escapes it, and each word of the
 // password between single spaces, since net/http splits a status line there
 // and quotes one word of it (a malformed status code or version). Unlike a
-// header's credential, each is looked for whatever its length (ruling
-// D-W6-secfix-m2): a short one may then match ordinary text, which the error
-// shows as "***" and whose chain it stands in for ([Credentials.Cause]).
+// header's credential, each is looked for whatever its length: a short one
+// may then match ordinary text, which the error shows as "***" and whose
+// chain it stands in for ([Credentials.Cause]).
 // With words false only the whole credentials are added, the token and
 // the password as it is and as the URL escapes it: a response header's
 // needles ([ProxyCreds.inHeader]).
@@ -312,11 +310,11 @@ func (c Credentials) Redact(s string) (string, bool) {
 
 // logErrorText renders err, an error of the SDK's transport, for the
 // transport's DEBUG records "h2: gate error" and "h2: redial error"
-// (h2gate.Config.ErrorText, ruling R84): every credential of creds, the
-// call's ([Transport.Credentials]), and every URL userinfo
-// replaced by "***" ([Credentials.Redact]), then escaped and cut at 200
-// characters ([SafeMessage]), as the text of a *ConnectionError is. The
-// transport calls it only for a record the logger keeps.
+// (h2gate.Config.ErrorText): every credential of creds, the call's
+// ([Transport.Credentials]), and every URL userinfo replaced by "***"
+// ([Credentials.Redact]), then escaped and cut at 200 characters
+// ([SafeMessage]), as the text of a *ConnectionError is. The transport calls
+// it only for a record the logger keeps.
 func logErrorText(creds Credentials, err error) string {
 	text, _ := creds.Redact(err.Error())
 	return SafeMessage(text)
@@ -339,7 +337,7 @@ const maxChainErrors = 64
 // that keeps the *http.Request, is kept: fmt prints a pointer inside a value
 // as an address, so no printed form shows the credential, and errors.As
 // reaches the error with the request the caller's own RoundTripper, dialer
-// or body gave it (review W2.5 MINOR 2, ruling R82).
+// or body gave it.
 func (c Credentials) Cause(err error) error {
 	if err == nil || !c.inChain(err) {
 		return err
@@ -364,7 +362,7 @@ func (c Credentials) Cause(err error) error {
 const maxDetailChars = 1024
 
 // detail returns the rendering of err's chain that a [scrubbedError] prints
-// for %+v and %#v (ruling R95): the %+v form of err, then that of each error
+// for %+v and %#v: the %+v form of err, then that of each error
 // its chain wraps (errors.Unwrap, both forms, depth first, at most
 // [maxChainErrors]) whose text the rendering does not already hold, joined
 // by ": ", with every credential replaced by "***" ([Credentials.Redact]),
@@ -444,8 +442,7 @@ func (c Credentials) printed(e error) bool {
 var causeSentinels = [...]error{context.DeadlineExceeded, context.Canceled, os.ErrDeadlineExceeded, io.ErrUnexpectedEOF, io.EOF, net.ErrClosed}
 
 // scrubbedError stands in for a transport error whose chain printed a
-// credential of the request (Appendix B: "cause via errors.Unwrap unless it
-// printed a credential"). Its text is the transport error's with every
+// credential of the request. Its text is the transport error's with every
 // credential replaced by "***"; it unwraps to the [causeSentinels] and the
 // [syscall.Errno] the transport error matched, so errors.Is(err,
 // context.DeadlineExceeded) or errors.Is(err, syscall.ECONNRESET) still

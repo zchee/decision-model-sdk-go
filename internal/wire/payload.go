@@ -26,13 +26,13 @@ import (
 // 0.0, 1.0, 0.98, 1e-7, 1e+20), an absent token count as null, score levels
 // as decimal member names ("0", "1"). No whitespace is written.
 //
-// A structured legend level is spliced as the bytes the response carried
-// (ruling R73): the Python SDK writes the value it parsed, so a level whose
+// A structured legend level is spliced as the bytes the response carried:
+// the Python SDK writes the value it parsed, so a level whose
 // received bytes hold an escape or a number spelling other than its own
 // (\u0061 for a, 1E2 for 100.0), whitespace or a repeated member name
 // (Python keeps the last) differs from Python's output in those bytes only.
 // A float member that arrived as -0.0 holds 0 (the decoder reads every zero
-// as 0, R73) and is written 0.0, where Python writes -0.0. Every other byte
+// as 0) and is written 0.0, where Python writes -0.0. Every other byte
 // is Python's.
 //
 // Each exported appender grows dst once, to a capacity that fits the

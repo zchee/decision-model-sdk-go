@@ -304,7 +304,7 @@ func TestScoreAnswerLookups(t *testing.T) {
 // TestAnswersGrowInto checks that an empty set takes a spare array with room
 // for n entries, and grows its own otherwise: either way the set has room
 // for n more entries, and the entries Put stores land in spare's array
-// exactly when it was taken (W5.3, the call's inline answers); a set of no
+// exactly when it was taken (the call's inline answers); a set of no
 // entries stays nil, as the decode without a spare leaves it.
 func TestAnswersGrowInto(t *testing.T) {
 	tests := map[string]struct {

@@ -91,8 +91,7 @@ type Config[R any] struct {
 
 	// redact is the client's Redactor method value, which NewClient stores
 	// once, before the client's first request, so that every response of
-	// the client keeps it without an allocation of its own (ruling R114,
-	// D-W6.6-decodeas-carrier-2).
+	// the client keeps it without an allocation of its own.
 	redact func() HeaderRedactor
 }
 
@@ -107,11 +106,11 @@ func (c *Config[R]) Redactor() HeaderRedactor { return NewHeaderRedactor(c.APIKe
 func (c *Config[R]) RedactorFunc() func() HeaderRedactor { return c.redact }
 
 // ConfigRef holds a client's *Config, so that the key is two pointers away
-// from the Client (ruling R66): fmt prints a pointer field as an address,
-// except under a verb a pointer does not take, such as %s or %q, where it
-// prints the value the field points to, which is this struct, whose one
-// field is again a pointer, printed as an address. The configuration's
-// fields are promoted through it.
+// from the Client: fmt prints a pointer field as an address, except under a
+// verb a pointer does not take, such as %s or %q, where it prints the value
+// the field points to, which is this struct, whose one field is again a
+// pointer, printed as an address. The configuration's fields are promoted
+// through it.
 type ConfigRef[R any] struct {
 	*Config[R]
 }
@@ -120,9 +119,8 @@ type ConfigRef[R any] struct {
 // how errors name its endpoints, and its counters. R is the root package's
 // RetryPolicy ([Config]).
 type Client[R any] struct {
-	// _ keeps the root package's Client incomparable, as it has been since
-	// its first release, now that no field of its own is a func: == on two
-	// clients does not compile, and a client cannot be a map key.
+	// _ keeps the root package's Client incomparable: == on two clients
+	// does not compile, and a client cannot be a map key.
 	_ [0]func()
 
 	// cfg holds the key and the header templates, two pointers away from
@@ -185,8 +183,7 @@ type Response struct {
 	meta wire.ResponseMeta
 	// red returns the redactor the response's call used, and is nil for a
 	// response no request made, such as one the root package's
-	// UnmarshalJSON reads back (ruling R114, D-W6.6-decodeas-carrier and
-	// -3, N-W6.6-c5-edge-35). It is the client's Redactor method value,
+	// UnmarshalJSON reads back. It is the client's Redactor method value,
 	// or, for a response to a plain-HTTP request through a proxy, a func
 	// over that redactor with a snapshot of the proxies' credentials
 	// ([HeaderRedactor.ResponseFunc]). It is a func rather than a pointer
@@ -251,12 +248,10 @@ const MaxInlineAnswers = 4
 //
 // Lifetime: the entries share one block with the response and the first
 // attempt's URL copy, so an Answers taken from the response keeps the whole
-// block reachable (704 B for three questions): the response and the
-// decode's array it kept before, and also the 144 B URL copy, which a held
-// response keeps alive since W5.3's N1 and which was freed with its request
-// before it; an answer value copied out of it holds no pointer into the
-// block. No entry points into the body: the decode copies or interns every
-// string it stores, whichever array holds the entries
+// block reachable (704 B for three questions): the response, the entries and
+// the 144 B URL copy; an answer value copied out of it holds no pointer into
+// the block. No entry points into the body: the decode copies or interns
+// every string it stores, whichever array holds the entries
 // (TestDecodeDoesNotAliasBody, TestAnswersOutliveTheirResponse).
 func NewSystemOneAlloc(n int) (*SystemOneAlloc, []wire.AnswerEntry) {
 	switch n {
@@ -297,12 +292,12 @@ type Request struct {
 	GetBody func() (io.ReadCloser, error)
 }
 
-// AttemptHeader returns the header map of attempt (ruling R28). The first
-// attempt sends the call's template itself: the client's, built once, or
-// the call's own when it sets headers. That map is shared by every call and
-// never written, and net/http's RoundTripper contract forbids a transport to
-// modify a request, so no copy is made. A retry sends a fresh map over the
-// template, whose value slices it shares (each has len == cap, so an append
+// AttemptHeader returns the header map of attempt. The first attempt sends
+// the call's template itself: the client's, built once, or the call's own
+// when it sets headers. That map is shared by every call and never written,
+// and net/http's RoundTripper contract forbids a transport to modify a
+// request, so no copy is made. A retry sends a fresh map over the template,
+// whose value slices it shares (each has len == cap, so an append
 // reallocates), with X-TypeSafe-Retry-Count, which only retries carry
 // (py:_core/transport.py:66-68).
 func (rq *Request) AttemptHeader(attempt int) http.Header {

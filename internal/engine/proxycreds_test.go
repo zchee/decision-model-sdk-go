@@ -43,12 +43,11 @@ func (p *ProxyCreds) passwords() []string {
 	return out
 }
 
-// TestProxyCredsRecord pins the transport's proxy credential set (ruling
-// D-W6-secfix-m2): distinct userinfos, most recent last, the oldest
-// forgotten past 16, a proxy chosen again made the most recent; and the
-// needles of each: the Basic token, the password as it is and as the URL
-// escapes it, and each word between single spaces, whatever their length,
-// with the forms a text may quote them in.
+// TestProxyCredsRecord pins the transport's proxy credential set: distinct
+// userinfos, most recent last, the oldest forgotten past 16, a proxy chosen
+// again made the most recent; and the needles of each: the Basic token, the
+// password as it is and as the URL escapes it, and each word between single
+// spaces, whatever their length, with the forms a text may quote them in.
 func TestProxyCredsRecord(t *testing.T) {
 	pw := func(i int) *url.Userinfo { return url.UserPassword("proxy-user", "pw-"+strconv.Itoa(i)) }
 	many := func(from, to int) []*url.URL {

@@ -55,15 +55,14 @@ type Transport struct {
 // RoundTrip sends req through the transport and returns the transport's
 // error as it is: the root package maps a failure of the SDK's transport
 // before a connection was had, and an API host that did not speak HTTP/2
-// under HTTP2Only, to its error types (section 6.3, R67 Q3). A caller's
-// trace hooks run shielded: a panic of one is raised again on the caller
-// once the round trip returns (K28, K28b, K28c).
+// under HTTP2Only, to its error types. A caller's trace hooks run shielded:
+// a panic of one is raised again on the caller once the round trip
+// returns.
 func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	var sh *shield
 	if trace := t.callerTrace(req.Context()); trace != nil {
 		// net/http composes every trace on the context into the one it calls,
-		// so the context net/http sees carries the shielded trace alone
-		// (K28c).
+		// so the context net/http sees carries the shielded trace alone.
 		sh = newShield(req.Context(), trace, t.Logger)
 		defer sh.markReturned()
 		req = req.WithContext(httptrace.WithClientTrace(untracedContext{req.Context()}, &sh.trace))
@@ -120,8 +119,8 @@ func (c untracedContext) Value(key any) any {
 // Close releases the transport, once: the SDK's transport and a caller's
 // WithHTTPTransport clone close their idle connections; a WithRoundTripper
 // closes its idle connections when it has CloseIdleConnections, as an
-// *http.Transport has, and is then closed when it is an io.Closer (AC-F9,
-// R79). Later calls return the first call's result.
+// *http.Transport has, and is then closed when it is an io.Closer. Later
+// calls return the first call's result.
 func (t *Transport) Close() error {
 	t.closeOnce.Do(func() {
 		if t.Gate != nil {
@@ -160,7 +159,7 @@ func (t *Transport) Credentials(req *http.Request) Credentials {
 
 // ErrorText renders err, an error of the transport for the request req, for
 // its DEBUG records "h2: gate error" and "h2: redial error"
-// (h2gate.Config.ErrorText, ruling R84), scrubbed of every credential of the
+// (h2gate.Config.ErrorText), scrubbed of every credential of the
 // call ([Transport.Credentials], [logErrorText]).
 func (t *Transport) ErrorText(req *http.Request, err error) string {
 	return logErrorText(t.Credentials(req), err)
@@ -171,11 +170,10 @@ func (t *Transport) ErrorText(req *http.Request, err error) string {
 // credentials ([ProxyCreds]) when resp answers a plain-HTTP request for which
 // the proxy func returned a proxy (h2gate.Proxied), the one case in which a
 // proxy writes the response itself and so may repeat in its headers what it
-// was sent (ruling D-W6-secfix-header-scope). Over HTTPS a proxy only tunnels
-// the API's bytes, and a request without a proxy never reaches one, so there
-// the scan could only redact what is not a credential. The header paths look
-// for the whole credentials alone, from 8 bytes, as for the API key
-// ([HeaderRedactor.WithProxies]).
+// was sent. Over HTTPS a proxy only tunnels the API's bytes, and a request
+// without a proxy never reaches one, so there the scan could only redact what
+// is not a credential. The header paths look for the whole credentials alone,
+// from 8 bytes, as for the API key ([HeaderRedactor.WithProxies]).
 func (t *Transport) ResponseRedactor(r HeaderRedactor, resp *http.Response) HeaderRedactor {
 	if t.Proxies.Credentials() == nil || resp.Request == nil || resp.Request.URL.Scheme != "http" || !h2gate.Proxied(resp) {
 		return r
@@ -183,8 +181,8 @@ func (t *Transport) ResponseRedactor(r HeaderRedactor, resp *http.Response) Head
 	return r.WithProxies(t.Proxies)
 }
 
-// shield wraps a caller's httptrace hooks for one request (K28, K28b, K28c):
-// a hook that panics inside net/http, which may hold its connection pool's
+// shield wraps a caller's httptrace hooks for one request: a hook that
+// panics inside net/http, which may hold its connection pool's
 // lock or a reserved stream there, is recovered in place, and done raises the
 // panic again on the goroutine that called RoundTrip. A panic it does not
 // raise is logged at WARN with its hook and stack, never its value, which

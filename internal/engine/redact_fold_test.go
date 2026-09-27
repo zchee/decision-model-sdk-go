@@ -22,9 +22,9 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
-// isSecretHeaderLower is IsSecretHeader as it was before W5.3: the name
-// lower-cased whole, then compared. FuzzIsSecretHeader holds IsSecretHeader
-// to it.
+// isSecretHeaderLower is the lower-case-then-compare rule IsSecretHeader's
+// in-place fold must agree with: the name lower-cased whole, then compared.
+// FuzzIsSecretHeader holds IsSecretHeader to it.
 func isSecretHeaderLower(name string) bool {
 	lower := strings.ToLower(name)
 	return slices.Contains(secretHeaderNames, lower) || strings.Contains(lower, "token") || strings.Contains(lower, "secret")
@@ -35,10 +35,7 @@ func isSecretHeaderLower(name string) bool {
 // the per-input bound: the six names and the two words in every case,
 // next to other bytes, split, cut short, and spelled with runes that
 // lower-case to ASCII letters (the Kelvin sign K, the dotted capital I)
-// or fold to them without lower-casing to them (the long s). Its seed corpus
-// runs as a test in CI's -race test step (go test -race with coverage) on
-// ubuntu-26.04, xcode-27 and windows-2025, and the fuzz job fuzzes it for
-// 60 s on ubuntu-26.04.
+// or fold to them without lower-casing to them (the long s).
 func FuzzIsSecretHeader(f *testing.F) {
 	for _, seed := range []string{
 		"", "a", "Authorization", "PROXY-AUTHORIZATION", "x-api-key", "Api-Key", "Cookie", "Set-Cookie",

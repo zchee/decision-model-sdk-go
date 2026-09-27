@@ -83,7 +83,7 @@ func TestIsSecretHeader(t *testing.T) {
 const flaggedKey = "auth-credential"
 
 // TestRedactedHeadersFlaggedValue pins the second rule, which goes past
-// upstream's by-name redaction (Appendix B, "Redaction by header name"):
+// upstream's by-name redaction (docs/deviations.md, "redaction by source"):
 // a value holding the API key is a credential under any name. The exact
 // rendering is pinned too: one attribute per header in name order, values
 // joined by ", ".
@@ -162,11 +162,11 @@ func (h rawValueHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
 func (h rawValueHandler) WithGroup(string) slog.Handler { return h }
 
 // TestRedactedHeadersNeverPrintKey pins that no rendering of a
-// RedactedHeaders prints the API key (review W2.1 MINOR 1, ruling R66): every
-// fmt verb and an unresolved slog Value, Attr or handler print the redacted
-// form, while %p and a RedactedHeaders held in an unexported field, the two
-// renderings fmt makes without calling Format, print an address. The key sits
-// under Authorization in one map and under a plain name in the other.
+// RedactedHeaders prints the API key: every fmt verb and an unresolved slog
+// Value, Attr or handler print the redacted form, while %p and a
+// RedactedHeaders held in an unexported field, the two renderings fmt makes
+// without calling Format, print an address. The key sits under Authorization
+// in one map and under a plain name in the other.
 func TestRedactedHeadersNeverPrintKey(t *testing.T) {
 	type holder struct{ h RedactedHeaders }
 	headers := map[string]struct {
@@ -254,13 +254,12 @@ func rawHandlerOutput(r RedactedHeaders) string {
 }
 
 // TestRedactHeader pins the copy of a response header that the error types
-// store (rulings R87, R93): each value of a header that is a credential by
-// its name (every case of the nine AC-F5 spellings) or, for a client whose
-// key is at least 8 bytes long, by holding the key, becomes "***", one per
-// value; every other header keeps its value slice, shared with the
-// response's; the response's map is left as it was; nil stays nil. The
-// zero HeaderRedactor, and a client's whose key is shorter (R68), redact by
-// name alone.
+// store: each value of a header that is a credential by its name (each of the
+// table's nine spellings) or, for a client whose key is at least 8 bytes
+// long, by holding the key, becomes "***", one per value; every other header
+// keeps its value slice, shared with the response's; the response's map is
+// left as it was; nil stays nil. The zero HeaderRedactor, and a client's
+// whose key is shorter, redact by name alone.
 func TestRedactHeader(t *testing.T) {
 	const key = "ts_live_0123456789abcdef"
 	tests := map[string]struct {
@@ -329,11 +328,10 @@ func TestRedactHeader(t *testing.T) {
 	})
 }
 
-// TestHeaderRedactorRequestID pins the request id a log record shows
-// (ruling R87 as R107 applies it to the INFO "response" record): for every
-// header, redactor and key length, HeaderRedactor.RequestID returns what
-// the error types' RequestID returns from the header the same redactor
-// stored, without copying the header.
+// TestHeaderRedactorRequestID pins the request id a log record shows in the
+// INFO "response" record: for every header, redactor and key length,
+// HeaderRedactor.RequestID returns what the error types' RequestID returns
+// from the header the same redactor stored, without copying the header.
 func TestHeaderRedactorRequestID(t *testing.T) {
 	const key = "ts_live_QzXjWvKpYbNmHgFd"
 	tests := map[string]struct {

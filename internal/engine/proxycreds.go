@@ -27,27 +27,26 @@ import (
 const MaxProxyUserinfos = 16
 
 // ProxyCreds is the credentials of the proxies the proxy func of the SDK's
-// own transport chose (ruling D-W6-secfix-m2): the userinfo of each proxy
-// URL the func returned, recorded where net/http asks it
-// (h2gate.Config.OnProxy), never by asking it again, so that a func with
-// side effects or one that rotates proxies is asked only as net/http asks
-// it. It holds the most recent [MaxProxyUserinfos] distinct userinfos and
-// forgets the oldest; a proxy chosen again becomes the most recent.
+// own transport chose: the userinfo of each proxy URL the func returned,
+// recorded where net/http asks it (h2gate.Config.OnProxy), never by asking it
+// again, so that a func with side effects or one that rotates proxies is
+// asked only as net/http asks it. It holds the most recent
+// [MaxProxyUserinfos] distinct userinfos and forgets the oldest; a proxy
+// chosen again becomes the most recent.
 //
 // The set belongs to the transport, not to a request: a request that waited
 // at the gate for another's dial shares that dial's error without asking the
-// func (h2gate, R19), and its error still holds the credential of the proxy
-// the dial chose. Every transport error of the client is scrubbed of every
-// credential in the set, whatever its length, each word of a password
-// among them ([Transport.Credentials]). The header of a
-// response to a plain-HTTP request that went through a proxy, which the
-// proxy may have written itself, a 407 among them, is scanned for the whole
-// credentials alone, the Basic token and the password as it is and as the
-// URL escapes it, those of 8 bytes or more, as for the API key
+// func (the gate gives a leader's dial error to its waiters), and its error
+// still holds the credential of the proxy the dial chose. Every transport
+// error of the client is scrubbed of every credential in the set, whatever
+// its length, each word of a password among them ([Transport.Credentials]).
+// The header of a response to a plain-HTTP request that went through a proxy,
+// which the proxy may have written itself, a 407 among them, is scanned for
+// the whole credentials alone, the Basic token and the password as it is and
+// as the URL escapes it, those of 8 bytes or more, as for the API key
 // ([Transport.ResponseRedactor], [HeaderRedactor.WithProxies],
-// [ProxyCreds.inHeader]; rulings D-W6-secfix-header-scope and -2): a word of
-// a password, or a short one, would match ordinary header values, a
-// Retry-After among them.
+// [ProxyCreds.inHeader]): a word of a password, or a short one, would match
+// ordinary header values, a Retry-After among them.
 //
 // A nil *ProxyCreds, a caller's transport's (WithHTTPTransport,
 // WithRoundTripper), holds none. The set is written only when the func
@@ -133,9 +132,8 @@ func (p *ProxyCreds) Credentials() Credentials {
 
 // inHeader reports whether one of values, a header's, holds a whole
 // credential in p, the Basic token or the password as it is or as the URL
-// escapes it, at least [MinKeyNeedleBytes] long (ruling R68 on the header
-// paths, D-W6-secfix-header-scope-2): a word of a password, or a shorter
-// credential, would match ordinary header values.
+// escapes it, at least [MinKeyNeedleBytes] long: a word of a password, or a
+// shorter credential, would match ordinary header values.
 func (p *ProxyCreds) inHeader(values []string) bool {
 	if p == nil {
 		return false

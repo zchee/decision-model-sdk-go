@@ -298,7 +298,7 @@ func TestBuilderRawValues(t *testing.T) {
 }
 
 // TestBuilderRawKeyStack checks the key stack Raw sorts map keys on
-// (sortedKeys, W5.3): members come out in sorted key order at every level
+// (sortedKeys): members come out in sorted key order at every level
 // when a nested map pushes more keys than the stack holds while an outer
 // map is still ranging over its own, the stack is empty after each
 // question and after each map written as a value, and a second question of
@@ -396,9 +396,9 @@ func refValue(v any) string {
 	panic(fmt.Sprintf("refValue: %T", v))
 }
 
-// FuzzAppendJSON checks the invariants AppendJSON keeps on any input (ruling
-// R44). The differential check against encoding/json belongs to
-// internal/codec's tests, since this package's tests import no JSON library.
+// FuzzAppendJSON checks the invariants AppendJSON keeps on any input. The
+// differential check against encoding/json belongs to internal/codec's tests,
+// since this package's tests import no JSON library.
 //
 //   - It never panics.
 //   - A failure is a *SyntaxError whose offset lies within the input, and

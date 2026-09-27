@@ -97,8 +97,8 @@ type Failure struct {
 // value may be any JSON value: sonic writes it (codec.EncodeValue), an R
 // value as it is after codec.AppendRawValue's check, a C as a question
 // writes it and an unset C as null. The root package's encodeBody documents
-// the float spelling, map order and json.Marshaler rules (rulings R46, R55,
-// R59, R61, K26, K27), which are this function's.
+// the float spelling, map order and json.Marshaler rules, which are this
+// function's.
 //
 // It fails, with a [Failure] the root package turns into its error, when q
 // is nil or holds no question, when model is not valid UTF-8, or when a

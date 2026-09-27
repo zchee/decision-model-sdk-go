@@ -39,9 +39,8 @@ var secretHeaderNames = []string{"authorization", "proxy-authorization", "x-api-
 // (py:_core/logging.py:32-34). The rule is strings.ToLower's: an ASCII
 // name, as every name on the wire is (net/http refuses others), is
 // compared with its letters folded in place, which allocates nothing,
-// where lower-casing a mixed-case name such as "Content-Type" copies it
-// (W5.3, from D-r103revert-rereview); a name with any other byte is
-// lower-cased as before.
+// where lower-casing a mixed-case name such as "Content-Type" copies it;
+// any other name is lower-cased with strings.ToLower.
 func IsSecretHeader(name string) bool {
 	for i := range len(name) {
 		if name[i] >= utf8.RuneSelf {
@@ -81,8 +80,8 @@ func lowerASCII(c byte) byte {
 }
 
 // MinKeyNeedleBytes is the shortest API key the SDK looks for inside other
-// text: a header value it redacts, and a WithHeader name it refuses (ruling
-// R68). A shorter key, such as a test's "test" or "k", occurs in ordinary
+// text: a header value it redacts, and a WithHeader name it refuses. A
+// shorter key, such as a test's "test" or "k", occurs in ordinary
 // names and values, and looking for it would hide or refuse them; real keys
 // are far longer. Redaction by header name does not depend on the key and
 // always applies.
@@ -107,16 +106,15 @@ func isCredential(name string, values []string, apiKey string) bool {
 }
 
 // HeaderRedactor redacts the response header that the error types keep
-// and the log records print (rulings R87, R93): a header is a credential by
-// its name always, by holding the client's API key when the key is at least
-// [MinKeyNeedleBytes] long ([isCredential]), and, in the response to a
-// plain-HTTP request through a proxy, by holding a whole credential of the
-// proxies the SDK's transport chose, from [MinKeyNeedleBytes] too
-// ([ProxyCreds.inHeader]; rulings D-W6-secfix-revise-2-scope-c and
-// D-W6-secfix-header-scope and -2), which such a proxy may repeat in the
-// header of its own answer. Its zero value redacts by name alone, for an error
-// built without a client's key, such as UnmarshalJSON's. Build a client's
-// with [NewHeaderRedactor], and a response's with [HeaderRedactor.WithProxies].
+// and the log records print: a header is a credential by its name always, by
+// holding the client's API key when the key is at least [MinKeyNeedleBytes]
+// long ([isCredential]), and, in the response to a plain-HTTP request through
+// a proxy, by holding a whole credential of the proxies the SDK's transport
+// chose, from [MinKeyNeedleBytes] too ([ProxyCreds.inHeader]), which such a
+// proxy may repeat in the header of its own answer. Its zero value redacts by
+// name alone, for an error built without a client's key, such as
+// UnmarshalJSON's. Build a client's with [NewHeaderRedactor], and a
+// response's with [HeaderRedactor.WithProxies].
 type HeaderRedactor struct {
 	// key is the API key when it is long enough to look for, else empty.
 	key string
@@ -127,7 +125,7 @@ type HeaderRedactor struct {
 
 // NewHeaderRedactor returns the redactor for a client whose API key is
 // apiKey: by name and by apiKey when apiKey is at least
-// [MinKeyNeedleBytes] long (ruling R68), by name alone otherwise.
+// [MinKeyNeedleBytes] long, by name alone otherwise.
 func NewHeaderRedactor(apiKey string) HeaderRedactor {
 	if !KeyNeedle(apiKey) {
 		return HeaderRedactor{}
@@ -138,7 +136,7 @@ func NewHeaderRedactor(apiKey string) HeaderRedactor {
 // WithProxies returns r looking also for the whole credentials of proxies,
 // for the header of a response that a proxy may have written itself:
 // [Transport.ResponseRedactor] gives it to a response to a plain-HTTP
-// request through a proxy alone (ruling D-W6-secfix-header-scope).
+// request through a proxy alone.
 func (r HeaderRedactor) WithProxies(proxies *ProxyCreds) HeaderRedactor {
 	r.proxies = proxies
 	return r
@@ -201,11 +199,10 @@ func (r HeaderRedactor) Header(h http.Header) http.Header {
 // values joined by ", ", each "***" when one of them holds the client's API
 // key or a credential of r's proxies, and whether the header was present.
 // The INFO "response" record reads the id through it, so the record shows
-// "***" where Error does (ruling R87). The header's name is not a
-// credential's ([IsSecretHeader]), so only the key and the proxies'
-// credentials are looked for, and the name is not lower-cased as
-// [isCredential] would. h is not copied: one value costs no allocation, and
-// several cost the one string they are joined into.
+// "***" where Error does. The header's name is not a credential's
+// ([IsSecretHeader]), so only the key and the proxies' credentials are
+// looked for, and the name is not tested. h is not copied: one value costs
+// no allocation, and several cost the one string they are joined into.
 func (r HeaderRedactor) RequestID(h http.Header) (string, bool) {
 	values := h[wire.RequestIDHeader]
 	if len(values) == 0 {

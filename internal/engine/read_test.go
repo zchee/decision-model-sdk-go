@@ -40,12 +40,12 @@ func (c *chunks) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-// TestReadBody checks the body read of section 6.2.1 (rulings R26b, R27):
-// the first buffer is min(Content-Length, 256 KiB) for a declared body, with
-// a spare byte when that is all of it, and 4 KiB for an undeclared one;
-// growth doubles within the limit and the declared length, and the buffer
-// that reaches either has a spare byte; the byte after the limit refuses the
-// body, and a declared length over the limit is refused before a read.
+// TestReadBody checks the body read: the first buffer is
+// min(Content-Length, 256 KiB) for a declared body, with a spare byte when
+// that is all of it, and 4 KiB for an undeclared one; growth doubles within
+// the limit and the declared length, and the buffer that reaches either has
+// a spare byte; the byte after the limit refuses the body, and a declared
+// length over the limit is refused before a read.
 func TestReadBody(t *testing.T) {
 	body := func(n int) []byte { return bytes.Repeat([]byte{'x'}, n) }
 	tests := map[string]struct {

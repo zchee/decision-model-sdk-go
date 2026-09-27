@@ -13,18 +13,8 @@
 // limitations under the License.
 
 // Package engine holds the stages of a call that the root package's public
-// types are built on: the request body's assembly (for the root package's
-// RawJSON and Content, as type parameters), the escape and cut of text the
-// SDK did not write, the credential scrub of a transport error, header
-// redaction, the falsiness check of a question's JSON value, the response
-// body's read, the decode's entry with its WARN lines for answers of unknown
-// types, the transport a client's requests go through with the shield around
-// a caller's trace hooks, the API's paths and retry-count header, and the
-// state behind the root package's Client, Prepared and SystemOneResponse,
-// each declared there as a defined type over this package's Client, Prepared
-// and Response. It imports neither the root package nor anything that
-// imports it, and no file of it imports unsafe (STANDING 3, ruling
-// D-W6.5-design 6.2). They live here, not in the root package, so that a
-// test outside the root package can measure them (owner instruction G9, W6.5
-// design D1).
+// types are built on. They live here, not in the root package, so that a
+// test outside the root package can measure them. It imports neither the
+// root package nor anything that imports it, and no file of it imports
+// unsafe.
 package engine

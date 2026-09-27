@@ -34,8 +34,8 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
-// TestAppendSafeText pins the escape and cut of text the SDK did not write
-// (NF7, ruling R58), the rules of the Rust port's src/text.rs in Go escapes.
+// TestAppendSafeText pins the escape and cut of text the SDK did not write,
+// the rules of the Rust port's src/text.rs in Go escapes.
 func TestAppendSafeText(t *testing.T) {
 	tests := map[string]struct {
 		s      string
@@ -80,7 +80,7 @@ const quirkyKey = `ts_live_quo'te"slash\tail`
 // looks for (py:_core/logging.py:43-51): the values of the headers whose
 // names mark credentials, and the credential after the scheme of an
 // Authorization or Proxy-Authorization value, each raw, Go-quoted (%q and
-// %+q) and JSON-escaped, at least 8 bytes long (R68), longest first.
+// %+q) and JSON-escaped, at least 8 bytes long, longest first.
 func TestRequestCredentials(t *testing.T) {
 	h := http.Header{
 		"Authorization":       {"Bearer " + quirkyKey},
@@ -118,11 +118,10 @@ func TestRequestCredentials(t *testing.T) {
 	}
 }
 
-// TestCredentialsRedact pins the scrub of a transport error's text (note
-// N-W2.5): every form of a credential of the request becomes "***", a whole
-// Authorization value before the key inside it, then URL userinfo; a value
-// shorter than 8 bytes and a header whose name marks no credential are left
-// as they are.
+// TestCredentialsRedact pins the scrub of a transport error's text: every
+// form of a credential of the request becomes "***", a whole Authorization
+// value before the key inside it, then URL userinfo; a value shorter than 8
+// bytes and a header whose name marks no credential are left as they are.
 func TestCredentialsRedact(t *testing.T) {
 	const key = "ts_live_0123456789abcdef"
 	auth := func(v string) http.Header { return http.Header{"Authorization": {v}} }
@@ -192,7 +191,7 @@ func TestCredentialsRedact(t *testing.T) {
 }
 
 // TestLogErrorText pins what the transport's DEBUG records print for a
-// transport error (h2gate.Config.ErrorText, ruling R84): the error's text
+// transport error (h2gate.Config.ErrorText): the error's text
 // with every credential of the failing request's header and every URL
 // userinfo replaced by "***", then escaped and cut at 200 characters, the
 // scrub before the cut, so no piece of a credential survives at the edge.
@@ -239,7 +238,7 @@ func TestLogErrorText(t *testing.T) {
 }
 
 // TestRedactionCoversGoEscapeForms ports test_exception_redaction_escaped_values
-// (L3, tests/test_logging.py:135-142): a credential holding a quote, a
+// (tests/test_logging.py:135-142): a credential holding a quote, a
 // double quote and a backslash, sent after "Bearer " under Authorization and
 // Proxy-Authorization and as the whole value under X-API-Key and
 // X-MiXeD-ToKeN, is replaced by "***" in an error's text in each form Go
@@ -292,8 +291,8 @@ func TestRedactionCoversGoEscapeForms(t *testing.T) {
 }
 
 // TestRedactionKeepsCleanChains ports the scrub's part of
-// test_exception_redaction_preserves_network_diagnostics (L6,
-// tests/test_logging.py:176-184): a transport error that shows no credential
+// test_exception_redaction_preserves_network_diagnostics
+// (tests/test_logging.py:176-184): a transport error that shows no credential
 // passes the scrub unchanged, so its diagnostics survive: Cause returns the
 // transport's error itself, with its type, text and chain, as the Python SDK
 // keeps a ConnectError of the same type and text with its OSError cause, and
@@ -325,11 +324,11 @@ func (e opaqueError) Error() string { return "opaque failure" }
 func (e opaqueError) Unwrap() error { return e.inner }
 
 // TestCredentialsCause pins the cause an SDK error made from a transport
-// error unwraps to (Appendix B: "cause via errors.Unwrap unless it printed a
-// credential"): the transport's error itself, or, when the text of any
-// error in its chain holds a credential, a *scrubbedError whose text has
-// the credentials replaced, which errors.Is still matches against the
-// well-known sentinels and the errno the transport's error matched, and
+// error unwraps to (docs/deviations.md, "cause via `errors.Unwrap` unless
+// it printed a credential"): the transport's error itself, or, when the
+// text of any error in its chain holds a credential, a *scrubbedError whose
+// text has the credentials replaced, which errors.Is still matches against
+// the well-known sentinels and the errno the transport's error matched, and
 // through which errors.As reaches nothing else.
 func TestCredentialsCause(t *testing.T) {
 	const key = "ts_live_0123456789abcdef"
@@ -431,7 +430,7 @@ func (e plusOnly) Format(f fmt.State, verb rune) {
 	_, _ = io.WriteString(f, e.msg)
 }
 
-// TestScrubbedErrorFormat pins ruling R95: a stand-in for a transport error
+// TestScrubbedErrorFormat pins that a stand-in for a transport error
 // whose chain printed a credential keeps, as text, the rendering of that
 // chain with the credentials replaced, and prints it for %+v and %#v, so a
 // cause's diagnostic ("Rejected authorization: ***; provider: ***", as
@@ -499,12 +498,11 @@ func TestScrubbedErrorFormat(t *testing.T) {
 			t.Errorf("%%+v is %d characters, want at most %d and the ellipsis", n, maxDetailChars)
 		}
 	})
-	// The key across the cut (review W3.3 MINOR 1, the class of R82 MINOR 1
-	// at 1024 characters): the credentials are replaced before the rendering
-	// is cut, so no piece of the key that is long enough to be one of its
-	// needles is left at the edge. The key starts between character 990 and
-	// 1040 of the rendering. The root package's TestScrubbedErrorFormat
-	// holds it through the client.
+	// The key across the cut at 1024 characters: the credentials are replaced
+	// before the rendering is cut, so no piece of the key that is long enough
+	// to be one of its needles is left at the edge. The key starts between
+	// character 990 and 1040 of the rendering. The root package's
+	// TestScrubbedErrorFormat holds it through the client.
 	const longKey = "ts_live_0123456789abcdefghij"
 	prefixes := func(t *testing.T, what, out string) {
 		t.Helper()
@@ -528,9 +526,8 @@ func TestScrubbedErrorFormat(t *testing.T) {
 // TestJSONFormMatchesEncodingJSON checks jsonForm against the encoder a
 // caller's error text would carry, encoding/json (through
 // testsupport.StdlibMarshal: this package's tests, like the root package's,
-// import no JSON library), rather than against expected strings (review
-// W2.5 NIT 8): for
-// each value, jsonForm writes what json.Marshal writes between the quotes.
+// import no JSON library), rather than against expected strings: for each
+// value, jsonForm writes what json.Marshal writes between the quotes.
 // The values cover obs-text bytes that are not UTF-8, a character above the
 // Basic Multilingual Plane, the HTML characters, quotes and backslashes,
 // controls, DEL, U+2028 and U+2029, and a header's own characters.

@@ -32,14 +32,14 @@ func FalsyJSON(raw []byte) bool {
 }
 
 // maybeFalsyJSON reports whether raw can be one of FalsyJSON's falsy values,
-// from its first bytes alone (Prepare P2, W5.3): a value that is valid JSON
-// starts, after whitespace, as its compact form does, and no whitespace can
-// stand inside a string or a number. So a value that starts with t, with a
-// string of at least one character, with an array or object whose next
-// non-space byte does not close it, or with a number that has a digit from
-// 1 to 9 before its exponent, is not falsy whether or not the rest is valid,
-// and FalsyJSON returns false without reading or copying the rest. That is
-// the success path of a raw score question.
+// from its first bytes alone: a value that is valid JSON starts, after
+// whitespace, as its compact form does, and no whitespace can stand inside a
+// string or a number. So a value that starts with t, with a string of at
+// least one character, with an array or object whose next non-space byte does
+// not close it, or with a number that has a digit from 1 to 9 before its
+// exponent, is not falsy whether or not the rest is valid, and FalsyJSON
+// returns false without reading or copying the rest. That is the success path
+// of a raw score question.
 func maybeFalsyJSON(raw []byte) bool {
 	i := skipJSONSpace(raw, 0)
 	if i == len(raw) {

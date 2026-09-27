@@ -30,10 +30,9 @@ const (
 const HeaderRetryCount = "X-TypeSafe-Retry-Count"
 
 // retryCountValues holds the value of X-TypeSafe-Retry-Count for the first
-// retries, so an attempt never formats its number (section 6.3: "retry-count
-// from a static table"); index n is retry n+1. The value slices have
-// len == cap, so a transport that appends to one reallocates instead of
-// writing into the table.
+// retries, so an attempt never formats its number; index n is retry n+1. The
+// value slices have len == cap, so a transport that appends to one
+// reallocates instead of writing into the table.
 var retryCountValues = func() [16][]string {
 	var t [16][]string
 	for i := range t {

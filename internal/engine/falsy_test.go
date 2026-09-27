@@ -22,9 +22,9 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
-// falsyJSONWhole is FalsyJSON as it was before W5.3's P2: every value is
-// checked and compacted whole, and the verdict read from the compact form.
-// FuzzFalsyJSON holds FalsyJSON to it.
+// falsyJSONWhole is the whole-value check FalsyJSON's first-bytes shortcut
+// must agree with: every value is checked and compacted whole, and the
+// verdict read from the compact form. FuzzFalsyJSON holds FalsyJSON to it.
 func falsyJSONWhole(raw []byte) bool {
 	compact, err := wire.AppendJSON(nil, raw)
 	if err != nil {
@@ -53,10 +53,7 @@ func falsyJSONWhole(raw []byte) bool {
 // before it checks the whole value (maybeFalsyJSON), gives the verdict of
 // the whole-value check on any input, within the per-input bound: the falsy
 // literals and zeros with whitespace around and inside them, their truthy
-// neighbours, and invalid JSON that starts like either. Its seed corpus
-// runs as a test in CI's -race test step (go test -race with coverage) on
-// ubuntu-26.04, xcode-27 and windows-2025, and the fuzz job fuzzes it for
-// 60 s on ubuntu-26.04.
+// neighbours, and invalid JSON that starts like either.
 func FuzzFalsyJSON(f *testing.F) {
 	for _, seed := range []string{
 		``, ` `, "\t\n\r ", `null`, ` null `, `nul`, `nulll`, `false`, "\nfalse\t", `fals`, `true`, `tru`,

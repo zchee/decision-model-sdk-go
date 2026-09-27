@@ -22,7 +22,7 @@ import (
 // ErrTooLarge ends a body read that passed the size limit.
 var ErrTooLarge = errors.New("typesafe: response body over the size limit")
 
-// The first buffer of a response body read (NF5, ruling R27).
+// The first buffer of a response body read.
 const (
 	// initialDeclared bounds the first buffer of a body whose length is
 	// declared: the buffer holds min(Content-Length, initialDeclared).
@@ -35,9 +35,8 @@ const (
 	minGrow = 512
 )
 
-// ReadBody reads a response body of at most limit bytes (section 6.2.1,
-// rulings R26b and R27). declared is its Content-Length, or -1 when it
-// declares none.
+// ReadBody reads a response body of at most limit bytes. declared is its
+// Content-Length, or -1 when it declares none.
 //
 //   - A declared length above limit is refused before anything is read.
 //   - The first buffer holds min(declared, initialDeclared) bytes for a
