@@ -200,7 +200,7 @@ func TestConnectionErrorsRetried(t *testing.T) {
 								return
 							}
 							writePartial(w)
-							srv.LiveH2Conns()[0].Reset()
+							requestConn(srv).Reset()
 							hold(r, release)
 						}
 					})

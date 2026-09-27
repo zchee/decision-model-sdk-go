@@ -24,6 +24,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -76,9 +77,23 @@ func hold(r *http.Request, release <-chan struct{}) {
 	}
 }
 
+// requestConn returns the connection that carries the running handler's
+// request: the newest listed connection with an open stream. A connection
+// that an earlier attempt ended (CloseConns, Reset) stays listed until its
+// reader has stopped, but has dropped its streams already; a connection
+// that carries no request has none.
+func requestConn(srv *testsupport.LoopbackServer) *testsupport.H2Conn {
+	for _, c := range slices.Backward(srv.LiveH2Conns()) {
+		if len(c.ActiveStreams()) > 0 {
+			return c
+		}
+	}
+	panic("no listed connection has an open stream")
+}
+
 func goAwayAfterWrite(srv *testsupport.LoopbackServer, r *http.Request, release <-chan struct{}) {
 	_, _ = io.Copy(io.Discard, r.Body)
-	conn := srv.LiveH2Conns()[0]
+	conn := requestConn(srv)
 	// The request's stream is at or below LastStreamID, so it counts as
 	// processed and net/http cannot replay it.
 	_ = conn.GoAway(conn.ActiveStreams()[0], testsupport.CodeInternalError)
