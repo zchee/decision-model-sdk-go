@@ -63,10 +63,11 @@ func dialPhaseTrace(t *testing.T, hook string, release <-chan struct{}, late boo
 // net.Dialer over loopback TLS: a WithClientTrace hook that blocks the first
 // connection's DNS lookup (a localhost base URL), TCP connect or TLS
 // handshake ends the call under WithNoTimeout with a *TimeoutError at the
-// bound, while the hook still blocks. The bound is the connect timeout for
-// DNSStart and ConnectStart, which run inside the dial, and twice the
-// connect timeout for TLSHandshakeStart, the wait bound (on this transport
-// the TLS handshake timeout is the connect timeout). The call's INFO
+// bound, while the hook still blocks. The bound is the connect timeout plus
+// the dial bound's grace of 100 ms for DNSStart and ConnectStart, which run
+// inside the dial, and twice the connect timeout for TLSHandshakeStart, the
+// wait bound (on this transport the TLS handshake timeout is the connect
+// timeout). The call's INFO
 // "request failed" record and the transport's DEBUG record of the bound
 // name it.
 //

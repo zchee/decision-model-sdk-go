@@ -659,19 +659,24 @@ func TestWaitBoundContext(t *testing.T) {
 // abandoned then, with the bound's timeout, counted and logged, and the
 // connection it returns once the hook lets it go is closed, twenty held
 // dials in a row: a hand-over that raced the abandon would leave it open
-// about half the time (review W6.6 NIT 1). The instants are the configured
-// bounds (STANDING 9). It runs in CI's -race test step (go test -race with
-// coverage) on ubuntu-26.04, xcode-27 and windows-2025.
+// about half the time (review W6.6 NIT 1). A held dial that net/http
+// cancels before its deadline ends at the cancel, with the context's error,
+// neither waiting the grace nor counting an expiry, and its late connection
+// is closed too (review W6.6 R-NIT 2). The instants are the configured
+// bounds and the cancel's (STANDING 9). It runs in CI's -race test step (go
+// test -race with coverage) on ubuntu-26.04, xcode-27 and windows-2025.
 func TestBoundedDialGrace(t *testing.T) {
 	const timeout = time.Second
 	tests := map[string]struct {
-		after  time.Duration // how long after its deadline the dialer answers; held until released when negative
-		rounds int
+		after    time.Duration // how long after its deadline the dialer answers; held until released when negative
+		cancelAt time.Duration // when the caller cancels the dial's context, after the dial starts; never when 0
+		rounds   int
 	}{
-		"success: a dialer that answers at its deadline keeps its own error":            {after: 0, rounds: 1},
-		"success: a dialer that answers 1 ms after its deadline keeps its own error":    {after: time.Millisecond, rounds: 1},
-		"success: a dialer that answers as the grace ends keeps its own error":          {after: dialGrace - time.Millisecond, rounds: 1},
-		"error: a dial held past the grace is abandoned and its late connection closed": {after: -1, rounds: 20},
+		"success: a dialer that answers at its deadline keeps its own error":             {after: 0, rounds: 1},
+		"success: a dialer that answers 1 ms after its deadline keeps its own error":     {after: time.Millisecond, rounds: 1},
+		"success: a dialer that answers as the grace ends keeps its own error":           {after: dialGrace - time.Millisecond, rounds: 1},
+		"error: a dial held past the grace is abandoned and its late connection closed":  {after: -1, rounds: 20},
+		"error: a held dial that net/http cancels ends at the cancel, without the grace": {after: -1, cancelAt: 10 * time.Millisecond, rounds: 1},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -691,11 +696,22 @@ func TestBoundedDialGrace(t *testing.T) {
 						time.Sleep(tt.after)
 						return nil, own
 					}, timeout)
+					ctx, cancel := context.WithCancel(t.Context())
+					if tt.cancelAt > 0 {
+						time.AfterFunc(tt.cancelAt, cancel)
+					}
 					start := time.Now()
-					_, err := dial(t.Context(), "tcp", "example.com:443")
+					_, err := dial(ctx, "tcp", "example.com:443")
 					elapsed := time.Since(start)
+					cancel()
 					close(release)
 					synctest.Wait() // a held dial has returned, and its goroutine is done with the connection
+					if tt.cancelAt > 0 {
+						if !errors.Is(err, context.Canceled) || elapsed != tt.cancelAt || !late.closed.Load() {
+							t.Fatalf("round %d: err %v (%s) after %v, late connection closed %t; want the context's error at the cancel, %v, and the connection closed", round, err, chain(err), elapsed, late.closed.Load(), tt.cancelAt)
+						}
+						continue
+					}
 					if tt.after >= 0 {
 						if !errors.Is(err, own) || elapsed != timeout+tt.after {
 							t.Errorf("err %v (%s) after %v; want the dialer's own error after %v", err, chain(err), elapsed, timeout+tt.after)
@@ -741,7 +757,10 @@ func (c *lateConn) Close() error {
 // dial expiry nor logs "h2: dial bound expired". Before the grace the bound
 // won the race with the dialer's own timer in 598 of 600 dials on (M) and
 // 543 of 600 on (L) (ledger W6.6-04). A network that refuses the address at
-// once answers with a *net.OpError too.
+// once answers with a *net.OpError too; the test logs how long the request
+// took, so a run with -v, or a failure, shows which of the two the host met:
+// about the connect timeout for a host that does not answer, less for a
+// refusal (review W6.6 R-NOTE B).
 func TestDialUnreachableHostKeepsItsError(t *testing.T) {
 	logs := testsupport.NewLogRecorder(slog.LevelDebug)
 	tr, err := NewTransport(Config{
@@ -760,7 +779,10 @@ func TestDialUnreachableHostKeepsItsError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	start := time.Now()
 	resp, err := tr.RoundTrip(req)
+	elapsed := time.Since(start)
+	t.Logf("the request to 192.0.2.1 ended after %v (connect timeout 20ms): %v", elapsed, err)
 	if err == nil {
 		_ = resp.Body.Close()
 		t.Fatal("a request to 192.0.2.1 succeeded; the test needs an address no host answers")
