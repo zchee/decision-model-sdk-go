@@ -198,7 +198,7 @@ def test_part1_failures(
     tmp_path: Path, archive: tuple[Path, str, str], line: str, want: str
 ) -> None:
     _, a, _ = archive
-    subs = {"a": a, "a11": a[:11], "A": a.upper()}
+    subs = {"a": a, "a11": a[:11], "A": "A" + a[1:]}
     repo, _ = _repo(tmp_path / "co", {"docs/x.md": line.format(**subs) + TAIL})
     failures, _ = sc.part1(repo)
     assert len(failures) == 1, failures
