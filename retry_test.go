@@ -18,7 +18,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
-	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -1607,7 +1606,7 @@ func TestRetryClassSwitches(t *testing.T) {
 			policy: DefaultRetry().Predicate(is404).Predicate(nil), reply: rtReply(404, `{"message": "gone"}`), attempts: 1,
 		},
 		"error: a host that did not negotiate HTTP/2 is never retried": {
-			policy: DefaultRetry(), reply: testsupport.Reply{Err: fmt.Errorf("%w: the API host's TLS handshake negotiated %q", h2gate.ErrNotNegotiated, "http/1.1")},
+			policy: DefaultRetry(), reply: testsupport.Reply{Err: &h2gate.NotNegotiatedError{Detail: `the API host's TLS handshake negotiated "http/1.1"`}},
 			attempts: 1,
 			check: func(t *testing.T, err error) {
 				if _, ok := errors.AsType[*ConfigError](err); !ok || !errors.Is(err, ErrHTTP2NotNegotiated) {

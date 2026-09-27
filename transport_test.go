@@ -339,7 +339,7 @@ func TestTransportBuildErrors(t *testing.T) {
 func TestDialErrorsMapToSDKErrors(t *testing.T) {
 	const attempt = 10 * time.Second
 	timeoutCause := &net.OpError{Op: "dial", Net: "tcp", Err: context.DeadlineExceeded}
-	notNegotiated := fmt.Errorf("%w: the API host's TLS handshake negotiated %q", h2gate.ErrNotNegotiated, "http/1.1")
+	notNegotiated := &h2gate.NotNegotiatedError{Detail: `the API host's TLS handshake negotiated "http/1.1"`}
 	type want struct {
 		kind       string // "timeout", "connection", "config" or "" for unmapped
 		text       string
@@ -353,7 +353,7 @@ func TestDialErrorsMapToSDKErrors(t *testing.T) {
 		want   want
 	}{
 		"success: a not-negotiated detail holding a request credential is scrubbed and its cause replaced": {
-			err:    &h2gate.DialError{Err: fmt.Errorf("%w: the caller's connection echoed Bearer %s", h2gate.ErrNotNegotiated, detailKey)},
+			err:    &h2gate.DialError{Err: &h2gate.NotNegotiatedError{Detail: "the caller's connection echoed Bearer " + detailKey}},
 			header: http.Header{"Authorization": {"Bearer " + detailKey}},
 			want:   want{kind: "config", text: "The API host did not negotiate HTTP/2, which HTTP2Only requires (the caller's connection echoed ***); WithHTTPVersion(HTTPAuto) allows HTTP/1.1."},
 		},
@@ -382,7 +382,7 @@ func TestDialErrorsMapToSDKErrors(t *testing.T) {
 			want: want{kind: "timeout", text: "Request timed out (timeout=10s)."},
 		},
 		"success: a not-negotiated detail has its userinfo scrubbed and its cause replaced": {
-			err:  &h2gate.DialError{Err: fmt.Errorf("%w: via http://user:hunter2@proxy.test:3128", h2gate.ErrNotNegotiated)},
+			err:  &h2gate.DialError{Err: &h2gate.NotNegotiatedError{Detail: "via http://user:hunter2@proxy.test:3128"}}, //nolint:gosec // G101: a made-up proxy password the detail must not show.
 			want: want{kind: "config", text: "The API host did not negotiate HTTP/2, which HTTP2Only requires (via http://***@proxy.test:3128); WithHTTPVersion(HTTPAuto) allows HTTP/1.1."},
 		},
 		"success: a URL without userinfo keeps its text and cause": {
@@ -398,7 +398,7 @@ func TestDialErrorsMapToSDKErrors(t *testing.T) {
 			want: want{kind: "config", text: `The API host did not negotiate HTTP/2, which HTTP2Only requires (the API host's TLS handshake negotiated "http/1.1"); WithHTTPVersion(HTTPAuto) allows HTTP/1.1.`, unwrapsErr: true},
 		},
 		"success: a response over HTTP/1.1 (the post-check)": {
-			err:  fmt.Errorf("%w: the response is %s", h2gate.ErrNotNegotiated, "HTTP/1.1"),
+			err:  &h2gate.NotNegotiatedError{Detail: "the response is HTTP/1.1"},
 			want: want{kind: "config", text: "The API host did not negotiate HTTP/2, which HTTP2Only requires (the response is HTTP/1.1); WithHTTPVersion(HTTPAuto) allows HTTP/1.1.", unwrapsErr: true},
 		},
 		"success: a dial that timed out": {

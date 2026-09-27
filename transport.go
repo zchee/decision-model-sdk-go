@@ -23,7 +23,6 @@ import (
 	"net/http/httptrace"
 	"net/url"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/zchee/typesafe-sdk-go/internal/engine"
@@ -433,11 +432,15 @@ func transportError(err error, timeout time.Duration, creds engine.Credentials) 
 		text, _ := creds.Redact(de.Err.Error())
 		return newConnectionError(text, creds.Cause(err), true)
 	case errors.Is(err, h2gate.ErrNotNegotiated):
-		detail := err.Error()
+		cause := err
 		if isDial {
-			detail = de.Err.Error()
+			cause = de.Err
 		}
-		detail, _ = creds.Redact(strings.TrimPrefix(detail, h2gate.ErrNotNegotiated.Error()+": "))
+		detail := cause.Error()
+		if nn, ok := cause.(*h2gate.NotNegotiatedError); ok { //nolint:errorlint // only the cause's own text starts with the sentinel's
+			detail = nn.Detail
+		}
+		detail, _ = creds.Redact(detail)
 		msg := "The API host did not negotiate HTTP/2, which HTTP2Only requires (" + engine.SafeMessage(detail) +
 			"); WithHTTPVersion(HTTPAuto) allows HTTP/1.1."
 		return newConfigError(msg, ErrHTTP2NotNegotiated, creds.Cause(err))

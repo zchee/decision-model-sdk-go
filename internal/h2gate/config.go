@@ -360,7 +360,7 @@ func alpnCheck(scope alpnScope, want string, next func(tls.ConnectionState) erro
 		// so the name is normalised before the comparison.
 		apiHop := scope == scopeEvery || (scope == scopeSNI && hostnameInSNI(cs.ServerName) == want)
 		if apiHop && cs.NegotiatedProtocol != "h2" {
-			return fmt.Errorf("%w: the API host's TLS handshake negotiated %q", ErrNotNegotiated, cs.NegotiatedProtocol)
+			return &NotNegotiatedError{Detail: fmt.Sprintf("the API host's TLS handshake negotiated %q", cs.NegotiatedProtocol)}
 		}
 		return nil
 	}
@@ -683,7 +683,7 @@ func thinDialTLS(dial func(context.Context, string, string) (net.Conn, error), a
 		cs, ok := conn.(connectionStater)
 		if !ok {
 			_ = conn.Close()
-			return nil, fmt.Errorf("%w: the TLS dialer's %T reports no TLS connection state", ErrNotNegotiated, conn)
+			return nil, &NotNegotiatedError{Detail: fmt.Sprintf("the TLS dialer's %T reports no TLS connection state", conn)}
 		}
 		if h, ok := conn.(handshaker); ok && !cs.ConnectionState().HandshakeComplete {
 			if err := h.HandshakeContext(ctx); err != nil {
@@ -693,7 +693,7 @@ func thinDialTLS(dial func(context.Context, string, string) (net.Conn, error), a
 		}
 		if p := cs.ConnectionState().NegotiatedProtocol; p != "h2" {
 			_ = conn.Close()
-			return nil, fmt.Errorf("%w: the TLS dialer's connection negotiated %q", ErrNotNegotiated, p)
+			return nil, &NotNegotiatedError{Detail: fmt.Sprintf("the TLS dialer's connection negotiated %q", p)}
 		}
 		return conn, nil
 	}

@@ -16,7 +16,6 @@ package h2gate
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -500,7 +499,7 @@ func (t *Transport) send(req *http.Request, gen *generation) (*http.Response, er
 		// was sent.
 		_ = resp.Body.Close()
 		t.log.WarnContext(ctx, "h2: response not HTTP/2", "proto", resp.Proto)
-		return nil, fmt.Errorf("%w: the response is %s", ErrNotNegotiated, resp.Proto)
+		return nil, &NotNegotiatedError{Detail: "the response is " + resp.Proto}
 	}
 	if b := c.bound; b != nil {
 		resp.Body = &boundBody{ReadCloser: resp.Body, cancel: b.cancel}

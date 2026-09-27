@@ -33,6 +33,19 @@ import (
 // before any byte of the request is written.
 var ErrNotNegotiated = errors.New("h2gate: HTTP/2 not negotiated")
 
+// NotNegotiatedError is [ErrNotNegotiated] with what the API hop spoke
+// instead of HTTP/2.
+type NotNegotiatedError struct {
+	// Detail says what the API hop negotiated or answered instead.
+	Detail string
+}
+
+// Error returns the text of [ErrNotNegotiated], ": " and Detail.
+func (e *NotNegotiatedError) Error() string { return ErrNotNegotiated.Error() + ": " + e.Detail }
+
+// Unwrap returns [ErrNotNegotiated].
+func (e *NotNegotiatedError) Unwrap() error { return ErrNotNegotiated }
+
 // alertNoApplicationProtocol is the text of crypto/tls's alert 120. The alert
 // type is unexported and does not convert to tls.AlertError
 // (GOROOT/src/crypto/tls/alert.go), so the text is what identifies it.
