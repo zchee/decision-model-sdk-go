@@ -304,10 +304,11 @@ func TestSeamRawPointerDetector(t *testing.T) {
 // internal/engine, item for item (review V77 MINOR 1, STANDING 3): of the
 // root package's files exactly one imports unsafe, rootStoreFile, and of
 // internal/engine's none; no file of either but that one, nor any file of a
-// package of this module that either imports directly or through others
-// (internal/codec itself and internal/testsupport/naive excepted, which hold
-// the module's other unsafe uses; a package below internal/codec is not
-// excepted), uses a raw-pointer route of rawPointerUses; each of those
+// package of this module that either imports directly or through others, nor
+// any file of any other package that go list ./... lists (internal/codec and
+// internal/testsupport/naive excepted, exactly, which hold the module's other
+// unsafe uses; a package below either is not excepted), uses a raw-pointer
+// route of rawPointerUses; each of those
 // packages holds no file other than Go files that the go command compiles
 // (sourceExts: an assembly body, say); and the walk reads a file of every
 // package it reaches, so a package the walk cannot read (under testdata, or
@@ -322,7 +323,9 @@ func TestSeamRawPointerDetector(t *testing.T) {
 // internal/codec/rawsub imported by the root package that imports unsafe
 // (S7d) or writes through reflect.NewAt (S7e), a root file declared without
 // a body with its body in a .s file, and an internal/engine file that
-// imports unsafe or calls UnsafePointer.
+// imports unsafe or calls UnsafePointer; and (OQ2 of the W6.5 DONE report,
+// S7g) a package outside internal/codec that only internal/codec imports,
+// writing through reflect.NewAt over a field's UnsafePointer.
 func TestSeamRootRawPointers(t *testing.T) {
 	mod := findModule(t)
 	files := moduleFiles(t, mod.root)
@@ -365,7 +368,7 @@ func TestSeamRootRawPointers(t *testing.T) {
 			}
 			for _, p := range f.imports {
 				rest, ok := strings.CutPrefix(p, modulePath+"/")
-				if !ok || rest == "internal/codec" || under(rest, "internal/testsupport/naive") || dirs[rest] {
+				if !ok || rest == "internal/codec" || rest == naiveDir || dirs[rest] {
 					continue
 				}
 				dirs[rest] = true
@@ -376,6 +379,31 @@ func TestSeamRootRawPointers(t *testing.T) {
 	for _, want := range []string{".", "internal/engine", "internal/wire", "internal/h2gate"} {
 		if !dirs[want] {
 			t.Fatalf("the root package's imports %v miss %q; the check would read too little", slices.Sorted(maps.Keys(dirs)), want)
+		}
+	}
+	// And every other package of the module the go command lists, whoever
+	// imports it: a package that only internal/codec imports is not reached
+	// from the root code, since the walk stops at internal/codec, and would
+	// otherwise write through a raw pointer unread (S7g; OQ2 of the W6.5 DONE
+	// report). A listed package whose files are all tests is out of scope, as
+	// every test file is.
+	walked := maps.Clone(dirs)
+	for line := range strings.Lines(goList(t, mod.root, "-e", "-f", "{{.ImportPath}}", "./...")) {
+		p := strings.TrimSpace(line)
+		rest, ok := strings.CutPrefix(p, modulePath+"/")
+		switch {
+		case p == modulePath:
+			rest = "."
+		case !ok:
+			t.Fatalf("go list ./... printed %q, which is not a package of %s", p, modulePath)
+		}
+		if rest != "internal/codec" && rest != naiveDir {
+			dirs[rest] = true
+		}
+	}
+	for _, want := range []string{"internal/testsupport", "examples/quickstart"} {
+		if !dirs[want] {
+			t.Fatalf("go list ./... misses %q; the check would read too little", want)
 		}
 	}
 
@@ -395,7 +423,7 @@ func TestSeamRootRawPointers(t *testing.T) {
 		}
 	}
 	for _, dir := range slices.Sorted(maps.Keys(dirs)) {
-		if checked[dir] == 0 {
+		if checked[dir] == 0 && walked[dir] {
 			t.Errorf("%s: the root code imports it, and the walk read none of its non-test files (a package under testdata or a directory starting with \"_\" is not walked)", dir)
 		}
 		entries, err := os.ReadDir(filepath.Join(mod.root, filepath.FromSlash(dir)))
@@ -411,7 +439,7 @@ func TestSeamRootRawPointers(t *testing.T) {
 	if checked["."] == 0 || !slices.ContainsFunc(files, func(f goFile) bool { return f.rel == "decodeas.go" }) {
 		t.Fatalf("checked %d root files and found no decodeas.go; the check would pass vacuously", checked["."])
 	}
-	t.Logf("read %d non-test files of %d packages from %q", sum(maps.Values(checked)), len(dirs), roots)
+	t.Logf("read %d non-test files of %d packages (%d reached from %q)", sum(maps.Values(checked)), len(dirs), len(walked), roots)
 }
 
 // sum returns the sum of the values seq yields.

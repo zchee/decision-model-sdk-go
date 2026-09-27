@@ -33,6 +33,9 @@ package codec
 //     importing encoding/json passes by design.)
 //   - TestSeamOneUnsafeFile: a second codec file importing unsafe, or a
 //     package below internal/codec importing it (S7d).
+//   - TestSeamImports, again: a package below internal/testsupport/naive
+//     importing unsafe, which the naive exemption no longer covers (OQ1 of
+//     the W6.5 DONE report).
 //   - TestSeamRootRawPointers and TestSeamCodecUnsafeIsNoCopyString
 //     (seam_rawptr_test.go) list theirs.
 //   - TestSeamTransitiveImports: encoding/json imported by a root test file,
@@ -77,6 +80,11 @@ const (
 	modulePath = "github.com/zchee/typesafe-sdk-go"
 	codecPath  = modulePath + "/internal/codec"
 	sonicPath  = "github.com/bytedance/sonic"
+
+	// naiveDir is the directory of internal/testsupport/naive, the naive
+	// comparator that only test files import; it alone may import sonic and
+	// unsafe besides internal/codec, and no package below it may.
+	naiveDir = "internal/testsupport/naive"
 
 	// d1Cutoff is the first Go release on which the SDK refuses to compile,
 	// because sonic's JIT path does not support it yet (D1). The Go 1.28 bump
@@ -245,9 +253,10 @@ func TestSeamImports(t *testing.T) {
 		t.Fatal("the module walk did not find internal/codec importing sonic; every rule would pass vacuously")
 	}
 
-	// internal/codec itself, not a package below it (review V77 MINOR 1).
+	// internal/codec and internal/testsupport/naive themselves, not a
+	// package below either (review V77 MINOR 1; OQ1 of the W6.5 DONE report).
 	confined := func(f goFile) bool {
-		return f.dir != "internal/codec" && !under(f.dir, "internal/testsupport/naive")
+		return f.dir != "internal/codec" && f.dir != naiveDir
 	}
 	rules := map[string]struct {
 		applies func(f goFile) bool
