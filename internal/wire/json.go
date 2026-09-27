@@ -216,10 +216,10 @@ func quoteByte(c byte) string { return strconv.Quote(string([]byte{c})) }
 // appendMemberName appends the member name at raw[i:] and the colon after it,
 // and returns the offset of the member's value.
 func appendMemberName(dst, raw []byte, i int) ([]byte, int, error) {
-	if i == len(raw) || raw[i] != '"' {
-		if i == len(raw) {
-			return dst, i, &SyntaxError{Offset: i, msg: "unexpected end of input, want a member name"}
-		}
+	if i == len(raw) {
+		return dst, i, &SyntaxError{Offset: i, msg: "unexpected end of input, want a member name"}
+	}
+	if raw[i] != '"' {
 		return dst, i, &SyntaxError{Offset: i, msg: "unexpected " + quoteByte(raw[i]) + ", want a member name"}
 	}
 	dst, i, err := appendStringToken(dst, raw, i)
