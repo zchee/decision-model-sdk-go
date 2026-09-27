@@ -18,10 +18,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"io/fs"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -156,8 +159,8 @@ var fixtureManifest = map[string]fixtureSpec{
 		want := `{"model":"jev-latest","usage":{"input_tokens":12,"output_tokens":3},"answers":{"spam":{"type":"noul","noul":0.98},"tone":{"type":"choice","choice":"friendly","confidence":0.9,"probabilities":{"friendly":0.9,"hostile":0.1}},"risk":{"type":"score","score":0,"confidence":1,"legend":{"0":{"summary":"duplicated","examples":["charged \"twice\""]}},"probabilities":{"0":1}}}}`
 		return sameJSON(raw, []byte(want))
 	}},
-	"structured-legend-flood-1k.json":  {classValid, floodCheck(1000)},
-	"structured-legend-flood-10k.json": {classValid, floodCheck(10000)},
+	"structured-legend-flood-1k.json":  {classValid, floodCheck("structured-legend-flood-1k.json", 1000)},
+	"structured-legend-flood-10k.json": {classValid, floodCheck("structured-legend-flood-10k.json", 10000)},
 	"no-answers.json": {classValid, func(raw []byte) error {
 		b, err := decodeBody(raw)
 		if err != nil {
@@ -585,14 +588,24 @@ func trailing(suffix string) func([]byte) error {
 	}
 }
 
-// floodCheck checks a committed flood fixture against the generator. Under
-// -update, TestStructuredLegendFloodFixtures rewrites the file, perhaps after
-// this test read it, so the check takes the generator's output instead:
-// `go test -update` without -run then passes once the files are rewritten.
-func floodCheck(levels int) func([]byte) error {
+// update regenerates the committed flood fixtures:
+//
+//	go test ./internal/testsupport -run TestFixtureManifest -update
+var update = flag.Bool("update", false, "rewrite testdata/structured-legend-flood-*.json from StructuredLegendFlood")
+
+// floodCheck checks the committed flood fixture file against the generator.
+// Under -update it rewrites the file first, so the check then passes.
+func floodCheck(file string, levels int) func([]byte) error {
 	return func(raw []byte) error {
 		want := StructuredLegendFlood(levels)
 		if *update {
+			dir, err := testdataDir()
+			if err != nil {
+				return err
+			}
+			if err := os.WriteFile(filepath.Join(dir, file), want, 0o600); err != nil {
+				return err
+			}
 			raw = want
 		}
 		if !bytes.Equal(raw, want) {

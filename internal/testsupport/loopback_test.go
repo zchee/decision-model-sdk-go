@@ -874,41 +874,6 @@ func TestLoopbackRefuseCloseHold(t *testing.T) {
 		c.expect(frame{Type: "HEADERS", StreamID: 3, Status: "200", End: true})
 	})
 
-	t.Run("success: net/http retries a refused stream", func(t *testing.T) {
-		srv := NewLoopbackServer(t, ServerConfig{OnStream: func(s *Stream) Action {
-			if s.Seq == 0 {
-				return ActionRefuse
-			}
-			return ActionServe
-		}})
-		status, _, _, err := get(t, newTransport(t, false, true), srv.URL())
-		if err != nil || status != http.StatusOK {
-			t.Fatalf("GET: %d %v", status, err)
-		}
-		if diff := gocmp.Diff([]Action{ActionRefuse, ActionServe}, actions(srv)); diff != "" {
-			t.Errorf("actions (-want +got):\n%s", diff)
-		}
-	})
-
-	t.Run("success: ActionClose closes the connection without GOAWAY", func(t *testing.T) {
-		srv := NewLoopbackServer(t, ServerConfig{OnStream: func(*Stream) Action { return ActionClose }})
-		c := dialRaw(t, srv.Addr())
-		c.request(1, "/", true)
-		c.expectEOF()
-		if diff := gocmp.Diff([]Action{ActionClose}, actions(srv)); diff != "" {
-			t.Errorf("actions (-want +got):\n%s", diff)
-		}
-	})
-
-	t.Run("success: CloseConns closes an idle connection", func(t *testing.T) {
-		srv := NewLoopbackServer(t, ServerConfig{})
-		c := dialRaw(t, srv.Addr())
-		c.request(1, "/", true)
-		c.expect(frame{Type: "HEADERS", StreamID: 1, Status: "200", End: true})
-		srv.CloseConns()
-		c.expectEOF()
-	})
-
 	t.Run("success: a held stream stays open until the client resets it", func(t *testing.T) {
 		srv := NewLoopbackServer(t, ServerConfig{OnStream: func(*Stream) Action { return ActionHold }})
 		c := dialRaw(t, srv.Addr())

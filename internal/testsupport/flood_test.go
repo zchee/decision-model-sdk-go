@@ -17,50 +17,11 @@ package testsupport
 import (
 	"bytes"
 	"encoding/json"
-	"flag"
-	"os"
-	"path/filepath"
 	"strconv"
 	"testing"
 
 	gocmp "github.com/google/go-cmp/cmp"
 )
-
-// update regenerates the committed flood fixtures:
-//
-//	go test ./internal/testsupport -run TestStructuredLegendFloodFixtures -update
-var update = flag.Bool("update", false, "rewrite testdata/structured-legend-flood-*.json from StructuredLegendFlood")
-
-// TestStructuredLegendFloodFixtures keeps the committed flood fixtures equal
-// to the generator's output, so the files cannot drift from the documented
-// shape.
-func TestStructuredLegendFloodFixtures(t *testing.T) {
-	tests := map[string]struct {
-		file   string
-		levels int
-	}{
-		"success: 10^3 structured levels": {file: "structured-legend-flood-1k.json", levels: 1000},
-		"success: 10^4 structured levels": {file: "structured-legend-flood-10k.json", levels: 10000},
-	}
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			want := StructuredLegendFlood(tt.levels)
-			if *update {
-				path := filepath.Join(FixtureDir(t), tt.file)
-				if err := os.WriteFile(path, want, 0o600); err != nil {
-					t.Fatalf("write %s: %v", path, err)
-				}
-				t.Logf("wrote %s (%d bytes)", path, len(want))
-				return
-			}
-			got := FixtureString(t, tt.file)
-			if got != string(want) {
-				t.Fatalf("%s differs from StructuredLegendFlood(%d) (%d vs %d bytes); run with -update after an intended generator change",
-					tt.file, tt.levels, len(got), len(want))
-			}
-		})
-	}
-}
 
 // TestStructuredLegendFloodShape decodes the generator's output with the
 // standard library and checks the shape its documentation promises.

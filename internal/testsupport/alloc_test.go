@@ -171,16 +171,16 @@ func TestQuietRuntimeRestores(t *testing.T) {
 // Measure's counters in every build (the race detector adds allocations of
 // its own, so exact counts live in alloc_norace_test.go).
 func TestMeasureCountsAllocations(t *testing.T) {
-	var sink [][]byte
+	measureSink = nil
 	got := Measure(func() {
 		for range 10 {
-			sink = append(sink, make([]byte, 1024))
+			measureSink = append(measureSink, make([]byte, 1024))
 		}
 	})
 	if got.Mallocs < 10 || got.Bytes < 10*1024 {
 		t.Errorf("Measure(10 x 1 KiB) = %v, want at least 10 mallocs and 10240 bytes", got)
 	}
-	if len(sink) != 10 {
-		t.Fatalf("sink has %d slices", len(sink))
-	}
 }
+
+// measureSink keeps TestMeasureCountsAllocations's slices reachable.
+var measureSink [][]byte
