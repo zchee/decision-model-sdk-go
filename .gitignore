@@ -1,8 +1,3 @@
-# typesafe-sdk-go project generated files to ignore
-#  If you want to ignore files created by your editor/tools,
-#  please consider a global .gitignore https://docs.github.com/en/get-started/git-basics/ignoring-files.
-#  PLEASE DO NOT open a pull request to add something created by your editor or tools
-
 # github/gitignore/Go
 #
 # Binaries for programs and plugins
@@ -24,28 +19,6 @@ profile.cov
 # Dependency directories
 vendor/
 
-# Editor/IDE
-# .idea/
-# .vscode/
-
-# Compiled Object files, Static and Dynamic libs (Shared Objects)
-*.o
-*.a
-
-# Folders
-_obj
-_test
-
-# cgo generated
-*.cgo1.go
-*.cgo2.c
-_cgo_defun.c
-_cgo_gotypes.go
-_cgo_export.*
-
-# test generated
-_testmain.go
-
 # benchmark
 old.txt
 new.txt
@@ -63,6 +36,6 @@ __pycache__/
 .pytest_cache/
 .coverage
 
-# The spikes live in the private archive (W6.7). A spike copied back here to
+# The spikes live in the private archive. A spike copied back here to
 # run again (the archive's README) stays out of every commit.
 /_spikes/

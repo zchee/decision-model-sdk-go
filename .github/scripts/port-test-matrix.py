@@ -773,8 +773,8 @@ def _status_failures(row: Row, cited: bool, listed: dict[str, set[str]]) -> list
             if not cited:
                 failures.insert(
                     0,
-                    f"row {row.row_id} ({row.key}) is a deviation without an "
-                    'Appendix B citation (deviation "<reference>")',
+                    f"row {row.row_id} ({row.key}) is a deviation without a "
+                    'deviation citation (deviation "<key>")',
                 )
             return failures
         case _:

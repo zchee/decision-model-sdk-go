@@ -27,7 +27,6 @@ parsers:
 coverage:
   precision: 1
   range: "60...90"
-  round: down
   # https://docs.codecov.com/docs/commit-status
   status:
     default_rules:
@@ -66,12 +65,6 @@ ignore:
 comment:
   layout: "header, diff, flags, files"
   after_n_builds: 3
-  behavior: default
-  require_changes: false
   show_carryforward_flags: true
   hide_comment_details: false
   show_critical_paths: true
-
-# https://docs.codecov.com/docs/codecovyml-reference#github_checks
-github_checks:
-  annotations: true

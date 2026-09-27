@@ -730,8 +730,8 @@ class TestCheckRows:
                 "`TestThree`",
                 [
                     (
-                        "row A2 (tests/test_a.py::test_two) is a deviation without an "
-                        'Appendix B citation (deviation "<reference>")'
+                        "row A2 (tests/test_a.py::test_two) is a deviation without a "
+                        'deviation citation (deviation "<key>")'
                     )
                 ],
             ),
@@ -740,8 +740,8 @@ class TestCheckRows:
                 "`TestThree`",
                 [
                     (
-                        "row A2 (tests/test_a.py::test_two) is a deviation without an "
-                        'Appendix B citation (deviation "<reference>")'
+                        "row A2 (tests/test_a.py::test_two) is a deviation without a "
+                        'deviation citation (deviation "<key>")'
                     )
                 ],
             ),
@@ -750,8 +750,8 @@ class TestCheckRows:
                 "`TestThree`",
                 [
                     (
-                        "row A2 (tests/test_a.py::test_two) is a deviation without an "
-                        'Appendix B citation (deviation "<reference>")'
+                        "row A2 (tests/test_a.py::test_two) is a deviation without a "
+                        'deviation citation (deviation "<key>")'
                     )
                 ],
             ),
@@ -828,8 +828,8 @@ class TestCheckRows:
         )
         assert self._check(other_group) == [
             (
-                "row B1 (tests/test_b.py::test_three) is a deviation without an "
-                'Appendix B citation (deviation "<reference>")'
+                "row B1 (tests/test_b.py::test_three) is a deviation without a "
+                'deviation citation (deviation "<key>")'
             )
         ]
 

@@ -49,7 +49,7 @@ jobs:
       - uses: CodSpeedHQ/action@v5
         env:
           CODSPEED_PERF_UNWINDING_MODE: fp
-          # K35: CodSpeed's `testing` overlay keeps one sample per b.Loop
+          # CodSpeed's `testing` overlay keeps one sample per b.Loop
           # iteration, and the go runner reads the raw result files only after
           # the whole `go test ./...` ends, so they pile up in the profile
           # folder under $TMPDIR: 5.9 GiB at 125 rows and the default 3 s. On
@@ -65,11 +65,11 @@ jobs:
           # The log copy feeds the guard below; pipefail keeps go's status.
           run: set -o pipefail; go test -bench=. ./... 2>&1 | tee "${{ runner.temp }}/codspeed.log"
 
-      # K35 guard: the go runner reports a raw result it cannot write only on
-      # stderr and still exits 0, and the runner then uploads the rest. Fail
-      # when the log holds such a line, or when the benchmarks in the uploaded
-      # results differ from the rows `go test -list` expands to (a 1x run).
-      # Both checks report before the step fails.
+      # The go runner reports a raw result it cannot write only on stderr and
+      # still exits 0, and the runner then uploads the rest. Fail when the log
+      # holds such a line, or when the benchmarks in the uploaded results
+      # differ from the rows a 1x benchmark run prints. Both checks report
+      # before the step fails.
       - name: Check that CodSpeed received every benchmark
         run: |
           set -euo pipefail
@@ -95,7 +95,7 @@ jobs:
             "${results[@]}" /dev/null | LC_ALL=C sort >"$RUNNER_TEMP/codspeed-written.txt"
           expected=$(wc -l <"$RUNNER_TEMP/codspeed-expected.txt")
           written=$(wc -l <"$RUNNER_TEMP/codspeed-written.txt")
-          echo "go test -list expansion: $expected rows; CodSpeed results: $written rows in ${#results[@]} files"
+          echo "1x benchmark run: $expected rows; CodSpeed results: $written rows in ${#results[@]} files"
           if [ "$expected" -eq 0 ] || ! diff -u "$RUNNER_TEMP/codspeed-expected.txt" "$RUNNER_TEMP/codspeed-written.txt"; then
             echo "::error title=CodSpeed lost results::$written of $expected benchmarks reached the results (K35)"
             fail=1

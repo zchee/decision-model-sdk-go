@@ -18,6 +18,10 @@ concurrency:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   lint:
     name: lint
@@ -152,9 +156,6 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    defaults:
-      run:
-        shell: bash
     env:
       # The packages the "go test without -race (allocation tests)" step runs
       # whole; the allocation-budget step's !race guard reads the same list.
@@ -375,9 +376,6 @@ jobs:
     name: fuzz
     runs-on: ubuntu-26.04
     timeout-minutes: 20
-    defaults:
-      run:
-        shell: bash
     steps:
       - uses: actions/checkout@v7
         with:
