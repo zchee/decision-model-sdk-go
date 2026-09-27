@@ -182,7 +182,11 @@ any test:
   successful responses; the transport undoes the encoding and reports
   `ContentLength` −1, so the SDK reads the body with no declared length.
   Asked for no encoding, it declares `Content-Length: 311` for the models
-  list (W6.4-05). W6.4-08 prices the difference per call.
+  list (W6.4-05). W6.4-08 prices the difference per call: without an
+  encoding a call makes 7 fewer allocations and about 10 KiB less
+  garbage, client and server counted together, on bodies of 311 and
+  401 B. `WithCompression(false)` asks for no encoding; the default stays
+  gzip, as httpx asks for it (owner decision G11 (1)).
 
 ## Responses with many answers
 

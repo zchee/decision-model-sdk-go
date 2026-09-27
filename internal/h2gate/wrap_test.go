@@ -390,11 +390,12 @@ func TestWrap(t *testing.T) {
 
 	t.Run("error: Wrap refuses the default transport's options", func(t *testing.T) {
 		for name, cfg := range map[string]Config{
-			"RootCAs":     {RootCAs: testsupport.RootCAs(t)},
-			"TLSConfig":   {TLSConfig: &tls.Config{}},
-			"Proxy":       {Proxy: http.ProxyFromEnvironment},
-			"OnProxy":     {OnProxy: func(*url.URL) {}},
-			"DialContext": {DialContext: (&net.Dialer{}).DialContext},
+			"RootCAs":            {RootCAs: testsupport.RootCAs(t)},
+			"TLSConfig":          {TLSConfig: &tls.Config{}},
+			"Proxy":              {Proxy: http.ProxyFromEnvironment},
+			"OnProxy":            {OnProxy: func(*url.URL) {}},
+			"DialContext":        {DialContext: (&net.Dialer{}).DialContext},
+			"DisableCompression": {DisableCompression: true},
 		} {
 			cfg.APIURL = mustURL(t, exampleURL)
 			if _, err := Wrap(&http.Transport{}, cfg); !errors.Is(err, errWrapConfig) {

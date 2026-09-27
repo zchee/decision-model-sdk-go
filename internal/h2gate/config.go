@@ -134,8 +134,8 @@ type Config struct {
 	ErrorText func(req *http.Request, err error) string
 
 	// The fields below configure the transport NewTransport builds. Wrap
-	// keeps the caller transport's own dialer, TLS configuration and proxy,
-	// and refuses a Config that sets any of them.
+	// keeps the caller transport's own dialer, TLS configuration, proxy and
+	// compression, and refuses a Config that sets any of them.
 
 	// RootCAs, when set, replaces TLSConfig's RootCAs.
 	RootCAs *x509.CertPool
@@ -161,6 +161,10 @@ type Config struct {
 	// DialContext dials TCP connections; nil uses a net.Dialer. Either way
 	// the dial is bounded by ConnectTimeout.
 	DialContext func(ctx context.Context, network, addr string) (net.Conn, error)
+	// DisableCompression keeps the transport from asking for gzip
+	// (http.Transport.DisableCompression): a response then arrives as the
+	// server sends it without an encoding, with the length it declares.
+	DisableCompression bool
 }
 
 // Build-time refusals. Every error NewTransport or Wrap returns is a
@@ -182,7 +186,7 @@ var (
 	ErrProxyEnvironment = errors.New("h2gate: the proxy environment failed for the API URL")
 
 	errBadURL     = errors.New("h2gate: the API URL needs an http or https scheme and a host")
-	errWrapConfig = errors.New("h2gate: Wrap keeps the caller transport's dialer, TLS configuration and proxy")
+	errWrapConfig = errors.New("h2gate: Wrap keeps the caller transport's dialer, TLS configuration, proxy and compression")
 )
 
 // alpnScope says which TLS handshakes the ALPN check applies to.
@@ -494,6 +498,7 @@ func NewTransport(cfg Config) (*Transport, error) {
 		TLSClientConfig:     tlsConfig,
 		// A proxy's refusal of the CONNECT is a proxy failure (K16).
 		OnProxyConnectResponse: refusedConnect,
+		DisableCompression:     cfg.DisableCompression,
 	}
 	if cfg.Mode == HTTPAuto {
 		tr.MaxConnsPerHost = 0
@@ -560,14 +565,14 @@ func observeProxy(proxy func(*http.Request) (*url.URL, error), onProxy func(*url
 //
 // Clone runs base's own first-use setup (transport.go:345), which may give
 // base an empty TLSClientConfig and HTTP2Config and fill its NextProtos, as
-// base's first request would. cfg's RootCAs, TLSConfig, Proxy, OnProxy
-// and DialContext must be zero. Every error Wrap returns is a configuration
-// error.
+// base's first request would. cfg's RootCAs, TLSConfig, Proxy, OnProxy,
+// DialContext and DisableCompression must be zero. Every error Wrap returns
+// is a configuration error.
 func Wrap(base *http.Transport, cfg Config) (*Transport, error) {
 	if base == nil {
 		return nil, errors.New("h2gate: Wrap needs a transport")
 	}
-	if cfg.RootCAs != nil || cfg.TLSConfig != nil || cfg.Proxy != nil || cfg.OnProxy != nil || cfg.DialContext != nil {
+	if cfg.RootCAs != nil || cfg.TLSConfig != nil || cfg.Proxy != nil || cfg.OnProxy != nil || cfg.DialContext != nil || cfg.DisableCompression {
 		return nil, errWrapConfig
 	}
 	tg, err := resolveTarget(cfg)

@@ -101,6 +101,9 @@ type transportOptions struct {
 	roundTripper    http.RoundTripper
 	roundTripperSet bool
 
+	// compression is WithCompression's value, nil when it was not given.
+	compression *bool
+
 	trace *httptrace.ClientTrace
 }
 
@@ -146,21 +149,35 @@ func WithProxy(proxy func(*http.Request) (*url.URL, error)) ClientOption {
 }
 
 // WithHTTPTransport makes the client use a clone of t, which keeps t's
-// dialers, TLS configuration and proxy; t itself is not used or changed,
-// except that cloning runs t's own first-use setup as t's first request
-// would. Where t leaves them zero, the SDK sets the protocols of the
-// [HTTPVersion] policy, one connection per host under [HTTP2Only], the
-// HTTP/2 ping timeouts and the TLS handshake timeout ([WithConnectTimeout]);
-// under HTTP2Only it always sets strict HTTP/2 stream accounting
-// (HTTP2Config.StrictMaxConcurrentRequests), checks ALPN on the API host's
-// handshake, and checks a connection from t's TLS dialer for h2. The
-// cold-start gate and the header-write token apply.
+// dialers, TLS configuration, proxy and compression setting
+// (DisableCompression); t itself is not used or changed, except that cloning
+// runs t's own first-use setup as t's first request would. Where t leaves
+// them zero, the SDK sets the protocols of the [HTTPVersion] policy, one
+// connection per host under [HTTP2Only], the HTTP/2 ping timeouts and the TLS
+// handshake timeout ([WithConnectTimeout]); under HTTP2Only it always sets
+// strict HTTP/2 stream accounting (HTTP2Config.StrictMaxConcurrentRequests),
+// checks ALPN on the API host's handshake, and checks a connection from t's
+// TLS dialer for h2. The cold-start gate and the header-write token apply.
 //
-// It cannot be combined with [WithRoundTripper], [WithProxy], [WithRootCAs]
-// or [WithTLSConfig]; [WithConnectTimeout] still applies to what the SDK
-// sets. A nil t is refused.
+// It cannot be combined with [WithRoundTripper], [WithProxy], [WithRootCAs],
+// [WithTLSConfig] or [WithCompression]; [WithConnectTimeout] still applies
+// to what the SDK sets. A nil t is refused.
 func WithHTTPTransport(t *http.Transport) ClientOption {
 	return func(o *options) { o.transport.httpTransport, o.transport.httpTransportSet = t, true }
+}
+
+// WithCompression sets whether requests ask the API to compress its
+// responses, with Accept-Encoding: gzip, as Go's transport and
+// typesafe-sdk-python's httpx do by default. The default, true, keeps that:
+// the transport undoes the API's gzip before the SDK reads the body, which
+// then has no declared length. false sends no Accept-Encoding, so the API
+// sends the body as it is with its length declared, which on this API's
+// small bodies saves the client about 7 allocations and 10 KiB per call
+// (docs/support.md). It configures the SDK's own transport, so, whatever
+// its value, it cannot be combined with [WithHTTPTransport], whose
+// transport keeps its own DisableCompression, or [WithRoundTripper].
+func WithCompression(enabled bool) ClientOption {
+	return func(o *options) { o.transport.compression = &enabled }
 }
 
 // WithRoundTripper makes the client send every request through rt as it is:
@@ -170,7 +187,8 @@ func WithHTTPTransport(t *http.Transport) ClientOption {
 // method, as an [*http.Transport] has, and then closes rt when it is an
 // [io.Closer], each once. rt owns its connection timeouts, so it cannot be
 // combined with [WithHTTPTransport], [WithHTTPVersion], [WithRootCAs],
-// [WithTLSConfig], [WithProxy] or [WithConnectTimeout]. A nil rt is refused.
+// [WithTLSConfig], [WithProxy], [WithConnectTimeout] or [WithCompression]. A
+// nil rt is refused.
 //
 // rt must not modify a request, as the [net/http.RoundTripper] contract
 // already requires: the first attempt of every call hands it the client's
@@ -272,6 +290,7 @@ func (t *transportOptions) conflict(connectTimeoutSet bool) string {
 			{t.tlsConfigSet, "WithTLSConfig"},
 			{t.proxySet, "WithProxy"},
 			{connectTimeoutSet, "WithConnectTimeout"},
+			{t.compression != nil, "WithCompression"},
 		} {
 			if o.given {
 				return "WithRoundTripper cannot be combined with " + o.name +
@@ -288,6 +307,9 @@ func (t *transportOptions) conflict(connectTimeoutSet bool) string {
 				return "WithHTTPTransport cannot be combined with " + o.name +
 					": the caller's transport keeps its own TLS configuration and proxy."
 			}
+		}
+		if t.compression != nil {
+			return "WithHTTPTransport cannot be combined with WithCompression: the caller's transport keeps its own DisableCompression."
 		}
 	}
 	return ""
@@ -344,6 +366,7 @@ func (t *transportOptions) build(api *url.URL, connectTimeout time.Duration, con
 		}
 		tr.Proxies = new(engine.ProxyCreds)
 		cfg.OnProxy = tr.Proxies.Record
+		cfg.DisableCompression = t.compression != nil && !*t.compression
 		gate, err = h2gate.NewTransport(cfg)
 	}
 	if err != nil {

@@ -215,6 +215,7 @@ const Version untyped string = "0.1.0-dev"
 func WithAPIKey(string) ClientOption
 func WithBaseURL(string) ClientOption
 func WithClientTrace(*net/http/httptrace.ClientTrace) ClientOption
+func WithCompression(bool) ClientOption
 func WithConnectTimeout(time.Duration) ClientOption
 func WithHTTPTransport(*net/http.Transport) ClientOption
 func WithHTTPVersion(HTTPVersion) ClientOption

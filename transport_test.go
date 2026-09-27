@@ -163,32 +163,37 @@ func TestTransportOptionsAreExclusive(t *testing.T) {
 		return "WithHTTPTransport cannot be combined with " + name + ": the caller's transport keeps its own TLS configuration and proxy."
 	}
 	const both = "WithRoundTripper and WithHTTPTransport cannot be combined: each supplies the client's transport."
+	const htCompression = "WithHTTPTransport cannot be combined with WithCompression: the caller's transport keeps its own DisableCompression."
 	tests := map[string]struct {
 		opts []ClientOption
 		want string // the *ConfigError's text; "" when the client builds
 	}{
-		"error: WithHTTPTransport and WithRoundTripper":     {opts: []ClientOption{WithHTTPTransport(ht), WithRoundTripper(rt)}, want: both},
-		"error: WithRoundTripper and WithHTTPTransport":     {opts: []ClientOption{WithRoundTripper(rt), WithHTTPTransport(ht)}, want: both},
-		"error: both, each nil":                             {opts: []ClientOption{WithRoundTripper(nil), WithHTTPTransport(nil)}, want: both},
-		"error: WithRoundTripper and WithHTTPVersion":       {opts: []ClientOption{WithHTTPVersion(HTTPAuto), WithRoundTripper(rt)}, want: rtWith("WithHTTPVersion")},
-		"error: WithRoundTripper and WithRootCAs":           {opts: []ClientOption{WithRoundTripper(rt), WithRootCAs(pool)}, want: rtWith("WithRootCAs")},
-		"error: WithRoundTripper and WithRootCAs(nil)":      {opts: []ClientOption{WithRoundTripper(rt), WithRootCAs(nil)}, want: rtWith("WithRootCAs")},
-		"error: WithRoundTripper and WithTLSConfig(nil)":    {opts: []ClientOption{WithTLSConfig(nil), WithRoundTripper(rt)}, want: rtWith("WithTLSConfig")},
-		"error: WithRoundTripper and WithProxy(nil)":        {opts: []ClientOption{WithRoundTripper(rt), WithProxy(nil)}, want: rtWith("WithProxy")},
-		"error: WithRoundTripper and WithConnectTimeout":    {opts: []ClientOption{WithConnectTimeout(time.Second), WithRoundTripper(rt)}, want: rtWith("WithConnectTimeout")},
-		"error: WithHTTPTransport and WithRootCAs":          {opts: []ClientOption{WithRootCAs(pool), WithHTTPTransport(ht)}, want: htWith("WithRootCAs")},
-		"error: WithHTTPTransport and WithTLSConfig":        {opts: []ClientOption{WithHTTPTransport(ht), WithTLSConfig(&tls.Config{})}, want: htWith("WithTLSConfig")},
-		"error: WithHTTPTransport and WithProxy":            {opts: []ClientOption{WithHTTPTransport(ht), WithProxy(http.ProxyFromEnvironment)}, want: htWith("WithProxy")},
-		"error: WithHTTPTransport and WithProxy(nil)":       {opts: []ClientOption{WithProxy(nil), WithHTTPTransport(ht)}, want: htWith("WithProxy")},
-		"error: WithRoundTripper(nil)":                      {opts: []ClientOption{WithRoundTripper(nil)}, want: "The round tripper passed to WithRoundTripper must not be nil."},
-		"error: WithHTTPTransport(nil)":                     {opts: []ClientOption{WithHTTPTransport(nil)}, want: "The transport passed to WithHTTPTransport must not be nil."},
-		"error: WithHTTPVersion(0)":                         {opts: []ClientOption{WithHTTPVersion(0)}, want: "The policy passed to WithHTTPVersion must be HTTP2Only or HTTPAuto."},
-		"error: WithHTTPVersion(3)":                         {opts: []ClientOption{WithHTTPVersion(3)}, want: "The policy passed to WithHTTPVersion must be HTTP2Only or HTTPAuto."},
-		"success: WithHTTPTransport and WithConnectTimeout": {opts: []ClientOption{WithHTTPTransport(ht), WithConnectTimeout(time.Second)}},
-		"success: WithHTTPTransport and WithHTTPVersion":    {opts: []ClientOption{WithHTTPTransport(ht), WithHTTPVersion(HTTPAuto)}},
-		"success: WithHTTPTransport and WithClientTrace":    {opts: []ClientOption{WithHTTPTransport(ht), WithClientTrace(&httptrace.ClientTrace{})}},
-		"success: WithRoundTripper and WithClientTrace":     {opts: []ClientOption{WithRoundTripper(rt), WithClientTrace(&httptrace.ClientTrace{})}},
-		"success: the default transport's options together": {opts: []ClientOption{WithRootCAs(pool), WithTLSConfig(&tls.Config{}), WithProxy(nil), WithConnectTimeout(time.Second), WithHTTPVersion(HTTP2Only)}},
+		"error: WithHTTPTransport and WithRoundTripper":       {opts: []ClientOption{WithHTTPTransport(ht), WithRoundTripper(rt)}, want: both},
+		"error: WithRoundTripper and WithHTTPTransport":       {opts: []ClientOption{WithRoundTripper(rt), WithHTTPTransport(ht)}, want: both},
+		"error: both, each nil":                               {opts: []ClientOption{WithRoundTripper(nil), WithHTTPTransport(nil)}, want: both},
+		"error: WithRoundTripper and WithHTTPVersion":         {opts: []ClientOption{WithHTTPVersion(HTTPAuto), WithRoundTripper(rt)}, want: rtWith("WithHTTPVersion")},
+		"error: WithRoundTripper and WithRootCAs":             {opts: []ClientOption{WithRoundTripper(rt), WithRootCAs(pool)}, want: rtWith("WithRootCAs")},
+		"error: WithRoundTripper and WithRootCAs(nil)":        {opts: []ClientOption{WithRoundTripper(rt), WithRootCAs(nil)}, want: rtWith("WithRootCAs")},
+		"error: WithRoundTripper and WithTLSConfig(nil)":      {opts: []ClientOption{WithTLSConfig(nil), WithRoundTripper(rt)}, want: rtWith("WithTLSConfig")},
+		"error: WithRoundTripper and WithProxy(nil)":          {opts: []ClientOption{WithRoundTripper(rt), WithProxy(nil)}, want: rtWith("WithProxy")},
+		"error: WithRoundTripper and WithConnectTimeout":      {opts: []ClientOption{WithConnectTimeout(time.Second), WithRoundTripper(rt)}, want: rtWith("WithConnectTimeout")},
+		"error: WithRoundTripper and WithCompression(false)":  {opts: []ClientOption{WithRoundTripper(rt), WithCompression(false)}, want: rtWith("WithCompression")},
+		"error: WithRoundTripper and WithCompression(true)":   {opts: []ClientOption{WithCompression(true), WithRoundTripper(rt)}, want: rtWith("WithCompression")},
+		"error: WithHTTPTransport and WithRootCAs":            {opts: []ClientOption{WithRootCAs(pool), WithHTTPTransport(ht)}, want: htWith("WithRootCAs")},
+		"error: WithHTTPTransport and WithTLSConfig":          {opts: []ClientOption{WithHTTPTransport(ht), WithTLSConfig(&tls.Config{})}, want: htWith("WithTLSConfig")},
+		"error: WithHTTPTransport and WithProxy":              {opts: []ClientOption{WithHTTPTransport(ht), WithProxy(http.ProxyFromEnvironment)}, want: htWith("WithProxy")},
+		"error: WithHTTPTransport and WithProxy(nil)":         {opts: []ClientOption{WithProxy(nil), WithHTTPTransport(ht)}, want: htWith("WithProxy")},
+		"error: WithHTTPTransport and WithCompression(false)": {opts: []ClientOption{WithHTTPTransport(ht), WithCompression(false)}, want: htCompression},
+		"error: WithHTTPTransport and WithCompression(true)":  {opts: []ClientOption{WithCompression(true), WithHTTPTransport(ht)}, want: htCompression},
+		"error: WithRoundTripper(nil)":                        {opts: []ClientOption{WithRoundTripper(nil)}, want: "The round tripper passed to WithRoundTripper must not be nil."},
+		"error: WithHTTPTransport(nil)":                       {opts: []ClientOption{WithHTTPTransport(nil)}, want: "The transport passed to WithHTTPTransport must not be nil."},
+		"error: WithHTTPVersion(0)":                           {opts: []ClientOption{WithHTTPVersion(0)}, want: "The policy passed to WithHTTPVersion must be HTTP2Only or HTTPAuto."},
+		"error: WithHTTPVersion(3)":                           {opts: []ClientOption{WithHTTPVersion(3)}, want: "The policy passed to WithHTTPVersion must be HTTP2Only or HTTPAuto."},
+		"success: WithHTTPTransport and WithConnectTimeout":   {opts: []ClientOption{WithHTTPTransport(ht), WithConnectTimeout(time.Second)}},
+		"success: WithHTTPTransport and WithHTTPVersion":      {opts: []ClientOption{WithHTTPTransport(ht), WithHTTPVersion(HTTPAuto)}},
+		"success: WithHTTPTransport and WithClientTrace":      {opts: []ClientOption{WithHTTPTransport(ht), WithClientTrace(&httptrace.ClientTrace{})}},
+		"success: WithRoundTripper and WithClientTrace":       {opts: []ClientOption{WithRoundTripper(rt), WithClientTrace(&httptrace.ClientTrace{})}},
+		"success: the default transport's options together":   {opts: []ClientOption{WithRootCAs(pool), WithTLSConfig(&tls.Config{}), WithProxy(nil), WithConnectTimeout(time.Second), WithHTTPVersion(HTTP2Only), WithCompression(false)}},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {

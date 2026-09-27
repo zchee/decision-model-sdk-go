@@ -140,7 +140,8 @@ facts about the API that are not deviations of the SDK:
   record (ledger W6.4-02), which no test asserts.
 - The API gzips its successful responses when the client asks for gzip,
   as Go's transport does by default, so a response reaches the SDK with no
-  declared length.
+  declared length. `WithCompression(false)` asks for no encoding (owner
+  decision G11 (1)).
 - The API refuses a System One request whose top level holds a member it
   does not know with 400 `api_usage_error` ("Invalid request."). The
   Python SDK's `tests/typing/valid.py` passes `extra_body={"beam_width":
