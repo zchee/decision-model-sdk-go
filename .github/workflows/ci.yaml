@@ -188,18 +188,22 @@ jobs:
       - name: go test without -race (allocation tests)
         run: go test -count=1 ./internal/codec/ ./internal/wire/ ./internal/testsupport/
 
-      # The allocation budgets: the root package's, each built with
-      # //go:build !race (GOROOT/src/sync/pool.go:104-107: under -race Put
-      # drops one value in four), with the AC-P8 time ratio, which also runs
-      # in the -race step; and internal/codec's, which skip themselves under
-      # -race (the step above runs them too, without their output). Each list
-      # is the one place that names its package's tests (plan section 11,
-      # ruling R92): the pattern is built from it and the -list guard counts
-      # the tests the pattern matches against its length, so a renamed or
-      # deleted test fails the step instead of leaving it with less to run;
-      # and a test that the step should run but its list lacks fails it too:
-      # a test of a root !race file, or an internal/codec test that calls
-      # raceEnabled() (review-w5-2 NIT 3).
+      # The allocation budgets: the root package's, which internal/alloctest
+      # holds since W6.5 (it measures the stages internal/engine holds, which
+      # the root package's calls run), each built with //go:build !race
+      # (GOROOT/src/sync/pool.go:104-107: under -race Put drops one value in
+      # four), with the AC-P8 time ratio, which also runs in the -race step;
+      # and internal/codec's, which skip themselves under -race (the step
+      # above runs them too, without their output). Each list is the one
+      # place that names its package's tests (plan section 11, ruling R92):
+      # the pattern is built from it and the -list guard counts the tests the
+      # pattern matches against its length, so a renamed or deleted test
+      # fails the step instead of leaving it with less to run; and a test
+      # that the step should run but its list lacks fails it too: a test of a
+      # !race file of the root package or of internal/alloctest (a budget
+      # left in the root package, where the list is not run, fails the -list
+      # count), or an internal/codec test that calls raceEnabled()
+      # (review-w5-2 NIT 3; ruling D-W6.5-design 6.4).
       - name: go test without -race (allocation budgets)
         run: |
           root=(
@@ -240,12 +244,13 @@ jobs:
               exit 1
             fi
           }
-          # A //go:build !race root file is left out of the -race step, so its
-          # tests run only here. internal/codec cannot carry that constraint
+          # A //go:build !race file of the root package or of
+          # internal/alloctest is left out of the -race step, so its tests run
+          # only here. internal/codec cannot carry that constraint
           # (TestSeamBuildConstraints); its tests skip themselves under -race
           # by calling raceEnabled().
           require_listed "tests built only without -race" \
-            "$(grep -l '^//go:build !race' -- *_test.go | xargs grep -ho '^func Test[A-Za-z0-9_]*' | sed 's/^func //' | tr -d '\r')" \
+            "$(grep -l '^//go:build !race' -- *_test.go internal/alloctest/*_test.go | xargs grep -ho '^func Test[A-Za-z0-9_]*' | sed 's/^func //' | tr -d '\r')" \
             "${root[@]}"
           require_listed "internal/codec tests that skip under -race" \
             "$(awk '/^func / { name = ($2 ~ /^Test[A-Za-z0-9_]*\(/) ? $2 : ""; sub(/\(.*/, "", name) } /raceEnabled\(\)/ && name != "" { print name }' internal/codec/*_test.go | tr -d '\r')" \
@@ -263,7 +268,7 @@ jobs:
             fi
             go test -count=1 -run "$pattern" -v "$pkg"
           }
-          run_budgets . "${root[@]}"
+          run_budgets ./internal/alloctest/ "${root[@]}"
           run_budgets ./internal/codec/ "${codec[@]}"
 
       # OIDC authentication: the action exchanges the job's id-token (hence

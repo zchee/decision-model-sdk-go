@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package typesafe
+package alloctest
 
 import (
 	"bytes"
@@ -22,6 +22,8 @@ import (
 	"slices"
 	"strconv"
 	"testing"
+
+	typesafe "github.com/zchee/typesafe-sdk-go"
 
 	gocmp "github.com/google/go-cmp/cmp"
 
@@ -49,7 +51,7 @@ import (
 func TestAllocEncodeFunctional(t *testing.T) {
 	qs := encodeQuestions(t)
 	prefix := []byte(`{"state":`)
-	suffix := []byte(`,"model":` + strconv.Quote(DefaultModel) + `,"questions":` + string(qs.wirePrepared().Questions) + `}`)
+	suffix := []byte(`,"model":` + strconv.Quote(typesafe.DefaultModel) + `,"questions":` + string(wireOf(qs).Questions) + `}`)
 	for _, k := range stateKinds {
 		for _, size := range allocSizes {
 			t.Run(k.name+"/"+sizeName(size), func(t *testing.T) {
@@ -124,7 +126,7 @@ func TestAllocScratchSequenceFunctional(t *testing.T) {
 			states, lens := sequenceStates(t, k, qs)
 			var want [3][]byte
 			for i, st := range states {
-				body, err := encodeBody(st, DefaultModel, qs, nil)
+				body, err := encodeBody(st, typesafe.DefaultModel, qs, nil)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -183,7 +185,7 @@ func TestAllocDecodeFixturesFunctional(t *testing.T) {
 		decoded = append(decoded, name)
 		t.Run(name, func(t *testing.T) {
 			var interned wire.SystemOneResult
-			if err := decodeSystemOne(t.Context(), nil, meta, "", headerRedactor{}, questionsFor(t, &first), first.Model, &interned); err != nil {
+			if err := decodeSystemOne(t.Context(), nil, meta, "", engine.HeaderRedactor{}, questionsFor(t, &first), first.Model, &interned); err != nil {
 				t.Fatalf("decode with the question set: %v", err)
 			}
 			if diff := gocmp.Diff(payloadOf(responseOf(first)), payloadOf(responseOf(interned))); diff != "" {
@@ -214,7 +216,7 @@ func TestAllocWholeCallFunctional(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			rec := &testsupport.Recorder{Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, testsupport.Fixture(t, tt.fixture))}}
-			c := newTestClient(t, rec, WithRetry(DefaultRetry()))
+			c := newTestClient(t, rec, typesafe.WithRetry(typesafe.DefaultRetry()))
 			_, want, err := decodeFixture(t, tt.fixture)
 			if err != nil {
 				t.Fatal(err)
@@ -268,15 +270,15 @@ func TestMemStatsCapFunctional(t *testing.T) {
 	for name, mc := range memCases(t) {
 		t.Run(name, func(t *testing.T) {
 			c := newTestClient(t, &testsupport.Recorder{Discard: true, Replies: []testsupport.Reply{mc.reply}})
-			resp, err := c.SystemOne(t.Context(), newAllocState(), q3Questions(t), Retry(NoRetry()))
+			resp, err := c.SystemOne(t.Context(), newAllocState(), q3Questions(t), typesafe.Retry(typesafe.NoRetry()))
 			if got := outcomeOf(err); got != mc.outcome {
 				t.Fatalf("outcome %q, want %q", got, mc.outcome)
 			}
 			switch mc.outcome {
 			case "large":
-				tl, _ := errors.AsType[*ResponseTooLargeError](err)
-				if tl.StatusCode != http.StatusOK || tl.Limit != DefaultMaxResponseBytes {
-					t.Errorf("*ResponseTooLargeError status %d, limit %d; want 200 and the cap %d", tl.StatusCode, tl.Limit, DefaultMaxResponseBytes)
+				tl, _ := errors.AsType[*typesafe.ResponseTooLargeError](err)
+				if tl.StatusCode != http.StatusOK || tl.Limit != typesafe.DefaultMaxResponseBytes {
+					t.Errorf("*ResponseTooLargeError status %d, limit %d; want 200 and the cap %d", tl.StatusCode, tl.Limit, typesafe.DefaultMaxResponseBytes)
 				}
 			case "ok":
 				if diff := gocmp.Diff(payloadOf(responseOf(want)), payloadOf(resp)); diff != "" {
@@ -317,12 +319,4 @@ func firstDiff(a, b []byte) int {
 		}
 	}
 	return min(len(a), len(b))
-}
-
-// responseOf returns a response holding res and no HTTP metadata: its
-// state set through the conversion to internal/engine's Response.
-func responseOf(res wire.SystemOneResult) *SystemOneResponse {
-	r := new(SystemOneResponse)
-	*(*engine.Response)(r).Result() = res
-	return r
 }

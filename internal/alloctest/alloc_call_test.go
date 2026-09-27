@@ -14,7 +14,7 @@
 
 //go:build !race
 
-package typesafe
+package alloctest
 
 import (
 	"context"
@@ -26,6 +26,8 @@ import (
 	"strconv"
 	"testing"
 
+	typesafe "github.com/zchee/typesafe-sdk-go"
+
 	"github.com/zchee/typesafe-sdk-go/internal/codec"
 	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
@@ -34,7 +36,7 @@ import (
 
 // Sinks keep measured results reachable, as a caller's would be.
 var (
-	sinkResponse *SystemOneResponse
+	sinkResponse *typesafe.SystemOneResponse
 	sinkRequest  *http.Request
 )
 
@@ -80,7 +82,7 @@ func TestAllocWholeCall(t *testing.T) {
 	// The production policy, not newTestClient's single attempt: AC-P6 is
 	// measured with DefaultRetry in force (ruling R88b), whose first attempt
 	// that succeeds must allocate nothing more.
-	c := newTestClient(t, rec, WithRetry(DefaultRetry()))
+	c := newTestClient(t, rec, typesafe.WithRetry(typesafe.DefaultRetry()))
 	state := newAllocState()
 	for range 2 { // warm the pools, the encoder and the decoder
 		if _, err := c.SystemOne(ctx, state, qs); err != nil {
@@ -138,7 +140,7 @@ func TestAllocWholeCall(t *testing.T) {
 	check("result-20.json")
 	qs20 := questionsFor(t, &first20)
 	rec20 := &testsupport.Recorder{Discard: true, Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, testsupport.Fixture(t, "result-20.json"))}}
-	c20 := newTestClient(t, rec20, WithRetry(DefaultRetry()))
+	c20 := newTestClient(t, rec20, typesafe.WithRetry(typesafe.DefaultRetry()))
 	for range 2 {
 		_, err = c20.SystemOne(ctx, state, qs20)
 		check("q20 warm call")
@@ -170,17 +172,17 @@ func (it callItems) String() string {
 
 // measureCallItems measures the allocations a call makes, one at a time, in
 // the order SystemOne makes them; prefix starts the label of every series.
-func measureCallItems(t *testing.T, c *Client, state any, qs *Prepared, prefix string) callItems {
+func measureCallItems(t *testing.T, c *typesafe.Client, state any, qs *typesafe.Prepared, prefix string) callItems {
 	t.Helper()
 	ctx := t.Context()
 	var hdr, ca, to, rq, open, gb, rd, dec [testsupport.AllocRuns]testsupport.Allocs
 	for i := range testsupport.AllocRuns {
-		body, err := encodeBody(state, c.cfg().Model, qs, nil)
+		body, err := encodeBody(state, cfgOf(c).Model, qs, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		s := callSettings{header: c.cfg().SystemOneHeader, timeout: c.cfg().Timeout}
-		rqs := engine.Request{Method: http.MethodPost, URL: c.cfg().SystemOneURL, Header: s.header, Timeout: s.timeout, Body: body}
+		s := callSettings{header: cfgOf(c).SystemOneHeader, timeout: cfgOf(c).Timeout}
+		rqs := engine.Request{Method: http.MethodPost, URL: cfgOf(c).SystemOneURL, Header: s.header, Timeout: s.timeout, Body: body}
 		var (
 			h       http.Header
 			call    *engine.SystemOneAlloc
@@ -189,7 +191,7 @@ func measureCallItems(t *testing.T, c *Client, state any, qs *Prepared, prefix s
 			reader  *codec.BodyReader
 			getBody func() (io.ReadCloser, error)
 			req     *http.Request
-			resp    *SystemOneResponse
+			resp    *typesafe.SystemOneResponse
 			raw     []byte
 			spare   []wire.AnswerEntry
 		)
@@ -208,19 +210,19 @@ func measureCallItems(t *testing.T, c *Client, state any, qs *Prepared, prefix s
 			req = r.WithContext(actx)
 		})
 		sinkRequest = req
-		hresp, err := c.cfg().Transport.RoundTrip(req)
+		hresp, err := cfgOf(c).Transport.RoundTrip(req)
 		if err != nil {
 			t.Fatal(err)
 		}
-		rd[i] = testsupport.Measure(func() { raw, err = engine.ReadBody(hresp.Body, hresp.ContentLength, c.cfg().MaxResponseBytes) })
+		rd[i] = testsupport.Measure(func() { raw, err = engine.ReadBody(hresp.Body, hresp.ContentLength, cfgOf(c).MaxResponseBytes) })
 		if err != nil {
 			t.Fatal(err)
 		}
 		_ = hresp.Body.Close()
-		resp = (*SystemOneResponse)(&call.Resp)
+		resp = (*typesafe.SystemOneResponse)(&call.Resp)
 		*(*engine.Response)(resp).Meta() = wire.ResponseMeta{Status: hresp.StatusCode, Header: hresp.Header, Body: raw}
 		dec[i] = testsupport.Measure(func() {
-			err = decodeSystemOneInto(ctx, c.cfg().Logger, (*engine.Response)(resp).Meta(), c.eng().SystemOneEndpoint(), c.cfg().Redactor(), qs, c.cfg().Model, (*engine.Response)(resp).Result(), spare)
+			err = decodeSystemOneInto(ctx, cfgOf(c).Logger, (*engine.Response)(resp).Meta(), engOf(c).SystemOneEndpoint(), cfgOf(c).Redactor(), qs, cfgOf(c).Model, (*engine.Response)(resp).Result(), spare)
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -252,14 +254,14 @@ func TestAllocAnswersInlineBound(t *testing.T) {
 	testsupport.QuietRuntime(t)
 	ctx := t.Context()
 	body := testsupport.Fixture(t, "result.json")
-	c := newTestClient(t, &testsupport.Recorder{Discard: true, Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, body)}}, WithRetry(DefaultRetry()))
+	c := newTestClient(t, &testsupport.Recorder{Discard: true, Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, body)}}, typesafe.WithRetry(typesafe.DefaultRetry()))
 	state := newAllocState()
 	var err error
 	calls := map[int]testsupport.Allocs{}
 	for _, n := range []int{engine.MaxInlineAnswers - 1, engine.MaxInlineAnswers, engine.MaxInlineAnswers + 1} {
-		qs := NewQuestions()
+		qs := typesafe.NewQuestions()
 		for i := range n {
-			qs = qs.Noul("q"+strconv.Itoa(i), Noul{Instructions: Text("Is it?")})
+			qs = qs.Noul("q"+strconv.Itoa(i), typesafe.Noul{Instructions: typesafe.Text("Is it?")})
 		}
 		p := mustPrepared(t, qs)
 		for range 2 { // warm the pools, the encoder and the decoder
@@ -340,7 +342,7 @@ func TestMemStatsCap(t *testing.T) {
 			}
 			ran = true
 		}
-		runs := measureRuns(func() { checkOutcome(); rewarm() }, func() { sinkResponse, err = c.SystemOne(ctx, state, qs, Retry(NoRetry())) })
+		runs := measureRuns(func() { checkOutcome(); rewarm() }, func() { sinkResponse, err = c.SystemOne(ctx, state, qs, typesafe.Retry(typesafe.NoRetry())) })
 		checkOutcome()
 		sinkResponse = nil
 		call, most := testsupport.Spread(t, name, runs)

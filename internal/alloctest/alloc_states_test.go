@@ -12,13 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package typesafe
+package alloctest
 
 import (
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
+
+	typesafe "github.com/zchee/typesafe-sdk-go"
 
 	"github.com/zchee/typesafe-sdk-go/internal/codec"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
@@ -84,7 +86,7 @@ type stateCase struct {
 	// pass encodes a request body around qs with the state as a caller
 	// passes it, bare or boxed; a bare state is boxed inside the call, as a
 	// caller's argument is.
-	pass func(qs *Prepared) (codec.Body, error)
+	pass func(qs *typesafe.Prepared) (codec.Body, error)
 	// maps is the number of maps the state holds, the root included.
 	maps uint64
 	// json is the state's own JSON encoding, the body's "state" member.
@@ -112,40 +114,46 @@ func (k stateKind) b() uint64 {
 var stateKinds = []stateKind{
 	{name: "string", bare: true, sonic: 1, boxBytes: 16, build: func(_ testing.TB, size int) stateCase {
 		s := stateString(size)
-		return stateCase{boxed: s, pass: func(qs *Prepared) (codec.Body, error) { return encodeBody(s, DefaultModel, qs, nil) }, json: []byte(strconv.Quote(s))}
+		return stateCase{boxed: s, pass: func(qs *typesafe.Prepared) (codec.Body, error) { return encodeBody(s, typesafe.DefaultModel, qs, nil) }, json: []byte(strconv.Quote(s))}
 	}},
 	{name: "boxed-string", sonic: 1, build: func(_ testing.TB, size int) stateCase {
 		var s any = stateString(size)
-		return stateCase{boxed: s, pass: func(qs *Prepared) (codec.Body, error) { return encodeBody(s, DefaultModel, qs, nil) }, json: []byte(strconv.Quote(s.(string)))}
+		return stateCase{boxed: s, pass: func(qs *typesafe.Prepared) (codec.Body, error) { return encodeBody(s, typesafe.DefaultModel, qs, nil) }, json: []byte(strconv.Quote(s.(string)))}
 	}},
 	{name: "RawJSON", bare: true, boxBytes: 24, build: func(tb testing.TB, size int) stateCase {
-		raw := RawJSON(nestedMapJSON(tb, size))
-		return stateCase{boxed: raw, pass: func(qs *Prepared) (codec.Body, error) { return encodeBody(raw, DefaultModel, qs, nil) }, json: raw}
+		raw := typesafe.RawJSON(nestedMapJSON(tb, size))
+		return stateCase{boxed: raw, pass: func(qs *typesafe.Prepared) (codec.Body, error) {
+			return encodeBody(raw, typesafe.DefaultModel, qs, nil)
+		}, json: raw}
 	}},
 	{name: "boxed-RawJSON", build: func(tb testing.TB, size int) stateCase {
 		raw := nestedMapJSON(tb, size)
-		var boxed any = RawJSON(raw)
-		return stateCase{boxed: boxed, pass: func(qs *Prepared) (codec.Body, error) { return encodeBody(boxed, DefaultModel, qs, nil) }, json: raw}
+		var boxed any = typesafe.RawJSON(raw)
+		return stateCase{boxed: boxed, pass: func(qs *typesafe.Prepared) (codec.Body, error) {
+			return encodeBody(boxed, typesafe.DefaultModel, qs, nil)
+		}, json: raw}
 	}},
 	{name: "json.RawMessage", sonic: 1, build: func(tb testing.TB, size int) stateCase {
 		raw := nestedMapJSON(tb, size)
 		boxed := testsupport.StdlibRawMessage(raw)
-		return stateCase{boxed: boxed, pass: func(qs *Prepared) (codec.Body, error) { return encodeBody(boxed, DefaultModel, qs, nil) }, json: raw}
+		return stateCase{boxed: boxed, pass: func(qs *typesafe.Prepared) (codec.Body, error) {
+			return encodeBody(boxed, typesafe.DefaultModel, qs, nil)
+		}, json: raw}
 	}},
 	{name: "pointer-to-struct", sonic: 1, build: func(tb testing.TB, size int) stateCase {
 		st := calibrate(tb, size, makeStruct)
 		var boxed any = st
-		return stateCase{boxed: boxed, pass: func(qs *Prepared) (codec.Body, error) { return encodeBody(st, DefaultModel, qs, nil) }, json: sonicJSON(tb, boxed)}
+		return stateCase{boxed: boxed, pass: func(qs *typesafe.Prepared) (codec.Body, error) { return encodeBody(st, typesafe.DefaultModel, qs, nil) }, json: sonicJSON(tb, boxed)}
 	}},
 	{name: "flat-map", sonic: 1, build: func(tb testing.TB, size int) stateCase {
 		m := calibrate(tb, size, func(n int) map[string]any { return makeMap(n, true) })
 		var boxed any = m
-		return stateCase{boxed: boxed, pass: func(qs *Prepared) (codec.Body, error) { return encodeBody(m, DefaultModel, qs, nil) }, maps: countMaps(m), json: sonicJSON(tb, boxed)}
+		return stateCase{boxed: boxed, pass: func(qs *typesafe.Prepared) (codec.Body, error) { return encodeBody(m, typesafe.DefaultModel, qs, nil) }, maps: countMaps(m), json: sonicJSON(tb, boxed)}
 	}},
 	{name: "nested-map", sonic: 1, build: func(tb testing.TB, size int) stateCase {
 		m := nestedMap(tb, size)
 		var boxed any = m
-		return stateCase{boxed: boxed, pass: func(qs *Prepared) (codec.Body, error) { return encodeBody(m, DefaultModel, qs, nil) }, maps: countMaps(m), json: sonicJSON(tb, boxed)}
+		return stateCase{boxed: boxed, pass: func(qs *typesafe.Prepared) (codec.Body, error) { return encodeBody(m, typesafe.DefaultModel, qs, nil) }, maps: countMaps(m), json: sonicJSON(tb, boxed)}
 	}},
 }
 
@@ -309,12 +317,12 @@ func sonicJSON(tb testing.TB, v any) []byte {
 
 // encodeQuestions is the question set of the AC-P1 body tests: three
 // questions, one of each kind.
-func encodeQuestions(t testing.TB) *Prepared {
+func encodeQuestions(t testing.TB) *typesafe.Prepared {
 	t.Helper()
-	return mustPrepared(t, NewQuestions().
-		Noul("billing", Noul{Instructions: Text("Is this about billing?"), Yes: Text("payments or invoices")}).
-		Choice("tone", Choice{Instructions: Text("What is the tone?"), Options: Options{{"calm", Text("neutral or polite")}, {Label: "angry"}}}).
-		Score("urgency", Score{Levels: []Content{Text("can wait"), Text("this week"), Text("today")}}))
+	return mustPrepared(t, typesafe.NewQuestions().
+		Noul("billing", typesafe.Noul{Instructions: typesafe.Text("Is this about billing?"), Yes: typesafe.Text("payments or invoices")}).
+		Choice("tone", typesafe.Choice{Instructions: typesafe.Text("What is the tone?"), Options: typesafe.Options{{Label: "calm", Description: typesafe.Text("neutral or polite")}, {Label: "angry"}}}).
+		Score("urgency", typesafe.Score{Levels: []typesafe.Content{typesafe.Text("can wait"), typesafe.Text("this week"), typesafe.Text("today")}}))
 }
 
 // The AC-P1 mixed-size sequence of plan section 6.1.6: 32 calls on one
@@ -368,11 +376,11 @@ var sequenceKinds = []sequenceKind{
 
 // sequenceStates returns the kind's three states, boxed, and the lengths of
 // the request bodies they make with qs.
-func sequenceStates(t *testing.T, k stateKind, qs *Prepared) (states [3]any, lens [3]int) {
+func sequenceStates(t *testing.T, k stateKind, qs *typesafe.Prepared) (states [3]any, lens [3]int) {
 	t.Helper()
 	for i, size := range sequenceSizes {
 		states[i] = stateFor(t, k, size).boxed
-		body, err := encodeBody(states[i], DefaultModel, qs, nil)
+		body, err := encodeBody(states[i], typesafe.DefaultModel, qs, nil)
 		if err != nil {
 			t.Fatalf("encodeBody: %v", err)
 		}
@@ -388,7 +396,7 @@ func sequenceStates(t *testing.T, k stateKind, qs *Prepared) (states [3]any, len
 // when the pool dropped it or never got it back. The probe's own fresh
 // scratch then serves the next call, so a probed sequence is not a measured
 // one.
-func sequenceProbe(t *testing.T, c *Client, qs *Prepared, states [3]any) [sequenceCalls]int {
+func sequenceProbe(t *testing.T, c *typesafe.Client, qs *typesafe.Prepared, states [3]any) [sequenceCalls]int {
 	t.Helper()
 	var caps [sequenceCalls]int
 	for i := range caps {

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package typesafe
+package alloctest
 
 import (
 	"bytes"
@@ -25,6 +25,9 @@ import (
 	"sync/atomic"
 	"testing"
 
+	typesafe "github.com/zchee/typesafe-sdk-go"
+
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
@@ -75,7 +78,7 @@ func (b *countingBody) Read(p []byte) (int, error) {
 // TestMemStatsCap's, over the Recorder. The test asserts no allocation
 // count, so it runs in every build, the race detector's included.
 func TestResponseCapOverTheWire(t *testing.T) {
-	const limit = DefaultMaxResponseBytes
+	const limit = typesafe.DefaultMaxResponseBytes
 	over := bytes.Repeat([]byte{' '}, limit+1)
 	models := testsupport.Fixture(t, "models.json")
 	tests := map[string]struct {
@@ -90,7 +93,7 @@ func TestResponseCapOverTheWire(t *testing.T) {
 			var posts atomic.Int32
 			srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
-				if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, modelsPath) {
+				if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, engine.ModelsPath) {
 					_, _ = w.Write(models)
 					return
 				}
@@ -109,13 +112,13 @@ func TestResponseCapOverTheWire(t *testing.T) {
 				}
 			})})
 			clearEnv(t)
-			c, err := NewClient(WithAPIKey(testKey), WithBaseURL(srv.URL()), WithRootCAs(testsupport.RootCAs(t)))
+			c, err := typesafe.NewClient(typesafe.WithAPIKey(testKey), typesafe.WithBaseURL(srv.URL()), typesafe.WithRootCAs(testsupport.RootCAs(t)))
 			if err != nil {
 				t.Fatalf("NewClient: %v", err)
 			}
 			t.Cleanup(func() { _ = c.Close() })
-			counter := &countingRT{rt: c.cfg().Transport.RT}
-			c.cfg().Transport.RT = counter
+			counter := &countingRT{rt: cfgOf(c).Transport.RT}
+			cfgOf(c).Transport.RT = counter
 			if err := c.WarmUp(t.Context()); err != nil { // the connection, so the call's deltas are the call's
 				t.Fatalf("WarmUp: %v", err)
 			}
@@ -136,7 +139,7 @@ func TestResponseCapOverTheWire(t *testing.T) {
 			}
 			t.Logf("WIRE %-10s read=%-8d mallocs=%-6d totalAlloc=%-9d (%.3f MiB; the server's write and both sides' buffers included, recorded)",
 				label, read, m1.Mallocs-m0.Mallocs, m1.TotalAlloc-m0.TotalAlloc, float64(m1.TotalAlloc-m0.TotalAlloc)/(1<<20))
-			tl, ok := errors.AsType[*ResponseTooLargeError](err)
+			tl, ok := errors.AsType[*typesafe.ResponseTooLargeError](err)
 			if !ok {
 				t.Fatalf("SystemOne error = %v (%T), want a *ResponseTooLargeError", err, err)
 			}

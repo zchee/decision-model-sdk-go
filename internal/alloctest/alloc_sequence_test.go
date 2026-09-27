@@ -14,7 +14,7 @@
 
 //go:build !race
 
-package typesafe
+package alloctest
 
 import (
 	"net/http"
@@ -22,6 +22,8 @@ import (
 	"slices"
 	"strconv"
 	"testing"
+
+	typesafe "github.com/zchee/typesafe-sdk-go"
 
 	gocmp "github.com/google/go-cmp/cmp"
 
@@ -75,7 +77,7 @@ func TestAllocScratchSequence(t *testing.T) {
 	testsupport.QuietRuntime(t)
 	qs := q3Questions(t)
 	reply := testsupport.JSON(http.StatusOK, testsupport.Fixture(t, "result.json"))
-	newClient := func() *Client {
+	newClient := func() *typesafe.Client {
 		return newTestClient(t, &testsupport.Recorder{Discard: true, Replies: []testsupport.Reply{reply}})
 	}
 	for _, sk := range sequenceKinds {
@@ -103,7 +105,7 @@ func TestAllocScratchSequence(t *testing.T) {
 			check("single-size call")
 			encode := series(t, sk.name+" single-size encode", nil, func() {
 				var body codec.Body
-				if body, err = encodeBody(states[0], c.cfg().Model, qs, nil); err == nil {
+				if body, err = encodeBody(states[0], cfgOf(c).Model, qs, nil); err == nil {
 					body.Release()
 				}
 			})

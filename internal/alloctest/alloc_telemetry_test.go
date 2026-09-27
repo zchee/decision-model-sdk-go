@@ -14,7 +14,7 @@
 
 //go:build !race
 
-package typesafe
+package alloctest
 
 import (
 	"context"
@@ -24,6 +24,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	typesafe "github.com/zchee/typesafe-sdk-go"
 
 	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
@@ -85,9 +87,9 @@ func TestAllocLoggedCall(t *testing.T) {
 				reply.Header.Add(rp.kv[i], rp.kv[i+1])
 			}
 			rec := &testsupport.Recorder{Discard: true, Replies: []testsupport.Reply{reply}}
-			opts := []ClientOption{WithRetry(DefaultRetry())}
+			opts := []typesafe.ClientOption{typesafe.WithRetry(typesafe.DefaultRetry())}
 			if l.logger != nil {
-				opts = append(opts, WithLogger(l.logger))
+				opts = append(opts, typesafe.WithLogger(l.logger))
 			}
 			c := newTestClient(t, rec, opts...)
 			state := newAllocState()

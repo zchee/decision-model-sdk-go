@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package typesafe
+package alloctest
 
 import (
 	"runtime"
@@ -21,6 +21,9 @@ import (
 	"testing"
 	"time"
 
+	typesafe "github.com/zchee/typesafe-sdk-go"
+
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
@@ -70,7 +73,7 @@ func decodeFixture(t *testing.T, name string) (*wire.ResponseMeta, wire.SystemOn
 	t.Helper()
 	meta := &wire.ResponseMeta{Status: 200, Body: []byte(testsupport.FixtureString(t, name))}
 	var res wire.SystemOneResult
-	err := decodeSystemOne(t.Context(), nil, meta, "", headerRedactor{}, nil, "", &res)
+	err := decodeSystemOne(t.Context(), nil, meta, "", engine.HeaderRedactor{}, nil, "", &res)
 	return meta, res, err
 }
 
@@ -80,37 +83,37 @@ func decodeFixture(t *testing.T, name string) (*wire.ResponseMeta, wire.SystemOn
 // levels from its legend, a level the legend leaves out (or an empty legend)
 // being the text "-". A response without answers answers one noul question,
 // "q", since a set cannot be empty.
-func questionsFor(t *testing.T, res *wire.SystemOneResult) *Prepared {
+func questionsFor(t *testing.T, res *wire.SystemOneResult) *typesafe.Prepared {
 	t.Helper()
-	qs := NewQuestions()
+	qs := typesafe.NewQuestions()
 	for _, e := range res.Answers.Entries() {
 		name := strings.Clone(e.Name)
 		switch e.Answer.Kind {
 		case wire.KindNoul:
-			qs.Noul(name, Noul{})
+			qs.Noul(name, typesafe.Noul{})
 		case wire.KindChoice:
-			var opts Options
+			var opts typesafe.Options
 			for _, p := range e.Answer.Choice.Probabilities {
-				opts = append(opts, Option{Label: strings.Clone(p.Label)})
+				opts = append(opts, typesafe.Option{Label: strings.Clone(p.Label)})
 			}
-			qs.Choice(name, Choice{Options: opts})
+			qs.Choice(name, typesafe.Choice{Options: opts})
 		case wire.KindScore:
-			levels := []Content{Text("-")}
+			levels := []typesafe.Content{typesafe.Text("-")}
 			for _, l := range e.Answer.Score.Legend {
 				for len(levels) <= int(l.Level) {
-					levels = append(levels, Text("-"))
+					levels = append(levels, typesafe.Text("-"))
 				}
 				if l.Description.JSON != nil {
-					levels[l.Level] = JSON(slices.Clone(l.Description.JSON))
+					levels[l.Level] = typesafe.JSON(slices.Clone(l.Description.JSON))
 				} else {
-					levels[l.Level] = Text(strings.Clone(l.Description.Text))
+					levels[l.Level] = typesafe.Text(strings.Clone(l.Description.Text))
 				}
 			}
-			qs.Score(name, Score{Levels: levels})
+			qs.Score(name, typesafe.Score{Levels: levels})
 		}
 	}
 	if res.Answers.Len() == 0 {
-		qs.Noul("q", Noul{})
+		qs.Noul("q", typesafe.Noul{})
 	}
 	p, err := qs.Prepare()
 	if err != nil {
@@ -189,14 +192,14 @@ func TestLinearityFloodTime(t *testing.T) {
 	type flood struct {
 		name    string
 		meta    *wire.ResponseMeta
-		qs      *Prepared
+		qs      *typesafe.Prepared
 		model   string
 		decodes []int           // per span
 		each    []time.Duration // per span: its length divided by its decodes
 		time    time.Duration
 	}
 	decode := func(f *flood, res *wire.SystemOneResult) {
-		if err := decodeSystemOne(t.Context(), nil, f.meta, "", headerRedactor{}, f.qs, f.model, res); err != nil {
+		if err := decodeSystemOne(t.Context(), nil, f.meta, "", engine.HeaderRedactor{}, f.qs, f.model, res); err != nil {
 			t.Fatal(err)
 		}
 	}

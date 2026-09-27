@@ -14,13 +14,15 @@
 
 //go:build !race
 
-package typesafe
+package alloctest
 
 import (
 	"maps"
 	"slices"
 	"strings"
 	"testing"
+
+	typesafe "github.com/zchee/typesafe-sdk-go"
 
 	gocmp "github.com/google/go-cmp/cmp"
 
@@ -69,14 +71,14 @@ func TestAllocPrepare(t *testing.T) {
 	for _, name := range slices.Sorted(maps.Keys(tests)) {
 		tt := tests[name]
 		t.Run(name, func(t *testing.T) {
-			got := testsupport.MeasureMin(t, name, prepareCases[name], func(qs *Questions) {
+			got := testsupport.MeasureMin(t, name, prepareCases[name], func(qs *typesafe.Questions) {
 				p, err := qs.Prepare()
 				if err != nil {
 					t.Fatal(err)
 				}
 				prepareSink = p
 			})
-			t.Logf("%s: %d mallocs, %d bytes; prepared %d bytes", name, got.Mallocs, got.Bytes, len(prepareSink.wirePrepared().Questions))
+			t.Logf("%s: %d mallocs, %d bytes; prepared %d bytes", name, got.Mallocs, got.Bytes, len(wireOf(prepareSink).Questions))
 			if tt.mallocs < 0 {
 				return
 			}

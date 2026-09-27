@@ -28,7 +28,8 @@ for each. `go test -bench . ./...` and CodSpeed find both.
 
 Setup-only benchmarks, kept from earlier waves: `BenchmarkPrepare` and
 `BenchmarkFalsyJSON` in the root's `bench_internal_test.go` (the first
-shares its case table, `prepare_cases_test.go`, with `TestAllocPrepare`;
+times the question sets of `prepare_cases_test.go`, whose counts
+`TestAllocPrepare` pins from a copy in `internal/alloctest`;
 the second times `internal/engine`'s `FalsyJSON`, the root package's
 unexported `falsyJSON` until W6.5), and
 `BenchmarkHeaderTemplateClone` and `BenchmarkNoop` in `internal/benchmark`.

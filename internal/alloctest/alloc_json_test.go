@@ -14,12 +14,14 @@
 
 //go:build !race
 
-package typesafe
+package alloctest
 
 import (
 	"maps"
 	"slices"
 	"testing"
+
+	typesafe "github.com/zchee/typesafe-sdk-go"
 
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
@@ -58,33 +60,33 @@ func TestAllocResponseJSON(t *testing.T) {
 				err                error
 			)
 			if name == "models.json" {
-				var resp ModelsResponse
+				var resp typesafe.ModelsResponse
 				if err := resp.UnmarshalJSON(data); err != nil {
 					t.Fatal(err)
 				}
 				if payload, err = resp.MarshalJSON(); err != nil {
 					t.Fatal(err)
 				}
-				marshal = testsupport.MeasureMin(t, name+" marshal", func() *ModelsResponse { return &resp }, func(r *ModelsResponse) {
+				marshal = testsupport.MeasureMin(t, name+" marshal", func() *typesafe.ModelsResponse { return &resp }, func(r *typesafe.ModelsResponse) {
 					sinkPayload, _ = r.MarshalJSON()
 				})
-				unmarshal = testsupport.MeasureMin(t, name+" unmarshal", func() *ModelsResponse { return new(ModelsResponse) }, func(r *ModelsResponse) {
+				unmarshal = testsupport.MeasureMin(t, name+" unmarshal", func() *typesafe.ModelsResponse { return new(typesafe.ModelsResponse) }, func(r *typesafe.ModelsResponse) {
 					if err := r.UnmarshalJSON(payload); err != nil {
 						t.Error(err)
 					}
 				})
 			} else {
-				var resp SystemOneResponse
+				var resp typesafe.SystemOneResponse
 				if err := resp.UnmarshalJSON(data); err != nil {
 					t.Fatal(err)
 				}
 				if payload, err = resp.MarshalJSON(); err != nil {
 					t.Fatal(err)
 				}
-				marshal = testsupport.MeasureMin(t, name+" marshal", func() *SystemOneResponse { return &resp }, func(r *SystemOneResponse) {
+				marshal = testsupport.MeasureMin(t, name+" marshal", func() *typesafe.SystemOneResponse { return &resp }, func(r *typesafe.SystemOneResponse) {
 					sinkPayload, _ = r.MarshalJSON()
 				})
-				unmarshal = testsupport.MeasureMin(t, name+" unmarshal", func() *SystemOneResponse { return new(SystemOneResponse) }, func(r *SystemOneResponse) {
+				unmarshal = testsupport.MeasureMin(t, name+" unmarshal", func() *typesafe.SystemOneResponse { return new(typesafe.SystemOneResponse) }, func(r *typesafe.SystemOneResponse) {
 					if err := r.UnmarshalJSON(payload); err != nil {
 						t.Error(err)
 					}

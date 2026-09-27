@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package typesafe
+package alloctest
 
 import (
 	"bytes"
@@ -21,6 +21,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	typesafe "github.com/zchee/typesafe-sdk-go"
 
 	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
@@ -42,9 +44,9 @@ func newAllocState() any { return strings.Repeat("s", allocStateSize-2) }
 // sends, built beforehand, over a rewindable copy of the body the call
 // encodes, and the reader under it, which the caller rewinds before each
 // round trip.
-func floorRequest(t *testing.T, c *Client, state any, qs *Prepared) (*http.Request, *bytes.Reader) {
+func floorRequest(t *testing.T, c *typesafe.Client, state any, qs *typesafe.Prepared) (*http.Request, *bytes.Reader) {
 	t.Helper()
-	enc, err := encodeBody(state, c.cfg().Model, qs, nil)
+	enc, err := encodeBody(state, cfgOf(c).Model, qs, nil)
 	if err != nil {
 		t.Fatalf("encodeBody: %v", err)
 	}
@@ -52,8 +54,8 @@ func floorRequest(t *testing.T, c *Client, state any, qs *Prepared) (*http.Reque
 	enc.Release()
 	rd := bytes.NewReader(pre)
 	return &http.Request{
-		Method: http.MethodPost, URL: c.cfg().SystemOneURL, Proto: "HTTP/1.1", ProtoMajor: 1, ProtoMinor: 1,
-		Header: c.cfg().SystemOneHeader, Body: io.NopCloser(rd), ContentLength: int64(len(pre)), Host: c.cfg().SystemOneURL.Host,
+		Method: http.MethodPost, URL: cfgOf(c).SystemOneURL, Proto: "HTTP/1.1", ProtoMajor: 1, ProtoMinor: 1,
+		Header: cfgOf(c).SystemOneHeader, Body: io.NopCloser(rd), ContentLength: int64(len(pre)), Host: cfgOf(c).SystemOneURL.Host,
 	}, rd
 }
 
@@ -72,7 +74,7 @@ func outcomeOf(err error) string {
 	case errors.Is(err, io.ErrUnexpectedEOF):
 		return "eof"
 	}
-	if _, ok := errors.AsType[*ResponseTooLargeError](err); ok {
+	if _, ok := errors.AsType[*typesafe.ResponseTooLargeError](err); ok {
 		return "large"
 	}
 	return err.Error()
@@ -113,7 +115,7 @@ func paddedResult(t *testing.T, size int) []byte {
 // 64 KiB that (ii) allows a call that reads nothing.
 func memCases(t *testing.T) map[string]memCase {
 	t.Helper()
-	const limit = DefaultMaxResponseBytes
+	const limit = typesafe.DefaultMaxResponseBytes
 	const bigBound = 2*limit + 64<<10
 	over := bytes.Repeat([]byte{' '}, limit+1)
 	exact := paddedResult(t, limit)

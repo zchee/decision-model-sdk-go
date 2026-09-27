@@ -14,12 +14,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package typesafe
+package alloctest
 
 import (
 	"errors"
 	"net/http"
 	"testing"
+
+	typesafe "github.com/zchee/typesafe-sdk-go"
 
 	"github.com/zchee/typesafe-sdk-go/internal/codec"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
@@ -51,7 +53,7 @@ var sinkReview reviewAnswers
 func TestAllocTypedDecode(t *testing.T) {
 	testsupport.QuietRuntime(t)
 	ctx := t.Context()
-	qs, err := PreparedFor[reviewAnswers]()
+	qs, err := typesafe.PreparedFor[reviewAnswers]()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,15 +61,15 @@ func TestAllocTypedDecode(t *testing.T) {
 	body := testsupport.Fixture(t, "result.json")
 	rec := &testsupport.Recorder{Discard: true, Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, body)}}
 	c := newTestClient(t, rec)
-	var resp *SystemOneResponse
+	var resp *typesafe.SystemOneResponse
 	for range 2 { // warm the pools, the encoder, the decoder and the plan cache
 		if resp, err = c.SystemOne(ctx, "x", qs); err != nil {
 			t.Fatal(err)
 		}
-		if sinkReview, err = DecodeAs[reviewAnswers](resp); err != nil {
+		if sinkReview, err = typesafe.DecodeAs[reviewAnswers](resp); err != nil {
 			t.Fatal(err)
 		}
-		if sinkReview, err = Ask[reviewAnswers](ctx, c, "x"); err != nil {
+		if sinkReview, err = typesafe.Ask[reviewAnswers](ctx, c, "x"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -80,11 +82,11 @@ func TestAllocTypedDecode(t *testing.T) {
 	none := func() struct{} { return struct{}{} }
 
 	answersDecode := testsupport.MeasureMin(t, "Answers() decode", func() *wire.SystemOneResult { return new(wire.SystemOneResult) }, func(res *wire.SystemOneResult) {
-		_, err = codec.DecodeSystemOne(body, qs.wirePrepared(), c.cfg().Model, res)
+		_, err = codec.DecodeSystemOne(body, wireOf(qs), cfgOf(c).Model, res)
 	})
 	check("Answers() decode")
 	typedDecode := testsupport.MeasureMin(t, "DecodeAs[reviewAnswers]", none, func(struct{}) {
-		sinkReview, err = DecodeAs[reviewAnswers](resp)
+		sinkReview, err = typesafe.DecodeAs[reviewAnswers](resp)
 	})
 	check("DecodeAs")
 	call := testsupport.MeasureMin(t, "SystemOne", none, func(struct{}) {
@@ -92,7 +94,7 @@ func TestAllocTypedDecode(t *testing.T) {
 	})
 	check("SystemOne")
 	ask := testsupport.MeasureMin(t, "Ask[reviewAnswers]", none, func(struct{}) {
-		sinkReview, err = Ask[reviewAnswers](ctx, c, "x")
+		sinkReview, err = typesafe.Ask[reviewAnswers](ctx, c, "x")
 	})
 	check("Ask")
 	t.Logf("TYPED result bytes=%d answersDecode=%s decodeAs=%s systemOne=%s ask=%s (AC-P3: decodeAs < answersDecode; AC-P6: ask = systemOne + decodeAs)", len(body), answersDecode, typedDecode, call, ask)
@@ -111,7 +113,7 @@ func TestAllocTypedDecode(t *testing.T) {
 // failToneAnswers is reviewAnswers's tone with options result.json's
 // "friendly" is not one of, so DecodeAs of result.json fails on it.
 type failToneAnswers struct {
-	Tone ChoiceAnswer `typesafe:"kind=choice;name=tone;instructions=Tone?;options=calm|hostile"`
+	Tone typesafe.ChoiceAnswer `typesafe:"kind=choice;name=tone;instructions=Tone?;options=calm|hostile"`
 }
 
 // TestAllocTypedFailure pins what a typed failure costs (W5.3, review-w4.2
@@ -122,15 +124,15 @@ type failToneAnswers struct {
 // so the count is the error's alone.
 func TestAllocTypedFailure(t *testing.T) {
 	requireStoreLayout[failToneAnswers](t)
-	var resp SystemOneResponse
+	var resp typesafe.SystemOneResponse
 	if err := resp.UnmarshalJSON(testsupport.Fixture(t, "result.json")); err != nil {
 		t.Fatal(err)
 	}
-	_, err := DecodeAs[failToneAnswers](&resp)
-	if ve, ok := errors.AsType[*ResponseValidationError](err); !ok || ve.FieldPath != "tone.choice" {
+	_, err := typesafe.DecodeAs[failToneAnswers](&resp)
+	if ve, ok := errors.AsType[*typesafe.ResponseValidationError](err); !ok || ve.FieldPath != "tone.choice" {
 		t.Fatalf("DecodeAs error = %v, want a *ResponseValidationError at tone.choice", err)
 	}
-	n := testing.AllocsPerRun(100, func() { _, err = DecodeAs[failToneAnswers](&resp) })
+	n := testing.AllocsPerRun(100, func() { _, err = typesafe.DecodeAs[failToneAnswers](&resp) })
 	t.Logf("TYPED failure at tone.choice: %v allocations", n)
 	if n != 5 {
 		t.Errorf("a typed failure allocates %v times, want 5 (its path rendered once)", n)

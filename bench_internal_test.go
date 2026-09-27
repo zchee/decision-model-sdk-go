@@ -18,8 +18,9 @@ package typesafe
 // others to internal/benchmark; docs/perf/benchmarks.md lists both). Each
 // times, or builds its case from, what only the root package can reach:
 //
-//   - BenchmarkPrepare: its case table (prepare_cases_test.go) is shared
-//     with TestAllocPrepare, which reads unexported fields of the result.
+//   - BenchmarkPrepare: its case table (prepare_cases_test.go) is the one
+//     TestAllocPrepare pins, which internal/alloctest runs from a copy since
+//     W6.5.
 //   - BenchmarkFalsyJSON: the falsiness check of a raw score question's
 //     criteria, internal/engine's FalsyJSON since W6.5 (unexported in the
 //     root package before it), measured here so that its rows keep their
