@@ -186,7 +186,7 @@ any test:
   encoding a call makes 7 fewer allocations and about 10 KiB less
   garbage, client and server counted together, on bodies of 311 and
   401 B. `WithCompression(false)` asks for no encoding; the default stays
-  gzip, as httpx asks for it (owner decision G11 (1)).
+  gzip, one of the encodings httpx asks for (owner decision G11 (1)).
 
 ## Responses with many answers
 
@@ -207,6 +207,34 @@ most 4 MiB for each decode that ran at the same time, and it drains two
 collections after the traffic falls. What a client that calls a server it
 does not trust may hold is set by its response limit and its concurrency:
 measured, a call in flight took up to about 50 times the body it read.
+
+## What a kept response holds
+
+A response from a call keeps the header redactor that call used, so that
+`DecodeAs` redacts it as `Ask` did however long the caller keeps it (owner
+decision G11 (3)). A caller can see three consequences:
+
+- A response to a plain-HTTP request through a proxy keeps the credentials
+  of the proxies its client knew when the call returned: for each of up to
+  16 proxy userinfos, the password as it is, URL-escaped and word by word,
+  and the Basic token sent for it, about 95 B for one proxy with a 20-byte
+  password and 1.5 to 2.5 KiB for 16. They stay in memory for as long as
+  the caller keeps the response. The redactor is a function value, and
+  `fmt` prints a function, not what it holds, so no verb shows them. Over
+  HTTPS, or without a proxy, a response keeps its client's configuration,
+  API key included, reachable instead.
+- A client remembers its 16 most recent distinct proxy userinfos. When a
+  call's proxy userinfo is forgotten while that call is still in flight,
+  because 16 other ones were used meanwhile, the call is not redacted of
+  that credential: `Ask` and `DecodeAs` show it alike where the proxy echoed
+  it. Only a proxy function that returns more than 16 distinct credentials
+  during one call meets this, and it was so before responses kept their
+  redactor.
+- Because a response from a call holds that function, `reflect.DeepEqual`
+  of it and any other response value, its own copy included, is false (a
+  response read back with `UnmarshalJSON` holds none). Compare what
+  responses hold instead: `Answers`, `Model` and `Usage`, or the JSON that
+  `MarshalJSON` writes.
 
 ## Measurement rule
 

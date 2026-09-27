@@ -310,11 +310,12 @@ once when a cut point can be proved (the body's last byte closes the root,
 the cut lies outside every string and no value runs into it), and its
 allocation cuts took N from 14 to 12. On like-for-like hosts the SDK became
 faster by the median as well; CodSpeed's displayed minimum stayed 0.8–3.7 %
-slower in W5.4's four runs after W5.3, and over the runs of record below
-it ranges from 0.2 % faster to 3.7 % slower. Since G8-a the mean is enforced: `bench.yaml` fails when the same
-run's mean ratio is 1.0 or more, and the "PR run" of the plan is the wave's
-dispatch at its head together with `main`'s first run after the landing
-(G8-a Q2, no pull requests under R2). The runs of record:
+slower in W5.4's four runs after W5.3, and over the runs of record below it
+ranges from 0.2 % faster to 3.7 % slower. Since G8-a the mean is enforced:
+`bench.yaml` fails when the same run's mean ratio is 1.0 or more, and the
+"PR run" of the plan is the wave's dispatch at its head together with
+`main`'s first run after the landing (G8-a Q2, no pull requests under R2).
+The runs of record:
 
 | Run | Commit | Host group | sdk / naive min | median | mean |
 | --- | --- | --- | ---: | ---: | ---: |
