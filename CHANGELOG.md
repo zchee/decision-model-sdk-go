@@ -115,22 +115,14 @@ tests maps to a Go test or to a documented difference
 
 ### Differences from the Python SDK
 
-The full table is [`docs/deviations.md`](docs/deviations.md). The ones
-decided while the port was built:
+The full table is [`docs/deviations.md`](docs/deviations.md); the main
+ones:
 
 - A cancelled context returns `context.Canceled` itself; a deadline that
   passes returns a `*TimeoutError`.
-- A trace hook that blocks a new connection's DNS, connect or TLS handshake
-  phase ends that call, and every call waiting for a connection meanwhile,
-  with a `*TimeoutError` at the connection bound, under `WithNoTimeout`
-  too, while the hook runs on; a panic it raises afterwards is logged at
-  WARN. httpx has no such hooks.
 - Error values keep a copy of the response header with credentials
   redacted; a request id or header value holding the API key is `***` in
   errors and log records alike.
-- An API key or a proxy password that the server echoes in an error
-  message or a field path is shown as the server sent it, as the Python
-  SDK shows it.
 - The zero `RetryPolicy` is the Python SDK's default; times are
   `time.Duration`; a deadline that ends a retry wait returns a
   `*TimeoutError`, and the last server error is not returned.
@@ -144,8 +136,6 @@ decided while the port was built:
   `name=`; the typed decode refuses labels and levels the question set does
   not declare, and requires `usage`; its error paths keep the Python SDK's
   form (`tone.choice`).
-- The typed decode writes answers at their fields' offsets through `unsafe`,
-  in one file of the package, so that it allocates nothing.
 
 ### Development
 
@@ -173,11 +163,7 @@ decided while the port was built:
 - Fuzzing of every parser of server-chosen bytes in CI.
 - Live tests against the API (opt-in, `-tags live`).
 - Goldens of the exported API and the client options, with constant values.
-- The time ratio of decoding an answer with 10 000 structured levels
-  against one with 1 000 (at most 15) is asserted in the builds without
-  the race detector, on every CI image; under the race detector a
-  companion test logs the ratio without asserting it, because the
-  instrumentation, not the decoder, sets the ratio there.
+- A check that decoding stays linear in the number of structured levels.
 - The raw measurement files and prototype sources that `docs/` cites are
   kept, with their history, in a private archive repository maintained by
   the owner, cited as `spikes@<commit>:<path>`; this repository's history

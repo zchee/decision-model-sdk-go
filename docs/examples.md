@@ -26,11 +26,6 @@ go run ./examples/quickstart
 | [`logging`](#logging) | a `log/slog` logger and what its records show | `logging` with `TYPESAFE_LOG_LEVEL` |
 | [`concurrency`](#concurrency) | one client shared by goroutines over one HTTP/2 connection | `AsyncTypeSafeClient` |
 
-The three positive fixtures of the Python SDK's `tests/typing/` check with
-pyrefly that the public API's types line up; in Go the compiler does that
-work, so their counterpart is that these programs compile (the port test
-matrix, row XT1).
-
 ## Quickstart
 
 One choice question about a support ticket. `NewClient` with no options

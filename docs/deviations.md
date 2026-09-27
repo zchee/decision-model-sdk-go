@@ -6,9 +6,7 @@ typesafe-sdk-go ports [typesafe-sdk-python](https://github.com/typesafe-ai/types
 The key of each row is the text a row of
 [`port-test-matrix.md`](port-test-matrix.md) cites (`deviation "<key>"`),
 and the last column lists the matrix rows that cite it, or `—` when no
-upstream test reaches the behaviour. `.github/scripts/port-test-matrix.py
---deviations docs/deviations.md` checks both directions in CI: every
-citation is a key here, and every key lists exactly the rows that cite it.
+upstream test reaches the behaviour.
 
 ## Client, configuration and transport
 
@@ -121,27 +119,3 @@ SDK's behaviour:
 - A request that HTTP/2 replays inside one attempt (a stream the server
   refused or never processed) is not a retry and is not counted in
   `X-TypeSafe-Retry-Count`.
-
-## Found by the live pass
-
-The live pass of W6.4 (ledger rows W6.4-01 to W6.4-07) recorded three
-facts about the API that are not deviations of the SDK:
-
-- AC-F11: 403 = no credential ("Must supply an API key!"), 401 = a key
-  the API did not issue ("Cannot authenticate with the server."), both
-  with the error type `authentication_error`, which
-  `APIError.IsAuthentication` reports for both.
-  `livetest.TestLiveUnauthenticated` pins the two statuses, the error
-  type and `IsAuthentication`; the quoted messages are the live pass's
-  record (ledger W6.4-02), which no test asserts.
-- The API gzips its successful responses when the client asks for gzip,
-  as Go's transport does by default, so a response reaches the SDK with no
-  declared length. `WithCompression(false)` asks for no encoding (owner
-  decision G11 (1)).
-- The API refuses a System One request whose top level holds a member it
-  does not know with 400 `api_usage_error` ("Invalid request."). The
-  Python SDK's `tests/typing/valid.py` passes `extra_body={"beam_width":
-  4, ...}`, which pyrefly type-checks and never sends, so it is not a
-  request the live API accepts. `ExtraBody` keeps `extra_body`'s shape
-  and rules; the refusal is the server's, so this is parity, not a
-  deviation.

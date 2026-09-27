@@ -180,11 +180,10 @@ func run(ctx context.Context) error {
 
 ## Retries and errors
 
-A `RetryPolicy` is a value whose zero value is `DefaultRetry`, the Python
-SDK's `RetryPolicy()`: 2 retries on 408, 429 and 5xx, on connection errors
-and on timeouts, with a backoff from 500 ms to 5 s and a budget of 30 s per
-call. `WithRetry` sets a client's policy and `Retry` one call's. A
-successful response is billed, so a 2xx is never retried by its status.
+A `RetryPolicy` is a value; its zero value is `DefaultRetry`, the Python
+SDK's `RetryPolicy()`. `WithRetry` sets a client's policy and `Retry` one
+call's. A successful response is billed, so a 2xx is never retried by its
+status.
 
 Errors are pointers: `*APIError`, `*ConnectionError`, `*TimeoutError`,
 `*ResponseValidationError`, `*ResponseTooLargeError`, `*ConfigError` and
@@ -290,9 +289,7 @@ func report(label string, response *typesafe.SystemOneResponse, err error) {
 ## Logging and redaction
 
 The client writes to the `log/slog` logger given by `WithLogger`, and
-discards its records without one. INFO holds one record per attempt,
-DEBUG adds the headers and the body lengths, and `typesafe.LevelTrace`
-adds the bodies.
+discards its records without one.
 
 <!-- example: logging/main.go -->
 ```go
@@ -404,9 +401,7 @@ differences:
 naming the Python behaviour, the Go behaviour and why, and the upstream
 tests it replaces; [`docs/port-test-matrix.md`](docs/port-test-matrix.md)
 maps every one of the Python SDK's 129 tests to a Go test or to a row of
-that table. [`docs/as-built.md`](docs/as-built.md) records how the port's
-plan changed while the SDK was built: each ruling that amended it, the
-test that pins the result, and the owner's answers.
+that table.
 
 ## Tests
 
@@ -443,12 +438,6 @@ each System One call; CI does not run these tests
   "AC-P7 gate" compares `BenchmarkCall/sdk`'s mean with
   `BenchmarkCall/naive`'s); every absolute time is reported, not enforced
   ([`docs/perf/codspeed.md`](docs/perf/codspeed.md)).
-- The raw measurement files and prototype sources that the
-  [performance ledger](docs/perf/ledger.md) cites are kept, with their
-  history, in a private archive repository maintained by the owner, and
-  cited as `spikes@<commit>:<path>`; this repository's history holds none
-  of them. The ledger's first paragraphs say how a citation resolves; CI
-  checks their form, and resolving them needs a clone of the archive.
 
 ## License
 

@@ -1,10 +1,5 @@
 # Response fixtures
 
-Citations of the form `spikes@<commit>:<path>` name files in the private
-spike archive; the [performance ledger's opening
-section](../docs/perf/ledger.md) says what such a citation tells a
-reader who cannot open the archive.
-
 Response bodies for the SDK's decoder, client and allocation tests. Tests load
 them with `testsupport.Fixture`, `FixtureString` and `FixtureNames`
 (`internal/testsupport/fixtures.go`). `TestFixtureManifest`
@@ -35,7 +30,10 @@ Conventions:
   `malformed-too-deep.json`, `deviation-nan-unknown.json` and
   `deviation-nan-noul.json` were probed 2026-09-26 01:58:16 JST
   (`spikes@815453827b43:w2.0/python_paths.py`, output in
-  `spikes@815453827b43:w2.0/results/python-paths.txt`).
+  `spikes@815453827b43:w2.0/results/python-paths.txt`, files in the private
+  spike archive; the [performance ledger's opening
+  section](../docs/perf/ledger.md) says what such a citation tells a reader
+  who cannot open the archive).
   `''` is Python's root path, which Go spells `.`
   ([`docs/deviations.md`](../docs/deviations.md), "root path").
 
@@ -152,11 +150,3 @@ member name: a decoder that checks only values, or only names, accepts one
 file of each pair, and the `malformed-*.json` loops catch it. A duplicate
 member is not malformed (last wins; `duplicates.json`), and neither is an
 unknown answer kind (`unknown-answer-type.json`).
-
-Two names differ from the plan's text:
-
-- Plan 6.2.3 calls the missing-member fixtures `missing-model.json` and
-  `missing-usage.json`. Here they are `malformed-*`, so the `malformed-*.json`
-  loops of S-D1, W2.0 and AC-F7 include them.
-- The lone-surrogate body is a `deviation-*` file, not a `malformed-*` one,
-  because Go accepts it (Appendix B).

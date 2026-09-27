@@ -170,6 +170,11 @@ which is how CI's port test matrix check finds them. The untagged tests of
 the same package run in CI: the guard, the recorder's credential scrubber,
 and the example programs against a local stand-in for the API.
 
+`TestLiveUnauthenticated` asserts the API's two refusals: 403 for a
+request without a credential and 401 for a key the API did not issue, both
+with the error type `authentication_error`, which
+`APIError.IsAuthentication` reports for both.
+
 `-args -record` also writes the bodies the API returned to
 [`testdata/live`](../testdata/live/README.md), each scrubbed of
 credentials before it reaches the disk. The last pass, its results and
@@ -189,6 +194,9 @@ test:
   together, on bodies of 311 and 401 B. `WithCompression(false)` asks for
   no encoding; the default stays gzip, one of the encodings httpx asks
   for.
+- The API refuses a System One request whose top level holds a member it
+  does not know with 400 `api_usage_error`, so `ExtraBody` is for members
+  the API accepts.
 
 ## Responses with many answers
 
@@ -241,15 +249,13 @@ Performance numbers are comparable only when every host builds with the Go
 1.27 baseline experiment set.
 
 - On a host whose Go env file (the file `go env GOENV` names) sets
-  `GOEXPERIMENT`, every measurement runs with
-  **`GOEXPERIMENT=nosimd,noruntimesecret`**. On the maintainer's darwin/arm64
-  host the env file sets `simd,runtimesecret`, and the override restores the
-  baseline ToolTags:
-  `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]`
-  (go1.27.1, `go list -f '{{context.ToolTags}}' runtime`, measured
-  2026-09-25 15:12:30 JST).
-- On every other host (CI runners, the linux/amd64 host) set no override:
-  their default already is the baseline.
+  `GOEXPERIMENT`, for example to `simd,runtimesecret`, every measurement
+  runs with **`GOEXPERIMENT=nosimd,noruntimesecret`**, which restores the
+  baseline: with go1.27.1 on darwin/arm64,
+  `go list -f '{{context.ToolTags}}' runtime` then prints
+  `[goexperiment.regabiwrappers goexperiment.regabiargs goexperiment.jsonv2 goexperiment.greenteagc goexperiment.randomizedheapbase64 goexperiment.sizespecializedmalloc arm64.v8.0]`.
+- On every other host, CI runners included, set no override: their default
+  already is the baseline.
 - Never `GOEXPERIMENT=none`: it also clears Go 1.27's default-on experiments
   (the same command then prints only `regabiwrappers regabiargs`), so it would
   measure the old GC and the generic allocator. Never `GOENV=off`: it changes
@@ -331,16 +337,7 @@ one worker per core).
   it. The other public types are wrapper structs over `internal/wire`
   values, as before; no type is an alias.
 - `internal/alloctest` (test files only) holds the root package's
-  allocation budgets. The budget list runs there:
-  `go test -list "^($ALLOC)$" ./internal/alloctest/` and
-  `go test -run "^($ALLOC)$" -count=1 -v ./internal/alloctest/`, and
-  CI's allocation-budget step runs `run_budgets ./internal/alloctest/`.
-  Its `//go:build !race` scan reads every tracked test file the go
-  command builds: a `!race` test of `internal/alloctest` must be in the
-  step's list, and one in any package that no step without `-race` runs
-  (the root package among them) fails the step by name; the allowed
-  packages are the ones the steps run, the budget step's and the test
-  job's `NORACE_PKGS` (critic-p6 m-1, n-11).
+  allocation budgets; CI runs them without `-race`.
 - Of the SDK's own files, only `internal/codec/nocopy.go` and the root
   package's typed store, `decodeas_store.go`, import `unsafe`;
   `internal/engine` imports no `unsafe` and uses no raw-pointer route, and
