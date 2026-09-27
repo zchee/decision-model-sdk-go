@@ -47,8 +47,8 @@ func run(ctx context.Context) error {
 		return err
 	}
 	defer client.Close()
-	var models *typesafe.ModelsResponse
-	if models, err = client.Models().List(ctx); err != nil {
+	models, err := client.Models().List(ctx)
+	if err != nil {
 		return err
 	}
 	fmt.Printf("%d model(s)\n", len(models.Models()))
@@ -68,8 +68,8 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	var response *typesafe.SystemOneResponse
-	if response, err = opaque.SystemOne(ctx, "Is the transport configurable?", questions); err != nil {
+	response, err := opaque.SystemOne(ctx, "Is the transport configurable?", questions)
+	if err != nil {
 		return err
 	}
 	answer, _ := response.Answers().Noul("question")
