@@ -381,7 +381,6 @@ func goList(t *testing.T, root string, args ...string) string {
 // TestSeamTransitiveImports checks that the packages the gotip canary builds
 // depend, through any chain and including their tests, on neither the root
 // package nor internal/codec, which do not compile on gotip by design (PM1).
-// A package that does not exist yet is skipped.
 //
 // The root package left the canary list when it began to import
 // internal/codec for the request body (W1.2, ruling R41). Its row asserts
@@ -402,18 +401,14 @@ func TestSeamTransitiveImports(t *testing.T) {
 	}
 
 	tests := map[string]struct {
-		dir     string // slash-separated, from the module root
 		pattern string // the go list pattern
 	}{
-		"internal/h2gate":      {dir: "internal/h2gate", pattern: "./internal/h2gate/..."},
-		"internal/testsupport": {dir: "internal/testsupport", pattern: "./internal/testsupport/..."},
-		"internal/wire":        {dir: "internal/wire", pattern: "./internal/wire/..."},
+		"internal/h2gate":      {pattern: "./internal/h2gate/..."},
+		"internal/testsupport": {pattern: "./internal/testsupport/..."},
+		"internal/wire":        {pattern: "./internal/wire/..."},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if _, err := os.Stat(filepath.Join(mod.root, filepath.FromSlash(tt.dir))); err != nil {
-				t.Skipf("%s does not exist yet: %v", tt.dir, err)
-			}
 			out := goList(t, mod.root, "-deps", "-test", "-f", "{{.ImportPath}}", tt.pattern)
 			n := 0
 			for line := range strings.Lines(out) {
@@ -437,12 +432,9 @@ func TestSeamTransitiveImports(t *testing.T) {
 // checkNoDirectJSON checks that the files of the root-code package in dir
 // (rootCodeDirs), its tests included, import no JSON library directly in the
 // build configuration of the host, and that the package imports
-// internal/wire. A directory that does not exist yet is skipped.
+// internal/wire.
 func checkNoDirectJSON(t *testing.T, mod module, dir string) {
 	t.Helper()
-	if _, err := os.Stat(filepath.Join(mod.root, filepath.FromSlash(dir))); err != nil {
-		t.Skipf("%s does not exist yet: %v", dir, err)
-	}
 	pattern := "."
 	if dir != "." {
 		pattern = "./" + dir

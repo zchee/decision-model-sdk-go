@@ -236,7 +236,6 @@ type visitor struct {
 
 	scanned bool // the body's raw-control scan has run
 	rawCtl  bool // its result
-	scans   int  // number of body scans (0 or 1), for the tests
 
 	// top-level members
 	model      string
@@ -276,7 +275,7 @@ var _ ast.Visitor = (*visitor)(nil)
 func (v *visitor) reset(body string, m mode) {
 	v.body, v.mode = body, m
 	v.slot, v.ign, v.ignSlot, v.sp, v.peak = slotRoot, 0, slotNone, 0, 0
-	v.scanned, v.rawCtl, v.scans = false, false, 0
+	v.scanned, v.rawCtl = false, false
 	v.model, v.hasModel, v.modelErr = "", false, pend{}
 	v.usage, v.hasUsage, v.usageErr, v.inBad, v.outBad = wire.Usage{}, false, pend{}, false, false
 	v.answersErr = pend{}
@@ -324,7 +323,6 @@ func (v *visitor) checkString(s string) error {
 	}
 	if !v.scanned {
 		v.scanned = true
-		v.scans++
 		v.rawCtl = rawControlInString(v.body)
 	}
 	if v.rawCtl {

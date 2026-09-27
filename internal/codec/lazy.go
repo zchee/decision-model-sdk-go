@@ -71,7 +71,7 @@ func (d *decoder) lazy(src string) error {
 	}
 	for i := range v.set {
 		e := &v.set[i]
-		if e.structured == 0 || e.err.set {
+		if e.structured == 0 {
 			continue
 		}
 		it, err := d.nodes[i].Properties()

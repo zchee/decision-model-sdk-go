@@ -66,8 +66,6 @@ func (v *visitor) commitAnswer() {
 			e.err = v.foldLevels(&e)
 		}
 		if e.err.set {
-			e.ans = wire.Answer{}
-			e.structured = 0
 			v.put(e)
 			return
 		}

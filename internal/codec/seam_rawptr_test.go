@@ -330,21 +330,13 @@ func TestSeamRootRawPointers(t *testing.T) {
 	mod := findModule(t)
 	files := moduleFiles(t, mod.root)
 
-	// A directory of rootCodeDirs that holds no non-test file is left out
-	// here; the list of packages the walk must reach below requires both.
-	var roots []string
-	for _, dir := range rootCodeDirs {
-		if slices.ContainsFunc(files, func(f goFile) bool { return f.dir == dir && !f.test }) {
-			roots = append(roots, dir)
-		}
-	}
 	importers := map[string][]string{}
 	for _, f := range files {
-		if !f.test && slices.Contains(roots, f.dir) && slices.Contains(f.imports, "unsafe") {
+		if !f.test && slices.Contains(rootCodeDirs, f.dir) && slices.Contains(f.imports, "unsafe") {
 			importers[f.dir] = append(importers[f.dir], f.rel)
 		}
 	}
-	for _, dir := range roots {
+	for _, dir := range rootCodeDirs {
 		var want []string
 		if dir == "." {
 			want = []string{rootStoreFile}
@@ -357,8 +349,8 @@ func TestSeamRootRawPointers(t *testing.T) {
 	// The module's packages the root code's non-test files import, directly
 	// or through each other.
 	dirs := map[string]bool{}
-	queue := slices.Clone(roots)
-	for _, dir := range roots {
+	queue := slices.Clone(rootCodeDirs)
+	for _, dir := range rootCodeDirs {
 		dirs[dir] = true
 	}
 	for ; len(queue) > 0; queue = queue[1:] {
@@ -439,7 +431,7 @@ func TestSeamRootRawPointers(t *testing.T) {
 	if checked["."] == 0 || !slices.ContainsFunc(files, func(f goFile) bool { return f.rel == "decodeas.go" }) {
 		t.Fatalf("checked %d root files and found no decodeas.go; the check would pass vacuously", checked["."])
 	}
-	t.Logf("read %d non-test files of %d packages (%d reached from %q)", sum(maps.Values(checked)), len(dirs), len(walked), roots)
+	t.Logf("read %d non-test files of %d packages (%d reached from %q)", sum(maps.Values(checked)), len(dirs), len(walked), rootCodeDirs)
 }
 
 // sum returns the sum of the values seq yields.

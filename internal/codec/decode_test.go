@@ -17,7 +17,6 @@
 package codec
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -31,16 +30,13 @@ import (
 
 // TestDecodeFixtures checks the verdict on every fixture under testdata: each
 // malformed-*.json and deviation-big-exp-noul.json is refused with the field
-// path testdata/README.md names, and every other file is accepted. The log
-// is the fixture table of the W2.0 report.
+// path testdata/README.md names, and every other file is accepted.
 func TestDecodeFixtures(t *testing.T) {
 	for _, name := range testsupport.FixtureNames(t, "malformed-*.json") {
 		if _, ok := wantReject[name]; !ok {
 			t.Errorf("%s has no row in wantReject", name)
 		}
 	}
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "\n%-38s %-28s %s\n", "fixture", "verdict (README)", "observed")
 	for _, name := range testsupport.FixtureNames(t, "*.json") {
 		body := testsupport.Fixture(t, name)
 		var err error
@@ -60,9 +56,7 @@ func TestDecodeFixtures(t *testing.T) {
 		if observed != verdict {
 			t.Errorf("%s: %s (%v), want %s", name, observed, err, verdict)
 		}
-		fmt.Fprintf(&sb, "%-38s %-28s %s\n", name, verdict, observed)
 	}
-	t.Log(sb.String())
 }
 
 // TestDecodedValues checks what the decoder returns, not only that it

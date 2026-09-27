@@ -466,7 +466,9 @@ func (d *decoder) traverse(s string, body []byte, m mode) error {
 	if n := cutPoint(body); n > 0 {
 		d.v.reset(s, m)
 		if err := ast.Preorder(s[:n], &d.v, &d.opts); errors.Is(err, errCut) && d.v.betweenRootMembers() && d.v.peak <= skipDepth {
-			d.stats.scans = d.v.scans
+			if d.v.scanned {
+				d.stats.scans = 1
+			}
 			if err := d.v.OnObjectEnd(); err != nil {
 				return jsonErr(err)
 			}
@@ -482,7 +484,9 @@ func (d *decoder) traverseWhole(s string, body []byte, m mode) error {
 	d.stats.wholes = 1
 	d.v.reset(s, m)
 	err := ast.Preorder(s, &d.v, &d.opts)
-	d.stats.scans = d.v.scans
+	if d.v.scanned {
+		d.stats.scans = 1
+	}
 	if err != nil {
 		return jsonErr(err)
 	}
