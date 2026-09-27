@@ -22,6 +22,7 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
@@ -167,7 +168,7 @@ func TestAttemptHeader(t *testing.T) {
 	before := tmpl.Clone()
 	rq := request{header: tmpl}
 	first := rq.attemptHeader(0)
-	if _, ok := first[canonicalRetryCount]; ok {
+	if _, ok := first[engine.CanonicalRetryCount]; ok {
 		t.Errorf("the first attempt carries %s", headerRetryCount)
 	}
 	first["X-Probe"] = []string{"shared"}

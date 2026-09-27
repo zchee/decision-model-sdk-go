@@ -302,7 +302,7 @@ func newAPIError(meta *wire.ResponseMeta, endpoint string, r headerRedactor) *AP
 	return &APIError{
 		Kind:       apiErrorKind(meta.Status),
 		StatusCode: meta.Status,
-		Header:     r.header(meta.Header),
+		Header:     r.Header(meta.Header),
 		Body:       meta.Body,
 		Endpoint:   endpoint,
 		Message:    msg,
@@ -383,7 +383,7 @@ func newResponseValidationError(meta *wire.ResponseMeta, endpoint string, r head
 func newResponseValidationErrorAt(meta *wire.ResponseMeta, endpoint string, r headerRedactor, err error, fieldPath string) *ResponseValidationError {
 	return &ResponseValidationError{
 		StatusCode: meta.Status,
-		Header:     r.header(meta.Header),
+		Header:     r.Header(meta.Header),
 		Body:       meta.Body,
 		Endpoint:   endpoint,
 		FieldPath:  fieldPath,
@@ -428,7 +428,7 @@ func (*ResponseTooLargeError) typesafeError() {}
 // successful response whose body passed limit, with the response header's
 // credentials redacted by r ([headerRedactor]).
 func newResponseTooLargeError(meta *wire.ResponseMeta, endpoint string, r headerRedactor, limit int64) *ResponseTooLargeError {
-	return &ResponseTooLargeError{StatusCode: meta.Status, Header: r.header(meta.Header), Endpoint: endpoint, Limit: limit}
+	return &ResponseTooLargeError{StatusCode: meta.Status, Header: r.Header(meta.Header), Endpoint: endpoint, Limit: limit}
 }
 
 // ConnectionError reports a request that produced no HTTP response: the
@@ -477,9 +477,9 @@ type ConnectionError struct {
 
 // newConnectionError returns a *ConnectionError whose text is "Connection
 // error: " and text, escaped and cut. text is the transport error's text
-// with every credential already replaced by "***" ([credentials.redact]);
+// with every credential already replaced by "***" ([engine.Credentials.Redact]);
 // cause is the error to unwrap to, a stand-in for the transport's error
-// when its chain printed a credential ([credentials.cause]). proxy marks a
+// when its chain printed a credential ([engine.Credentials.Cause]). proxy marks a
 // failure of the proxy hop. The transport classification (transportError,
 // Client.attemptError) does the redaction; this only renders.
 func newConnectionError(text string, cause error, proxy bool) *ConnectionError {

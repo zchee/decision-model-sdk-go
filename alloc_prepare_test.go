@@ -24,6 +24,7 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
@@ -105,11 +106,11 @@ func TestAllocFalsyJSON(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if got := falsyJSON(tt.raw); got != tt.falsy {
-				t.Fatalf("falsyJSON = %t, want %t", got, tt.falsy)
+			if got := engine.FalsyJSON(tt.raw); got != tt.falsy {
+				t.Fatalf("FalsyJSON = %t, want %t", got, tt.falsy)
 			}
-			if n := testing.AllocsPerRun(100, func() { falsySink = falsyJSON(tt.raw) }); n != 0 {
-				t.Errorf("falsyJSON allocates %v times, want 0", n)
+			if n := testing.AllocsPerRun(100, func() { falsySink = engine.FalsyJSON(tt.raw) }); n != 0 {
+				t.Errorf("FalsyJSON allocates %v times, want 0", n)
 			}
 		})
 	}

@@ -29,6 +29,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/h2gate"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
@@ -467,13 +468,13 @@ func TestTransportErrorsHoldNoCredential(t *testing.T) {
 					}
 				}
 			}
-			if _, standIn := errors.AsType[*scrubbedError](err); !standIn {
+			if !chainHolds(err, isStandIn) {
 				t.Errorf("error %v does not unwrap to a stand-in for the transport's error", err)
 			}
 			if _, ok := errors.AsType[opaqueError](err); ok {
 				t.Error("errors.As reaches the transport's wrapped error, whose text holds the key")
 			}
-			secrets := []string{tt.key, quotedForm(strconv.Quote(tt.key)), "request-credential"}
+			secrets := []string{tt.key, quoted(tt.key), "request-credential"}
 			if tt.header == "Authorization" {
 				secrets = secrets[:2] // dropped for the SDK's own, so never sent
 			}
@@ -685,7 +686,7 @@ func TestTransportErrorFieldsHoldNoCredential(t *testing.T) {
 			// form of the key, raw or quoted, may appear, so the check is on
 			// its prefix.
 			assertNotPrinted(t, err, "ts_live_q")
-			_, standIn := ce.Unwrap().(*scrubbedError) //nolint:errorlint // the direct cause is the stand-in
+			standIn := isStandIn(ce.Unwrap()) // the direct cause is the stand-in
 			re, reached := errors.AsType[*reqErr](err)
 			if tt.keptAs {
 				if standIn || !reached || !strings.Contains(re.req.Header.Get("Authorization"), key) {
@@ -743,9 +744,9 @@ func TestTransportErrorTextScrubbedBeforeCut(t *testing.T) {
 			if !strings.Contains(got, strings.Repeat("a", tt.pad)+redacted) {
 				t.Errorf("Error() = %q, want the pad then %q", got, redacted)
 			}
-			for i := 0; i+minKeyNeedleBytes <= len(key); i++ {
-				if piece := key[i : i+minKeyNeedleBytes]; strings.Contains(got, piece) {
-					t.Errorf("Error() = %q holds %q, %d bytes of the key", got, piece, minKeyNeedleBytes)
+			for i := 0; i+engine.MinKeyNeedleBytes <= len(key); i++ {
+				if piece := key[i : i+engine.MinKeyNeedleBytes]; strings.Contains(got, piece) {
+					t.Errorf("Error() = %q holds %q, %d bytes of the key", got, piece, engine.MinKeyNeedleBytes)
 				}
 			}
 		})

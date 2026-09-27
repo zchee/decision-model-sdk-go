@@ -647,7 +647,7 @@ func TestAttemptErrorClassification(t *testing.T) {
 			rt: &testsupport.Recorder{Replies: []testsupport.Reply{{Err: errString("proxy said: Bearer " + longKey + "; key " + longKey)}}},
 			check: func(t *testing.T, err error) {
 				ce, ok := errors.AsType[*ConnectionError](err)
-				_, standIn := ce.Unwrap().(*scrubbedError) //nolint:errorlint // the direct cause is the stand-in
+				standIn := isStandIn(ce.Unwrap()) // the direct cause is the stand-in
 				if !ok || ce.Error() != "Connection error: proxy said: ***; key ***" || !standIn || ce.Proxy() {
 					t.Errorf("error = %v (%T), want a *ConnectionError with the credentials replaced, wrapping a stand-in", err, err)
 				}

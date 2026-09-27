@@ -25,6 +25,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
@@ -123,19 +124,20 @@ var sinkID string
 // value, with or without the client's API key in it, and no header cost
 // no allocation. Several values cost what wire.ResponseMeta.RequestID
 // costs, the reading the record made before R107: that joins them into one
-// string, and requestID builds one string too, of "***" ones when a value
-// holds the key. The header's name is not lower-cased, as isCredential's
-// would be. A client whose transport chose a proxy reads its credential set
-// here too, the one success-path read of the set (ruling D-W6-secfix-m2):
-// one value costs no allocation, with or without the proxy's password.
+// string, and engine.HeaderRedactor.RequestID builds one string too, of
+// "***" ones when a value holds the key. The header's name is not
+// lower-cased, as engine.IsCredential's would be. A client whose transport
+// chose a proxy reads its credential set here too, the one success-path read
+// of the set (ruling D-W6-secfix-m2): one value costs no allocation, with or
+// without the proxy's password.
 func TestAllocRequestID(t *testing.T) {
 	const key = "ts_live_QzXjWvKpYbNmHgFd"
-	r := newHeaderRedactor(key)
+	r := engine.NewHeaderRedactor(key)
 	// A client whose transport chose a proxy (ruling D-W6-secfix-m2): its
 	// set is read on the success path here and nowhere else.
-	withProxies := r
-	withProxies.proxies = new(proxyCreds)
-	withProxies.proxies.record(&url.URL{Scheme: "http", User: url.UserPassword("proxy-user", "hunter2-proxy"), Host: "127.0.0.1:3128"})
+	proxies := new(engine.ProxyCreds)
+	proxies.Record(&url.URL{Scheme: "http", User: url.UserPassword("proxy-user", "hunter2-proxy"), Host: "127.0.0.1:3128"})
+	withProxies := r.WithProxies(proxies)
 	tests := map[string]struct {
 		values  []string // the x-typesafe-request-id values, nil for none
 		asMeta  bool     // the count is wire.ResponseMeta.RequestID's, not 0
@@ -164,17 +166,17 @@ func TestAllocRequestID(t *testing.T) {
 				meta := wire.ResponseMeta{Header: h}
 				want = testing.AllocsPerRun(100, func() { sinkID, _ = meta.RequestID() })
 			}
-			got := testing.AllocsPerRun(100, func() { sinkID, _ = red.requestID(h) })
-			t.Logf("requestID allocates %v times, want %v (id %q)", got, want, sinkID)
+			got := testing.AllocsPerRun(100, func() { sinkID, _ = red.RequestID(h) })
+			t.Logf("RequestID allocates %v times, want %v (id %q)", got, want, sinkID)
 			if got != want {
-				t.Errorf("requestID allocates %v times, want %v", got, want)
+				t.Errorf("RequestID allocates %v times, want %v", got, want)
 			}
 		})
 	}
 }
 
 // TestAllocSecretHeaderName pins the by-name credential test at no
-// allocation (W5.3, from D-r103revert-rereview): isSecretHeader folds an
+// allocation (W5.3, from D-r103revert-rereview): engine.IsSecretHeader folds an
 // ASCII name's letters in place where strings.ToLower copied every
 // mixed-case name, which cost the redacted header copy of each error one
 // allocation per header and a transport error's credential scan one per
@@ -183,14 +185,14 @@ func TestAllocRequestID(t *testing.T) {
 // costs its scan nothing.
 func TestAllocSecretHeaderName(t *testing.T) {
 	for _, name := range []string{"Content-Type", "X-Typesafe-Request-Id", "Authorization", "X-Access-Token", "Date", "set-cookie"} {
-		if n := testing.AllocsPerRun(100, func() { sinkBool = isSecretHeader(name) }); n != 0 {
-			t.Errorf("isSecretHeader(%q) allocates %v times, want 0", name, n)
+		if n := testing.AllocsPerRun(100, func() { sinkBool = engine.IsSecretHeader(name) }); n != 0 {
+			t.Errorf("IsSecretHeader(%q) allocates %v times, want 0", name, n)
 		}
 	}
 	h := http.Header{"Content-Type": {"application/json"}, "Date": {"Sat, 26 Sep 2026 11:00:00 GMT"}, "X-Typesafe-Request-Id": {"req_7f3c9a2e5b1d"}, "Set-Cookie": {"session=opaque"}}
-	redacted := testing.AllocsPerRun(100, func() { sinkHeader = headerRedactor{}.header(h) })
+	redacted := testing.AllocsPerRun(100, func() { sinkHeader = engine.HeaderRedactor{}.Header(h) })
 	req := http.Header{"Content-Type": {"application/json"}, "Accept": {"application/json"}, "User-Agent": {"typesafe-sdk-go"}, "X-Typesafe-Sdk": {"go"}}
-	creds := testing.AllocsPerRun(100, func() { sinkCreds = requestCredentials(req) })
+	creds := testing.AllocsPerRun(100, func() { sinkCreds = engine.RequestCredentials(req) })
 	t.Logf("SECRET header copy of 4 headers %v allocations, credential scan %v", redacted, creds)
 	if redacted != 3 {
 		t.Errorf("the redacted copy of a 4-header response allocates %v times, want 3 (the map and the one replaced value)", redacted)
@@ -204,5 +206,5 @@ func TestAllocSecretHeaderName(t *testing.T) {
 var (
 	sinkBool   bool
 	sinkHeader http.Header
-	sinkCreds  credentials
+	sinkCreds  engine.Credentials
 )

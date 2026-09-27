@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package typesafe
+package engine
 
 import (
 	"cmp"
@@ -23,15 +23,15 @@ import (
 	"sync/atomic"
 )
 
-// maxProxyUserinfos bounds the proxy userinfos a [proxyCreds] remembers.
-const maxProxyUserinfos = 16
+// MaxProxyUserinfos bounds the proxy userinfos a [ProxyCreds] remembers.
+const MaxProxyUserinfos = 16
 
-// proxyCreds is the credentials of the proxies the proxy func of the SDK's
+// ProxyCreds is the credentials of the proxies the proxy func of the SDK's
 // own transport chose (ruling D-W6-secfix-m2): the userinfo of each proxy
 // URL the func returned, recorded where net/http asks it
 // (h2gate.Config.OnProxy), never by asking it again, so that a func with
 // side effects or one that rotates proxies is asked only as net/http asks
-// it. It holds the most recent [maxProxyUserinfos] distinct userinfos and
+// it. It holds the most recent [MaxProxyUserinfos] distinct userinfos and
 // forgets the oldest; a proxy chosen again becomes the most recent.
 //
 // The set belongs to the transport, not to a request: a request that waited
@@ -39,21 +39,22 @@ const maxProxyUserinfos = 16
 // func (h2gate, R19), and its error still holds the credential of the proxy
 // the dial chose. Every transport error of the client is scrubbed of every
 // credential in the set, whatever its length, each word of a password
-// among them ([transport.credentials]). The header of a response to a
-// plain-HTTP request that went through a proxy, which the proxy may have
-// written itself, a 407 among them, is scanned for the whole credentials
-// alone, the Basic token and the password as it is and as the URL escapes
-// it, those of 8 bytes or more, as for the API key
-// ([transport.responseRedactor], [proxyCreds.inHeader]; rulings
-// D-W6-secfix-header-scope and -2): a word of a password, or a short one,
-// would match ordinary header values, a Retry-After among them.
+// among them (the root package's transport.credentials). The header of a
+// response to a plain-HTTP request that went through a proxy, which the
+// proxy may have written itself, a 407 among them, is scanned for the whole
+// credentials alone, the Basic token and the password as it is and as the
+// URL escapes it, those of 8 bytes or more, as for the API key (the root
+// package's transport.responseRedactor, [HeaderRedactor.WithProxies],
+// [ProxyCreds.inHeader]; rulings D-W6-secfix-header-scope and -2): a word of
+// a password, or a short one, would match ordinary header values, a
+// Retry-After among them.
 //
-// A nil *proxyCreds, a caller's transport's (WithHTTPTransport,
+// A nil *ProxyCreds, a caller's transport's (WithHTTPTransport,
 // WithRoundTripper), holds none. The set is written only when the func
 // returns a proxy with userinfo, and read on the error path, for every
 // response to check that it holds any (a lock-free load that allocates
 // nothing), and for a header scan of a response through a proxy.
-type proxyCreds struct {
+type ProxyCreds struct {
 	mu sync.Mutex
 	// users are the distinct userinfos, oldest first.
 	users []url.Userinfo
@@ -63,20 +64,20 @@ type proxyCreds struct {
 	needles atomic.Pointer[proxyNeedles]
 }
 
-// proxyNeedles are what a [proxyCreds] looks for, each longest first.
+// proxyNeedles are what a [ProxyCreds] looks for, each longest first.
 type proxyNeedles struct {
 	// text are every credential of the userinfos, words of the passwords
-	// included, whatever their length ([credentials.addProxy]): an error's
+	// included, whatever their length ([Credentials.addProxy]): an error's
 	// text is scrubbed of them.
-	text credentials
+	text Credentials
 	// header are the whole credentials of 8 bytes or more, a response
-	// header's needles ([proxyCreds.inHeader]).
-	header credentials
+	// header's needles ([ProxyCreds.inHeader]).
+	header Credentials
 }
 
-// record adds the userinfo of proxy, if it has one, as the most recent,
+// Record adds the userinfo of proxy, if it has one, as the most recent,
 // forgetting the oldest when the set is full. It is h2gate's OnProxy.
-func (p *proxyCreds) record(proxy *url.URL) {
+func (p *ProxyCreds) Record(proxy *url.URL) {
 	if proxy.User == nil {
 		return
 	}
@@ -90,7 +91,7 @@ func (p *proxyCreds) record(proxy *url.URL) {
 	case i >= 0:
 		p.users = append(slices.Delete(p.users, i, i+1), user)
 		return // the same members: the needles stand
-	case len(p.users) == maxProxyUserinfos:
+	case len(p.users) == MaxProxyUserinfos:
 		p.users = slices.Delete(p.users, 0, 1)
 	}
 	p.users = append(p.users, user)
@@ -99,16 +100,16 @@ func (p *proxyCreds) record(proxy *url.URL) {
 		n.text.addProxy(&p.users[i], true)
 		n.header.addProxy(&p.users[i], false)
 	}
-	n.header = slices.DeleteFunc(n.header, func(v string) bool { return !keyNeedle(v) })
+	n.header = slices.DeleteFunc(n.header, func(v string) bool { return !KeyNeedle(v) })
 	slices.SortFunc(n.text, longestFirst)
 	slices.SortFunc(n.header, longestFirst)
 	p.needles.Store(&n)
 }
 
-// credentials returns every credential of every userinfo in p, the text
+// Credentials returns every credential of every userinfo in p, the text
 // needles, longest first, or nil; the slice is shared and must not be
 // modified.
-func (p *proxyCreds) credentials() credentials {
+func (p *ProxyCreds) Credentials() Credentials {
 	if p == nil {
 		return nil
 	}
@@ -120,10 +121,10 @@ func (p *proxyCreds) credentials() credentials {
 
 // inHeader reports whether one of values, a header's, holds a whole
 // credential in p, the Basic token or the password as it is or as the URL
-// escapes it, at least [minKeyNeedleBytes] long (ruling R68 on the header
+// escapes it, at least [MinKeyNeedleBytes] long (ruling R68 on the header
 // paths, D-W6-secfix-header-scope-2): a word of a password, or a shorter
 // credential, would match ordinary header values.
-func (p *proxyCreds) inHeader(values []string) bool {
+func (p *ProxyCreds) inHeader(values []string) bool {
 	if p == nil {
 		return false
 	}

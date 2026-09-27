@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package typesafe
+package engine
 
 import (
 	"encoding/base64"
@@ -32,7 +32,7 @@ func proxyURL(user *url.Userinfo) *url.URL {
 }
 
 // passwords returns the password of each userinfo in p, oldest first.
-func (p *proxyCreds) passwords() []string {
+func (p *ProxyCreds) passwords() []string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	out := []string{}
@@ -82,14 +82,14 @@ func TestProxyCredsRecord(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			var p proxyCreds
+			var p ProxyCreds
 			for _, u := range tt.record {
-				p.record(u)
+				p.Record(u)
 			}
 			if diff := gocmp.Diff(tt.want, p.passwords()); diff != "" {
 				t.Errorf("passwords held (-want +got):\n%s", diff)
 			}
-			creds := p.credentials()
+			creds := p.Credentials()
 			for _, held := range tt.want {
 				if !slices.Contains(creds, held) {
 					t.Errorf("the needles %q lack the held password %q", creds, held)
@@ -102,11 +102,11 @@ func TestProxyCredsRecord(t *testing.T) {
 	}
 
 	t.Run("success: the needles of a userinfo, whatever their length", func(t *testing.T) {
-		var p proxyCreds
-		p.record(proxyURL(url.UserPassword("u", "p w@<x")))
+		var p ProxyCreds
+		p.Record(proxyURL(url.UserPassword("u", "p w@<x")))
 		token := base64.StdEncoding.EncodeToString([]byte("u:p w@<x"))
 		want := []string{token, "p w@<x", "p%20w%40%3Cx", "p", "w@<x", `w@<x`, `p w@<x`}
-		creds := p.credentials()
+		creds := p.Credentials()
 		for _, n := range want {
 			if !slices.Contains(creds, n) {
 				t.Errorf("the needles %q lack %q", creds, n)
@@ -121,9 +121,9 @@ func TestProxyCredsRecord(t *testing.T) {
 	})
 
 	t.Run("success: a header value is scanned for the whole credentials of 8 bytes or more", func(t *testing.T) {
-		var p proxyCreds
-		p.record(proxyURL(url.UserPassword("u", "ab cdefghij")))
-		p.record(proxyURL(url.UserPassword("v", "short")))
+		var p ProxyCreds
+		p.Record(proxyURL(url.UserPassword("u", "ab cdefghij")))
+		p.Record(proxyURL(url.UserPassword("v", "short")))
 		tests := map[string]struct {
 			value string
 			want  bool
@@ -142,55 +142,55 @@ func TestProxyCredsRecord(t *testing.T) {
 				}
 			})
 		}
-		if !slices.Contains(p.credentials(), "ab") {
-			t.Errorf("the needles %q lack the 2-byte word, which an error's text is scrubbed of", p.credentials())
+		if !slices.Contains(p.Credentials(), "ab") {
+			t.Errorf("the needles %q lack the 2-byte word, which an error's text is scrubbed of", p.Credentials())
 		}
 	})
 
 	t.Run("success: a set whose whole credentials are all under 8 bytes has no header needles", func(t *testing.T) {
-		var p proxyCreds
-		p.record(proxyURL(url.UserPassword("u", "x"))) // the token of "u:x" is "dTp4", 4 bytes
+		var p ProxyCreds
+		p.Record(proxyURL(url.UserPassword("u", "x"))) // the token of "u:x" is "dTp4", 4 bytes
 		if p.inHeader([]string{"dTp4 x", "Basic dTp4"}) {
 			t.Error("inHeader = true, want false: no whole credential is 8 bytes long")
 		}
-		if !slices.Contains(p.credentials(), "x") {
-			t.Errorf("the needles %q lack the password, which an error's text is scrubbed of", p.credentials())
+		if !slices.Contains(p.Credentials(), "x") {
+			t.Errorf("the needles %q lack the password, which an error's text is scrubbed of", p.Credentials())
 		}
 	})
 
 	t.Run("success: a user without a password: the token alone", func(t *testing.T) {
-		var p proxyCreds
-		p.record(proxyURL(url.User("only-user")))
-		want := credentials{base64.StdEncoding.EncodeToString([]byte("only-user:"))}
-		if diff := gocmp.Diff(want, p.credentials()); diff != "" {
+		var p ProxyCreds
+		p.Record(proxyURL(url.User("only-user")))
+		want := Credentials{base64.StdEncoding.EncodeToString([]byte("only-user:"))}
+		if diff := gocmp.Diff(want, p.Credentials()); diff != "" {
 			t.Errorf("needles (-want +got):\n%s", diff)
 		}
 	})
 
 	t.Run("success: a nil set holds none", func(t *testing.T) {
-		var p *proxyCreds
-		if c := p.credentials(); c != nil || p.inHeader([]string{"anything"}) {
+		var p *ProxyCreds
+		if c := p.Credentials(); c != nil || p.inHeader([]string{"anything"}) {
 			t.Errorf("a nil set: credentials %q, inHeader true", c)
 		}
 	})
 
 	t.Run("success: records at once from many goroutines keep the bound", func(t *testing.T) {
-		var p proxyCreds
+		var p ProxyCreds
 		var wg sync.WaitGroup
 		for g := range 32 {
 			wg.Go(func() {
 				for i := range 8 {
-					p.record(proxyURL(pw(g*8 + i)))
+					p.Record(proxyURL(pw(g*8 + i)))
 					_ = p.inHeader([]string{"pw-1"})
 				}
 			})
 		}
 		wg.Wait()
 		held := p.passwords()
-		if len(held) != maxProxyUserinfos {
-			t.Fatalf("held %d, want %d", len(held), maxProxyUserinfos)
+		if len(held) != MaxProxyUserinfos {
+			t.Fatalf("held %d, want %d", len(held), MaxProxyUserinfos)
 		}
-		creds := p.credentials()
+		creds := p.Credentials()
 		for _, h := range held {
 			if !slices.Contains(creds, h) {
 				t.Errorf("the needles lack the held %q", h)

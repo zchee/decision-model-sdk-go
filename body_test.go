@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode"
 	"unicode/utf8"
 
 	gocmp "github.com/google/go-cmp/cmp"
@@ -1216,7 +1217,7 @@ func TestEncodeErrorMessageIsBounded(t *testing.T) {
 			if len(msg) >= 400 {
 				t.Errorf("message is %d bytes, want fewer than 400", len(msg))
 			}
-			if !utf8.ValidString(msg) || strings.ContainsFunc(msg, func(r rune) bool { return r < 0x20 || r == 0x7f || hidesText(r) }) {
+			if !utf8.ValidString(msg) || strings.ContainsFunc(msg, func(r rune) bool { return unicode.In(r, unicode.Cc, unicode.Cf, unicode.Zl, unicode.Zp) }) {
 				t.Errorf("message holds an unprintable character: %q", msg)
 			}
 			if tt.noSecret && strings.Contains(msg, secret) {

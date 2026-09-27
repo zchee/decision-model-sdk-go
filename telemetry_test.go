@@ -39,6 +39,7 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
@@ -316,7 +317,7 @@ func TestTransportDebugRecordsHoldNoCredential(t *testing.T) {
 			if !strings.Contains(records, "INFO request failed") {
 				t.Errorf("no INFO record of the failure:\n%s", records)
 			}
-			for _, s := range append([]string{quirkyKey, quotedForm(strconv.Quote(quirkyKey)), jsonForm(quirkyKey), secret, proxyBody}, tt.secrets...) {
+			for _, s := range append([]string{quirkyKey, quoted(quirkyKey), jsonQuoted(t, quirkyKey), secret, proxyBody}, tt.secrets...) {
 				if strings.Contains(records, s) {
 					t.Errorf("the records hold %q:\n%s", s, records)
 				}
@@ -905,7 +906,7 @@ func TestProxyEchoConcurrentColdClient(t *testing.T) {
 // again comes back as the most recent, forgetting the then oldest.
 func TestProxyCredentialSetEvictsTheOldest(t *testing.T) {
 	const user = "proxy-user"
-	const n = maxProxyUserinfos + 1
+	const n = engine.MaxProxyUserinfos + 1
 	urls := make([]*url.URL, n)
 	for i := range n {
 		urls[i] = newEchoingProxy(t, malformedEcho).URL()
@@ -922,13 +923,16 @@ func TestProxyCredentialSetEvictsTheOldest(t *testing.T) {
 	logs := testsupport.NewLogRecorder(slog.LevelDebug)
 	c := newCredentialClient(t, logs.Logger(), WithProxy(choose))
 	set := c.cfg.transport.proxies
+	// passwordsIn returns the passwords of urls the set holds, read through
+	// its needles (engine.ProxyCreds.Credentials), in urls' order; the
+	// engine's TestProxyCredsRecord pins the order within the set.
 	passwordsIn := func() []string {
-		set.mu.Lock()
-		defer set.mu.Unlock()
-		out := make([]string, 0, len(set.users))
-		for _, u := range set.users {
-			pw, _ := u.Password()
-			out = append(out, pw)
+		held := set.Credentials()
+		var out []string
+		for _, u := range urls {
+			if pw, _ := u.User.Password(); slices.Contains(held, pw) {
+				out = append(out, pw)
+			}
 		}
 		return out
 	}
@@ -947,13 +951,13 @@ func TestProxyCredentialSetEvictsTheOldest(t *testing.T) {
 		assertNotPrinted(t, err, pw)
 		if i == n-1 {
 			got := passwordsIn()
-			if len(got) != maxProxyUserinfos || slices.Contains(got, "proxy-password-0-of-17") || got[len(got)-1] != pw {
+			if len(got) != engine.MaxProxyUserinfos || slices.Contains(got, "proxy-password-0-of-17") || !slices.Contains(got, pw) {
 				t.Errorf("after 17 proxies the set holds %d: %q; want the 16 most recent, the first forgotten, the 17th last", len(got), got)
 			}
 		}
 	}
 	got := passwordsIn()
-	if len(got) != maxProxyUserinfos || got[len(got)-1] != "proxy-password-0-of-17" || slices.Contains(got, "proxy-password-1-of-17") {
+	if len(got) != engine.MaxProxyUserinfos || !slices.Contains(got, "proxy-password-0-of-17") || slices.Contains(got, "proxy-password-1-of-17") {
 		t.Errorf("after the first proxy again the set holds %d: %q; want it the most recent and the second forgotten", len(got), got)
 	}
 	assertRecordsScrubbed(t, logs, secrets, n+1)
@@ -1047,7 +1051,7 @@ func TestProxyFuncAskedOncePerAttempt(t *testing.T) {
 // credential of a proxy the client's transport chose: the error types'
 // Header (headerRedactor.header), the request id of the INFO "response"
 // record and of the error (headerRedactor.requestID), and the DEBUG
-// "response headers" record (newRedactedHeaders). The body is shown as the
+// "response headers" record (engine.NewRedactedHeaders). The body is shown as the
 // proxy wrote it, by design (ruling R103-rev); this one is empty.
 func TestProxyAnswerHeadersRedacted(t *testing.T) {
 	const user, password = "proxy-user", "hunter2@proxy-password"
@@ -1098,7 +1102,7 @@ func TestProxyAnswerHeadersRedacted(t *testing.T) {
 			t.Errorf("RequestID() = %q, %t; want %q, true", got, ok, redacted)
 		}
 	})
-	t.Run("error: the DEBUG response headers record (newRedactedHeaders)", func(t *testing.T) {
+	t.Run("error: the DEBUG response headers record (engine.NewRedactedHeaders)", func(t *testing.T) {
 		line := recordWith("DEBUG response headers")
 		for _, name := range []string{"X-Proxy-Echo", "X-Proxy-Password", "X-Typesafe-Request-Id"} {
 			if !strings.Contains(line, name+"="+redacted) {
@@ -1348,7 +1352,7 @@ func TestProxyHeaderScanScope(t *testing.T) {
 		if _, ok := errors.AsType[*ConnectionError](listOnce(t, c)); !ok {
 			t.Fatal("the first call, through the proxy, did not fail as the proxy's malformed answer makes it")
 		}
-		if c.cfg.transport.proxies.credentials() == nil {
+		if c.cfg.transport.proxies.Credentials() == nil {
 			t.Fatal("the set holds no credential after the first call")
 		}
 		logs.Reset()

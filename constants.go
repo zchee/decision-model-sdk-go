@@ -14,7 +14,11 @@
 
 package typesafe
 
-import "time"
+import (
+	"time"
+
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
+)
 
 // The environment variables a client reads for a setting its options leave
 // unset, as typesafe-sdk-python names them (py:constants.py). A value is
@@ -59,10 +63,11 @@ const (
 // much memory.
 const maxMaxResponseBytes = 1 << 30
 
-// The API endpoints, appended to the base URL (py:_core/constants.py:5-6).
+// The API endpoints, appended to the base URL (internal/engine's
+// SystemOnePath and ModelsPath).
 const (
-	systemOnePath = "/v1/systemone"
-	modelsPath    = "/v1/models"
+	systemOnePath = engine.SystemOnePath
+	modelsPath    = engine.ModelsPath
 )
 
 // The request and response headers the SDK reads or writes, spelled as
@@ -78,7 +83,7 @@ const (
 	headerUserAgent     = "User-Agent"
 	headerSDK           = "X-TypeSafe-SDK"
 	headerRuntime       = "X-TypeSafe-Runtime"
-	headerRetryCount    = "X-TypeSafe-Retry-Count"
+	headerRetryCount    = engine.HeaderRetryCount
 	headerRequestID     = "x-typesafe-request-id"
 )
 

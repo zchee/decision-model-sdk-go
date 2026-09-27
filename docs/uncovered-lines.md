@@ -50,15 +50,12 @@ Each reason starts with its class:
 | `errors.go` | `(*TimeoutError).typesafeError` | `{}` | 1 | Defensive: the unexported marker method that seals the `Error` interface; nothing calls it. |
 | `errors.go` | `parsePythonFloat` | `return 0, false` | 1 | Defensive: the scan above admits only text that `strconv.ParseFloat` parses, and `ErrRange` is accepted. |
 | `questions.go` | `(*Questions).Prepare` | `return nil, newConfigError("Question set cannot be prepared: "+err.Error(), err)` | 1 | Defensive: the names were checked above, and `Finish` fails only on them. |
-| `questions.go` | `falsyJSON` | `return false` | 2 | Defensive: `maybeFalsyJSON` lets through only a value that starts with `n`, `f`, `""`, an empty array or object, or a number with no digit 1-9 before its exponent; a valid one of those compacts to `null`, `false`, `""`, `[]`, `{}` or that number spelled as written (`wire.AppendJSON`), so neither return is reached (probed over every value of up to 5 bytes, 2026-09-26). |
 | `retry.go` | `(*retryState).wait` | `return waitError(ctx)` | 0-1 | Race: a context that ends at the instant the backoff timer fires. |
 | `retry.go` | `roundMillis` | `return seconds` | 1 | Defensive: `'f'` formatting always parses back. |
 | `text.go` | `(*pathText).fixed` | `return` | 1 | Gap: a field path that is already cut when more of the SDK's own text follows. |
 | `text.go` | `(*pathText).fixed` | `t.b = append(t.b, "\u2026"...)` | 1 | Gap: a field path whose own text, not a name, crosses the path limit. |
 | `text.go` | `(*pathText).name` | `return` | 1 | Gap: a field path that is already cut when another name follows. |
 | `text.go` | `(*pathText).name` | `t.full = true` | 1 | Gap: a name cut by the room left in the path rather than by its own limit. |
-| `text.go` | `credentials.detail` | `continue` | 1 | Gap: a wrapped chain with a nil link (an `Unwrap` that returns nil); no error chain in tests has one. |
-| `text.go` | `credentials.inChain` | `continue` | 1 | Gap: a wrapped chain with a nil link (an `Unwrap` that returns nil); no error chain in tests has one. |
 | `transport.go` | `var traceKeys` | `{}` | 1 | Defensive: a `ConnectStart` hook that exists only so that `httptrace` sets its net-level key; the context never dials. |
 | `typed.go` | `kindKeys` | `return "a choice takes kind, name, instructions, options and optional"` | 1 | Gap: a tag key outside its kind on a choice field; only the noul message is tested. |
 | `typed.go` | `kindKeys` | `return "a score takes kind, name, instructions, levels and optional"` | 1 | Gap: a tag key outside its kind on a score field; only the noul message is tested. |
@@ -96,6 +93,9 @@ Each reason starts with its class:
 | `internal/codec/visitor.go` | `(*visitor).wrongKind` | `v.cardBad \|= cardReleaseDate` | 1 | Gap: a model card whose `release_date` is an object or an array. |
 | `internal/codec/visitor.go` | `(*visitor).OnInt64` | `return v.scalar(false, "", n)` | 1 | Defensive: with `OnlyNumber` set, sonic v1.15.4's parser skips number conversion and reports every number, integers included, through `OnFloat64`. |
 | `internal/codec/visitor.go` | `(*visitor).OnObjectKey` | `v.slot = slotIgnore` | 1 | Defensive: keys occur only inside objects, and every object container has its own case; the models array, the one other container, gets no key. |
+| `internal/engine/falsy.go` | `FalsyJSON` | `return false` | 2 | Defensive: `maybeFalsyJSON` lets through only a value that starts with `n`, `f`, `""`, an empty array or object, or a number with no digit 1-9 before its exponent; a valid one of those compacts to `null`, `false`, `""`, `[]`, `{}` or that number spelled as written (`wire.AppendJSON`), so neither return is reached (probed over every value of up to 5 bytes, 2026-09-26). |
+| `internal/engine/text.go` | `Credentials.detail` | `continue` | 1 | Gap: a wrapped chain with a nil link (an `Unwrap` that returns nil); no error chain in tests has one. |
+| `internal/engine/text.go` | `Credentials.inChain` | `continue` | 1 | Gap: a wrapped chain with a nil link (an `Unwrap` that returns nil); no error chain in tests has one. |
 | `internal/h2gate/config.go` | `alpnScope.String` | `return [...]string{"none", "every-handshake", "sni", "post-check-only"}[s]` | 1 | Defensive: called only when a failing test prints a scope. |
 | `internal/h2gate/config.go` | `proxyMayApply` | `return false, fmt.Errorf("%w: %w", ErrProxyEnvironment, err)` | 1 | Gap: `http.ProxyFromEnvironment` reads the environment once per process, so only a subprocess started with an invalid `HTTPS_PROXY` reaches it. |
 | `internal/h2gate/config.go` | `NewTransport` | `return nil, err` | 1 | Gap: the `proxyMayApply` failure above, which needs an invalid proxy environment in a subprocess. |

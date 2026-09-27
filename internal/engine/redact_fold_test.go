@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package typesafe
+package engine
 
 import (
 	"slices"
@@ -22,15 +22,15 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
-// isSecretHeaderLower is isSecretHeader as it was before W5.3: the name
-// lower-cased whole, then compared. FuzzIsSecretHeader holds isSecretHeader
+// isSecretHeaderLower is IsSecretHeader as it was before W5.3: the name
+// lower-cased whole, then compared. FuzzIsSecretHeader holds IsSecretHeader
 // to it.
 func isSecretHeaderLower(name string) bool {
 	lower := strings.ToLower(name)
 	return slices.Contains(secretHeaderNames, lower) || strings.Contains(lower, "token") || strings.Contains(lower, "secret")
 }
 
-// FuzzIsSecretHeader checks that isSecretHeader, which folds an ASCII name's
+// FuzzIsSecretHeader checks that IsSecretHeader, which folds an ASCII name's
 // letters in place, gives strings.ToLower's verdict on any name, within
 // the per-input bound: the six names and the two words in every case,
 // next to other bytes, split, cut short, and spelled with runes that
@@ -51,8 +51,8 @@ func FuzzIsSecretHeader(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, name string) {
 		defer testsupport.BoundFuzzInput(t)()
-		if got, want := isSecretHeader(name), isSecretHeaderLower(name); got != want {
-			t.Errorf("isSecretHeader(%q) = %t, strings.ToLower's rule says %t", name, got, want)
+		if got, want := IsSecretHeader(name), isSecretHeaderLower(name); got != want {
+			t.Errorf("IsSecretHeader(%q) = %t, strings.ToLower's rule says %t", name, got, want)
 		}
 	})
 }

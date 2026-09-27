@@ -31,6 +31,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/h2gate"
 )
 
@@ -256,7 +257,7 @@ type transport struct {
 	// chose (WithProxy's func, or http.ProxyFromEnvironment), recorded where
 	// net/http asks the func; nil for a caller's transport (WithHTTPTransport,
 	// WithRoundTripper), whose proxy the SDK does not choose.
-	proxies *proxyCreds
+	proxies *engine.ProxyCreds
 
 	closeOnce sync.Once
 	closeErr  error
@@ -360,8 +361,8 @@ func (t *transportOptions) build(api *url.URL, connectTimeout time.Duration, con
 		if t.proxySet {
 			cfg.Proxy = t.proxy
 		}
-		tr.proxies = new(proxyCreds)
-		cfg.OnProxy = tr.proxies.record
+		tr.proxies = new(engine.ProxyCreds)
+		cfg.OnProxy = tr.proxies.Record
 		gate, err = h2gate.NewTransport(cfg)
 	}
 	if err != nil {
@@ -489,32 +490,31 @@ func (t *transport) stats() h2gate.Stats {
 }
 
 // credentials returns the credentials an error of the transport for req may
-// repeat ([callCredentials]): those of req's header and, on the SDK's own
-// transport, those of every proxy it chose ([proxyCreds]), never asking the
-// proxy func again. A proxy's answer that net/http cannot parse becomes an
-// error net/http builds itself, quoting the answer, before refusedConnect's
-// scrub (internal/h2gate) could see it; a caller's transport keeps its own
-// proxy, which the SDK does not ask.
-func (t *transport) credentials(req *http.Request) credentials {
-	return callCredentials(req.Header, t.proxies.credentials())
+// repeat ([engine.CallCredentials]): those of req's header and, on the SDK's
+// own transport, those of every proxy it chose ([engine.ProxyCreds]), never
+// asking the proxy func again. A proxy's answer that net/http cannot parse
+// becomes an error net/http builds itself, quoting the answer, before
+// refusedConnect's scrub (internal/h2gate) could see it; a caller's
+// transport keeps its own proxy, which the SDK does not ask.
+func (t *transport) credentials(req *http.Request) engine.Credentials {
+	return engine.CallCredentials(req.Header, t.proxies.Credentials())
 }
 
 // responseRedactor returns r, the client's header redactor, for the header
 // of resp, which the SDK's transport returned: with the transport's proxy
-// credentials ([proxyCreds]) when resp answers a plain-HTTP request for
-// which the proxy func returned a proxy (h2gate.Proxied), the one case in
+// credentials ([engine.ProxyCreds]) when resp answers a plain-HTTP request
+// for which the proxy func returned a proxy (h2gate.Proxied), the one case in
 // which a proxy writes the response itself and so may repeat in its headers
 // what it was sent (ruling D-W6-secfix-header-scope). Over HTTPS a proxy
 // only tunnels the API's bytes, and a request without a proxy never
 // reaches one, so there the scan could only redact what is not a
 // credential. The header paths look for the whole credentials alone, from
-// 8 bytes, as for the API key ([proxyCreds.inHeader]).
+// 8 bytes, as for the API key ([engine.HeaderRedactor.WithProxies]).
 func (t *transport) responseRedactor(r headerRedactor, resp *http.Response) headerRedactor {
-	if t.proxies.credentials() == nil || resp.Request == nil || resp.Request.URL.Scheme != "http" || !h2gate.Proxied(resp) {
+	if t.proxies.Credentials() == nil || resp.Request == nil || resp.Request.URL.Scheme != "http" || !h2gate.Proxied(resp) {
 		return r
 	}
-	r.proxies = t.proxies
-	return r
+	return r.WithProxies(t.proxies)
 }
 
 // transportError maps an error of the SDK's transport to the SDK's error
@@ -527,66 +527,35 @@ func (t *transport) responseRedactor(r headerRedactor, resp *http.Response) head
 // [ErrHTTP2NotNegotiated]; a dial or TLS handshake that timed out is a
 // *TimeoutError; any other failure before a connection is a
 // *ConnectionError. No text of a mapped error shows a credential of the
-// request or a URL's userinfo ([credentials.redact]), and each wraps the
+// request or a URL's userinfo ([engine.Credentials.Redact]), and each wraps the
 // transport's error, or a stand-in for it when its chain printed one
-// ([credentials.cause]).
-func transportError(err error, timeout time.Duration, creds credentials) error {
+// ([engine.Credentials.Cause]).
+func transportError(err error, timeout time.Duration, creds engine.Credentials) error {
 	de, isDial := errors.AsType[*h2gate.DialError](err)
 	if !isDial && !errors.Is(err, h2gate.ErrNotNegotiated) {
 		return nil
 	}
 	switch {
 	case isDial && de.Proxy && de.Timeout:
-		return newProxyTimeoutError(timeout, creds.cause(err))
+		return newProxyTimeoutError(timeout, creds.Cause(err))
 	case isDial && de.Proxy:
-		text, _ := creds.redact(de.Err.Error())
-		return newConnectionError(text, creds.cause(err), true)
+		text, _ := creds.Redact(de.Err.Error())
+		return newConnectionError(text, creds.Cause(err), true)
 	case errors.Is(err, h2gate.ErrNotNegotiated):
 		detail := err.Error()
 		if isDial {
 			detail = de.Err.Error()
 		}
-		detail, _ = creds.redact(strings.TrimPrefix(detail, h2gate.ErrNotNegotiated.Error()+": "))
+		detail, _ = creds.Redact(strings.TrimPrefix(detail, h2gate.ErrNotNegotiated.Error()+": "))
 		msg := "The API host did not negotiate HTTP/2, which HTTP2Only requires (" + safeMessage(detail) +
 			"); WithHTTPVersion(HTTPAuto) allows HTTP/1.1."
-		return newConfigError(msg, ErrHTTP2NotNegotiated, creds.cause(err))
+		return newConfigError(msg, ErrHTTP2NotNegotiated, creds.Cause(err))
 	case de.Timeout:
-		return newTimeoutError(timeout, creds.cause(err))
+		return newTimeoutError(timeout, creds.Cause(err))
 	default:
-		text, _ := creds.redact(de.Err.Error())
-		return newConnectionError(text, creds.cause(err), false)
+		text, _ := creds.Redact(de.Err.Error())
+		return newConnectionError(text, creds.Cause(err), false)
 	}
-}
-
-// scrubUserinfo replaces the userinfo of every URL in s ("scheme://user@" or
-// "scheme://user:password@") with "***", and reports whether it replaced
-// any. A URL's authority is taken to run to the next whitespace or quote, not
-// to the next "/": a password written with a raw "/" is still scrubbed, at
-// the cost of scrubbing a path that holds an "@".
-func scrubUserinfo(s string) (string, bool) {
-	var b strings.Builder
-	rest, scrubbed := s, false
-	for {
-		i := strings.Index(rest, "://")
-		if i < 0 {
-			break
-		}
-		b.WriteString(rest[:i+3])
-		rest = rest[i+3:]
-		end := strings.IndexAny(rest, " \t\n\"'<>")
-		if end < 0 {
-			end = len(rest)
-		}
-		if at := strings.LastIndexByte(rest[:end], '@'); at >= 0 {
-			b.WriteString("***")
-			rest, scrubbed = rest[at:], true
-		}
-	}
-	if !scrubbed {
-		return s, false
-	}
-	b.WriteString(rest)
-	return b.String(), true
 }
 
 // shield wraps a caller's httptrace hooks for one request (K28, K28b, K28c):

@@ -327,9 +327,8 @@ func TestSeamRootRawPointers(t *testing.T) {
 	mod := findModule(t)
 	files := moduleFiles(t, mod.root)
 
-	// A directory of rootCodeDirs that holds no non-test file yet is left
-	// out; the list of packages that must be reached below requires each
-	// that the root package imports.
+	// A directory of rootCodeDirs that holds no non-test file is left out
+	// here; the list of packages the walk must reach below requires both.
 	var roots []string
 	for _, dir := range rootCodeDirs {
 		if slices.ContainsFunc(files, func(f goFile) bool { return f.dir == dir && !f.test }) {
@@ -374,7 +373,7 @@ func TestSeamRootRawPointers(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{".", "internal/wire", "internal/h2gate"} {
+	for _, want := range []string{".", "internal/engine", "internal/wire", "internal/h2gate"} {
 		if !dirs[want] {
 			t.Fatalf("the root package's imports %v miss %q; the check would read too little", slices.Sorted(maps.Keys(dirs)), want)
 		}

@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"unicode/utf8"
 
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
@@ -427,95 +428,12 @@ func falsy(v any) bool {
 		if !v.IsJSON() {
 			return v.w.Text == ""
 		}
-		return falsyJSON(v.w.JSON)
+		return engine.FalsyJSON(v.w.JSON)
 	case RawJSON:
-		return falsyJSON(v)
+		return engine.FalsyJSON(v)
 	default:
 		return false
 	}
-}
-
-// falsyJSON reports whether the JSON value raw is one Python finds false:
-// null, false, "", [], {} or a number equal to zero. Invalid JSON is not
-// falsy; writing it reports the problem.
-func falsyJSON(raw []byte) bool {
-	if !maybeFalsyJSON(raw) {
-		return false
-	}
-	// A candidate, the question's rejection path: the whole value is
-	// checked and compacted, and the verdict read from its compact form.
-	var buf [32]byte
-	compact, err := wire.AppendJSON(buf[:0], raw)
-	if err != nil {
-		return false
-	}
-	switch s := string(compact); s {
-	case "null", "false", `""`, "[]", "{}":
-		return true
-	default:
-		if s[0] != '-' && (s[0] < '0' || s[0] > '9') {
-			return false
-		}
-		// A number is zero when every digit of its mantissa is.
-		for i := range len(s) {
-			switch c := s[i]; {
-			case c == 'e' || c == 'E':
-				return true
-			case '1' <= c && c <= '9':
-				return false
-			}
-		}
-		return true
-	}
-}
-
-// maybeFalsyJSON reports whether raw can be one of falsyJSON's falsy values,
-// from its first bytes alone (Prepare P2, W5.3): a value that is valid JSON
-// starts, after whitespace, as its compact form does, and no whitespace can
-// stand inside a string or a number. So a value that starts with t, with a
-// string of at least one character, with an array or object whose next
-// non-space byte does not close it, or with a number that has a digit from
-// 1 to 9 before its exponent, is not falsy whether or not the rest is valid,
-// and falsyJSON returns false without reading or copying the rest. That is
-// the success path of a raw score question.
-func maybeFalsyJSON(raw []byte) bool {
-	i := skipJSONSpace(raw, 0)
-	if i == len(raw) {
-		return false
-	}
-	switch c := raw[i]; c {
-	case 'n', 'f':
-		return true
-	case '"':
-		return i+1 < len(raw) && raw[i+1] == '"'
-	case '[':
-		j := skipJSONSpace(raw, i+1)
-		return j < len(raw) && raw[j] == ']'
-	case '{':
-		j := skipJSONSpace(raw, i+1)
-		return j < len(raw) && raw[j] == '}'
-	case '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
-		for _, c := range raw[i:] {
-			switch {
-			case c == 'e' || c == 'E':
-				return true
-			case '1' <= c && c <= '9':
-				return false
-			}
-		}
-		return true
-	default:
-		return false
-	}
-}
-
-// skipJSONSpace returns the index of the first byte of raw at or after i
-// that is not JSON whitespace, or len(raw).
-func skipJSONSpace(raw []byte, i int) int {
-	for i < len(raw) && (raw[i] == ' ' || raw[i] == '\t' || raw[i] == '\n' || raw[i] == '\r') {
-		i++
-	}
-	return i
 }
 
 // appendLeaf writes the root package's own raw field value types.

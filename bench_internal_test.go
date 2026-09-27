@@ -20,8 +20,10 @@ package typesafe
 //
 //   - BenchmarkPrepare: its case table (prepare_cases_test.go) is shared
 //     with TestAllocPrepare, which reads unexported fields of the result.
-//   - BenchmarkFalsyJSON: the unexported falsiness check of a raw score
-//     question's criteria.
+//   - BenchmarkFalsyJSON: the falsiness check of a raw score question's
+//     criteria, internal/engine's FalsyJSON since W6.5 (unexported in the
+//     root package before it), measured here so that its rows keep their
+//     package.
 //   - BenchmarkEncodeBody (B1): its sdk arm times the unexported encodeBody;
 //     the naive arms stay beside it so that the three encoders are compared
 //     on the same states in one run.
@@ -49,6 +51,7 @@ import (
 	gocmp "github.com/google/go-cmp/cmp"
 
 	"github.com/zchee/typesafe-sdk-go/internal/codec"
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/h2gate"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport/naive"
@@ -111,8 +114,8 @@ func BenchmarkFalsyJSON(b *testing.B) {
 		b.Run(name, func(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
-				if falsyJSON(raw) {
-					b.Fatalf("falsyJSON(%s) = true, want false", raw)
+				if engine.FalsyJSON(raw) {
+					b.Fatalf("FalsyJSON(%s) = true, want false", raw)
 				}
 			}
 		})

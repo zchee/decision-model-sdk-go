@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package typesafe
+package engine
 
 import (
 	"strings"
@@ -22,9 +22,9 @@ import (
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
-// falsyJSONWhole is falsyJSON as it was before W5.3's P2: every value is
+// falsyJSONWhole is FalsyJSON as it was before W5.3's P2: every value is
 // checked and compacted whole, and the verdict read from the compact form.
-// FuzzFalsyJSON holds falsyJSON to it.
+// FuzzFalsyJSON holds FalsyJSON to it.
 func falsyJSONWhole(raw []byte) bool {
 	compact, err := wire.AppendJSON(nil, raw)
 	if err != nil {
@@ -49,7 +49,7 @@ func falsyJSONWhole(raw []byte) bool {
 	}
 }
 
-// FuzzFalsyJSON checks that falsyJSON, which reads a value's first bytes
+// FuzzFalsyJSON checks that FalsyJSON, which reads a value's first bytes
 // before it checks the whole value (maybeFalsyJSON), gives the verdict of
 // the whole-value check on any input, within the per-input bound: the falsy
 // literals and zeros with whitespace around and inside them, their truthy
@@ -71,8 +71,8 @@ func FuzzFalsyJSON(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, raw []byte) {
 		defer testsupport.BoundFuzzInput(t)()
-		if got, want := falsyJSON(raw), falsyJSONWhole(raw); got != want {
-			t.Errorf("falsyJSON(%q) = %t, the whole-value check says %t", raw, got, want)
+		if got, want := FalsyJSON(raw), falsyJSONWhole(raw); got != want {
+			t.Errorf("FalsyJSON(%q) = %t, the whole-value check says %t", raw, got, want)
 		}
 	})
 }

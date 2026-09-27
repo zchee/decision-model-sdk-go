@@ -528,7 +528,7 @@ func (o *options) resolveTimeout() (time.Duration, error) {
 // SDK's own (py:_core/transport.py:116-127). Each dropped header is logged
 // by name at debug level. A name that holds the key, without regard to case,
 // is refused before anything else is checked, when the key is at least
-// [minKeyNeedleBytes] long: names are logged and sent as they are, and
+// [engine.MinKeyNeedleBytes] long: names are logged and sent as they are, and
 // redaction looks for the key in values only.
 func (o *options) headerTemplate(logger *slog.Logger, key, userAgent string) (http.Header, error) {
 	h := make(http.Header, len(o.headers)+5)

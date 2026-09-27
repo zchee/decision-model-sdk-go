@@ -332,14 +332,14 @@ jobs:
           FUZZTIME: 60s
         run: |
           fuzzed=(
-            "./internal/codec FuzzDecodeResponse" # both response decoders
-            "./internal/codec FuzzErrorBody"      # the error-body reader
-            "./internal/codec FuzzDecodePaths"    # the visitor vs lazy pass differential
-            ". FuzzRetryAfter"                    # the Retry-After parser
-            ". FuzzTagGrammar"                    # the struct tag grammar
-            ". FuzzFalsyJSON"                     # the falsy-value check (W5.3)
-            ". FuzzIsSecretHeader"                # the secret header names (W5.3)
-            "./internal/codec FuzzValidUTF8"      # sonic's UTF-8 check vs utf8.Valid (G8-b, R54)
+            "./internal/codec FuzzDecodeResponse"  # both response decoders
+            "./internal/codec FuzzErrorBody"       # the error-body reader
+            "./internal/codec FuzzDecodePaths"     # the visitor vs lazy pass differential
+            ". FuzzRetryAfter"                     # the Retry-After parser
+            ". FuzzTagGrammar"                     # the struct tag grammar
+            "./internal/engine FuzzFalsyJSON"      # the falsy-value check (W5.3; internal/engine since W6.5)
+            "./internal/engine FuzzIsSecretHeader" # the secret header names (W5.3; internal/engine since W6.5)
+            "./internal/codec FuzzValidUTF8"       # sonic's UTF-8 check vs utf8.Valid (G8-b, R54)
           )
           seeded=(
             "./internal/codec FuzzAppendJSON"  # compaction vs encoding/json (R44)

@@ -264,7 +264,7 @@ func TestTransportErrorsNeverExposeCredentials(t *testing.T) {
 				t.Errorf("error = %T %v, want a *ConnectionError: %t", err, err, !tt.class.timeout)
 			}
 			standIn := errors.Unwrap(err)
-			if _, ok := standIn.(*scrubbedError); !ok || standIn == failures[len(failures)-1] { //nolint:errorlint // the direct cause is the stand-in, a new value
+			if !isStandIn(standIn) || standIn == failures[len(failures)-1] { //nolint:errorlint // the direct cause is the stand-in, a new value
 				t.Fatalf("the cause = %T %v, want a new *scrubbedError standing in for the transport's error", standIn, standIn)
 			}
 			detail := fmt.Sprintf("%+v", standIn)
@@ -285,7 +285,7 @@ func TestTransportErrorsNeverExposeCredentials(t *testing.T) {
 			if _, ok := errors.AsType[unwrapOnly](err); ok {
 				t.Error("errors.As reaches the transport's error type through the stand-in")
 			}
-			secrets := []string{tt.credential, quotedForm(strconv.Quote(tt.credential)), jsonForm(tt.credential), "provider-credential"}
+			secrets := []string{tt.credential, quoted(tt.credential), jsonQuoted(t, tt.credential), "provider-credential"}
 			records := recordsText(logs)
 			for _, secret := range secrets {
 				assertNotPrinted(t, err, secret)

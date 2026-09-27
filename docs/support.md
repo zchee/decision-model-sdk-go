@@ -215,8 +215,8 @@ corpora also run as ordinary tests in every `go test` run.
 | `FuzzDecodePaths` | `./internal/codec` | a program that writes a System One body with repeated members; the visitor and the lazy pass must agree with the body's last-wins reading |
 | `FuzzRetryAfter` | `.` | `Retry-After-Ms` and `Retry-After` values |
 | `FuzzTagGrammar` | `.` | a `typesafe` struct tag |
-| `FuzzFalsyJSON` | `.` | a JSON value a question holds (`RawJSON`, JSON `Content`); `falsyJSON`, which reads its first bytes first, must give the whole-value check's verdict (W5.3) |
-| `FuzzIsSecretHeader` | `.` | a header name; `isSecretHeader`, which folds an ASCII name in place, must give the verdict of the name lower-cased (W5.3) |
+| `FuzzFalsyJSON` | `./internal/engine` | a JSON value a question holds (`RawJSON`, JSON `Content`); `FalsyJSON`, which reads its first bytes first, must give the whole-value check's verdict (W5.3; in `internal/engine` since W6.5) |
+| `FuzzIsSecretHeader` | `./internal/engine` | a header name; `IsSecretHeader`, which folds an ASCII name in place, must give the verdict of the name lower-cased (W5.3; in `internal/engine` since W6.5) |
 
 `FuzzAppendJSON` (`./internal/codec`, `./internal/wire`) and `FuzzValidString`
 (`./internal/codec`) run only their seed corpora; the job's `seeded` list

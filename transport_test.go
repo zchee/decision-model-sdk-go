@@ -576,7 +576,7 @@ func assertMapped(t *testing.T, got, err error, kind, text string, proxy, unwrap
 	}
 	// A cause that printed a credential is replaced by a stand-in, which
 	// errors.As finds in its place.
-	if _, standIn := errors.AsType[*scrubbedError](got); standIn == unwrapsErr {
+	if standIn := chainHolds(got, isStandIn); standIn == unwrapsErr {
 		t.Errorf("the cause is a *scrubbedError stand-in: %t, want %t", standIn, !unwrapsErr)
 	}
 	if _, ok := got.(Error); !ok { //nolint:errorlint // the mapped value itself must be an SDK error
@@ -597,33 +597,6 @@ func assertNotNegotiated(t *testing.T, err error) *ConfigError {
 		t.Errorf("error %v does not unwrap to the transport's DialError", err)
 	}
 	return ce
-}
-
-// TestScrubUserinfo pins the userinfo scrub of a *ConnectionError's text.
-func TestScrubUserinfo(t *testing.T) {
-	tests := map[string]struct {
-		in, want string
-		scrubbed bool
-	}{
-		"success: no URL":                        {in: "dial tcp 127.0.0.1:9: refused", want: "dial tcp 127.0.0.1:9: refused"},
-		"success: a URL without userinfo":        {in: "proxy http://proxy.test:8080/x refused", want: "proxy http://proxy.test:8080/x refused"},
-		"success: user and password":             {in: "proxy http://u:p@proxy.test:8080 refused", want: "proxy http://***@proxy.test:8080 refused", scrubbed: true}, //nolint:gosec // G101: made-up userinfo the scrub must replace.
-		"success: a user alone":                  {in: "socks5://u@proxy.test", want: "socks5://***@proxy.test", scrubbed: true},
-		"success: an @ in the password":          {in: "http://u:p@ss@proxy.test", want: "http://***@proxy.test", scrubbed: true},
-		"success: a raw / in the password":       {in: "http://u:pa/ss@proxy.test refused", want: "http://***@proxy.test refused", scrubbed: true},
-		"success: quoted":                        {in: `invalid proxy "http://u:p@proxy.test" given`, want: `invalid proxy "http://***@proxy.test" given`, scrubbed: true},
-		"success: two URLs, the second with one": {in: "a http://x.test b https://u:p@y.test c", want: "a http://x.test b https://***@y.test c", scrubbed: true}, //nolint:gosec // G101: made-up userinfo the scrub must replace.
-		"success: two URLs, the first with one":  {in: "a http://u:p@x.test b https://y.test/@z", want: "a http://***@x.test b https://***@z", scrubbed: true},   //nolint:gosec // G101: made-up userinfo the scrub must replace.
-		"success: a scheme separator at the end": {in: "tail http://", want: "tail http://"},
-	}
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			got, scrubbed := scrubUserinfo(tt.in)
-			if got != tt.want || scrubbed != tt.scrubbed {
-				t.Errorf("scrubUserinfo(%q) = %q, %t; want %q, %t", tt.in, got, scrubbed, tt.want, tt.scrubbed)
-			}
-		})
-	}
 }
 
 // closeLog records the CloseIdleConnections and Close calls a round tripper

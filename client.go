@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/zchee/typesafe-sdk-go/internal/codec"
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
@@ -439,7 +440,7 @@ func (rq *request) attemptHeader(attempt int) http.Header {
 	}
 	h := make(http.Header, len(rq.header)+1)
 	maps.Copy(h, rq.header)
-	h[canonicalRetryCount] = retryCountValue(attempt)
+	h[engine.CanonicalRetryCount] = engine.RetryCountValue(attempt)
 	return h
 }
 
@@ -545,9 +546,9 @@ func (c *Client) attempt(ctx context.Context, rq *request, attempt int) (wire.Re
 //
 // A *ConnectionError's text is the transport error's, with every credential
 // of the call req made ([transport.credentials]) and every URL userinfo
-// replaced by "***" ([credentials.redact]); both types wrap the transport's
-// error, or a stand-in for it when its chain printed a credential
-// ([credentials.cause]).
+// replaced by "***" ([engine.Credentials.Redact]); both types wrap the
+// transport's error, or a stand-in for it when its chain printed a
+// credential ([engine.Credentials.Cause]).
 func (c *Client) attemptError(ctx, actx context.Context, timeout time.Duration, req *http.Request, err error) error {
 	if cerr := ctx.Err(); errors.Is(cerr, context.Canceled) {
 		return cerr
@@ -559,12 +560,12 @@ func (c *Client) attemptError(ctx, actx context.Context, timeout time.Duration, 
 	var ne net.Error
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
-		return newTimeoutError(0, creds.cause(err))
+		return newTimeoutError(0, creds.Cause(err))
 	case errors.Is(actx.Err(), context.DeadlineExceeded), errors.Is(err, context.DeadlineExceeded), errors.As(err, &ne) && ne.Timeout():
-		return newTimeoutError(timeout, creds.cause(err))
+		return newTimeoutError(timeout, creds.Cause(err))
 	}
-	text, _ := creds.redact(err.Error())
-	return newConnectionError(text, creds.cause(err), false)
+	text, _ := creds.Redact(err.Error())
+	return newConnectionError(text, creds.Cause(err), false)
 }
 
 // errTooLarge ends a body read that passed the size limit.
@@ -654,7 +655,7 @@ func grow(buf []byte, declared, limit int64) []byte {
 }
 
 // logRequest logs attempt's request at debug level, its body at LevelTrace.
-// Headers are redacted ([newRedactedHeaders]); nothing is built unless a
+// Headers are redacted ([engine.NewRedactedHeaders]); nothing is built unless a
 // handler takes the record.
 func (c *Client) logRequest(ctx context.Context, rq *request, h http.Header, attempt int) {
 	logger := c.cfg.logger
@@ -670,7 +671,7 @@ func (c *Client) logRequest(ctx context.Context, rq *request, h http.Header, att
 		n = rq.body.Len()
 	}
 	logger.LogAttrs(ctx, slog.LevelDebug, "request", slog.String("method", rq.method), slog.String("endpoint", rq.logURL),
-		slog.Int("attempt", attempt), slog.Any("headers", newRedactedHeaders(h, c.cfg.redactor())), slog.Int("body_bytes", n))
+		slog.Int("attempt", attempt), slog.Any("headers", engine.NewRedactedHeaders(h, c.cfg.redactor())), slog.Int("body_bytes", n))
 	if n > 0 && logger.Enabled(ctx, LevelTrace) {
 		logger.LogAttrs(ctx, LevelTrace, "request body", slog.String("method", rq.method), slog.String("endpoint", rq.logURL),
 			slog.String("body", string(rq.body.Bytes())))
@@ -692,7 +693,7 @@ func (c *Client) logResponse(ctx context.Context, rq *request, attempt int, star
 		return
 	}
 	id := "-"
-	if v, ok := r.requestID(meta.Header); ok {
+	if v, ok := r.RequestID(meta.Header); ok {
 		id = safeName(v)
 	}
 	logger.LogAttrs(ctx, slog.LevelInfo, "response", slog.String("method", rq.method), slog.String("endpoint", rq.logURL),
@@ -702,7 +703,7 @@ func (c *Client) logResponse(ctx context.Context, rq *request, attempt int, star
 		return
 	}
 	logger.LogAttrs(ctx, slog.LevelDebug, "response headers", slog.String("method", rq.method), slog.String("endpoint", rq.logURL),
-		slog.Any("headers", newRedactedHeaders(meta.Header, r)), slog.Int("body_bytes", len(meta.Body)))
+		slog.Any("headers", engine.NewRedactedHeaders(meta.Header, r)), slog.Int("body_bytes", len(meta.Body)))
 	if len(meta.Body) > 0 && logger.Enabled(ctx, LevelTrace) {
 		logger.LogAttrs(ctx, LevelTrace, "response body", slog.String("method", rq.method), slog.String("endpoint", rq.logURL),
 			slog.String("body", string(meta.Body)))
