@@ -62,3 +62,7 @@ bench.txt
 __pycache__/
 .pytest_cache/
 .coverage
+
+# The spikes live in the private archive (W6.7). A spike copied back here to
+# run again (the archive's README) stays out of every commit.
+/_spikes/

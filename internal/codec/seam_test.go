@@ -277,12 +277,8 @@ func TestSeamImports(t *testing.T) {
 		"no JSON library outside internal/codec, which adds encoding/json only (section 4)": {
 			// internal/testsupport, naive included, is test tooling: fixture
 			// loaders and the benchmark comparator may decode JSON with any
-			// library. _spikes/ holds throwaway probes; the walk skips it as
-			// the go command does, and the exemption states the intent should
-			// a spike ever be walked.
-			applies: func(f goFile) bool {
-				return !under(f.dir, "internal/testsupport") && !under(f.dir, "_spikes")
-			},
+			// library.
+			applies: func(f goFile) bool { return !under(f.dir, "internal/testsupport") },
 			forbids: func(f goFile, p string) bool {
 				if !isJSONLibrary(p) {
 					return false
