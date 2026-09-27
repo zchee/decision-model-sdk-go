@@ -23,7 +23,6 @@ import (
 
 	typesafe "github.com/zchee/typesafe-sdk-go"
 
-	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
@@ -74,7 +73,7 @@ func decodeFixture(t *testing.T, name string) (*wire.ResponseMeta, wire.SystemOn
 	t.Helper()
 	meta := &wire.ResponseMeta{Status: 200, Body: []byte(testsupport.FixtureString(t, name))}
 	var res wire.SystemOneResult
-	err := decodeSystemOne(t.Context(), nil, meta, "", engine.HeaderRedactor{}, nil, "", &res)
+	err := decodeSystemOne(t.Context(), meta, nil, "", &res)
 	return meta, res, err
 }
 
@@ -200,7 +199,7 @@ func linearityRatio(t *testing.T) float64 {
 		time    time.Duration
 	}
 	decode := func(f *flood, res *wire.SystemOneResult) {
-		if err := decodeSystemOne(t.Context(), nil, f.meta, "", engine.HeaderRedactor{}, f.qs, f.model, res); err != nil {
+		if err := decodeSystemOne(t.Context(), f.meta, f.qs, f.model, res); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -23,7 +23,6 @@ import (
 
 	typesafe "github.com/zchee/typesafe-sdk-go"
 
-	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport/naive"
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
@@ -76,11 +75,11 @@ func TestAllocDecodeFixtures(t *testing.T) {
 			measure := func(label string, qs *typesafe.Prepared, model string) testsupport.Allocs {
 				ctx := t.Context()
 				var warm wire.SystemOneResult
-				if err := decodeSystemOne(ctx, nil, meta, "", engine.HeaderRedactor{}, qs, model, &warm); err != nil {
+				if err := decodeSystemOne(ctx, meta, qs, model, &warm); err != nil {
 					t.Fatal(err)
 				}
 				return testsupport.MeasureMin(t, name+" "+label, func() *wire.SystemOneResult { return new(wire.SystemOneResult) }, func(res *wire.SystemOneResult) {
-					if err := decodeSystemOne(ctx, nil, meta, "", engine.HeaderRedactor{}, qs, model, res); err != nil {
+					if err := decodeSystemOne(ctx, meta, qs, model, res); err != nil {
 						t.Fatal(err)
 					}
 				})
@@ -157,7 +156,7 @@ func TestLinearityFlood(t *testing.T) {
 		}
 		qs := questionsFor(t, &first)
 		decode := func(res *wire.SystemOneResult) {
-			if err := decodeSystemOne(t.Context(), nil, meta, "", engine.HeaderRedactor{}, qs, first.Model, res); err != nil {
+			if err := decodeSystemOne(t.Context(), meta, qs, first.Model, res); err != nil {
 				t.Fatal(err)
 			}
 		}

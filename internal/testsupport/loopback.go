@@ -236,7 +236,6 @@ type ConnInfo struct {
 type LoopbackServer struct {
 	tb      testing.TB
 	cfg     ServerConfig
-	cert    certBundle
 	tlsConf *tls.Config
 	ln      net.Listener
 	h1      *http.Server
@@ -269,7 +268,6 @@ func NewLoopbackServer(tb testing.TB, cfg ServerConfig) *LoopbackServer {
 	s := &LoopbackServer{
 		tb:      tb,
 		cfg:     cfg,
-		cert:    cert,
 		tlsConf: serverTLSConfig(cert, cfg.ALPN.nextProtos()),
 		ln:      ln,
 		raw:     make(map[net.Conn]int),

@@ -26,10 +26,8 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"net/http"
 	"strconv"
 	"testing"
-	"time"
 
 	typesafe "github.com/zchee/typesafe-sdk-go"
 	"github.com/zchee/typesafe-sdk-go/internal/codec"
@@ -43,7 +41,9 @@ import (
 // engine.Client[RetryPolicy], engine.Prepared and engine.Response, so each
 // conversion below is free and compile-checked, and each stage below is the
 // engine function the root package's own wrapper calls, with that wrapper's
-// signature, so the budgets measure what a call runs.
+// signature, so the budgets measure what a call runs. decodeSystemOne is the
+// exception: it is decodeSystemOneInto with no logger and no room for the
+// answers.
 
 // engOf returns c's state (the root package's Client.eng).
 func engOf(c *typesafe.Client) *engine.Client[typesafe.RetryPolicy] {
@@ -83,28 +83,21 @@ func encodeBody(state any, model string, qs *typesafe.Prepared, extra []engine.B
 	return body, nil
 }
 
-// decodeSystemOne is the root package's decodeSystemOne:
-// engine.DecodeSystemOneInto with no room for the answers. endpoint and r
-// are the root package's wrapper's, which name and redact the
-// *ResponseValidationError it builds from a refused body; here that body's
-// error is the decoder's own, which no budget measures.
-func decodeSystemOne(ctx context.Context, logger *slog.Logger, meta *wire.ResponseMeta, endpoint string, r engine.HeaderRedactor, qs *typesafe.Prepared, model string, dst *wire.SystemOneResult) error {
-	return decodeSystemOneInto(ctx, logger, meta, endpoint, r, qs, model, dst, nil)
+// decodeSystemOne is decodeSystemOneInto with no logger and no room for the
+// answers.
+func decodeSystemOne(ctx context.Context, meta *wire.ResponseMeta, qs *typesafe.Prepared, model string, dst *wire.SystemOneResult) error {
+	return decodeSystemOneInto(ctx, nil, meta, "", engine.HeaderRedactor{}, qs, model, dst, nil)
 }
 
-// decodeSystemOneInto is decodeSystemOne with spare as the room for the
-// answers (the root package's decodeSystemOneInto).
+// decodeSystemOneInto is the root package's decodeSystemOneInto:
+// engine.DecodeSystemOneInto with spare as the room for the answers. The
+// endpoint and the redactor name and redact the root package's
+// *ResponseValidationError built from a refused body; here that body's
+// error is the decoder's own, which no budget measures. They stay in the
+// signature because the whole-call budget evaluates them inside its
+// measured decode, as the root package's call does.
 func decodeSystemOneInto(ctx context.Context, logger *slog.Logger, meta *wire.ResponseMeta, _ string, _ engine.HeaderRedactor, qs *typesafe.Prepared, model string, dst *wire.SystemOneResult, spare []wire.AnswerEntry) error {
 	return engine.DecodeSystemOneInto(ctx, logger, meta.Body, wireOf(qs), model, dst, spare)
-}
-
-// callSettings is what one call sends besides its body, as the root
-// package's callSettings holds it: the header every attempt starts from and
-// the deadline of each attempt (the call's retry policy is not measured
-// here).
-type callSettings struct {
-	header  http.Header
-	timeout time.Duration
 }
 
 // requireStoreLayout checks, before a budget's first typed decode into a T,

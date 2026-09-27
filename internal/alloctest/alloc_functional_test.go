@@ -28,7 +28,6 @@ import (
 	gocmp "github.com/google/go-cmp/cmp"
 
 	"github.com/zchee/typesafe-sdk-go/internal/codec"
-	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
@@ -185,7 +184,7 @@ func TestAllocDecodeFixturesFunctional(t *testing.T) {
 		decoded = append(decoded, name)
 		t.Run(name, func(t *testing.T) {
 			var interned wire.SystemOneResult
-			if err := decodeSystemOne(t.Context(), nil, meta, "", engine.HeaderRedactor{}, questionsFor(t, &first), first.Model, &interned); err != nil {
+			if err := decodeSystemOne(t.Context(), meta, questionsFor(t, &first), first.Model, &interned); err != nil {
 				t.Fatalf("decode with the question set: %v", err)
 			}
 			if diff := gocmp.Diff(payloadOf(responseOf(first)), payloadOf(responseOf(interned))); diff != "" {

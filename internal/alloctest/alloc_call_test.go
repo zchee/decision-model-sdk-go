@@ -181,8 +181,8 @@ func measureCallItems(t *testing.T, c *typesafe.Client, state any, qs *typesafe.
 		if err != nil {
 			t.Fatal(err)
 		}
-		s := callSettings{header: cfgOf(c).SystemOneHeader, timeout: cfgOf(c).Timeout}
-		rqs := engine.Request{Method: http.MethodPost, URL: cfgOf(c).SystemOneURL, Header: s.header, Timeout: s.timeout, Body: body}
+		header, timeout := cfgOf(c).SystemOneHeader, cfgOf(c).Timeout
+		rqs := engine.Request{Method: http.MethodPost, URL: cfgOf(c).SystemOneURL, Header: header, Timeout: timeout, Body: body}
 		var (
 			h       http.Header
 			call    *engine.SystemOneAlloc
@@ -199,8 +199,8 @@ func measureCallItems(t *testing.T, c *typesafe.Client, state any, qs *typesafe.
 		gb[i] = testsupport.Measure(func() { getBody = body.GetBody })
 		rqs.GetBody = getBody
 		hdr[i] = testsupport.Measure(func() { h = rqs.AttemptHeader(0) })
-		call.URL = *rqs.URL                                                                        // the first attempt's copy, in the call's allocation
-		to[i] = testsupport.Measure(func() { actx, cancel = context.WithTimeout(ctx, s.timeout) }) //nolint:gosec // G118: cancel runs at the end of the iteration.
+		call.URL = *rqs.URL                                                                      // the first attempt's copy, in the call's allocation
+		to[i] = testsupport.Measure(func() { actx, cancel = context.WithTimeout(ctx, timeout) }) //nolint:gosec // G118: cancel runs at the end of the iteration.
 		open[i] = testsupport.Measure(func() { reader, err = body.Open() })
 		if err != nil {
 			t.Fatal(err)
