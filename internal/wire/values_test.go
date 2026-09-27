@@ -30,17 +30,10 @@ func TestContent(t *testing.T) {
 		"success: same text": {
 			a: Content{Text: "can wait"},
 		},
-		"success: different text": {
-			a: Content{Text: "can wait"},
-		},
 		"success: empty text equals empty text": {
 			a: Content{},
 		},
 		"success: same JSON bytes": {
-			a:         Content{JSON: []byte(`{"a":1}`)},
-			wantAJSON: true,
-		},
-		"success: JSON compares bytes, not meaning": {
 			a:         Content{JSON: []byte(`{"a":1}`)},
 			wantAJSON: true,
 		},
