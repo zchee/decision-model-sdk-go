@@ -358,6 +358,12 @@ func TestWaiterFallThrough(t *testing.T) {
 		others.Add(fanN - 1)
 		go func() {
 			others.Wait()
+			// The waiters' own token timers end with the hold bound, so they
+			// can all return before the bound's callback has ended the hold:
+			// the leader answers once it has, or half a bound later.
+			for deadline := time.Now().Add(tr.holdBound / 2); tr.Stats().HoldExpiries == 0 && time.Now().Before(deadline); {
+				time.Sleep(time.Millisecond)
+			}
 			close(releaseLeader)
 		}()
 		calls := fanOut(fanN, func(i int) result {

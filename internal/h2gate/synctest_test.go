@@ -178,7 +178,18 @@ func testHoldBoundOnFakeTime(t *testing.T) {
 		}))
 		tr := fakeTransport(t, srv.Client().Transport)
 		start := time.Now()
-		calls := fanOut(fanN, func(i int) result { return fakeGet(t, tr, "http://example.com/hold/"+strconv.Itoa(i)) })
+		done := make(chan []result, 1)
+		go func() {
+			done <- fanOut(fanN, func(i int) result { return fakeGet(t, tr, "http://example.com/hold/"+strconv.Itoa(i)) })
+		}()
+		synctest.Wait()
+		time.Sleep(tr.holdBound - time.Millisecond)
+		synctest.Wait()
+		before, beforeAt := tr.Stats().HoldExpiries, time.Now()
+		time.Sleep(2 * time.Millisecond)
+		synctest.Wait()
+		after, afterAt := tr.Stats().HoldExpiries, time.Now()
+		calls := <-done
 		leader := -1
 		for i, r := range calls {
 			if r.Err != nil || r.Status != http.StatusOK {
@@ -204,6 +215,10 @@ func testHoldBoundOnFakeTime(t *testing.T) {
 		st := tr.Stats()
 		if got := l.Done.Sub(start); got < hang || srv.Accepts() != 1 || st.HoldExpiries != 1 {
 			t.Errorf("leader done after %v, accepts %d, stats %+v; want at least %v, 1 connection, 1 hold expiry", got, srv.Accepts(), st, hang)
+		}
+		if before != 0 || after != 1 {
+			t.Errorf("hold expiries %d at %v and %d at %v after the leader's HEADERS; want 0 before and 1 after the %v hold bound",
+				before, beforeAt.Sub(l.WroteHeaders), after, afterAt.Sub(l.WroteHeaders), tr.holdBound)
 		}
 	})
 }
