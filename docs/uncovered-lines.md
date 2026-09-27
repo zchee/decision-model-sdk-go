@@ -32,7 +32,7 @@ Each reason starts with its class:
 
 | File | Function | Code | Blocks | Reason |
 | --- | --- | --- | --- | --- |
-| `client.go` | `(*Client).attempt` | `return wire.ResponseMeta{}, newConnectionError(err.Error(), err, false)` | 1 | Defensive: `Body.Open` fails only after the body's last reference is dropped, and the call holds one until it returns. |
+| `client.go` | `(*Client).attempt` | `return wire.ResponseMeta{}, headerRedactor{}, newConnectionError(err.Error(), err, false)` | 1 | Defensive: `Body.Open` fails only after the body's last reference is dropped, and the call holds one until it returns. |
 | `client.go` | `readBody` | `return nil, errTooLarge` | 1 | Gap: a body reader that returns the byte past the limit together with an error (`iotest.DataErrReader`); the readers in tests return `io.EOF` on a later call, so the full-buffer check refuses the body first. |
 | `config.go` | `resolveEndpoints` | `return nil, nil, newConfigError(source + " is not a valid URL.")` | 2 | Defensive: `baseURLRule` has parsed the base, and a valid base followed by a fixed path always parses. |
 | `config.go` | `dropDefaultPort` | `return raw` | 2 | Defensive: `baseURLRule` admits only http and https URLs with a host, so the text always holds `://` and one of the two schemes. |

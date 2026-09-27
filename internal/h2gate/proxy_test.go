@@ -699,3 +699,68 @@ func TestOnProxySeesEveryConsult(t *testing.T) {
 		}
 	})
 }
+
+// TestProxied pins Proxied (ruling D-W6-secfix-header-scope): a response
+// reports true when the Proxy func of the transport NewTransport built
+// returned a proxy for its request, which the root package's response
+// header redactor needs to know; false for a request sent on the HTTP/2
+// connection the transport held (the func is not asked), for a func that
+// returned no proxy, for a transport with no func, and for a response
+// without a request or with a request no call made.
+func TestProxied(t *testing.T) {
+	// proxied sends a GET through tr and returns Proxied of its response.
+	proxied := func(t *testing.T, tr *Transport, rawURL string) bool {
+		t.Helper()
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, rawURL, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := tr.RoundTrip(req)
+		if err != nil {
+			t.Fatalf("RoundTrip: %v", err)
+		}
+		defer resp.Body.Close()
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return Proxied(resp)
+	}
+	srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(answerExample)})
+	p := testsupport.NewProxy(t, testsupport.ProxyPlain, testsupport.Routes{"example.com:443": srv.Addr()})
+
+	t.Run("success: the request the func chose a proxy for, then one on its connection", func(t *testing.T) {
+		tr := newTestTransport(t, Config{APIURL: mustURL(t, exampleURL), Proxy: http.ProxyURL(p.URL()), DialContext: testsupport.Routes{}.DialContext})
+		if !proxied(t, tr, exampleURL+"/1") {
+			t.Error("Proxied = false for the request the func chose a proxy for")
+		}
+		if proxied(t, tr, exampleURL+"/2") {
+			t.Error("Proxied = true for a request on the held HTTP/2 connection, which asks the func nothing")
+		}
+	})
+
+	t.Run("success: a func that returns no proxy", func(t *testing.T) {
+		direct := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(answerExample)})
+		tr := newTestTransport(t, Config{APIURL: mustURL(t, direct.URL()), Proxy: func(*http.Request) (*url.URL, error) { return nil, nil }})
+		if proxied(t, tr, direct.URL()+"/") {
+			t.Error("Proxied = true with no proxy returned")
+		}
+	})
+
+	t.Run("success: no func", func(t *testing.T) {
+		direct := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(answerExample)})
+		tr := newTestTransport(t, Config{APIURL: mustURL(t, direct.URL())})
+		if proxied(t, tr, direct.URL()+"/") {
+			t.Error("Proxied = true with no Proxy func")
+		}
+	})
+
+	t.Run("success: no response, no request, a request no call made", func(t *testing.T) {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, exampleURL, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, resp := range map[string]*http.Response{"nil": nil, "no request": {}, "a plain request": {Request: req}} {
+			if Proxied(resp) {
+				t.Errorf("%s: Proxied = true", name)
+			}
+		}
+	})
+}

@@ -212,6 +212,13 @@ func (c *Client) WarmUp(ctx context.Context) error {
 // typesafe-sdk-python lets a cancellation through unwrapped;
 // [context.Cause] gives a cause the canceller set.
 func (c *Client) SystemOne(ctx context.Context, state any, qs *Prepared, opts ...CallOption) (*SystemOneResponse, error) {
+	return c.systemOne(ctx, state, qs, opts, nil)
+}
+
+// systemOne is [Client.SystemOne], which also stores in *red, when red is
+// not nil, the redactor of the header of the response it returns
+// ([transport.responseRedactor]), for [Ask]'s decode.
+func (c *Client) systemOne(ctx context.Context, state any, qs *Prepared, opts []CallOption, red *headerRedactor) (*SystemOneResponse, error) {
 	if err := c.usable(); err != nil {
 		return nil, err
 	}
@@ -245,11 +252,14 @@ func (c *Client) SystemOne(ctx context.Context, state any, qs *Prepared, opts ..
 		getBody:  body.GetBody,
 	}
 	resp := &call.resp
-	err = c.send(ctx, &rq, s.retry, &resp.meta, func() error {
-		return decodeSystemOneInto(ctx, c.cfg.logger, &resp.meta, c.systemOneEndpoint, c.cfg.redactor(), qs, model, &resp.res, spare)
+	r, err := c.send(ctx, &rq, s.retry, &resp.meta, func(r headerRedactor) error {
+		return decodeSystemOneInto(ctx, c.cfg.logger, &resp.meta, c.systemOneEndpoint, r, qs, model, &resp.res, spare)
 	})
 	if err != nil {
 		return nil, err
+	}
+	if red != nil {
+		*red = r
 	}
 	return resp, nil
 }
@@ -357,8 +367,8 @@ func (m Models) List(ctx context.Context, opts ...CallOption) (*ModelsResponse, 
 		timeout:  s.timeout,
 	}
 	resp := &call.resp
-	err = c.send(ctx, &rq, s.retry, &resp.meta, func() error {
-		return decodeModels(&resp.meta, c.modelsEndpoint, c.cfg.redactor(), &resp.list)
+	_, err = c.send(ctx, &rq, s.retry, &resp.meta, func(red headerRedactor) error {
+		return decodeModels(&resp.meta, c.modelsEndpoint, red, &resp.list)
 	})
 	if err != nil {
 		return nil, err
@@ -370,23 +380,27 @@ func (m Models) List(ctx context.Context, opts ...CallOption) (*ModelsResponse, 
 // returns nil for a response that decoded, or the error that ended the
 // call: the last attempt's own, decode's for a response that arrived, or
 // the context's when it ended a wait (retryState.wait). Each attempt stores
-// its response's status, header and body in *meta, which decode reads. One
-// loop serves every endpoint (ruling R79 NIT 9). Neither decode nor the
-// policy, a copy on send's stack, escapes, so a first attempt that succeeds
-// allocates nothing here.
-func (c *Client) send(ctx context.Context, rq *request, policy RetryPolicy, meta *wire.ResponseMeta, decode func() error) error {
+// its response's status, header and body in *meta, which decode reads with
+// the response's header redactor ([transport.responseRedactor]), which send
+// also returns. One loop serves every endpoint (ruling R79 NIT 9). Neither
+// decode nor the policy, a copy on send's stack, escapes, so a first
+// attempt that succeeds allocates nothing here.
+func (c *Client) send(ctx context.Context, rq *request, policy RetryPolicy, meta *wire.ResponseMeta, decode func(headerRedactor) error) (headerRedactor, error) {
 	r := retryState{policy: &policy, start: time.Now(), random: c.random}
 	for attempt := 0; ; attempt++ {
-		var err error
-		*meta, err = c.attempt(ctx, rq, attempt)
+		var (
+			red headerRedactor
+			err error
+		)
+		*meta, red, err = c.attempt(ctx, rq, attempt)
 		if err == nil {
-			err = decode()
+			err = decode(red)
 		}
 		if err == nil {
-			return nil
+			return red, nil
 		}
 		if err = r.wait(ctx, attempt, err); err != nil {
-			return err
+			return red, err
 		}
 	}
 }
@@ -433,8 +447,10 @@ func (rq *request) attemptHeader(attempt int) http.Header {
 // returns the response's status, header and body, and an error for every
 // outcome but a 2xx response read whole: an *APIError for another status, a
 // *ResponseTooLargeError for a 2xx body over the limit, and a transport
-// failure as a *ConnectionError or a *TimeoutError.
-func (c *Client) attempt(ctx context.Context, rq *request, attempt int) (wire.ResponseMeta, error) {
+// failure as a *ConnectionError or a *TimeoutError; and the redactor of
+// the response's header ([transport.responseRedactor]), which the errors,
+// the records and decode redact it with.
+func (c *Client) attempt(ctx context.Context, rq *request, attempt int) (wire.ResponseMeta, headerRedactor, error) {
 	h := rq.attemptHeader(attempt)
 	// Each request carries its own copy of the endpoint URL, so a
 	// RoundTripper that rewrites req.URL, which the RoundTripper contract
@@ -464,7 +480,7 @@ func (c *Client) attempt(ctx context.Context, rq *request, attempt int) (wire.Re
 		rc, err := rq.body.Open()
 		if err != nil {
 			// The call holds its reference until it returns: unreachable.
-			return wire.ResponseMeta{}, newConnectionError(err.Error(), err, false)
+			return wire.ResponseMeta{}, headerRedactor{}, newConnectionError(err.Error(), err, false)
 		}
 		r.Body, r.GetBody, r.ContentLength = rc, rq.getBody, int64(rq.body.Len())
 	}
@@ -477,8 +493,9 @@ func (c *Client) attempt(ctx context.Context, rq *request, attempt int) (wire.Re
 	if err != nil {
 		err = c.attemptError(ctx, actx, rq.timeout, req, err)
 		c.logFailure(ctx, rq, attempt, start, err)
-		return wire.ResponseMeta{}, err
+		return wire.ResponseMeta{}, headerRedactor{}, err
 	}
+	red := c.cfg.transport.responseRedactor(c.cfg.redactor(), resp)
 	meta := wire.ResponseMeta{Status: resp.StatusCode, Header: resp.Header}
 	success := resp.StatusCode >= 200 && resp.StatusCode <= 299
 	raw, err := readBody(resp.Body, resp.ContentLength, c.cfg.maxResponseBytes)
@@ -487,22 +504,22 @@ func (c *Client) attempt(ctx context.Context, rq *request, attempt int) (wire.Re
 	_ = resp.Body.Close()
 	switch {
 	case errors.Is(err, errTooLarge):
-		c.logResponse(ctx, rq, attempt, start, &meta)
+		c.logResponse(ctx, rq, attempt, start, &meta, red)
 		if success {
-			return meta, newResponseTooLargeError(&meta, rq.endpoint, c.cfg.redactor(), c.cfg.maxResponseBytes)
+			return meta, red, newResponseTooLargeError(&meta, rq.endpoint, red, c.cfg.maxResponseBytes)
 		}
-		return meta, newAPIError(&meta, rq.endpoint, c.cfg.redactor())
+		return meta, red, newAPIError(&meta, rq.endpoint, red)
 	case err != nil:
 		err = c.attemptError(ctx, actx, rq.timeout, req, err)
 		c.logFailure(ctx, rq, attempt, start, err)
-		return wire.ResponseMeta{}, err
+		return wire.ResponseMeta{}, headerRedactor{}, err
 	}
 	meta.Body = raw
-	c.logResponse(ctx, rq, attempt, start, &meta)
+	c.logResponse(ctx, rq, attempt, start, &meta, red)
 	if !success {
-		return meta, newAPIError(&meta, rq.endpoint, c.cfg.redactor())
+		return meta, red, newAPIError(&meta, rq.endpoint, red)
 	}
-	return meta, nil
+	return meta, red, nil
 }
 
 // attemptError turns the error that ended an attempt without a response,
@@ -664,17 +681,17 @@ func (c *Client) logRequest(ctx context.Context, rq *request, h http.Header, att
 // time since start and the request id, as the Python SDK's
 // "<method> <url> <- <status> in <ms>ms (request <id>)", then the redacted
 // headers and the body's length at debug level and the body at LevelTrace.
-// The request id is redacted as the error types' Header is, "***" when it
-// holds the client's API key or a credential of a proxy the client's
-// transport chose (ruling R87; typesafe-sdk-python logs it as it arrived);
-// the body is as it arrived.
-func (c *Client) logResponse(ctx context.Context, rq *request, attempt int, start time.Time, meta *wire.ResponseMeta) {
+// The request id and the headers are redacted by r, the response's
+// redactor, as the error types' Header is: "***" when a value holds the
+// client's API key or, for a response to a plain-HTTP request through a
+// proxy, the proxy's credential (ruling R87; typesafe-sdk-python logs the id
+// as it arrived); the body is as it arrived.
+func (c *Client) logResponse(ctx context.Context, rq *request, attempt int, start time.Time, meta *wire.ResponseMeta, r headerRedactor) {
 	logger := c.cfg.logger
 	if !logger.Enabled(ctx, slog.LevelInfo) {
 		return
 	}
 	id := "-"
-	r := c.cfg.redactor()
 	if v, ok := r.requestID(meta.Header); ok {
 		id = safeName(v)
 	}

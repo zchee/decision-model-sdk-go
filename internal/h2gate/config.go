@@ -446,16 +446,22 @@ func NewTransport(cfg Config) (*Transport, error) {
 	}), nil
 }
 
-// observeProxy returns proxy wrapped so that onProxy sees every URL it
-// returns without an error (Config.OnProxy); proxy itself when either is nil.
+// observeProxy returns proxy wrapped so that onProxy, when set, sees every
+// URL it returns without an error (Config.OnProxy), and the request's call
+// is marked as one the func chose a proxy for ([Proxied]); nil stays nil.
 func observeProxy(proxy func(*http.Request) (*url.URL, error), onProxy func(*url.URL)) func(*http.Request) (*url.URL, error) {
-	if proxy == nil || onProxy == nil {
-		return proxy
+	if proxy == nil {
+		return nil
 	}
 	return func(req *http.Request) (*url.URL, error) {
 		u, err := proxy(req)
 		if err == nil && u != nil {
-			onProxy(u)
+			if c, ok := req.Context().Value(callKey{}).(*call); ok {
+				c.seen.Or(callProxied)
+			}
+			if onProxy != nil {
+				onProxy(u)
+			}
 		}
 		return u, err
 	}

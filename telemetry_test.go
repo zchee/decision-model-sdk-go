@@ -26,6 +26,7 @@ import (
 	"maps"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"regexp"
 	"slices"
@@ -1193,4 +1194,130 @@ func TestProxyCredentialParityWithAPIKey(t *testing.T) {
 	if !strings.Contains(withKey["Message"], placeholder) || withKey["Header X-Echo"] != redacted || withKey["RequestID()"] != redacted {
 		t.Errorf("Message %q, X-Echo %q, RequestID %q; want the secret shown, %q and %q", withKey["Message"], withKey["Header X-Echo"], withKey["RequestID()"], redacted, redacted)
 	}
+}
+
+// assertHeaderShown checks that the response header the call's *APIError
+// err keeps shows each of want as it arrived, and so do its request id and
+// the INFO "response" and DEBUG "response headers" records.
+func assertHeaderShown(t *testing.T, err error, logs *testsupport.LogRecorder, want map[string]string) {
+	t.Helper()
+	ae, ok := errors.AsType[*APIError](err)
+	if !ok {
+		t.Fatalf("error = %T %v, want an *APIError", err, err)
+	}
+	records := recordsText(logs)
+	line := func(msg string) string {
+		for l := range strings.Lines(records) {
+			if strings.Contains(l, msg) {
+				return l
+			}
+		}
+		return ""
+	}
+	for name, value := range want {
+		if got := ae.Header.Get(name); got != value {
+			t.Errorf("Header[%s] = %q, want %q as it arrived", name, got, value)
+		}
+		if l := line("DEBUG response headers"); !strings.Contains(l, name+"="+value) {
+			t.Errorf("the DEBUG response headers record %q lacks %s=%s", l, name, value)
+		}
+	}
+	id := want["X-Typesafe-Request-Id"]
+	if got, _ := ae.RequestID(); got != id {
+		t.Errorf("RequestID() = %q, want %q", got, id)
+	}
+	if l := line("INFO response"); !strings.Contains(l, "request_id="+id) {
+		t.Errorf("the INFO response record %q lacks request_id=%s", l, id)
+	}
+}
+
+// TestProxyHeaderScanScope pins ruling D-W6-secfix-header-scope: the
+// response header paths (the error types' Header, the request id and the
+// DEBUG "response headers" record) look for a proxy's credential only in
+// the answer to a plain-HTTP request for which the proxy func returned a
+// proxy, where the proxy may have written the answer itself, and only for a
+// credential of 8 bytes or more, as for the API key. Over HTTPS a proxy only
+// tunnels the API's bytes: an API header that holds the proxy's password,
+// short or long, is shown as the API sent it, and so is a request id that
+// holds a 2-byte password. A plain-HTTP request the func sent to no proxy
+// reaches the API alone, whose header is not scanned either, though the set
+// holds a proxy's password. A 2-byte password a plain-HTTP proxy repeats in
+// its own answer's header is shown: the residual the minimum leaves, as for
+// a short API key. Errors' text is scrubbed of every length
+// (TestProxyEchoHoldsNoCredential); a password of 8 bytes or more in a
+// plain-HTTP proxy's own answer is "***" (TestProxyAnswerHeadersRedacted).
+func TestProxyHeaderScanScope(t *testing.T) {
+	const user = "proxy-user"
+	const long = "hunter2@proxy-password"
+	apiAnswer := func(id, ordinary string) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("X-Typesafe-Request-Id", id)
+			w.Header().Set("X-Ordinary", ordinary)
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w, `{"message":"no such model"}`)
+		})
+	}
+	listOnce := func(t *testing.T, c *Client) error {
+		t.Helper()
+		_, err := callWithin(t, func(ctx context.Context) error {
+			_, err := c.Models().List(ctx, Retry(NoRetry()))
+			return err
+		})
+		return err
+	}
+	overHTTPS := func(t *testing.T, password string, want map[string]string) {
+		t.Helper()
+		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: apiAnswer(want["X-Typesafe-Request-Id"], want["X-Ordinary"])})
+		p := testsupport.NewProxy(t, testsupport.ProxyPlain, testsupport.Routes{"example.com:443": srv.Addr()})
+		pu := p.URL()
+		pu.User = url.UserPassword(user, password)
+		logs := testsupport.NewLogRecorder(slog.LevelDebug)
+		c := newCredentialClient(t, logs.Logger(), WithBaseURL("https://example.com"), WithRootCAs(testsupport.RootCAs(t)), WithProxy(http.ProxyURL(pu)))
+		assertHeaderShown(t, listOnce(t, c), logs, want)
+	}
+
+	t.Run("success: a 2-byte password over HTTPS: request ids and ordinary values as the API sent them", func(t *testing.T) {
+		overHTTPS(t, "ab", map[string]string{"X-Typesafe-Request-Id": "req_ab12", "X-Ordinary": "cab ab"})
+	})
+
+	t.Run("success: a password of 8 bytes or more over HTTPS: the API's header is not scanned", func(t *testing.T) {
+		overHTTPS(t, long, map[string]string{"X-Typesafe-Request-Id": "req-" + long, "X-Ordinary": "seen " + long})
+	})
+
+	t.Run("success: a 2-byte password a plain-HTTP proxy repeats in its own header is shown (the residual)", func(t *testing.T) {
+		want := map[string]string{"X-Typesafe-Request-Id": "req_ab12", "X-Echo": "seen ab"}
+		pu := newEchoingProxy(t, func(pw, _ string) string {
+			return "HTTP/1.1 407 Proxy Authentication Required\r\nX-Echo: seen " + pw + "\r\nX-Typesafe-Request-Id: req_" + pw + "12\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+		}).URL()
+		pu.User = url.UserPassword(user, "ab")
+		logs := testsupport.NewLogRecorder(slog.LevelDebug)
+		c := newCredentialClient(t, logs.Logger(), WithBaseURL("http://example.com"), WithProxy(http.ProxyURL(pu)))
+		assertHeaderShown(t, listOnce(t, c), logs, want)
+	})
+
+	t.Run("success: a plain-HTTP request sent to no proxy: the API's header is not scanned", func(t *testing.T) {
+		want := map[string]string{"X-Typesafe-Request-Id": "req-" + long, "X-Ordinary": "seen " + long}
+		api := httptest.NewServer(apiAnswer(want["X-Typesafe-Request-Id"], want["X-Ordinary"]))
+		t.Cleanup(api.Close)
+		pu := newEchoingProxy(t, malformedEcho).URL()
+		pu.User = url.UserPassword(user, long)
+		var calls atomic.Int64
+		choose := func(*http.Request) (*url.URL, error) {
+			if calls.Add(1) == 1 {
+				return pu, nil // the first call, through the proxy: its password joins the set
+			}
+			return nil, nil // the second, to the API alone
+		}
+		logs := testsupport.NewLogRecorder(slog.LevelDebug)
+		c := newCredentialClient(t, logs.Logger(), WithBaseURL(api.URL), WithProxy(choose))
+		if _, ok := errors.AsType[*ConnectionError](listOnce(t, c)); !ok {
+			t.Fatal("the first call, through the proxy, did not fail as the proxy's malformed answer makes it")
+		}
+		if c.cfg.transport.proxies.credentials() == nil {
+			t.Fatal("the set holds no credential after the first call")
+		}
+		logs.Reset()
+		assertHeaderShown(t, listOnce(t, c), logs, want)
+	})
 }

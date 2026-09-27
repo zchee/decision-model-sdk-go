@@ -139,9 +139,11 @@ func WithTLSConfig(cfg *tls.Config) ClientOption {
 // (HTTPS_PROXY, HTTP_PROXY, NO_PROXY); nil disables proxies. It configures
 // the SDK's own transport, so it cannot be combined with [WithHTTPTransport]
 // or [WithRoundTripper]. The SDK scrubs the credentials of every proxy the
-// func returned, the 16 most recent, from the client's transport errors
-// and from the response headers its errors and log records show, whatever
-// their length ([ConnectionError] says what a short one costs).
+// func returned, the 16 most recent, from the client's transport errors,
+// whatever their length ([ConnectionError] says what a short one costs),
+// and, from 8 bytes, from the header of a response to a plain-HTTP request
+// that went through one, which the proxy may have written itself
+// ([APIError.Header]).
 func WithProxy(proxy func(*http.Request) (*url.URL, error)) ClientOption {
 	return func(o *options) { o.transport.proxy, o.transport.proxySet = proxy, true }
 }
@@ -495,6 +497,24 @@ func (t *transport) stats() h2gate.Stats {
 // proxy, which the SDK does not ask.
 func (t *transport) credentials(req *http.Request) credentials {
 	return callCredentials(req.Header, t.proxies.credentials())
+}
+
+// responseRedactor returns r, the client's header redactor, for the header
+// of resp, which the SDK's transport returned: with the transport's proxy
+// credentials ([proxyCreds]) when resp answers a plain-HTTP request for
+// which the proxy func returned a proxy (h2gate.Proxied), the one case in
+// which a proxy writes the response itself and so may repeat in its headers
+// what it was sent (ruling D-W6-secfix-header-scope). Over HTTPS a proxy
+// only tunnels the API's bytes, and a request without a proxy never
+// reaches one, so there the scan could only redact what is not a
+// credential. The header paths look for them from 8 bytes, as for the API
+// key ([proxyCreds.inHeader]).
+func (t *transport) responseRedactor(r headerRedactor, resp *http.Response) headerRedactor {
+	if t.proxies.credentials() == nil || resp.Request == nil || resp.Request.URL.Scheme != "http" || !h2gate.Proxied(resp) {
+		return r
+	}
+	r.proxies = t.proxies
+	return r
 }
 
 // transportError maps an error of the SDK's transport to the SDK's error

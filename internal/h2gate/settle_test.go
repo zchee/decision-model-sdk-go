@@ -55,7 +55,7 @@ func take(t *testing.T, tr *Transport) *call {
 	case <-time.After(time.Second):
 		t.Fatal("the token is still held")
 	}
-	return &call{t: tr, ctx: t.Context()}
+	return &call{Context: t.Context(), t: tr}
 }
 
 // replay is a request that wrote its HEADERS on the warm connection old,

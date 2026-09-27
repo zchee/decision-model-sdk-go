@@ -38,7 +38,8 @@ import (
 // as SystemOne returns it. A response whose answers do not fit T fails as
 // DecodeAs says, with the call's endpoint in the error and its header
 // redacted as the call's other errors redact theirs: by the header's name,
-// and a header whose value holds the client's API key.
+// and a header whose value holds the client's API key or, in the response
+// to a plain-HTTP request through a proxy, the proxy's credential.
 //
 // Ask returns only the answers. A caller that also needs the response,
 // its request id, usage, model or raw body, makes the two calls Ask makes:
@@ -53,12 +54,13 @@ func Ask[T any](ctx context.Context, c *Client, state any, opts ...CallOption) (
 		var zero T
 		return zero, p.err
 	}
-	resp, err := c.SystemOne(ctx, state, p.prepared, opts...)
+	var red headerRedactor
+	resp, err := c.systemOne(ctx, state, p.prepared, opts, &red)
 	if err != nil {
 		var zero T
 		return zero, err
 	}
-	return decodeTyped[T](p, resp, c.systemOneEndpoint, c.cfg.redactor())
+	return decodeTyped[T](p, resp, c.systemOneEndpoint, red)
 }
 
 // DecodeAs returns the answers of resp as a T, the struct type whose fields

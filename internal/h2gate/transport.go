@@ -437,7 +437,7 @@ func (t *Transport) send(req *http.Request, gen *generation) (*http.Response, er
 			return nil, err
 		}
 	}
-	c := &call{t: t, ctx: ctx, gen: gen}
+	c := &call{t: t, gen: gen}
 	if !held {
 		c.given.Store(true) // out without the token: nothing to give back
 	}
@@ -445,13 +445,14 @@ func (t *Transport) send(req *http.Request, gen *generation) (*http.Response, er
 	// RoundTrip included; the call below returns it as early as before.
 	defer c.finish()
 	c.trace = httptrace.ClientTrace{GetConn: c.getConn, GotConn: c.gotConn, WroteHeaders: c.wroteHeaders}
-	resp, err := t.base.RoundTrip(req.WithContext(httptrace.WithClientTrace(ctx, &c.trace)))
+	c.Context = httptrace.WithClientTrace(ctx, &c.trace)
+	resp, err := t.base.RoundTrip(req.WithContext(c))
 	c.finish()
 	if err == nil {
 		c.responded()
 	}
 	if err != nil {
-		if c.lookedUp.Load() && !c.connected.Load() && ctx.Err() == nil {
+		if c.seen.Load()&callLookedUp != 0 && !c.connected.Load() && ctx.Err() == nil {
 			de := classify(err)
 			if gen == nil && t.warm.Load() && t.debugEnabled(ctx) {
 				// After warm, re-dials are the stock pool's, serial and ungated.
@@ -499,20 +500,64 @@ func (t *Transport) waitToken(ctx context.Context) (bool, error) {
 
 // call is one request's passage through the stock transport, as its
 // httptrace hooks see it. The hooks run on the transport's goroutines.
+//
+// A call is also the context the stock transport sees for the request, and
+// the context of the request its response carries: the request's own with
+// the hooks' trace, which answers callKey with the call, so that the Proxy
+// func NewTransport installs (observeProxy) can mark the request it chose a
+// proxy for, and [Proxied] can read the mark from the response (ruling
+// D-W6-secfix-header-scope). It costs no context of its own: the call is
+// allocated anyway, and holds the traced context in place of the plain one
+// it held before, so its size is unchanged.
 type call struct {
+	context.Context // the request's context with trace installed; see Value
+
 	t     *Transport
-	ctx   context.Context
 	gen   *generation // the generation this request leads, or nil
 	trace httptrace.ClientTrace
 
-	given     atomic.Bool // the token was given back
-	lookedUp  atomic.Bool // the transport looked for a connection (GetConn)
-	connected atomic.Bool // the transport handed over a connection (GotConn)
-	first     atomic.Bool // FirstHold engaged
+	given     atomic.Bool   // the token was given back
+	seen      atomic.Uint32 // callLookedUp and callProxied
+	connected atomic.Bool   // the transport handed over a connection (GotConn)
+	first     atomic.Bool   // FirstHold engaged
 	hold      atomic.Pointer[time.Timer]
 	// marked is the connection this request, a stock replay, marked
 	// unsettled; its own response clears the mark (responded).
 	marked atomic.Pointer[net.Conn]
+}
+
+// The bits of call.seen, set once and never cleared.
+const (
+	// callLookedUp: the transport looked for a connection (GetConn).
+	callLookedUp uint32 = 1 << iota
+	// callProxied: the Proxy func returned a proxy for the request.
+	callProxied
+)
+
+// callKey is the context key under which a call answers for itself.
+type callKey struct{}
+
+// Value returns c for callKey and the request context's value for every
+// other key.
+func (c *call) Value(key any) any {
+	if key == (callKey{}) {
+		return c
+	}
+	return c.Context.Value(key)
+}
+
+// Proxied reports whether resp answers a request for which the Proxy func of
+// a transport [NewTransport] built returned a proxy, when the stock
+// transport last looked for a connection for it. A request sent on an HTTP/2
+// connection the stock transport held asks the func nothing
+// (GOROOT/src/net/http/transport.go:643-646), so its response reports false,
+// as does one from a transport [Wrap] built, or with no request.
+func Proxied(resp *http.Response) bool {
+	if resp == nil || resp.Request == nil {
+		return false
+	}
+	c, ok := resp.Request.Context().Value(callKey{}).(*call)
+	return ok && c.seen.Load()&callProxied != 0
 }
 
 // finish ends the call's hold on the token: it gives the token back, if it
@@ -548,7 +593,7 @@ func (c *call) giveBack(expired bool) {
 }
 
 // getConn is the httptrace GetConn hook.
-func (c *call) getConn(string) { c.lookedUp.Store(true) }
+func (c *call) getConn(string) { c.seen.Or(callLookedUp) }
 
 // gotConn is the httptrace GotConn hook: it counts a new connection, gives
 // the token back at once on an HTTP/1.1 connection, engages FirstHold on a
@@ -568,7 +613,7 @@ func (c *call) gotConn(info httptrace.GotConnInfo) {
 	h2 := t.isH2(info.Conn)
 	if !info.Reused {
 		t.dials.Add(1)
-		t.log.DebugContext(c.ctx, "h2: dial", "h2", h2)
+		t.log.DebugContext(c, "h2: dial", "h2", h2)
 	}
 	switch {
 	case !h2:
@@ -593,7 +638,7 @@ func (c *call) gotConn(info httptrace.GotConnInfo) {
 	}
 	c.connected.Store(true)
 	if c.gen != nil {
-		t.release(c.ctx, c.gen)
+		t.release(c, c.gen)
 	}
 }
 

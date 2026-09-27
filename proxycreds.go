@@ -38,16 +38,18 @@ const maxProxyUserinfos = 16
 // at the gate for another's dial shares that dial's error without asking the
 // func (h2gate, R19), and its error still holds the credential of the proxy
 // the dial chose. Every transport error of the client is scrubbed of every
-// credential in the set ([transport.credentials]), and every response
-// header the error types keep or the log records print, of any value that
-// holds one ([headerRedactor]): a plain-HTTP request goes to the proxy
-// itself, whose answer, a 407 among them, may repeat what it was sent.
+// credential in the set, whatever its length ([transport.credentials]).
+// The header of a response to a plain-HTTP request that went through a
+// proxy, which the proxy may have written itself, a 407 among them, is
+// scanned for those of 8 bytes or more, as for the API key
+// ([transport.responseRedactor], [proxyCreds.inHeader]; ruling
+// D-W6-secfix-header-scope).
 //
 // A nil *proxyCreds, a caller's transport's (WithHTTPTransport,
 // WithRoundTripper), holds none. The set is written only when the func
-// returns a proxy with userinfo, and read only on the error path and for a
-// header scan, which on the success path is the request id's
-// ([headerRedactor.requestID]), a lock-free load that allocates nothing.
+// returns a proxy with userinfo, and read on the error path, for every
+// response to check that it holds any (a lock-free load that allocates
+// nothing), and for a header scan of a response through a proxy.
 type proxyCreds struct {
 	mu sync.Mutex
 	// users are the distinct userinfos, oldest first.
@@ -99,14 +101,16 @@ func (p *proxyCreds) credentials() credentials {
 	return nil
 }
 
-// inAny reports whether one of values holds a credential in p.
-func (p *proxyCreds) inAny(values []string) bool {
+// inHeader reports whether one of values, a header's, holds a credential
+// in p at least [minKeyNeedleBytes] long (ruling R68 on the header paths): a
+// shorter one would match ordinary header values.
+func (p *proxyCreds) inHeader(values []string) bool {
 	needles := p.credentials()
 	if len(needles) == 0 {
 		return false
 	}
 	return slices.ContainsFunc(values, func(v string) bool {
-		return slices.ContainsFunc(needles, func(n string) bool { return strings.Contains(v, n) })
+		return slices.ContainsFunc(needles, func(n string) bool { return keyNeedle(n) && strings.Contains(v, n) })
 	})
 }
 

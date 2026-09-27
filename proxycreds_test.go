@@ -120,6 +120,30 @@ func TestProxyCredsRecord(t *testing.T) {
 		}
 	})
 
+	t.Run("success: a header value is scanned for the credentials of 8 bytes or more", func(t *testing.T) {
+		var p proxyCreds
+		p.record(proxyURL(url.UserPassword("u", "ab cdefghij")))
+		tests := map[string]struct {
+			value string
+			want  bool
+		}{
+			"success: a 2-byte word in an ordinary value is not a credential here": {value: "req_ab12"},
+			"success: the 8-byte word":    {value: "seen cdefghij", want: true},
+			"success: the whole password": {value: "ab cdefghij", want: true},
+			"success: the Basic token":    {value: "Basic " + base64.StdEncoding.EncodeToString([]byte("u:ab cdefghij")), want: true},
+		}
+		for name, tt := range tests {
+			t.Run(name, func(t *testing.T) {
+				if got := p.inHeader([]string{"x", tt.value}); got != tt.want {
+					t.Errorf("inHeader(%q) = %t, want %t", tt.value, got, tt.want)
+				}
+			})
+		}
+		if !slices.Contains(p.credentials(), "ab") {
+			t.Errorf("the needles %q lack the 2-byte word, which an error's text is scrubbed of", p.credentials())
+		}
+	})
+
 	t.Run("success: a user without a password: the token alone", func(t *testing.T) {
 		var p proxyCreds
 		p.record(proxyURL(url.User("only-user")))
@@ -131,8 +155,8 @@ func TestProxyCredsRecord(t *testing.T) {
 
 	t.Run("success: a nil set holds none", func(t *testing.T) {
 		var p *proxyCreds
-		if c := p.credentials(); c != nil || p.inAny([]string{"anything"}) {
-			t.Errorf("a nil set: credentials %q, inAny true", c)
+		if c := p.credentials(); c != nil || p.inHeader([]string{"anything"}) {
+			t.Errorf("a nil set: credentials %q, inHeader true", c)
 		}
 	})
 
@@ -143,7 +167,7 @@ func TestProxyCredsRecord(t *testing.T) {
 			wg.Go(func() {
 				for i := range 8 {
 					p.record(proxyURL(pw(g*8 + i)))
-					_ = p.inAny([]string{"pw-1"})
+					_ = p.inHeader([]string{"pw-1"})
 				}
 			})
 		}
