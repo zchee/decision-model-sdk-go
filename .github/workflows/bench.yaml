@@ -143,9 +143,11 @@ jobs:
             echo "### AC-P7: \`BenchmarkCall/sdk\` against \`BenchmarkCall/naive\` (gate: sdk mean below naive mean)"
             echo
             echo "- \`$(go version)\`, ToolTags \`$(go list -f '{{context.ToolTags}}' runtime)\`"
-            # Hosts of one model name differ in the CPU flags the VM exposes
-            # (an EPYC 9V74 with and without AVX-512 ran 28 % apart), so the
-            # line names AVX-512 and a digest of the sorted flags.
+            # Hosts of one model name differ in the CPU flags the VM exposes:
+            # two EPYC 9V74 runs, without and with AVX-512, ran 123 of 125
+            # rows 15 to 50 % apart and BenchmarkCall/sdk's mean 29.01 %
+            # apart (docs/perf/codspeed.md; ledger W5.4-19), so the line
+            # names AVX-512 and a digest of the sorted flags.
             flags=$(sed -n '/^flags[[:space:]]*:/{s/^[^:]*: //p;q;}' /proc/cpuinfo 2>/dev/null || true)
             case " $flags " in *" avx512f "*) avx512=yes ;; *) avx512=no ;; esac
             digest=$(tr ' ' '\n' <<<"$flags" | LC_ALL=C sort | tr '\n' ' ' | sha256sum | cut -c1-12)
