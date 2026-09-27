@@ -110,11 +110,11 @@ func isCredential(name string, values []string, apiKey string) bool {
 // and the log records print (rulings R87, R93): a header is a credential by
 // its name always, by holding the client's API key when the key is at least
 // [minKeyNeedleBytes] long ([isCredential]), and, in the response to a
-// plain-HTTP request through a proxy, by holding a credential of the
+// plain-HTTP request through a proxy, by holding a whole credential of the
 // proxies the SDK's transport chose, from [minKeyNeedleBytes] too
 // ([proxyCreds.inHeader]; rulings D-W6-secfix-revise-2-scope-c and
-// D-W6-secfix-header-scope), which such a proxy may repeat in the header
-// of its own answer. Its zero value redacts by name alone, for an error
+// D-W6-secfix-header-scope and -2), which such a proxy may repeat in the
+// header of its own answer. Its zero value redacts by name alone, for an error
 // built without a client's key, such as UnmarshalJSON's. Build a client's
 // with [config.redactor], and a response's with
 // [transport.responseRedactor].

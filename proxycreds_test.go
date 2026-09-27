@@ -120,17 +120,20 @@ func TestProxyCredsRecord(t *testing.T) {
 		}
 	})
 
-	t.Run("success: a header value is scanned for the credentials of 8 bytes or more", func(t *testing.T) {
+	t.Run("success: a header value is scanned for the whole credentials of 8 bytes or more", func(t *testing.T) {
 		var p proxyCreds
 		p.record(proxyURL(url.UserPassword("u", "ab cdefghij")))
+		p.record(proxyURL(url.UserPassword("v", "short")))
 		tests := map[string]struct {
 			value string
 			want  bool
 		}{
 			"success: a 2-byte word in an ordinary value is not a credential here": {value: "req_ab12"},
-			"success: the 8-byte word":    {value: "seen cdefghij", want: true},
-			"success: the whole password": {value: "ab cdefghij", want: true},
-			"success: the Basic token":    {value: "Basic " + base64.StdEncoding.EncodeToString([]byte("u:ab cdefghij")), want: true},
+			"success: an 8-byte word is not a whole credential":                    {value: "seen cdefghij"},
+			"success: a whole password under 8 bytes is not looked for":            {value: "seen short"},
+			"success: the whole password":                                          {value: "ab cdefghij", want: true},
+			"success: the whole password as the URL escapes it":                    {value: "ab%20cdefghij", want: true},
+			"success: the Basic token":                                             {value: "Basic " + base64.StdEncoding.EncodeToString([]byte("u:ab cdefghij")), want: true},
 		}
 		for name, tt := range tests {
 			t.Run(name, func(t *testing.T) {
@@ -141,6 +144,17 @@ func TestProxyCredsRecord(t *testing.T) {
 		}
 		if !slices.Contains(p.credentials(), "ab") {
 			t.Errorf("the needles %q lack the 2-byte word, which an error's text is scrubbed of", p.credentials())
+		}
+	})
+
+	t.Run("success: a set whose whole credentials are all under 8 bytes has no header needles", func(t *testing.T) {
+		var p proxyCreds
+		p.record(proxyURL(url.UserPassword("u", "x"))) // the token of "u:x" is "dTp4", 4 bytes
+		if p.inHeader([]string{"dTp4 x", "Basic dTp4"}) {
+			t.Error("inHeader = true, want false: no whole credential is 8 bytes long")
+		}
+		if !slices.Contains(p.credentials(), "x") {
+			t.Errorf("the needles %q lack the password, which an error's text is scrubbed of", p.credentials())
 		}
 	})
 

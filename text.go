@@ -296,11 +296,17 @@ func (c *credentials) addAny(v string) {
 // header's credential, each is looked for whatever its length (ruling
 // D-W6-secfix-m2): a short one may then match ordinary text, which the error
 // shows as "***" and whose chain it stands in for ([credentials.cause]).
-func (c *credentials) addProxy(user *url.Userinfo) {
+// With words false only the whole credentials are added, the token and
+// the password as it is and as the URL escapes it: a response header's
+// needles ([proxyCreds.inHeader]).
+func (c *credentials) addProxy(user *url.Userinfo, words bool) {
 	password, _ := user.Password()
 	c.addAny(base64.StdEncoding.EncodeToString([]byte(user.Username() + ":" + password)))
 	c.addAny(password)
 	c.addAny(strings.TrimPrefix(url.UserPassword("", password).String(), ":"))
+	if !words {
+		return
+	}
 	for word := range strings.SplitSeq(password, " ") {
 		c.addAny(word)
 	}

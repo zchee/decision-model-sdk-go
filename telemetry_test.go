@@ -1296,6 +1296,40 @@ func TestProxyHeaderScanScope(t *testing.T) {
 		assertHeaderShown(t, listOnce(t, c), logs, want)
 	})
 
+	t.Run("success: a 13-byte word of the password in a plain-HTTP proxy's own header is shown; the whole password is not", func(t *testing.T) {
+		const words = "open sesame-street now" // "sesame-street" is a word of it, 13 bytes
+		pu := newEchoingProxy(t, func(pw, _ string) string {
+			return "HTTP/1.1 407 Proxy Authentication Required\r\nX-Word: seen sesame-street\r\nX-Whole: seen " + pw +
+				"\r\nX-Typesafe-Request-Id: req_plain\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+		}).URL()
+		pu.User = url.UserPassword(user, words)
+		logs := testsupport.NewLogRecorder(slog.LevelDebug)
+		c := newCredentialClient(t, logs.Logger(), WithBaseURL("http://example.com"), WithProxy(http.ProxyURL(pu)))
+		err := listOnce(t, c)
+		assertHeaderShown(t, err, logs, map[string]string{"X-Typesafe-Request-Id": "req_plain", "X-Word": "seen sesame-street"})
+		if ae, _ := errors.AsType[*APIError](err); ae == nil || ae.Header.Get("X-Whole") != redacted {
+			t.Errorf("X-Whole = %q, want %q: the whole password is a header's needle", ae.Header.Get("X-Whole"), redacted)
+		}
+	})
+
+	t.Run("success: a plain-HTTP 429 through a proxy, with no echo, keeps its Retry-After and request id", func(t *testing.T) {
+		for _, password := range []string{"x", "12", "open 2 sesame"} {
+			pu := newEchoingProxy(t, func(string, string) string {
+				return "HTTP/1.1 429 Too Many Requests\r\nRetry-After: 2\r\nX-Typesafe-Request-Id: req-2026-x12\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+			}).URL()
+			pu.User = url.UserPassword(user, password)
+			logs := testsupport.NewLogRecorder(slog.LevelDebug)
+			c := newCredentialClient(t, logs.Logger(), WithBaseURL("http://example.com"), WithProxy(http.ProxyURL(pu)))
+			err := listOnce(t, c)
+			assertHeaderShown(t, err, logs, map[string]string{"Retry-After": "2", "X-Typesafe-Request-Id": "req-2026-x12"})
+			if ae, _ := errors.AsType[*APIError](err); ae != nil {
+				if d, ok := ae.RetryAfter(); !ok || d != 2*time.Second {
+					t.Errorf("password %q: RetryAfter() = %v, %t; want 2s, true", password, d, ok)
+				}
+			}
+		}
+	})
+
 	t.Run("success: a plain-HTTP request sent to no proxy: the API's header is not scanned", func(t *testing.T) {
 		want := map[string]string{"X-Typesafe-Request-Id": "req-" + long, "X-Ordinary": "seen " + long}
 		api := httptest.NewServer(apiAnswer(want["X-Typesafe-Request-Id"], want["X-Ordinary"]))
@@ -1320,4 +1354,191 @@ func TestProxyHeaderScanScope(t *testing.T) {
 		logs.Reset()
 		assertHeaderShown(t, listOnce(t, c), logs, want)
 	})
+}
+
+// TestProxyRetryAfterSurvivesOverHTTPS pins ruling
+// D-W6-secfix-header-scope-2 where the W6.2 DELTA found a consequence past
+// the text: with a proxy password of a 1-byte word, "open 2 sesame", over
+// HTTPS through a CONNECT tunnel, the API's `Retry-After: 2` became "***",
+// RetryAfter() found none, and the retry fired after the backoff instead of
+// the server's 2 s. The API's header, which a tunnelling proxy cannot
+// write, is not scanned: for passwords of 1 and 2 bytes and one with a
+// 1-byte word, Retry-After and a request id that holds the password's bytes
+// stay as the server sent them, in the error's Header, RetryAfter(),
+// RequestID(), Error() and the records; and the retry waits the server's
+// 2 s.
+func TestProxyRetryAfterSurvivesOverHTTPS(t *testing.T) {
+	tests := map[string]struct {
+		password, id string
+		retry        bool // retry once and measure the wait
+	}{
+		"success: a 1-byte password":                                    {password: "x", id: "req-2026-x12"},
+		"success: a 2-byte password":                                    {password: "12", id: "req-2026-x12"},
+		"success: a password with a 1-byte word, retried after the 2 s": {password: "open 2 sesame", id: "req-2026-hunter2-x", retry: true},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			var mu sync.Mutex
+			var arrived []time.Time
+			srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				mu.Lock()
+				arrived = append(arrived, time.Now())
+				mu.Unlock()
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("Retry-After", "2")
+				w.Header().Set("X-Typesafe-Request-Id", tt.id)
+				w.WriteHeader(http.StatusTooManyRequests)
+				_, _ = io.WriteString(w, `{"message":"slow down"}`)
+			})})
+			p := testsupport.NewProxy(t, testsupport.ProxyPlain, testsupport.Routes{"example.com:443": srv.Addr()})
+			pu := p.URL()
+			pu.User = url.UserPassword("proxy-user", tt.password)
+			logs := testsupport.NewLogRecorder(slog.LevelDebug)
+			c := newCredentialClient(t, logs.Logger(), WithBaseURL("https://example.com"), WithRootCAs(testsupport.RootCAs(t)), WithProxy(http.ProxyURL(pu)))
+			policy := NoRetry()
+			if tt.retry {
+				policy = fastRetry().MaxRetries(1)
+			}
+			_, err := callWithin(t, func(ctx context.Context) error {
+				_, err := c.Models().List(ctx, Retry(policy))
+				return err
+			})
+			ae, ok := errors.AsType[*APIError](err)
+			if !ok || ae.StatusCode != http.StatusTooManyRequests {
+				t.Fatalf("List error = %T %v, want the API's 429 as an *APIError", err, err)
+			}
+			if d, ok := ae.RetryAfter(); !ok || d != 2*time.Second {
+				t.Errorf("RetryAfter() = %v, %t; want 2s, true", d, ok)
+			}
+			if !strings.Contains(ae.Error(), "request_id="+tt.id) {
+				t.Errorf("Error() = %q, want request_id=%s", ae.Error(), tt.id)
+			}
+			assertHeaderShown(t, err, logs, map[string]string{"Retry-After": "2", "X-Typesafe-Request-Id": tt.id})
+			mu.Lock()
+			defer mu.Unlock()
+			switch {
+			case !tt.retry && len(arrived) != 1:
+				t.Errorf("the server got %d requests, want 1", len(arrived))
+			case tt.retry && len(arrived) != 2:
+				t.Errorf("the server got %d requests, want 2: the first and its retry", len(arrived))
+			case tt.retry && arrived[1].Sub(arrived[0]) < 2*time.Second:
+				t.Errorf("the retry came %v after the first request, want the server's 2s at least", arrived[1].Sub(arrived[0]))
+			}
+		})
+	}
+}
+
+// keepAliveProxy is an HTTP/1.1 proxy on 127.0.0.1 that answers every
+// request a connection carries with answer(password, auth), keeping the
+// connection open, as newEchoingProxy's proxy answers one; accepts and
+// requests count the connections and the requests.
+type keepAliveProxy struct {
+	ln                net.Listener
+	accepts, requests atomic.Int64
+	wg                sync.WaitGroup
+}
+
+// newKeepAliveProxy starts a keepAliveProxy; it stops when the test ends.
+func newKeepAliveProxy(t *testing.T, answer func(password, auth string) string) *keepAliveProxy {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	p := &keepAliveProxy{ln: ln}
+	p.wg.Go(func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			p.accepts.Add(1)
+			p.wg.Go(func() {
+				defer conn.Close()
+				br := bufio.NewReader(conn)
+				for {
+					req, err := http.ReadRequest(br)
+					if err != nil {
+						return
+					}
+					_, _ = io.Copy(io.Discard, req.Body)
+					p.requests.Add(1)
+					auth := req.Header.Get("Proxy-Authorization")
+					var password string
+					if b64, ok := strings.CutPrefix(auth, "Basic "); ok {
+						if raw, err := base64.StdEncoding.DecodeString(b64); err == nil {
+							_, password, _ = strings.Cut(string(raw), ":")
+						}
+					}
+					if _, err := io.WriteString(conn, answer(password, auth)); err != nil {
+						return
+					}
+				}
+			})
+		}
+	})
+	t.Cleanup(func() {
+		_ = ln.Close()
+		p.wg.Wait()
+	})
+	return p
+}
+
+// TestProxyKeepAliveSecondRequestHidden pins the W6.2 probe's keep-alive
+// case: a plain-HTTP request through a proxy whose connection net/http
+// keeps and reuses for the next request, which it sends without dialing.
+// net/http still asks the proxy func for it, to build the connection's key
+// (GOROOT/src/net/http/transport.go:1051-1058), so the wrapper marks it,
+// and the proxy's own 407, which repeats the Proxy-Authorization and the
+// password in its header and the password in its message, has the header
+// hidden on the second request as on the first, and the message shown on
+// both, as the API key would be (parity, D-W6-secfix-407msg-corr).
+func TestProxyKeepAliveSecondRequestHidden(t *testing.T) {
+	const user, password = "proxy-user", "hunter2@proxy-password"
+	p := newKeepAliveProxy(t, func(pw, auth string) string {
+		body := `{"message":"denied ` + pw + `"}`
+		return "HTTP/1.1 407 Proxy Authentication Required\r\nContent-Type: application/json\r\n" +
+			"X-Echo: seen " + auth + "\r\nX-Password: seen " + pw + "\r\nX-Typesafe-Request-Id: req-" + strings.TrimPrefix(auth, "Basic ") + "\r\n" +
+			"Content-Length: " + strconv.Itoa(len(body)) + "\r\n\r\n" + body
+	})
+	pu := &url.URL{Scheme: "http", User: url.UserPassword(user, password), Host: p.ln.Addr().String()}
+	logs := testsupport.NewLogRecorder(slog.LevelDebug)
+	c := newCredentialClient(t, logs.Logger(), WithBaseURL("http://example.com"), WithProxy(http.ProxyURL(pu)))
+	for i := range 2 {
+		_, err := callWithin(t, func(ctx context.Context) error {
+			_, err := c.Models().List(ctx, Retry(NoRetry()))
+			return err
+		})
+		ae, ok := errors.AsType[*APIError](err)
+		if !ok || ae.StatusCode != http.StatusProxyAuthRequired {
+			t.Fatalf("request %d: error = %T %v, want the proxy's 407 as an *APIError", i+1, err, err)
+		}
+		for _, name := range []string{"X-Echo", "X-Password", "X-Typesafe-Request-Id"} {
+			if got := ae.Header.Values(name); !slices.Equal(got, []string{redacted}) {
+				t.Errorf("request %d: Header[%s] = %q, want [%q]", i+1, name, got, redacted)
+			}
+		}
+		if id, _ := ae.RequestID(); id != redacted {
+			t.Errorf("request %d: RequestID() = %q, want %q", i+1, id, redacted)
+		}
+		if !strings.Contains(ae.Message, password) {
+			t.Errorf("request %d: Message = %q, want the password shown as the proxy wrote it (parity with the API key)", i+1, ae.Message)
+		}
+	}
+	if p.accepts.Load() != 1 || p.requests.Load() != 2 {
+		t.Fatalf("the proxy accepted %d connections for %d requests, want 1 for 2: the second on the kept connection", p.accepts.Load(), p.requests.Load())
+	}
+	headerRecords := 0
+	for l := range strings.Lines(recordsText(logs)) {
+		if !strings.Contains(l, "DEBUG response headers") {
+			continue
+		}
+		headerRecords++
+		if !strings.Contains(l, "X-Echo="+redacted) || !strings.Contains(l, "X-Password="+redacted) {
+			t.Errorf("the record %q shows the proxy's echo", l)
+		}
+	}
+	if headerRecords != 2 {
+		t.Errorf("%d DEBUG response headers records, want 2", headerRecords)
+	}
 }

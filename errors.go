@@ -221,9 +221,10 @@ type APIError struct {
 	// without regard to case), a header with a value that holds the
 	// client's API key when the key is at least 8 bytes long, and, in the
 	// answer to a plain-HTTP request through a proxy, which the proxy may
-	// have written itself, one with a value that holds the proxy's
-	// password, a word of it or its Basic token, 8 bytes or longer
-	// ([WithProxy]); a shorter one is shown, as a shorter key is. Every other
+	// have written itself, one with a value that holds the proxy's whole
+	// password, as it is or as the URL escapes it, or its Basic token, 8
+	// bytes or longer ([WithProxy]); a shorter one, or a word of the
+	// password, is shown, as a shorter key is. Every other
 	// header, Retry-After, Retry-After-Ms and X-Typesafe-Request-Id
 	// included, is as the server sent it, so [APIError.RetryAfter] and
 	// [APIError.RequestID] read it. The values of those other headers are

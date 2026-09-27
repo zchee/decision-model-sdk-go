@@ -141,9 +141,9 @@ func WithTLSConfig(cfg *tls.Config) ClientOption {
 // or [WithRoundTripper]. The SDK scrubs the credentials of every proxy the
 // func returned, the 16 most recent, from the client's transport errors,
 // whatever their length ([ConnectionError] says what a short one costs),
-// and, from 8 bytes, from the header of a response to a plain-HTTP request
-// that went through one, which the proxy may have written itself
-// ([APIError.Header]).
+// and the whole ones of 8 bytes or more from the header of a response to a
+// plain-HTTP request that went through one, which the proxy may have
+// written itself ([APIError.Header]).
 func WithProxy(proxy func(*http.Request) (*url.URL, error)) ClientOption {
 	return func(o *options) { o.transport.proxy, o.transport.proxySet = proxy, true }
 }
@@ -507,8 +507,8 @@ func (t *transport) credentials(req *http.Request) credentials {
 // what it was sent (ruling D-W6-secfix-header-scope). Over HTTPS a proxy
 // only tunnels the API's bytes, and a request without a proxy never
 // reaches one, so there the scan could only redact what is not a
-// credential. The header paths look for them from 8 bytes, as for the API
-// key ([proxyCreds.inHeader]).
+// credential. The header paths look for the whole credentials alone, from
+// 8 bytes, as for the API key ([proxyCreds.inHeader]).
 func (t *transport) responseRedactor(r headerRedactor, resp *http.Response) headerRedactor {
 	if t.proxies.credentials() == nil || resp.Request == nil || resp.Request.URL.Scheme != "http" || !h2gate.Proxied(resp) {
 		return r
