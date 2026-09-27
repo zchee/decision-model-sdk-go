@@ -32,14 +32,14 @@ import (
 // testKey is the API key of the clients these tests build, the root tests'
 // default key; no call of theirs reaches an API.
 //
-// Copied from the root package's transport_test.go.
+// Copied from the root package's helpers_test.go.
 const testKey = "test-key"
 
 // clearEnv unsets, for the rest of the test, the three variables a client
 // reads, whatever the shell running the test holds (a developer's
 // TYPESAFE_API_KEY among them); t.Setenv restores them when the test ends.
 //
-// Copied from the root package's config_test.go.
+// Copied from the root package's helpers_test.go.
 func clearEnv(t *testing.T) {
 	t.Helper()
 	for _, name := range []string{typesafe.APIKeyEnv, typesafe.BaseURLEnv, typesafe.DefaultModelEnv} {
