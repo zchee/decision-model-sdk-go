@@ -102,8 +102,7 @@ func checkOrdering(b *barrier, srv *testsupport.LoopbackServer, cold []result) (
 // response; a warm burst opens none; 200 calls against MAX_CONCURRENT_STREAMS
 // 8 all succeed within their 2 s deadline on 1 connection. Each case runs 10
 // times on a fresh server and transport. Waiter latency is logged, not
-// asserted. The negative control (the plain token, which fails the ordering)
-// is TestRecordFanOut's, not asserted here.
+// asserted.
 func TestFanOut(t *testing.T) {
 	t.Run("success: cold 64 on 1 connection with the leader answered first; warm 64 on none", func(t *testing.T) {
 		var waiterWire, warmWire, answerGaps, leadGaps []time.Duration

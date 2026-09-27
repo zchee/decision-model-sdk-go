@@ -429,8 +429,8 @@ func TestNewTransport(t *testing.T) {
 		if c := b.TLSClientConfig; c.MinVersion != tls.VersionTLS12 || c.RootCAs != pool || c.VerifyConnection == nil {
 			t.Errorf("TLS: MinVersion %#x, RootCAs %p, VerifyConnection set %t", c.MinVersion, c.RootCAs, c.VerifyConnection != nil)
 		}
-		if tr.holdBound != 2*DefaultConnectTimeout || tr.waitBound != 2*DefaultConnectTimeout || !tr.firstHold {
-			t.Errorf("hold %v, wait %v, FirstHold %t; want 20 s, 20 s, on", tr.holdBound, tr.waitBound, tr.firstHold)
+		if tr.holdBound != 2*DefaultConnectTimeout || tr.waitBound != 2*DefaultConnectTimeout {
+			t.Errorf("hold %v, wait %v; want 20 s, 20 s", tr.holdBound, tr.waitBound)
 		}
 	})
 

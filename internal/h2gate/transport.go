@@ -125,9 +125,6 @@ type Transport struct {
 	// token is the header-write token: a request sends into it before
 	// RoundTrip and receives from it to give it back.
 	token chan struct{}
-	// firstHold engages FirstHold; tests clear it for the plain-token
-	// negative control of the fan-out record test.
-	firstHold bool
 
 	warm     atomic.Bool // the gate is warm for good
 	mu       sync.Mutex
@@ -167,7 +164,7 @@ var _ http.RoundTripper = (*Transport)(nil)
 
 // newTransport wraps base, which the Transport owns from now on.
 func newTransport(base *http.Transport, s settings) *Transport {
-	t := &Transport{settings: s, base: base, token: make(chan struct{}, 1), firstHold: true}
+	t := &Transport{settings: s, base: base, token: make(chan struct{}, 1)}
 	if p := base.Protocols; p != nil && p.UnencryptedHTTP2() && !p.HTTP1() && !p.HTTP2() {
 		t.h2c = true
 	}
@@ -711,7 +708,6 @@ func (c *call) gotConn(info httptrace.GotConnInfo) {
 			conn := info.Conn
 			c.marked.Store(&conn)
 		}
-	case !t.firstHold:
 	case !info.Reused:
 		// A request that still holds the token and is replayed onto a
 		// second new connection holds on, but counts once.
