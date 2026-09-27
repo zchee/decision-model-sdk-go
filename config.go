@@ -97,6 +97,9 @@ func WithAPIKey(key string) ClientOption {
 // https://example.test/prefix/v1/systemone. The URL must be an absolute http
 // or https URL with a host, and without credentials, a query or a fragment;
 // the API key is passed with [WithAPIKey] only. No error repeats the URL.
+//
+// An http URL, here or from [BaseURLEnv], sends the API key in cleartext,
+// as the Python SDK does; use one only for a server on the same host.
 func WithBaseURL(rawURL string) ClientOption {
 	return func(o *options) { o.baseURL = new(rawURL) }
 }

@@ -58,8 +58,12 @@ type ResponseMeta struct {
 // response.
 func (m ResponseMeta) StatusCode() int { return m.m.Status }
 
-// Header returns the response header, or nil when there is no HTTP
-// response.
+// Header returns the response header as it arrived, or nil when there is
+// no HTTP response. Unlike the Header of the SDK's errors, it is not
+// redacted: a header that is a credential by its name, such as Set-Cookie,
+// and a value that holds the API key are there as the server sent them, and
+// fmt shows them when it prints the response. Redact the header before
+// logging it.
 func (m ResponseMeta) Header() http.Header { return m.m.Header }
 
 // RawBody returns the body exactly as it was received, or nil when there is

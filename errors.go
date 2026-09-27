@@ -43,9 +43,13 @@ import (
 // and unwraps as the original does and shares its Header and Body. The
 // struct value c is not itself an error, and fmt prints its fields, so print
 // &c, never c. A caller may also hand the pointer to another goroutine,
-// since no read of an error changes it. [errors.As] with a pointer to one of
-// the seven types, or with a *Error, finds the error through any wrapping and
-// returns the very pointer. Nothing is serialised.
+// since no read of an error changes it. [errors.As] finds the error through
+// any wrapping and sets its target to the very pointer: the target is the
+// address of a variable of one of the seven pointer types (var e *APIError;
+// errors.As(err, &e)), or of an Error, and [errors.AsType] takes the pointer
+// type itself (errors.AsType[*APIError](err)). The address of a struct value
+// (var e APIError; errors.As(err, &e)) makes errors.As panic, since only the
+// pointer types are errors. Nothing is serialised.
 //
 // No error's text holds the API key, a request's state or a response body
 // unescaped: text the SDK did not write is escaped and cut (the server's
