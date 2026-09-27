@@ -110,7 +110,7 @@ Every file here must be rejected with `*ResponseValidationError`.
 
 | File | The one fault | Python 0.7.1 `field_path` | Go field path |
 | --- | --- | --- | --- |
-| `malformed-empty.json` | zero bytes | `''` | `.` (`decoder.Skip` start < 0) |
+| `malformed-empty.json` | zero bytes | `''` | `.` |
 | `malformed-whitespace.json` | only JSON whitespace (space, tab, LF, CR) | `''` | `.` |
 | `malformed-truncated.json` | the first half of `result.json` | `''` | `.` |
 | `malformed-trailing-garbage.json` | `result.json` followed by ` x` | `''` | `.` (trailing-data check) |
