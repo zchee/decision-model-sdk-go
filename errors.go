@@ -51,10 +51,16 @@ import (
 // (var e APIError; errors.As(err, &e)) makes errors.As panic, since only the
 // pointer types are errors. Nothing is serialised.
 //
-// No error's text holds the API key, a request's state or a response body
-// unescaped: text the SDK did not write is escaped and cut (the server's
-// message at 200 characters, a name the server chose at 128, a field path
-// at 320).
+// The SDK never writes a credential into an error's text itself, and in
+// text that others wrote it replaces the credentials it knows of with
+// "***", under the rules each type documents ([ConnectionError],
+// [APIError].Header). Text the server composed is the exception: an
+// [APIError]'s Message and a field path of a [ResponseValidationError] are
+// shown as the server sent them, as the Python SDK shows them (ruling
+// R103-rev), a credential the server or a proxy echoes into them included.
+// No error's text holds a request's state or a response body unescaped:
+// text the SDK did not write is escaped and cut (the server's message at
+// 200 characters, a name the server chose at 128, a field path at 320).
 type Error interface {
 	error
 	// typesafeError keeps the interface to the SDK's own types.
