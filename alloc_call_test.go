@@ -175,15 +175,15 @@ func measureCallItems(t *testing.T, c *Client, state any, qs *Prepared, prefix s
 	ctx := t.Context()
 	var hdr, ca, to, rq, open, gb, rd, dec [testsupport.AllocRuns]testsupport.Allocs
 	for i := range testsupport.AllocRuns {
-		body, err := encodeBody(state, c.cfg.model, qs, nil)
+		body, err := encodeBody(state, c.cfg().Model, qs, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		s := callSettings{header: c.cfg.systemOneHeader, timeout: c.cfg.timeout}
-		rqs := request{method: http.MethodPost, url: c.cfg.systemOneURL, header: s.header, timeout: s.timeout, body: body}
+		s := callSettings{header: c.cfg().SystemOneHeader, timeout: c.cfg().Timeout}
+		rqs := engine.Request{Method: http.MethodPost, URL: c.cfg().SystemOneURL, Header: s.header, Timeout: s.timeout, Body: body}
 		var (
 			h       http.Header
-			call    *systemOneAlloc
+			call    *engine.SystemOneAlloc
 			actx    context.Context
 			cancel  context.CancelFunc
 			reader  *codec.BodyReader
@@ -193,34 +193,34 @@ func measureCallItems(t *testing.T, c *Client, state any, qs *Prepared, prefix s
 			raw     []byte
 			spare   []wire.AnswerEntry
 		)
-		ca[i] = testsupport.Measure(func() { call, spare = newSystemOneAlloc(qs.Len()) })
+		ca[i] = testsupport.Measure(func() { call, spare = engine.NewSystemOneAlloc(qs.Len()) })
 		gb[i] = testsupport.Measure(func() { getBody = body.GetBody })
-		rqs.getBody = getBody
-		hdr[i] = testsupport.Measure(func() { h = rqs.attemptHeader(0) })
-		call.url = *rqs.url                                                                        // the first attempt's copy, in the call's allocation
+		rqs.GetBody = getBody
+		hdr[i] = testsupport.Measure(func() { h = rqs.AttemptHeader(0) })
+		call.URL = *rqs.URL                                                                        // the first attempt's copy, in the call's allocation
 		to[i] = testsupport.Measure(func() { actx, cancel = context.WithTimeout(ctx, s.timeout) }) //nolint:gosec // G118: cancel runs at the end of the iteration.
 		open[i] = testsupport.Measure(func() { reader, err = body.Open() })
 		if err != nil {
 			t.Fatal(err)
 		}
 		rq[i] = testsupport.Measure(func() {
-			r := http.Request{Method: http.MethodPost, URL: &call.url, Header: h, Body: reader, GetBody: getBody, ContentLength: int64(body.Len()), Host: call.url.Host}
+			r := http.Request{Method: http.MethodPost, URL: &call.URL, Header: h, Body: reader, GetBody: getBody, ContentLength: int64(body.Len()), Host: call.URL.Host}
 			req = r.WithContext(actx)
 		})
 		sinkRequest = req
-		hresp, err := c.cfg.transport.RoundTrip(req)
+		hresp, err := c.cfg().Transport.RoundTrip(req)
 		if err != nil {
 			t.Fatal(err)
 		}
-		rd[i] = testsupport.Measure(func() { raw, err = engine.ReadBody(hresp.Body, hresp.ContentLength, c.cfg.maxResponseBytes) })
+		rd[i] = testsupport.Measure(func() { raw, err = engine.ReadBody(hresp.Body, hresp.ContentLength, c.cfg().MaxResponseBytes) })
 		if err != nil {
 			t.Fatal(err)
 		}
 		_ = hresp.Body.Close()
-		resp = &call.resp
-		resp.meta = wire.ResponseMeta{Status: hresp.StatusCode, Header: hresp.Header, Body: raw}
+		resp = (*SystemOneResponse)(&call.Resp)
+		*(*engine.Response)(resp).Meta() = wire.ResponseMeta{Status: hresp.StatusCode, Header: hresp.Header, Body: raw}
 		dec[i] = testsupport.Measure(func() {
-			err = decodeSystemOneInto(ctx, c.cfg.logger, &resp.meta, c.systemOneEndpoint, c.cfg.redactor(), qs, c.cfg.model, &resp.res, spare)
+			err = decodeSystemOneInto(ctx, c.cfg().Logger, (*engine.Response)(resp).Meta(), c.eng().SystemOneEndpoint(), c.cfg().Redactor(), qs, c.cfg().Model, (*engine.Response)(resp).Result(), spare)
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -243,8 +243,8 @@ func measureCallItems(t *testing.T, c *Client, state any, qs *Prepared, prefix s
 
 // TestAllocAnswersInlineBound checks the bound of the answer entries a call
 // allocates with its response (W5.3's N2, newSystemOneAlloc) at the
-// boundary: a call of maxInlineAnswers questions costs the allocations of
-// one of maxInlineAnswers-1, and a call of maxInlineAnswers+1 questions one
+// boundary: a call of engine.MaxInlineAnswers questions costs the allocations of
+// one of engine.MaxInlineAnswers-1, and a call of engine.MaxInlineAnswers+1 questions one
 // more, its entries allocated by the decode as before W5.3. Every call is
 // answered by result.json's three answers, which fit each inline array
 // here; the bytes differ with the array's size and are logged.
@@ -256,7 +256,7 @@ func TestAllocAnswersInlineBound(t *testing.T) {
 	state := newAllocState()
 	var err error
 	calls := map[int]testsupport.Allocs{}
-	for _, n := range []int{maxInlineAnswers - 1, maxInlineAnswers, maxInlineAnswers + 1} {
+	for _, n := range []int{engine.MaxInlineAnswers - 1, engine.MaxInlineAnswers, engine.MaxInlineAnswers + 1} {
 		qs := NewQuestions()
 		for i := range n {
 			qs = qs.Noul("q"+strconv.Itoa(i), Noul{Instructions: Text("Is it?")})
@@ -273,12 +273,12 @@ func TestAllocAnswersInlineBound(t *testing.T) {
 		}
 		t.Logf("INLINE %d questions: call %s, %d answers", n, calls[n], sinkResponse.Answers().Len())
 	}
-	below, at, above := calls[maxInlineAnswers-1], calls[maxInlineAnswers], calls[maxInlineAnswers+1]
+	below, at, above := calls[engine.MaxInlineAnswers-1], calls[engine.MaxInlineAnswers], calls[engine.MaxInlineAnswers+1]
 	if at.Mallocs != below.Mallocs {
-		t.Errorf("a call of %d questions makes %d allocations, want %d as at %d: its entries belong in the call's allocation", maxInlineAnswers, at.Mallocs, below.Mallocs, maxInlineAnswers-1)
+		t.Errorf("a call of %d questions makes %d allocations, want %d as at %d: its entries belong in the call's allocation", engine.MaxInlineAnswers, at.Mallocs, below.Mallocs, engine.MaxInlineAnswers-1)
 	}
 	if above.Mallocs != at.Mallocs+1 {
-		t.Errorf("a call of %d questions makes %d allocations, want %d: one more than at %d, for its entries", maxInlineAnswers+1, above.Mallocs, at.Mallocs+1, maxInlineAnswers)
+		t.Errorf("a call of %d questions makes %d allocations, want %d: one more than at %d, for its entries", engine.MaxInlineAnswers+1, above.Mallocs, at.Mallocs+1, engine.MaxInlineAnswers)
 	}
 }
 

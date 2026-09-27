@@ -103,7 +103,7 @@ func TestAllocScratchSequence(t *testing.T) {
 			check("single-size call")
 			encode := series(t, sk.name+" single-size encode", nil, func() {
 				var body codec.Body
-				if body, err = encodeBody(states[0], c.cfg.model, qs, nil); err == nil {
+				if body, err = encodeBody(states[0], c.cfg().Model, qs, nil); err == nil {
 					body.Release()
 				}
 			})

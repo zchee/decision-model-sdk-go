@@ -121,25 +121,25 @@ func TestPreparedTables(t *testing.T) {
 			if diff := gocmp.Diff(tt.wantNames, slices.Collect(p.Names())); diff != "" {
 				t.Errorf("Names() mismatch (-want +got):\n%s", diff)
 			}
-			if diff := gocmp.Diff(tt.wantEntries, p.w.Entries()); diff != "" {
+			if diff := gocmp.Diff(tt.wantEntries, p.wirePrepared().Entries()); diff != "" {
 				t.Errorf("tables mismatch (-want +got):\n%s", diff)
 			}
-			if p.w.LevelHint != tt.wantHint {
-				t.Errorf("LevelHint = %d, want %d", p.w.LevelHint, tt.wantHint)
+			if p.wirePrepared().LevelHint != tt.wantHint {
+				t.Errorf("LevelHint = %d, want %d", p.wirePrepared().LevelHint, tt.wantHint)
 			}
-			if cap(p.w.Questions) != len(p.w.Questions) {
-				t.Errorf("cap(Questions) = %d, want len %d", cap(p.w.Questions), len(p.w.Questions))
+			if cap(p.wirePrepared().Questions) != len(p.wirePrepared().Questions) {
+				t.Errorf("cap(Questions) = %d, want len %d", cap(p.wirePrepared().Questions), len(p.wirePrepared().Questions))
 			}
-			for _, e := range p.w.Entries() {
-				if _, ok := p.w.Lookup(e.Name); !ok {
+			for _, e := range p.wirePrepared().Entries() {
+				if _, ok := p.wirePrepared().Lookup(e.Name); !ok {
 					t.Errorf("Lookup(%q) found nothing", e.Name)
 				}
 				for i, lv := range e.Levels {
 					if !lv.IsJSON() {
 						continue
 					}
-					at := bytes.Index(p.w.Questions, lv.JSON)
-					if at < 0 || &p.w.Questions[at] != &lv.JSON[0] {
+					at := bytes.Index(p.wirePrepared().Questions, lv.JSON)
+					if at < 0 || &p.wirePrepared().Questions[at] != &lv.JSON[0] {
 						t.Errorf("%s level %d JSON %q is not a view of the prepared object", e.Name, i, lv.JSON)
 					}
 				}
@@ -208,23 +208,23 @@ func TestPreparedIsIndependentOfQuestions(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Prepare: %v", err)
 			}
-			wantBytes := string(p.w.Questions)
-			wantEntries := slices.Clone(p.w.Entries())
+			wantBytes := string(p.wirePrepared().Questions)
+			wantEntries := slices.Clone(p.wirePrepared().Entries())
 
 			tt.mutate(opts, levels, fields, qs)
 
-			if got := string(p.w.Questions); got != wantBytes {
+			if got := string(p.wirePrepared().Questions); got != wantBytes {
 				t.Errorf("questions changed to %s, want %s", got, wantBytes)
 			}
-			if diff := gocmp.Diff(wantEntries, p.w.Entries()); diff != "" {
+			if diff := gocmp.Diff(wantEntries, p.wirePrepared().Entries()); diff != "" {
 				t.Errorf("tables changed (-want +got):\n%s", diff)
 			}
 			again, err := qs.Prepare()
 			if err != nil {
 				t.Fatalf("second Prepare: %v", err)
 			}
-			if string(again.w.Questions) == wantBytes {
-				t.Errorf("second Prepare after the change = %s, want the change to show", again.w.Questions)
+			if string(again.wirePrepared().Questions) == wantBytes {
+				t.Errorf("second Prepare after the change = %s, want the change to show", again.wirePrepared().Questions)
 			}
 		})
 	}

@@ -28,8 +28,3 @@ type headerRedactor = engine.HeaderRedactor
 
 // keyNeedle is [engine.KeyNeedle].
 func keyNeedle(key string) bool { return engine.KeyNeedle(key) }
-
-// redactor returns the redactor for the client c configures: its API key
-// and no proxy's credentials, which [engine.Transport.ResponseRedactor] adds for
-// the response that may hold them.
-func (c *config) redactor() headerRedactor { return engine.NewHeaderRedactor(c.apiKey) }

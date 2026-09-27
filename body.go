@@ -79,7 +79,7 @@ type bodyMember = engine.BodyMember
 func encodeBody(state any, model string, qs *Prepared, extra []bodyMember) (codec.Body, error) {
 	var q *wire.Prepared
 	if qs != nil {
-		q = &qs.w
+		q = qs.wirePrepared()
 	}
 	body, f := engine.EncodeBody[RawJSON, Content](state, model, q, extra)
 	switch f.Kind {

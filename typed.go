@@ -309,7 +309,7 @@ func buildPlan(t reflect.Type) *typedPlan {
 		}
 		return &typedPlan{err: newConfigError(owner + msg)}
 	}
-	entries := p.w.Entries()
+	entries := p.wirePrepared().Entries()
 	for i := range fields {
 		fields[i].options = entries[i].Options
 		fields[i].levels = entries[i].Levels

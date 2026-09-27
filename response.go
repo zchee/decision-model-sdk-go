@@ -18,6 +18,7 @@ import (
 	"net/http"
 
 	"github.com/zchee/typesafe-sdk-go/internal/codec"
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
@@ -82,24 +83,29 @@ func (m ResponseMeta) RequestID() (string, bool) { return m.m.RequestID() }
 // the new answers, a copy of the response made before the call keeps the
 // old ones, and no other goroutine may read the response during the
 // call.
-type SystemOneResponse struct {
-	res  wire.SystemOneResult
-	meta wire.ResponseMeta
-}
+type SystemOneResponse engine.Response
+
+// result returns r's decoded result, and respMeta its HTTP metadata, from its
+// state, internal/engine's Response, over which SystemOneResponse is defined
+// (W6.5 design D1): free conversions.
+func (r *SystemOneResponse) result() *wire.SystemOneResult { return (*engine.Response)(r).Result() }
+
+// respMeta: see result.
+func (r *SystemOneResponse) respMeta() *wire.ResponseMeta { return (*engine.Response)(r).Meta() }
 
 // Model returns the model that answered.
-func (r *SystemOneResponse) Model() string { return r.res.Model }
+func (r *SystemOneResponse) Model() string { return r.result().Model }
 
 // Usage returns the token usage of the request.
-func (r *SystemOneResponse) Usage() Usage { return Usage{r.res.Usage} }
+func (r *SystemOneResponse) Usage() Usage { return Usage{r.result().Usage} }
 
 // Answers returns the answers, keyed by question name. The view reads r: it
 // is valid as long as r is, and after [SystemOneResponse.UnmarshalJSON] it
 // shows the answers r then holds.
-func (r *SystemOneResponse) Answers() Answers { return Answers{s: &r.res.Answers} }
+func (r *SystemOneResponse) Answers() Answers { return Answers{s: &r.result().Answers} }
 
 // Meta returns the HTTP response the answers came in.
-func (r *SystemOneResponse) Meta() ResponseMeta { return ResponseMeta{r.meta} }
+func (r *SystemOneResponse) Meta() ResponseMeta { return ResponseMeta{*r.respMeta()} }
 
 // MarshalJSON returns the response's payload, the object
 // {"model":…,"usage":{…},"answers":{…}}, as the Python SDK's
@@ -123,7 +129,7 @@ func (r *SystemOneResponse) Meta() ResponseMeta { return ResponseMeta{r.meta} }
 // it is held by pointer or by value. [SystemOneResponse.UnmarshalJSON] reads
 // the payload back.
 func (r SystemOneResponse) MarshalJSON() ([]byte, error) {
-	return wire.AppendSystemOneResult(nil, &r.res)
+	return wire.AppendSystemOneResult(nil, r.result())
 }
 
 // UnmarshalJSON sets *r to the response whose payload is data, such as one
@@ -144,10 +150,10 @@ func (r *SystemOneResponse) UnmarshalJSON(data []byte) error {
 	if string(data) == "null" {
 		return nil
 	}
-	if _, err := codec.DecodeSystemOne(data, nil, "", &r.res); err != nil {
+	if _, err := codec.DecodeSystemOne(data, nil, "", r.result()); err != nil {
 		return newResponseValidationError(&wire.ResponseMeta{}, "", headerRedactor{}, err)
 	}
-	r.meta = wire.ResponseMeta{}
+	*r.respMeta() = wire.ResponseMeta{}
 	return nil
 }
 

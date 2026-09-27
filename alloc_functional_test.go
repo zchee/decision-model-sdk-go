@@ -26,6 +26,7 @@ import (
 	gocmp "github.com/google/go-cmp/cmp"
 
 	"github.com/zchee/typesafe-sdk-go/internal/codec"
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
@@ -48,7 +49,7 @@ import (
 func TestAllocEncodeFunctional(t *testing.T) {
 	qs := encodeQuestions(t)
 	prefix := []byte(`{"state":`)
-	suffix := []byte(`,"model":` + strconv.Quote(DefaultModel) + `,"questions":` + string(qs.w.Questions) + `}`)
+	suffix := []byte(`,"model":` + strconv.Quote(DefaultModel) + `,"questions":` + string(qs.wirePrepared().Questions) + `}`)
 	for _, k := range stateKinds {
 		for _, size := range allocSizes {
 			t.Run(k.name+"/"+sizeName(size), func(t *testing.T) {
@@ -185,7 +186,7 @@ func TestAllocDecodeFixturesFunctional(t *testing.T) {
 			if err := decodeSystemOne(t.Context(), nil, meta, "", headerRedactor{}, questionsFor(t, &first), first.Model, &interned); err != nil {
 				t.Fatalf("decode with the question set: %v", err)
 			}
-			if diff := gocmp.Diff(payloadOf(&SystemOneResponse{res: first}), payloadOf(&SystemOneResponse{res: interned})); diff != "" {
+			if diff := gocmp.Diff(payloadOf(responseOf(first)), payloadOf(responseOf(interned))); diff != "" {
 				t.Errorf("the decode with the question set differs from the decode without (-without +with):\n%s", diff)
 			}
 		})
@@ -246,7 +247,7 @@ func TestAllocWholeCallFunctional(t *testing.T) {
 			if diff := gocmp.Diff(got[0], got[1]); diff != "" {
 				t.Errorf("the floor's request differs from the call's (-call +floor):\n%s", diff)
 			}
-			if diff := gocmp.Diff(payloadOf(&SystemOneResponse{res: want}), payloadOf(resp)); diff != "" {
+			if diff := gocmp.Diff(payloadOf(responseOf(want)), payloadOf(resp)); diff != "" {
 				t.Errorf("the call's answers differ from %s's (-fixture +call):\n%s", tt.fixture, diff)
 			}
 		})
@@ -278,7 +279,7 @@ func TestMemStatsCapFunctional(t *testing.T) {
 					t.Errorf("*ResponseTooLargeError status %d, limit %d; want 200 and the cap %d", tl.StatusCode, tl.Limit, DefaultMaxResponseBytes)
 				}
 			case "ok":
-				if diff := gocmp.Diff(payloadOf(&SystemOneResponse{res: want}), payloadOf(resp)); diff != "" {
+				if diff := gocmp.Diff(payloadOf(responseOf(want)), payloadOf(resp)); diff != "" {
 					t.Errorf("the answers differ from result.json's (-result.json +call):\n%s", diff)
 				}
 			}
@@ -316,4 +317,12 @@ func firstDiff(a, b []byte) int {
 		}
 	}
 	return min(len(a), len(b))
+}
+
+// responseOf returns a response holding res and no HTTP metadata: its
+// state set through the conversion to internal/engine's Response.
+func responseOf(res wire.SystemOneResult) *SystemOneResponse {
+	r := new(SystemOneResponse)
+	*(*engine.Response)(r).Result() = res
+	return r
 }

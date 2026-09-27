@@ -671,7 +671,7 @@ func TestSystemOneAnswersInline(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			before := slices.Clone(first.res.Answers.Entries())
+			before := slices.Clone(first.result().Answers.Entries())
 			second, err := c.SystemOne(t.Context(), "x", tt.qs)
 			if err != nil {
 				t.Fatal(err)
@@ -679,10 +679,10 @@ func TestSystemOneAnswersInline(t *testing.T) {
 			if n := first.Answers().Len(); n != 3 {
 				t.Fatalf("%d answers, want result.json's 3", n)
 			}
-			if diff := gocmp.Diff(before, first.res.Answers.Entries()); diff != "" {
+			if diff := gocmp.Diff(before, first.result().Answers.Entries()); diff != "" {
 				t.Errorf("the first response's answers changed with the second call (-before +after):\n%s", diff)
 			}
-			if &first.res.Answers.Entries()[0] == &second.res.Answers.Entries()[0] {
+			if &first.result().Answers.Entries()[0] == &second.result().Answers.Entries()[0] {
 				t.Error("two calls' responses share one array of answer entries")
 			}
 		})

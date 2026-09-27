@@ -134,7 +134,7 @@ func countPings(base *http.Transport, pings *atomic.Int64) {
 func fakeConfig(t *testing.T, base *http.Transport) *config {
 	t.Helper()
 	c := mustResolve(t, noEnv, WithAPIKey(testKey), WithBaseURL("http://example.com"), WithHTTPVersion(HTTP2Only), WithHTTPTransport(base))
-	t.Cleanup(func() { _ = c.transport.Close() })
+	t.Cleanup(func() { _ = c.Transport.Close() })
 	return c
 }
 
@@ -167,9 +167,9 @@ func TestSynctestThroughWithHTTPTransport(t *testing.T) {
 			var pings atomic.Int64
 			countPings(base, &pings)
 			c := fakeConfig(t, base)
-			cold := fakeFan(t, c.transport, fakeFanOut, "/cold/", fakeDeadline)
+			cold := fakeFan(t, c.Transport, fakeFanOut, "/cold/", fakeDeadline)
 			accCold := srv.Accepts()
-			warm := fakeFan(t, c.transport, fakeFanOut, "/warm/", fakeDeadline)
+			warm := fakeFan(t, c.Transport, fakeFanOut, "/warm/", fakeDeadline)
 			accWarm := srv.Accepts()
 			for i, r := range append(cold, warm...) {
 				if r.err != nil || r.status != http.StatusOK || r.protoMajor != 2 {
@@ -180,13 +180,13 @@ func TestSynctestThroughWithHTTPTransport(t *testing.T) {
 			time.Sleep(fakeSendPing + time.Second) // the client pings the idle connection; the server answers
 			synctest.Wait()
 			pingsIdle := pings.Load() - pingsBusy
-			afterPing := getWithin(t, c.transport, "http://example.com/after-ping", 0, fakeDeadline)
+			afterPing := getWithin(t, c.Transport, "http://example.com/after-ping", 0, fakeDeadline)
 			accPing := srv.Accepts()
 			time.Sleep(fakeIdle + time.Second) // the client closes the idle connection
 			synctest.Wait()
-			afterIdle := getWithin(t, c.transport, "http://example.com/after-idle", 0, fakeDeadline)
+			afterIdle := getWithin(t, c.Transport, "http://example.com/after-idle", 0, fakeDeadline)
 			accIdle := srv.Accepts()
-			st := c.transport.Stats()
+			st := c.Transport.Stats()
 			t.Logf("accepts cold %d, warm %d, after the ping %d, after the idle close %d; PINGs while busy %d, while idle %d; stats %+v",
 				accCold, accWarm, accPing, accIdle, pingsBusy, pingsIdle, st)
 			if pingsIdle < 1 {
@@ -231,7 +231,7 @@ func TestSynctestThroughWithHTTPTransport(t *testing.T) {
 				}
 			}
 			c := fakeConfig(t, fakeClientTransport(t, srv))
-			rs := fakeFan(t, c.transport, calls, "/", timeout)
+			rs := fakeFan(t, c.Transport, calls, "/", timeout)
 			ok := 0
 			for i, r := range rs {
 				if r.err == nil && r.status == http.StatusOK {
@@ -251,7 +251,7 @@ func TestSynctestThroughWithHTTPTransport(t *testing.T) {
 			srv := testsupport.NewFakeH2CServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 			base := fakeClientTransport(t, srv.Server)
 			c := fakeConfig(t, base)
-			if r := getWithin(t, c.transport, "http://example.com/clone", 0, fakeDeadline); r.err != nil || r.protoMajor != 2 {
+			if r := getWithin(t, c.Transport, "http://example.com/clone", 0, fakeDeadline); r.err != nil || r.protoMajor != 2 {
 				t.Fatalf("GET = HTTP/%d %v", r.protoMajor, r.err)
 			}
 			if base.MaxConnsPerHost != 0 || base.TLSHandshakeTimeout != 0 || base.HTTP2 != nil && base.HTTP2.StrictMaxConcurrentRequests {

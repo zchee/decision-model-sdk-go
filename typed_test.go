@@ -65,16 +65,16 @@ func TestPreparedForTicketParity(t *testing.T) {
 		`"Tone":{"type":"choice","instructions":"What is the tone?","criteria":{"calm":"neutral or polite","angry":null}},` +
 		`"Urgency":{"type":"score","instructions":"How urgent?","criteria":["can wait","this week","today"]},` +
 		`"Spam":{"type":"noul","instructions":"Spam?"}}`
-	if diff := gocmp.Diff(string(want.w.Questions), string(got.w.Questions)); diff != "" {
+	if diff := gocmp.Diff(string(want.wirePrepared().Questions), string(got.wirePrepared().Questions)); diff != "" {
 		t.Errorf("PreparedFor[Ticket] bytes differ from the hand-built set (-hand +typed):\n%s", diff)
 	}
-	if diff := gocmp.Diff(wantBytes, string(got.w.Questions)); diff != "" {
+	if diff := gocmp.Diff(wantBytes, string(got.wirePrepared().Questions)); diff != "" {
 		t.Errorf("PreparedFor[Ticket] bytes (-want +got):\n%s", diff)
 	}
-	if diff := gocmp.Diff(want.w.Entries(), got.w.Entries()); diff != "" {
+	if diff := gocmp.Diff(want.wirePrepared().Entries(), got.wirePrepared().Entries()); diff != "" {
 		t.Errorf("PreparedFor[Ticket] tables differ from the hand-built set (-hand +typed):\n%s", diff)
 	}
-	if diff := gocmp.Diff(want.w.LevelHint, got.w.LevelHint); diff != "" {
+	if diff := gocmp.Diff(want.wirePrepared().LevelHint, got.wirePrepared().LevelHint); diff != "" {
 		t.Errorf("PreparedFor[Ticket] level hint (-hand +typed):\n%s", diff)
 	}
 
@@ -93,7 +93,7 @@ func TestPreparedForTicketParity(t *testing.T) {
 	}
 	// The plan's tables are the prepared set's own, not copies: the decoder
 	// interns against them.
-	entries := got.w.Entries()
+	entries := got.wirePrepared().Entries()
 	if &plan.fields[1].options[0] != &entries[1].Options[0] {
 		t.Error("the plan's options table is a copy of the prepared set's")
 	}
@@ -144,10 +144,10 @@ func TestPreparedForEscapes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
 	}
-	if diff := gocmp.Diff(string(want.w.Questions), string(got.w.Questions)); diff != "" {
+	if diff := gocmp.Diff(string(want.wirePrepared().Questions), string(got.wirePrepared().Questions)); diff != "" {
 		t.Errorf("PreparedFor[escapes] bytes differ from the hand-built set (-hand +typed):\n%s", diff)
 	}
-	if diff := gocmp.Diff(want.w.Entries(), got.w.Entries()); diff != "" {
+	if diff := gocmp.Diff(want.wirePrepared().Entries(), got.wirePrepared().Entries()); diff != "" {
 		t.Errorf("PreparedFor[escapes] tables differ from the hand-built set (-hand +typed):\n%s", diff)
 	}
 }
@@ -1001,7 +1001,7 @@ func TestPreparedForOptional(t *testing.T) {
 	}
 	t.Run("success: optional is not sent", func(t *testing.T) {
 		opt, req := typedPlanFor[optionalSet](), typedPlanFor[requiredSet]()
-		if diff := gocmp.Diff(string(req.prepared.w.Questions), string(opt.prepared.w.Questions)); diff != "" {
+		if diff := gocmp.Diff(string(req.prepared.wirePrepared().Questions), string(opt.prepared.wirePrepared().Questions)); diff != "" {
 			t.Errorf("optional changed the wire bytes (-required +optional):\n%s", diff)
 		}
 	})
@@ -1374,7 +1374,7 @@ func TestPreparedForTypeIdentity(t *testing.T) {
 		if pi == ps {
 			t.Error("genericSet[int] and genericSet[string] share one prepared set; each type should have its own cache entry")
 		}
-		if diff := gocmp.Diff(string(pi.w.Questions), string(ps.w.Questions)); diff != "" {
+		if diff := gocmp.Diff(string(pi.wirePrepared().Questions), string(ps.wirePrepared().Questions)); diff != "" {
 			t.Errorf("the two instantiations ask different questions (-int +string):\n%s", diff)
 		}
 	})

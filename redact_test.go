@@ -68,8 +68,8 @@ func TestRedactedHeadersSecretSpellings(t *testing.T) {
 
 			for handlerName, render := range renderers() {
 				out := render(func(logger *slog.Logger) {
-					logger.Debug("request", slog.Any("headers", engine.NewRedactedHeaders(c.systemOneHeader, engine.NewHeaderRedactor(c.apiKey))))
-					logger.Debug("response", slog.Any("headers", engine.NewRedactedHeaders(response, engine.NewHeaderRedactor(c.apiKey))))
+					logger.Debug("request", slog.Any("headers", engine.NewRedactedHeaders(c.SystemOneHeader, engine.NewHeaderRedactor(c.APIKey))))
+					logger.Debug("response", slog.Any("headers", engine.NewRedactedHeaders(response, engine.NewHeaderRedactor(c.APIKey))))
 				})
 				for _, visible := range []string{"request-visible", "response-visible", "***"} {
 					if !strings.Contains(out, visible) {
@@ -150,12 +150,12 @@ func TestAPIKeyNeedleThreshold(t *testing.T) {
 				}
 			} else {
 				c := mustResolve(t, noEnv, opts...)
-				if got := c.modelsHeader.Get(tt.name); got != "v" {
+				if got := c.ModelsHeader.Get(tt.name); got != "v" {
 					t.Errorf("template %s = %q, want %q", tt.name, got, "v")
 				}
 			}
 
-			if r := (&config{apiKey: tt.key}).redactor(); r != engine.NewHeaderRedactor(tt.key) {
+			if r := (&config{APIKey: tt.key}).Redactor(); r != engine.NewHeaderRedactor(tt.key) {
 				t.Errorf("config.redactor() = %+v, want the redactor of the client's key", r)
 			}
 			header := http.Header{"Authorization": {"Bearer " + tt.key}, "X-Echo": {"id=" + tt.key}}

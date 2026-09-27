@@ -87,7 +87,7 @@ func TestContentJSONSharesTheBytes(t *testing.T) {
 			for i := range raw {
 				raw[i] = ' '
 			}
-			if got := string(p.w.Questions); got != tt.want {
+			if got := string(p.wirePrepared().Questions); got != tt.want {
 				t.Errorf("questions after the caller's change = %s, want %s", got, tt.want)
 			}
 		})

@@ -231,51 +231,11 @@ func collectOptions(opts []ClientOption) options {
 }
 
 // config is a client's settings once every source has been consulted and
-// every value checked. Nothing changes it after [options.resolve] returns,
-// so requests read it without locking.
-type config struct {
-	// apiKey is the key after trimming, which the redaction of logged
-	// headers looks for in their values.
-	apiKey string
-
-	// systemOneURL and modelsURL are the two endpoints, shared read-only by
-	// every request.
-	systemOneURL *url.URL
-	modelsURL    *url.URL
-
-	// systemOneLog and modelsLog are how log records name the endpoints: the
-	// URL, or the API path alone under WithLogEndpointHost(false).
-	systemOneLog string
-	modelsLog    string
-
-	// model is the model a request names when the call names none.
-	model string
-
-	// timeout is the deadline of each attempt; zero means none
-	// (WithNoTimeout), since a zero WithTimeout is refused.
-	timeout time.Duration
-
-	// connectTimeout is the deadline for opening a connection.
-	connectTimeout time.Duration
-
-	// maxResponseBytes is the largest response body a request reads.
-	maxResponseBytes int64
-
-	// logger receives the client's records; it is never nil.
-	logger *slog.Logger
-
-	// systemOneHeader and modelsHeader are the headers of every POST
-	// /v1/systemone and GET /v1/models request, built once. A request clones
-	// its template and never writes to it.
-	systemOneHeader http.Header
-	modelsHeader    http.Header
-
-	// transport carries every request of the client.
-	transport *engine.Transport
-
-	// retry is the policy of a call that passes none ([Retry]).
-	retry RetryPolicy
-}
+// every value checked ([engine.Config], which a client's state holds, with
+// the client's RetryPolicy as a field of its own type).
+// Nothing changes it after [options.resolve] returns, so requests read it
+// without locking.
+type config = engine.Config[RetryPolicy]
 
 // resolve checks what o recorded, fills every setting o left unset from the
 // environment that getenv reads (NewClient passes [os.Getenv]) and then from
@@ -348,23 +308,23 @@ func (o *options) resolve(getenv func(string) string) (*config, error) {
 	}
 
 	c := &config{
-		apiKey:           key,
-		systemOneURL:     systemOne,
-		modelsURL:        models,
-		systemOneLog:     systemOne.String(),
-		modelsLog:        models.String(),
-		model:            model,
-		timeout:          timeout,
-		connectTimeout:   connectTimeout,
-		maxResponseBytes: maxResponseBytes,
-		logger:           logger,
-		systemOneHeader:  systemOneHeader,
-		modelsHeader:     modelsHeader,
-		transport:        tr,
-		retry:            retry,
+		APIKey:           key,
+		SystemOneURL:     systemOne,
+		ModelsURL:        models,
+		SystemOneLog:     systemOne.String(),
+		ModelsLog:        models.String(),
+		Model:            model,
+		Timeout:          timeout,
+		ConnectTimeout:   connectTimeout,
+		MaxResponseBytes: maxResponseBytes,
+		Logger:           logger,
+		SystemOneHeader:  systemOneHeader,
+		ModelsHeader:     modelsHeader,
+		Transport:        tr,
+		Retry:            retry,
 	}
 	if o.hideEndpointHost {
-		c.systemOneLog, c.modelsLog = systemOnePath, modelsPath
+		c.SystemOneLog, c.ModelsLog = systemOnePath, modelsPath
 	}
 	return c, nil
 }

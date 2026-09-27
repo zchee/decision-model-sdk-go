@@ -44,7 +44,7 @@ func newAllocState() any { return strings.Repeat("s", allocStateSize-2) }
 // round trip.
 func floorRequest(t *testing.T, c *Client, state any, qs *Prepared) (*http.Request, *bytes.Reader) {
 	t.Helper()
-	enc, err := encodeBody(state, c.cfg.model, qs, nil)
+	enc, err := encodeBody(state, c.cfg().Model, qs, nil)
 	if err != nil {
 		t.Fatalf("encodeBody: %v", err)
 	}
@@ -52,8 +52,8 @@ func floorRequest(t *testing.T, c *Client, state any, qs *Prepared) (*http.Reque
 	enc.Release()
 	rd := bytes.NewReader(pre)
 	return &http.Request{
-		Method: http.MethodPost, URL: c.cfg.systemOneURL, Proto: "HTTP/1.1", ProtoMajor: 1, ProtoMinor: 1,
-		Header: c.cfg.systemOneHeader, Body: io.NopCloser(rd), ContentLength: int64(len(pre)), Host: c.cfg.systemOneURL.Host,
+		Method: http.MethodPost, URL: c.cfg().SystemOneURL, Proto: "HTTP/1.1", ProtoMajor: 1, ProtoMinor: 1,
+		Header: c.cfg().SystemOneHeader, Body: io.NopCloser(rd), ContentLength: int64(len(pre)), Host: c.cfg().SystemOneURL.Host,
 	}, rd
 }
 

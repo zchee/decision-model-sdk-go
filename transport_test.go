@@ -129,7 +129,7 @@ func TestHTTPVersionDefaults(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			c := mustResolve(t, noEnv, append([]ClientOption{WithAPIKey(testKey), WithBaseURL(tt.baseURL)}, tt.opts...)...)
-			r := getWithin(t, c.transport, tt.baseURL+"/v1/models", 0, 10*time.Second)
+			r := getWithin(t, c.Transport, tt.baseURL+"/v1/models", 0, 10*time.Second)
 			if tt.wantProto == 0 {
 				if r.err == nil {
 					t.Fatalf("GET = %d HTTP/%d, want an error", r.status, r.protoMajor)
@@ -195,7 +195,7 @@ func TestTransportOptionsAreExclusive(t *testing.T) {
 			opts := append([]ClientOption{WithAPIKey(testKey)}, tt.opts...)
 			if tt.want == "" {
 				c := mustResolve(t, noEnv, opts...)
-				if c.transport == nil || c.transport.RT == nil {
+				if c.Transport == nil || c.Transport.RT == nil {
 					t.Fatalf("resolve built no transport")
 				}
 				return
@@ -234,19 +234,19 @@ func TestTransportKinds(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			c := mustResolve(t, noEnv, append([]ClientOption{WithAPIKey(testKey)}, tt.opts...)...)
-			if got := c.transport.Gate != nil; got != tt.wantGate {
+			if got := c.Transport.Gate != nil; got != tt.wantGate {
 				t.Fatalf("gate built: %t, want %t", got, tt.wantGate)
 			}
 			if tt.wantGate {
-				if c.transport.RT != c.transport.Gate || c.transport.Closer != nil {
-					t.Errorf("rt %T, closer %T; want the gate and no closer", c.transport.RT, c.transport.Closer)
+				if c.Transport.RT != c.Transport.Gate || c.Transport.Closer != nil {
+					t.Errorf("rt %T, closer %T; want the gate and no closer", c.Transport.RT, c.Transport.Closer)
 				}
 				return
 			}
-			if c.transport.RT != rt || c.transport.Closer != rt {
-				t.Errorf("rt %T, closer %T; want the Recorder for both", c.transport.RT, c.transport.Closer)
+			if c.Transport.RT != rt || c.Transport.Closer != rt {
+				t.Errorf("rt %T, closer %T; want the Recorder for both", c.Transport.RT, c.Transport.Closer)
 			}
-			if got := c.transport.Stats(); got != (h2gate.Stats{}) {
+			if got := c.Transport.Stats(); got != (h2gate.Stats{}) {
 				t.Errorf("stats() = %+v, want zero values without the SDK's transport", got)
 			}
 		})
@@ -430,7 +430,7 @@ func TestDialErrorsMapToSDKErrors(t *testing.T) {
 	t.Run("success: an unmapped error comes back from roundTrip as it is", func(t *testing.T) {
 		cause := errors.New("http2: stream closed")
 		c := mustResolve(t, noEnv, WithAPIKey(testKey), WithRoundTripper(roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, cause })))
-		if r := getWithin(t, c.transport, "https://api.typesafe.ai/v1/models", attempt, time.Second); r.err != cause { //nolint:errorlint // identity is the assertion
+		if r := getWithin(t, c.Transport, "https://api.typesafe.ai/v1/models", attempt, time.Second); r.err != cause { //nolint:errorlint // identity is the assertion
 			t.Errorf("roundTrip error = %v, want the round tripper's own", r.err)
 		}
 	})
@@ -448,7 +448,7 @@ func testDialErrorsOverLoopback(t *testing.T) {
 	t.Run("error: a server without ALPN under HTTP2Only", func(t *testing.T) {
 		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{ALPN: testsupport.ALPNNone})
 		c := loopbackConfig(t, srv)
-		r := getWithin(t, c.transport, srv.URL()+"/v1/models", attempt, within)
+		r := getWithin(t, c.Transport, srv.URL()+"/v1/models", attempt, within)
 		ce := assertNotNegotiated(t, r.err)
 		if ce != nil && !strings.Contains(ce.Error(), `negotiated ""`) {
 			t.Errorf("Error() = %q, want the empty protocol named", ce.Error())
@@ -460,7 +460,7 @@ func testDialErrorsOverLoopback(t *testing.T) {
 	t.Run("error: a server offering only http/1.1 answers alert 120", func(t *testing.T) {
 		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{ALPN: testsupport.ALPNHTTP1Only})
 		c := loopbackConfig(t, srv)
-		r := getWithin(t, c.transport, srv.URL()+"/v1/models", attempt, within)
+		r := getWithin(t, c.Transport, srv.URL()+"/v1/models", attempt, within)
 		ce := assertNotNegotiated(t, r.err)
 		if ce != nil && !strings.Contains(ce.Error(), "no application protocol") {
 			t.Errorf("Error() = %q, want the alert named", ce.Error())
@@ -469,14 +469,14 @@ func testDialErrorsOverLoopback(t *testing.T) {
 	t.Run("success: the same server under HTTPAuto speaks HTTP/1.1", func(t *testing.T) {
 		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{ALPN: testsupport.ALPNHTTP1Only})
 		c := loopbackConfig(t, srv, WithHTTPVersion(HTTPAuto))
-		if r := getWithin(t, c.transport, srv.URL()+"/v1/models", attempt, within); r.err != nil || r.status != http.StatusOK || r.protoMajor != 1 {
+		if r := getWithin(t, c.Transport, srv.URL()+"/v1/models", attempt, within); r.err != nil || r.status != http.StatusOK || r.protoMajor != 1 {
 			t.Errorf("GET = %d HTTP/%d %v, want 200 over HTTP/1.1", r.status, r.protoMajor, r.err)
 		}
 	})
 	t.Run("error: a TLS-silent API host", func(t *testing.T) {
 		silent := testsupport.NewSilentListener(t)
 		c := mustResolve(t, noEnv, WithAPIKey(testKey), WithBaseURL(silent.URL()), WithProxy(nil), WithConnectTimeout(connect))
-		r := getWithin(t, c.transport, silent.URL()+"/v1/models", attempt, within)
+		r := getWithin(t, c.Transport, silent.URL()+"/v1/models", attempt, within)
 		var te *TimeoutError
 		if !errors.As(r.err, &te) || te.Proxy() || te.Timeout != attempt {
 			t.Fatalf("error = %T %v, want an attempt *TimeoutError", r.err, r.err)
@@ -488,7 +488,7 @@ func testDialErrorsOverLoopback(t *testing.T) {
 	t.Run("error: a refused API host", func(t *testing.T) {
 		addr := closedAddr(t)
 		c := mustResolve(t, noEnv, WithAPIKey(testKey), WithBaseURL("https://"+addr), WithProxy(nil))
-		r := getWithin(t, c.transport, "https://"+addr+"/v1/models", attempt, within)
+		r := getWithin(t, c.Transport, "https://"+addr+"/v1/models", attempt, within)
 		var ce *ConnectionError
 		if !errors.As(r.err, &ce) || ce.Proxy() || !strings.HasPrefix(ce.Error(), "Connection error: dial tcp ") {
 			t.Fatalf("error = %T %v, want an API-hop *ConnectionError", r.err, r.err)
@@ -500,7 +500,7 @@ func testDialErrorsOverLoopback(t *testing.T) {
 	t.Run("error: a refused proxy with a password", func(t *testing.T) {
 		proxy := &url.URL{Scheme: "http", User: url.UserPassword("user", "hunter2"), Host: closedAddr(t)}
 		c := mustResolve(t, noEnv, WithAPIKey(testKey), WithBaseURL("https://example.com"), WithProxy(http.ProxyURL(proxy)))
-		r := getWithin(t, c.transport, "https://example.com/v1/models", attempt, within)
+		r := getWithin(t, c.Transport, "https://example.com/v1/models", attempt, within)
 		var ce *ConnectionError
 		if !errors.As(r.err, &ce) || !ce.Proxy() || !strings.HasPrefix(ce.Error(), "Connection error: proxyconnect tcp: ") {
 			t.Fatalf("error = %T %v, want a proxy *ConnectionError", r.err, r.err)
@@ -511,7 +511,7 @@ func testDialErrorsOverLoopback(t *testing.T) {
 		silent := testsupport.NewSilentListener(t)
 		proxy := &url.URL{Scheme: "https", Host: silent.Addr()}
 		c := mustResolve(t, noEnv, WithAPIKey(testKey), WithBaseURL("https://example.com"), WithProxy(http.ProxyURL(proxy)), WithConnectTimeout(connect))
-		r := getWithin(t, c.transport, "https://example.com/v1/models", attempt, within)
+		r := getWithin(t, c.Transport, "https://example.com/v1/models", attempt, within)
 		var te *TimeoutError
 		if !errors.As(r.err, &te) || !te.Proxy() || te.Error() != "Request timed out on the proxy hop (timeout=7s)." {
 			t.Fatalf("error = %T %v, want a proxy-hop *TimeoutError", r.err, r.err)
@@ -521,7 +521,7 @@ func testDialErrorsOverLoopback(t *testing.T) {
 		proxy := testsupport.NewProxy(t, testsupport.ProxyTLSStrict, nil)
 		c := mustResolve(t, noEnv, WithAPIKey(testKey), WithBaseURL("https://example.com"), WithProxy(http.ProxyURL(proxy.URL())),
 			WithRootCAs(testsupport.RootCAs(t)))
-		r := getWithin(t, c.transport, "https://example.com/v1/models", attempt, within)
+		r := getWithin(t, c.Transport, "https://example.com/v1/models", attempt, within)
 		var ce *ConnectionError
 		if !errors.As(r.err, &ce) || !ce.Proxy() || errors.Is(r.err, ErrHTTP2NotNegotiated) {
 			t.Fatalf("error = %T %v, want a proxy *ConnectionError that is not ErrHTTP2NotNegotiated", r.err, r.err)
@@ -679,7 +679,7 @@ func TestTransportClose(t *testing.T) {
 			l := &closeLog{err: boom}
 			c := mustResolve(t, noEnv, WithAPIKey(testKey), WithRoundTripper(tt.rt(l)))
 			for i := range 3 {
-				if err := c.transport.Close(); err != tt.wantErr { //nolint:errorlint // identity is the assertion
+				if err := c.Transport.Close(); err != tt.wantErr { //nolint:errorlint // identity is the assertion
 					t.Errorf("close #%d = %v, want %v", i+1, err, tt.wantErr)
 				}
 			}
@@ -692,10 +692,10 @@ func TestTransportClose(t *testing.T) {
 		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{})
 		stock := &http.Transport{TLSClientConfig: testsupport.ClientTLSConfig(t), ForceAttemptHTTP2: true}
 		c := mustResolve(t, noEnv, WithAPIKey(testKey), WithBaseURL(srv.URL()), WithRoundTripper(stock))
-		if r := getWithin(t, c.transport, srv.URL()+"/v1/models", 0, 10*time.Second); r.err != nil || r.protoMajor != 2 {
+		if r := getWithin(t, c.Transport, srv.URL()+"/v1/models", 0, 10*time.Second); r.err != nil || r.protoMajor != 2 {
 			t.Fatalf("GET = HTTP/%d %v", r.protoMajor, r.err)
 		}
-		if err := c.transport.Close(); err != nil {
+		if err := c.Transport.Close(); err != nil {
 			t.Errorf("close = %v, want nil", err)
 		}
 		deadline := time.Now().Add(5 * time.Second)
@@ -709,11 +709,11 @@ func TestTransportClose(t *testing.T) {
 	t.Run("success: the SDK's transport closes its idle connection", func(t *testing.T) {
 		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{})
 		c := loopbackConfig(t, srv)
-		if r := getWithin(t, c.transport, srv.URL()+"/v1/models", 0, 10*time.Second); r.err != nil || r.protoMajor != 2 {
+		if r := getWithin(t, c.Transport, srv.URL()+"/v1/models", 0, 10*time.Second); r.err != nil || r.protoMajor != 2 {
 			t.Fatalf("GET = HTTP/%d %v", r.protoMajor, r.err)
 		}
 		for range 2 {
-			if err := c.transport.Close(); err != nil {
+			if err := c.Transport.Close(); err != nil {
 				t.Errorf("close = %v, want nil", err)
 			}
 		}

@@ -166,14 +166,14 @@ func TestClientTracePanicIsRaisedOnTheCaller(t *testing.T) {
 			get := func(path string) getResult {
 				ctx, cancel := context.WithTimeout(callCtx, 5*time.Second)
 				defer cancel()
-				return getVia(ctx, c.transport, srv.URL()+path, 0)
+				return getVia(ctx, c.Transport, srv.URL()+path, 0)
 			}
 			getPanicking := get
 			if tt.holdBody {
 				// No deadline and no cancel: only closing the body resets the
 				// stream the server holds.
 				getPanicking = func(path string) getResult {
-					return getVia(context.WithoutCancel(callCtx), c.transport, srv.URL()+path, 0)
+					return getVia(context.WithoutCancel(callCtx), c.Transport, srv.URL()+path, 0)
 				}
 			}
 			if r := get("/warm"); r.err != nil || r.protoMajor != 2 {
@@ -206,7 +206,7 @@ func TestClientTracePanicIsRaisedOnTheCaller(t *testing.T) {
 				}
 				return problems
 			})
-			st := c.transport.Stats()
+			st := c.Transport.Stats()
 			if srv.Accepts() != 1 || srv.OverLimit() != 0 || st.Dials != 1 {
 				t.Errorf("accepts %d, over the limit %d, stats %+v; want 1 connection throughout", srv.Accepts(), srv.OverLimit(), st)
 			}
@@ -231,7 +231,7 @@ func TestClientTraceColdDialPanic(t *testing.T) {
 	get := func(path string) getResult {
 		ctx, cancel := context.WithTimeout(callCtx, 5*time.Second)
 		defer cancel()
-		return getVia(ctx, c.transport, srv.URL()+path, 0)
+		return getVia(ctx, c.Transport, srv.URL()+path, 0)
 	}
 	within(t, 10*time.Second, "the cold GET", func() []string {
 		if p := recovered(func() { get("/cold") }); p != (hookPanic{hook: "ConnectStart"}) {
@@ -260,7 +260,7 @@ func TestClientTraceMergeOrderAndCopy(t *testing.T) {
 		WithClientTrace(&httptrace.ClientTrace{GetConn: func(string) { calls = append(calls, "option") }}))
 	traced := httptrace.WithClientTrace(t.Context(), &httptrace.ClientTrace{GetConn: func(string) { calls = append(calls, "context") }})
 	for i, ctx := range []context.Context{traced, t.Context(), traced} {
-		if r := getVia(ctx, c.transport, "https://api.typesafe.ai/v1/models", 0); r.err != nil || r.status != http.StatusOK {
+		if r := getVia(ctx, c.Transport, "https://api.typesafe.ai/v1/models", 0); r.err != nil || r.status != http.StatusOK {
 			t.Fatalf("call %d = %d %v", i, r.status, r.err)
 		}
 	}
@@ -358,7 +358,7 @@ func TestClientTraceRoundTripPanic(t *testing.T) {
 		GotConn: func(httptrace.GotConnInfo) { panic(hookPanic{hook: "GotConn"}) },
 	}))
 	ctx := context.WithValue(t.Context(), ctxLogKey{}, "the request's")
-	if p := recovered(func() { getVia(ctx, c.transport, "https://api.typesafe.ai/v1/models", 0) }); p != "the round tripper failed" {
+	if p := recovered(func() { getVia(ctx, c.Transport, "https://api.typesafe.ai/v1/models", 0) }); p != "the round tripper failed" {
 		t.Fatalf("roundTrip panicked with %v, want the round tripper's panic", p)
 	}
 	captured.GotConn(httptrace.GotConnInfo{})
@@ -387,7 +387,7 @@ func TestClientTraceLatePanicIsLogged(t *testing.T) {
 	c := loopbackConfig(t, srv, WithHTTPVersion(HTTPAuto), WithLogger(logs.Logger()), WithClientTrace(trace))
 	for i := range 2 {
 		var r getResult
-		if p := recovered(func() { r = getWithin(t, c.transport, srv.URL()+"/late", 0, 5*time.Second) }); p != nil {
+		if p := recovered(func() { r = getWithin(t, c.Transport, srv.URL()+"/late", 0, 5*time.Second) }); p != nil {
 			t.Fatalf("GET #%d panicked with %v, want the late panic kept from the caller", i, p)
 		}
 		if r.err != nil || r.status != http.StatusOK || r.protoMajor != 1 {

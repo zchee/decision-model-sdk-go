@@ -222,7 +222,7 @@ func FuzzTagGrammar(f *testing.F) {
 			if err != nil {
 				t.Fatalf("planField(%s, %q) accepted a question Prepare refuses: %v", typ, tag, err)
 			}
-			if got := p.w.Entries()[0].Kind; got != answerKind(typ) || q.kind != got {
+			if got := p.wirePrepared().Entries()[0].Kind; got != answerKind(typ) || q.kind != got {
 				t.Fatalf("planField(%s, %q) asks a %v question, recorded as %v", typ, tag, got, q.kind)
 			}
 		}

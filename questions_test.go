@@ -34,7 +34,7 @@ func mustPrepare(t *testing.T, qs *Questions) string {
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
 	}
-	return string(p.w.Questions)
+	return string(p.wirePrepared().Questions)
 }
 
 // prepareError prepares qs, which must fail with a *ConfigError, and returns
@@ -43,10 +43,10 @@ func prepareError(t *testing.T, qs *Questions) *ConfigError {
 	t.Helper()
 	p, err := qs.Prepare()
 	if err == nil {
-		t.Fatalf("Prepare = %s, want an error", p.w.Questions)
+		t.Fatalf("Prepare = %s, want an error", p.wirePrepared().Questions)
 	}
 	if p != nil {
-		t.Errorf("Prepare returned a set with its error: %s", p.w.Questions)
+		t.Errorf("Prepare returned a set with its error: %s", p.wirePrepared().Questions)
 	}
 	var ce *ConfigError
 	if !errors.As(err, &ce) {
@@ -189,11 +189,11 @@ func TestTypedQuestionsWireForm(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Prepare: %v", err)
 			}
-			if got := string(p.w.Questions); got != tt.want {
+			if got := string(p.wirePrepared().Questions); got != tt.want {
 				t.Errorf("questions =\n%s\nwant\n%s", got, tt.want)
 			}
 			var kinds []wire.Kind
-			for _, e := range p.w.Entries() {
+			for _, e := range p.wirePrepared().Entries() {
 				kinds = append(kinds, e.Kind)
 			}
 			if diff := gocmp.Diff(tt.wantKinds, kinds); diff != "" {
@@ -241,10 +241,10 @@ func TestRawQuestionsPassThrough(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Prepare: %v", err)
 			}
-			if want := `{"raw":` + tt.wantRaw + `,"typed":{"type":"noul","instructions":"Spam?"}}`; string(p.w.Questions) != want {
-				t.Errorf("questions =\n%s\nwant\n%s", p.w.Questions, want)
+			if want := `{"raw":` + tt.wantRaw + `,"typed":{"type":"noul","instructions":"Spam?"}}`; string(p.wirePrepared().Questions) != want {
+				t.Errorf("questions =\n%s\nwant\n%s", p.wirePrepared().Questions, want)
 			}
-			if got := p.w.Entries()[0].Kind; got != tt.wantKind {
+			if got := p.wirePrepared().Entries()[0].Kind; got != tt.wantKind {
 				t.Errorf("raw kind = %v, want %v", got, tt.wantKind)
 			}
 			if diff := gocmp.Diff(before, tt.raw.Fields); diff != "" {
@@ -414,7 +414,7 @@ func TestEachKindWritesItsTypeTag(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Prepare: %v", err)
 			}
-			if got := p.w.Entries()[0].Kind; got != tt.wantKind {
+			if got := p.wirePrepared().Entries()[0].Kind; got != tt.wantKind {
 				t.Errorf("kind = %v, want %v", got, tt.wantKind)
 			}
 			for _, c := range []struct {

@@ -80,7 +80,7 @@ func TestAllocTypedDecode(t *testing.T) {
 	none := func() struct{} { return struct{}{} }
 
 	answersDecode := testsupport.MeasureMin(t, "Answers() decode", func() *wire.SystemOneResult { return new(wire.SystemOneResult) }, func(res *wire.SystemOneResult) {
-		_, err = codec.DecodeSystemOne(body, &qs.w, c.cfg.model, res)
+		_, err = codec.DecodeSystemOne(body, qs.wirePrepared(), c.cfg().Model, res)
 	})
 	check("Answers() decode")
 	typedDecode := testsupport.MeasureMin(t, "DecodeAs[reviewAnswers]", none, func(struct{}) {

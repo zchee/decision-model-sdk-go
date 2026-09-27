@@ -47,7 +47,7 @@ func decodeSystemOne(ctx context.Context, logger *slog.Logger, meta *wire.Respon
 func decodeSystemOneInto(ctx context.Context, logger *slog.Logger, meta *wire.ResponseMeta, endpoint string, r headerRedactor, qs *Prepared, model string, dst *wire.SystemOneResult, spare []wire.AnswerEntry) error {
 	var q *wire.Prepared
 	if qs != nil {
-		q = &qs.w
+		q = qs.wirePrepared()
 	}
 	if err := engine.DecodeSystemOneInto(ctx, logger, meta.Body, q, model, dst, spare); err != nil {
 		return newResponseValidationError(meta, endpoint, r, err)

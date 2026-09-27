@@ -149,7 +149,7 @@ type callSettings struct {
 // A failure is a *ConfigError, before anything is encoded or sent; the
 // order is timeout, retry policy, then headers.
 func (o *callOptions) settings(ctx context.Context, cfg *config, base http.Header) (callSettings, error) {
-	s := callSettings{header: base, timeout: cfg.timeout, retry: cfg.retry}
+	s := callSettings{header: base, timeout: cfg.Timeout, retry: cfg.Retry}
 	if o.timeout != nil {
 		if *o.timeout <= 0 {
 			return callSettings{}, newConfigError("The timeout passed to Timeout must be positive.")
@@ -176,7 +176,7 @@ func (o *callOptions) settings(ctx context.Context, cfg *config, base http.Heade
 // the client's.
 func (o *callOptions) systemOneModel(cfg *config) (string, error) {
 	if o.model == nil {
-		return cfg.model, nil
+		return cfg.Model, nil
 	}
 	if strings.TrimFunc(*o.model, isPythonSpace) == "" {
 		return "", newConfigError("The model passed to Model is empty; leave Model out to use the client's model.")
@@ -202,9 +202,9 @@ func (o *callOptions) forModels() error {
 // modified.
 func callHeader(ctx context.Context, cfg *config, base http.Header, headers []headerOption) (http.Header, error) {
 	h := base.Clone()
-	lowerKey := strings.ToLower(cfg.apiKey)
+	lowerKey := strings.ToLower(cfg.APIKey)
 	for i, ho := range headers {
-		if keyNeedle(cfg.apiKey) && strings.Contains(strings.ToLower(ho.name), lowerKey) {
+		if keyNeedle(cfg.APIKey) && strings.Contains(strings.ToLower(ho.name), lowerKey) {
 			return nil, newConfigError("The name given to Header call option " + strconv.Itoa(i+1) + " contains the API key, so it is not shown; pass the key with WithAPIKey only.")
 		}
 		if !validFieldName(ho.name) {
@@ -215,7 +215,7 @@ func callHeader(ctx context.Context, cfg *config, base http.Header, headers []he
 			return nil, newConfigError("The value given to Header for " + name + " is not a valid HTTP field value (RFC 9110, section 5.5).")
 		}
 		if reason, owned := sdkOwnedHeaders[name]; owned {
-			cfg.logger.LogAttrs(ctx, slog.LevelDebug, "call: header dropped",
+			cfg.Logger.LogAttrs(ctx, slog.LevelDebug, "call: header dropped",
 				slog.String("header", name), slog.String("reason", reason))
 			continue
 		}

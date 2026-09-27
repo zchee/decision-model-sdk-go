@@ -108,7 +108,7 @@ func storeKindsResponse(t *testing.T) *SystemOneResponse {
 func wantAnswers(t *testing.T, resp *SystemOneResponse, v storeKinds) storeKinds {
 	t.Helper()
 	answer := func(name string) wire.Answer {
-		a, ok := resp.res.Answers.Get(name)
+		a, ok := resp.result().Answers.Get(name)
 		if !ok {
 			t.Fatalf("the response has no answer %q", name)
 		}

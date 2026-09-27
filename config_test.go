@@ -184,10 +184,10 @@ func TestAPIKeyTrimmed(t *testing.T) {
 					opts = append(opts, WithAPIKey(key))
 				}
 				c := mustResolve(t, os.Getenv, opts...)
-				if c.apiKey != "test-key" {
-					t.Errorf("apiKey = %q, want %q", c.apiKey, "test-key")
+				if c.APIKey != "test-key" {
+					t.Errorf("apiKey = %q, want %q", c.APIKey, "test-key")
 				}
-				for _, h := range []http.Header{c.systemOneHeader, c.modelsHeader} {
+				for _, h := range []http.Header{c.SystemOneHeader, c.ModelsHeader} {
 					if got := h.Get(headerAuthorization); got != "Bearer test-key" {
 						t.Errorf("Authorization = %q, want %q", got, "Bearer test-key")
 					}
@@ -318,7 +318,7 @@ func TestBlankEnvIsUnset(t *testing.T) {
 				t.Setenv(v, tt.blank)
 			}
 			c := mustResolve(t, os.Getenv, WithAPIKey("test-key"))
-			got := [3]string{c.systemOneURL.String(), c.modelsURL.String(), c.model}
+			got := [3]string{c.SystemOneURL.String(), c.ModelsURL.String(), c.Model}
 			want := [3]string{"https://api.typesafe.ai/v1/systemone", "https://api.typesafe.ai/v1/models", "jev-latest"}
 			if got != want {
 				t.Errorf("(system one URL, models URL, model) = %q, want %q", got, want)
@@ -402,8 +402,8 @@ func TestTimeoutSettings(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			c := mustResolve(t, noEnv, append([]ClientOption{WithAPIKey("test-key")}, tt.opts...)...)
-			if c.timeout != tt.wantTimeout || c.connectTimeout != tt.wantConnect {
-				t.Errorf("(timeout, connect timeout) = (%v, %v), want (%v, %v)", c.timeout, c.connectTimeout, tt.wantTimeout, tt.wantConnect)
+			if c.Timeout != tt.wantTimeout || c.ConnectTimeout != tt.wantConnect {
+				t.Errorf("(timeout, connect timeout) = (%v, %v), want (%v, %v)", c.Timeout, c.ConnectTimeout, tt.wantTimeout, tt.wantConnect)
 			}
 		})
 	}
@@ -472,7 +472,7 @@ func TestConfigResolutionOrder(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			c := mustResolve(t, mapEnv(tt.env), tt.opts...)
-			got := resolved{c.modelsHeader.Get(headerAuthorization), c.systemOneURL.String(), c.modelsURL.String(), c.model, c.timeout}
+			got := resolved{c.ModelsHeader.Get(headerAuthorization), c.SystemOneURL.String(), c.ModelsURL.String(), c.Model, c.Timeout}
 			if diff := gocmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("resolved settings mismatch (-want +got):\n%s", diff)
 			}
@@ -634,14 +634,14 @@ func TestBaseURL(t *testing.T) {
 				return
 			}
 			c := mustResolve(t, mapEnv(tt.env), opts...)
-			if got := c.systemOneURL.String(); got != tt.wantSystemOne {
+			if got := c.SystemOneURL.String(); got != tt.wantSystemOne {
 				t.Errorf("system one URL = %q, want %q", got, tt.wantSystemOne)
 			}
-			if got := c.modelsURL.String(); got != tt.wantModels {
+			if got := c.ModelsURL.String(); got != tt.wantModels {
 				t.Errorf("models URL = %q, want %q", got, tt.wantModels)
 			}
-			if c.systemOneLog != tt.wantSystemOne || c.modelsLog != tt.wantModels {
-				t.Errorf("log endpoints = (%q, %q), want the URLs", c.systemOneLog, c.modelsLog)
+			if c.SystemOneLog != tt.wantSystemOne || c.ModelsLog != tt.wantModels {
+				t.Errorf("log endpoints = (%q, %q), want the URLs", c.SystemOneLog, c.ModelsLog)
 			}
 		})
 	}
@@ -670,10 +670,10 @@ func TestLogEndpointHost(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			c := mustResolve(t, noEnv, append([]ClientOption{WithAPIKey("test-key"), WithBaseURL("https://example.test/prefix/")}, tt.opts...)...)
-			if c.systemOneLog != tt.wantSystemOne || c.modelsLog != tt.wantModels {
-				t.Errorf("log endpoints = (%q, %q), want (%q, %q)", c.systemOneLog, c.modelsLog, tt.wantSystemOne, tt.wantModels)
+			if c.SystemOneLog != tt.wantSystemOne || c.ModelsLog != tt.wantModels {
+				t.Errorf("log endpoints = (%q, %q), want (%q, %q)", c.SystemOneLog, c.ModelsLog, tt.wantSystemOne, tt.wantModels)
 			}
-			if got := c.systemOneURL.String(); got != "https://example.test/prefix/v1/systemone" {
+			if got := c.SystemOneURL.String(); got != "https://example.test/prefix/v1/systemone" {
 				t.Errorf("system one URL = %q: the log setting must not change the request URL", got)
 			}
 		})
@@ -710,7 +710,7 @@ func TestModel(t *testing.T) {
 				}
 				return
 			}
-			if got := mustResolve(t, mapEnv(tt.env), opts...).model; got != tt.want {
+			if got := mustResolve(t, mapEnv(tt.env), opts...).Model; got != tt.want {
 				t.Errorf("model = %q, want %q", got, tt.want)
 			}
 		})
@@ -751,7 +751,7 @@ func TestMaxResponseBytes(t *testing.T) {
 				}
 				return
 			}
-			if got := mustResolve(t, noEnv, opts...).maxResponseBytes; got != tt.want {
+			if got := mustResolve(t, noEnv, opts...).MaxResponseBytes; got != tt.want {
 				t.Errorf("maxResponseBytes = %d, want %d", got, tt.want)
 			}
 		})
@@ -775,17 +775,17 @@ func TestLogger(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			c := mustResolve(t, noEnv, append([]ClientOption{WithAPIKey("test-key")}, tt.opts...)...)
-			if c.logger == nil {
+			if c.Logger == nil {
 				t.Fatal("logger is nil")
 			}
 			if tt.wantDiscard {
-				if h := c.logger.Handler(); h != slog.DiscardHandler {
+				if h := c.Logger.Handler(); h != slog.DiscardHandler {
 					t.Errorf("handler = %T, want slog.DiscardHandler", h)
 				}
 				return
 			}
-			if c.logger != tt.want {
-				t.Errorf("logger = %p, want %p", c.logger, tt.want)
+			if c.Logger != tt.want {
+				t.Errorf("logger = %p, want %p", c.Logger, tt.want)
 			}
 		})
 	}
@@ -885,12 +885,12 @@ func TestHeaderTemplate(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			c := mustResolve(t, noEnv, append([]ClientOption{WithAPIKey("test-key")}, tt.opts...)...)
-			if diff := gocmp.Diff(tt.want, c.modelsHeader); diff != "" {
+			if diff := gocmp.Diff(tt.want, c.ModelsHeader); diff != "" {
 				t.Errorf("models template mismatch (-want +got):\n%s", diff)
 			}
 			wantPost := tt.want.Clone()
 			wantPost["Content-Type"] = []string{"application/json"}
-			if diff := gocmp.Diff(wantPost, c.systemOneHeader); diff != "" {
+			if diff := gocmp.Diff(wantPost, c.SystemOneHeader); diff != "" {
 				t.Errorf("system one template mismatch (-want +got):\n%s", diff)
 			}
 		})
@@ -955,7 +955,7 @@ func TestHeaderDropsLogged(t *testing.T) {
 			if diff := gocmp.Diff(want, got); diff != "" {
 				t.Errorf("records mismatch (-want +got):\n%s", diff)
 			}
-			for _, h := range []http.Header{c.modelsHeader, c.systemOneHeader} {
+			for _, h := range []http.Header{c.ModelsHeader, c.SystemOneHeader} {
 				if slices.Contains(h.Values(canonical), value) {
 					t.Errorf("template carries the caller's %s: %q", canonical, h.Values(canonical))
 				}
@@ -1121,7 +1121,7 @@ func TestUserAgentProductRules(t *testing.T) {
 			opts := []ClientOption{WithAPIKey("test-key"), WithUserAgentProduct(tt.product)}
 			if tt.want == "" {
 				c := mustResolve(t, noEnv, opts...)
-				if got, want := c.modelsHeader.Get(headerUserAgent), tt.product+" typesafe-sdk-go/"+Version; got != want {
+				if got, want := c.ModelsHeader.Get(headerUserAgent), tt.product+" typesafe-sdk-go/"+Version; got != want {
 					t.Errorf("User-Agent = %q, want %q", got, want)
 				}
 				return

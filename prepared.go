@@ -17,6 +17,7 @@ package typesafe
 import (
 	"iter"
 
+	"github.com/zchee/typesafe-sdk-go/internal/engine"
 	"github.com/zchee/typesafe-sdk-go/internal/wire"
 )
 
@@ -27,18 +28,21 @@ import (
 // request sends as "questions", the tables the response decoder matches
 // answers against: the names, each choice question's option labels and each
 // score question's levels.
-type Prepared struct {
-	w wire.Prepared
-}
+type Prepared engine.Prepared
+
+// wirePrepared returns p's bytes and tables from its state, internal/engine's
+// Prepared, over which Prepared is defined (W6.5 design D1): a free
+// conversion.
+func (p *Prepared) wirePrepared() *wire.Prepared { return (*engine.Prepared)(p).Wire() }
 
 // Len returns the number of questions in the set. It is never zero for a set
 // returned by [Questions.Prepare].
-func (p *Prepared) Len() int { return len(p.w.Entries()) }
+func (p *Prepared) Len() int { return len(p.wirePrepared().Entries()) }
 
 // Names returns the question names in the order they are sent.
 func (p *Prepared) Names() iter.Seq[string] {
 	return func(yield func(string) bool) {
-		for _, e := range p.w.Entries() {
+		for _, e := range p.wirePrepared().Entries() {
 			if !yield(e.Name) {
 				return
 			}

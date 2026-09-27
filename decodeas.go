@@ -60,7 +60,7 @@ func Ask[T any](ctx context.Context, c *Client, state any, opts ...CallOption) (
 		var zero T
 		return zero, err
 	}
-	return decodeTyped[T](p, resp, c.systemOneEndpoint, red)
+	return decodeTyped[T](p, resp, c.eng().SystemOneEndpoint(), red)
 }
 
 // DecodeAs returns the answers of resp as a T, the struct type whose fields
@@ -166,7 +166,7 @@ func (p *typedPlan) decode(resp *SystemOneResponse, endpoint string, r headerRed
 	if p.err != nil {
 		return p.err
 	}
-	answers := &resp.res.Answers
+	answers := &resp.result().Answers
 	for i := range p.fields {
 		f := &p.fields[i]
 		a, ok := answers.Get(f.name)
@@ -271,7 +271,7 @@ func undeclaredLevel(a *wire.ScoreAnswer, levels uint64) (at codec.FieldPath, ba
 // the decoder's form was rendered first and then replaced).
 func typedError(resp *SystemOneResponse, endpoint string, r headerRedactor, name string, at codec.FieldPath, reason error) *ResponseValidationError {
 	at.Top, at.Name, at.HasName = "answers", name, true
-	return newResponseValidationErrorAt(&resp.meta, endpoint, r, &codec.DecodeError{Path: at, Err: reason}, typedFieldPath(at))
+	return newResponseValidationErrorAt(resp.respMeta(), endpoint, r, &codec.DecodeError{Path: at, Err: reason}, typedFieldPath(at))
 }
 
 // typedFieldPath renders p, the path in the body of an answer that does not

@@ -732,7 +732,7 @@ func TestParseRetryAfterTable(t *testing.T) {
 					rtReply(429, `{}`, tt.header...), rtReply(200, `{"models":[]}`),
 				}}}
 				c := newTestClient(t, log, WithRetry(DefaultRetry()))
-				c.random = fixedRandom(0)
+				c.eng().SetRandom(fixedRandom(0))
 				if err := listCall(bubbleCtx(t), c); err != nil {
 					t.Fatalf("List: %v", err)
 				}
@@ -792,7 +792,7 @@ func TestBackoffScheduleAndDates(t *testing.T) {
 		// Through the client: 503 every time, six retries, no budget.
 		log := &attemptLog{rec: &testsupport.Recorder{Replies: []testsupport.Reply{rtReply(503, `{}`)}}}
 		c := newTestClient(t, log, WithRetry(DefaultRetry().MaxRetries(6).NoBudget()))
-		c.random = fixedRandom(0)
+		c.eng().SetRandom(fixedRandom(0))
 		if ae, ok := errors.AsType[*APIError](listCall(bubbleCtx(t), c)); !ok || ae.StatusCode != http.StatusServiceUnavailable {
 			t.Fatalf("List: want the last 503")
 		}
@@ -1660,7 +1660,7 @@ func TestWaitOptions(t *testing.T) {
 					rtReply(429, `{}`, "Retry-After", "5"), rtReply(200, `{"models":[]}`),
 				}}}
 				c := newTestClient(t, log, WithRetry(tt.policy))
-				c.random = fixedRandom(0)
+				c.eng().SetRandom(fixedRandom(0))
 				if err := listCall(bubbleCtx(t), c); err != nil {
 					t.Fatalf("List: %v", err)
 				}

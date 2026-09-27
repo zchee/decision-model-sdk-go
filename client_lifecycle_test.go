@@ -279,8 +279,8 @@ func TestCloseClosesOwnedTransport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	if c.cfg.transport.Gate == nil || c.cfg.timeout != DefaultTimeout {
-		t.Errorf("SDK transport %t, timeout %v, want the SDK's own transport and %v", c.cfg.transport.Gate != nil, c.cfg.timeout, DefaultTimeout)
+	if c.cfg().Transport.Gate == nil || c.cfg().Timeout != DefaultTimeout {
+		t.Errorf("SDK transport %t, timeout %v, want the SDK's own transport and %v", c.cfg().Transport.Gate != nil, c.cfg().Timeout, DefaultTimeout)
 	}
 	if _, err := c.Models().List(t.Context()); err != nil {
 		t.Fatalf("List: %v", err)

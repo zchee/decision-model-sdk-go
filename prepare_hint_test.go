@@ -46,8 +46,8 @@ func TestSizeHintCoversRawValues(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if hint := qs.sizeHint().bytes; hint < len(p.w.Questions) {
-				t.Errorf("sizeHint = %d, below the prepared length %d: the buffer grows", hint, len(p.w.Questions))
+			if hint := qs.sizeHint().bytes; hint < len(p.wirePrepared().Questions) {
+				t.Errorf("sizeHint = %d, below the prepared length %d: the buffer grows", hint, len(p.wirePrepared().Questions))
 			}
 		})
 	}
@@ -69,7 +69,7 @@ func TestPrepareTablesOwnArrays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries := p.w.Entries()
+	entries := p.wirePrepared().Entries()
 	for i := range 3 {
 		n := strconv.Itoa(i)
 		c, s := entries[2*i], entries[2*i+1]

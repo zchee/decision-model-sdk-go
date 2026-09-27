@@ -76,7 +76,7 @@ func TestAllocPrepare(t *testing.T) {
 				}
 				prepareSink = p
 			})
-			t.Logf("%s: %d mallocs, %d bytes; prepared %d bytes", name, got.Mallocs, got.Bytes, len(prepareSink.w.Questions))
+			t.Logf("%s: %d mallocs, %d bytes; prepared %d bytes", name, got.Mallocs, got.Bytes, len(prepareSink.wirePrepared().Questions))
 			if tt.mallocs < 0 {
 				return
 			}
