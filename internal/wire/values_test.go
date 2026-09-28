@@ -27,13 +27,13 @@ func TestContent(t *testing.T) {
 		a         Content
 		wantAJSON bool
 	}{
-		"success: same text": {
+		"success: text is not JSON": {
 			a: Content{Text: "can wait"},
 		},
-		"success: empty text equals empty text": {
+		"success: the zero Content is not JSON": {
 			a: Content{},
 		},
-		"success: same JSON bytes": {
+		"success: JSON bytes are JSON": {
 			a:         Content{JSON: []byte(`{"a":1}`)},
 			wantAJSON: true,
 		},
@@ -45,7 +45,7 @@ func TestContent(t *testing.T) {
 			a:         Content{JSON: []byte{}},
 			wantAJSON: true,
 		},
-		"success: text never equals JSON spelling the same bytes": {
+		"success: text spelling JSON is not JSON": {
 			a: Content{Text: `["x"]`},
 		},
 	}

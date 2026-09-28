@@ -1012,14 +1012,14 @@ func TestProxyAnswerHeadersRedacted(t *testing.T) {
 	}
 	records := recordsText(logs)
 
-	t.Run("error: the error's Header (headerRedactor.header)", func(t *testing.T) {
+	t.Run("error: the error's Header (HeaderRedactor.Header)", func(t *testing.T) {
 		for _, name := range []string{"X-Proxy-Echo", "X-Proxy-Password", "X-Typesafe-Request-Id"} {
 			if got := ae.Header.Values(name); !slices.Equal(got, []string{engine.Redacted}) {
 				t.Errorf("Header[%s] = %q, want [%q]", name, got, engine.Redacted)
 			}
 		}
 	})
-	t.Run("error: the request id (headerRedactor.requestID)", func(t *testing.T) {
+	t.Run("error: the request id (HeaderRedactor.RequestID)", func(t *testing.T) {
 		if line := recordLine(records, "INFO response"); !strings.Contains(line, "request_id="+engine.Redacted) {
 			t.Errorf("the INFO response record %q lacks request_id=%s", line, engine.Redacted)
 		}
