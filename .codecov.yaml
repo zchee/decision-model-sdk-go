@@ -57,7 +57,7 @@ coverage:
 # These paths hold no shipped SDK behaviour, so they must not move the project
 # number when they appear in a profile.
 ignore:
-  - examples/** # Runnable examples, compiled by go vet; documentation, not library code.
+  - examples/** # Runnable examples, compiled and run by livetest.TestExamplesOffline; documentation, not library code.
   - livetest/** # Opt-in tests against the billed live API (-tags live); not run in CI.
   - internal/testsupport/** # Test servers, proxies and fixtures: the code doing the testing.
 

@@ -48,23 +48,30 @@ jobs:
         with:
           version: latest
 
-      - name: Install gofumpt, modernize, staticcheck and govulncheck
+      # The formatters of golangci-lint run see only the files of the packages
+      # that this runner's build loads, so they miss the files built only for
+      # another platform or Go release (internal/codec/unsupported.go,
+      # internal/codec/validate_arm64.go, internal/testsupport/guard_other.go).
+      # fmt walks every tracked Go file instead, those three included, with
+      # the same gofumpt and goimports settings. Any output fails the step: a
+      # diff, or the warning fmt prints for a file it cannot parse, for which
+      # it exits 0.
+      - name: golangci-lint fmt --diff
         run: |
-          go install mvdan.cc/gofumpt@latest
-          go install golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest
-          go install honnef.co/go/tools/cmd/staticcheck@latest
-          go install golang.org/x/vuln/cmd/govulncheck@latest
-
-      # gofumpt's exit status is checked on its own: inside test -z "$(...)" a
-      # gofumpt failure with empty output would pass.
-      - name: gofumpt, modernize, vet, staticcheck, govulncheck, go mod tidy
-        run: |
-          out="$(gofumpt -extra -l .)"
-          if [ -n "$out" ]; then
-            printf 'gofumpt -extra would reformat:\n%s\n' "$out"
+          rc=0
+          out="$(golangci-lint fmt --diff 2>&1)" || rc=$?
+          if [ -n "$out" ] || [ "$rc" -ne 0 ]; then
+            printf 'golangci-lint fmt --diff (exit status %s):\n%s\n' "$rc" "$out"
             exit 1
           fi
-          modernize -test ./... && go vet ./... && staticcheck ./... && govulncheck ./... && go mod tidy -diff
+
+      - name: Install govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: govulncheck, go mod tidy
+        run: |
+          govulncheck ./... && go mod tidy -diff
 
       # Import confinement (sonic, unsafe, x/net, JSON libraries), the per-file
       # D1 constraint lines and the sonic JIT-path guard. The test job runs the
