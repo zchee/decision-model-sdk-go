@@ -16,7 +16,6 @@ package typesafe
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -31,6 +30,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bytedance/sonic"
 	gocmp "github.com/google/go-cmp/cmp"
 
 	"github.com/zchee/typesafe-sdk-go/internal/codec"
@@ -202,13 +202,13 @@ func TestDecodeAsOptionalFieldAndUnknownAnswer(t *testing.T) {
 	}
 	// The upstream model_dump holds "missing": None; the struct marshals the
 	// absent answer as null and the others as their kinds.
-	dump, err := json.Marshal(got)
+	dump, err := sonic.ConfigFastest.Marshal(got)
 	if err != nil {
-		t.Fatalf("json.Marshal(typed struct): %v", err)
+		t.Fatalf("sonic.ConfigFastest.Marshal(typed struct): %v", err)
 	}
 	wantDump := `{"Spam":{"type":"noul","noul":0.98},"Tone":{"type":"choice","choice":"friendly","confidence":0.9,"probabilities":{"friendly":0.9,"hostile":0.1}},"Missing":null}`
 	if diff := gocmp.Diff(wantDump, string(dump)); diff != "" {
-		t.Errorf("json.Marshal(typed struct) (-want +got):\n%s", diff)
+		t.Errorf("sonic.ConfigFastest.Marshal(typed struct) (-want +got):\n%s", diff)
 	}
 
 	answers := resp.Answers()
