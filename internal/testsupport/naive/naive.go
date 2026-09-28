@@ -40,11 +40,12 @@
 // characters, whose members are in a fixed order), the body bytes are the
 // SDK's; the root package's tests assert that byte for byte.
 //
-// With internal/codec it is the only package of the module that imports
-// sonic (the seam test in internal/codec holds the rule). It imports
-// encoding/json as the second comparator, which the seam test allows
-// internal/testsupport and its subpackages, test tooling only. It imports
-// neither the root package nor internal/codec.
+// With internal/codec it is the only package of the module whose non-test
+// code imports sonic (the seam test in internal/codec holds the rule; the
+// tests of the root package and of internal/testsupport may import sonic's
+// root package). It imports encoding/json as the second comparator, which
+// the seam test allows internal/testsupport and its subpackages, test
+// tooling only. It imports neither the root package nor internal/codec.
 package naive
 
 import (

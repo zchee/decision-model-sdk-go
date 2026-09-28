@@ -16,18 +16,20 @@
 
 // Package codec is the SDK's JSON layer. Of the SDK's code it is the only
 // package that imports github.com/bytedance/sonic (the benchmark comparator
-// internal/testsupport/naive is the module's other importer), and it holds
-// one of the module's two non-test uses of unsafe, the zero-copy
+// internal/testsupport/naive imports it too, and the tests of the root
+// package and of internal/testsupport may import its root package), and it
+// holds one of the module's two non-test uses of unsafe, the zero-copy
 // bytes-to-string bridge [NoCopyString]; the root package's typed store is
 // the other.
 //
 // It builds only where sonic's JIT path does, Go 1.17 to 1.27 on amd64 and
 // arm64; everywhere else the package is unsupported.go alone and fails to
 // compile on purpose (docs/support.md). The seam tests in seam_test.go
-// confine sonic and unsafe to those places, keep every JSON library out of
-// the non-test code of the SDK's other packages, whose tests may use
-// encoding/json to check what a caller's encoder sees, and check the two
-// build constraints file by file.
+// confine unsafe to those places, and sonic too save for its root package
+// in the tests of the root package and of internal/testsupport, keep every
+// JSON library out of the non-test code of the SDK's other packages, whose
+// tests may use encoding/json to check what a caller's encoder sees, and
+// check the two build constraints file by file.
 //
 // The package holds the request body's scratch pool ([Body]), the request
 // encoder that writes a state or a body member into it ([EncodeState],

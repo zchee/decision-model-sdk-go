@@ -39,7 +39,9 @@ admits, the SDK refuses to compile there instead.
 ## The compile-time refusal
 
 `internal/codec` is the only package of the SDK that imports sonic
-(`internal/testsupport/naive`, the benchmarks' comparator, is test tooling).
+(`internal/testsupport/naive`, the benchmarks' comparator, is test tooling,
+and the tests of the root package and of `internal/testsupport` may import
+sonic's root package).
 It carries these build constraints:
 
 - `internal/codec/unsupported.go` carries
@@ -81,7 +83,8 @@ and, by comparing build lines, for every GOARCH and Go release up to the
 cutoff. `TestSeamImports` keeps every JSON library out of the other packages'
 non-test code (`internal/testsupport`, which holds test tooling, excepted);
 their tests may import `encoding/json`, to check what a caller's encoder sees,
-and no other JSON library.
+and no other JSON library, save sonic's root package
+`github.com/bytedance/sonic` in the root package's tests.
 
 `internal/codec` also imports `encoding/json`, only for the
 `json.Number` type that sonic's `ast.Visitor` interface requires; nothing is

@@ -154,8 +154,9 @@ ones:
   of the HTTP/2 transport's) and the response-size cap.
 - Seam tests over every package of the module: `unsafe` only in the typed
   store's file and the codec's no-copy string, sonic only behind
-  `internal/codec` and in the benchmarks' naive client, and no
-  `import "C"`.
+  `internal/codec` in the SDK's code, in the benchmarks' naive client, and
+  through its root package in the tests of the root package and
+  `internal/testsupport`, and no `import "C"`.
 - The request state's UTF-8 check runs sonic's SIMD validator on amd64 and
   `utf8.Valid` on arm64.
 - Benchmarks B1–B6 against a naive sonic client; the benchmark job fails
