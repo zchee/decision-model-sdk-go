@@ -95,7 +95,7 @@ upstream test reaches the behaviour.
 | typed wire names | the model's field name | the Go field name as written (`Billing`), or the tag's `name=` | no case conversion rules | — |
 | stricter typed checks | an undeclared probability label, and a legend or probability level beyond the levels, pass unless the model's `Literal` forbids them; a plain `BaseModel` may omit `usage` | the typed decode refuses them, and requires `usage` | a typed set declares its options and levels | — |
 | typed tag rules | pyrefly checks a model when the code is type-checked | a tag is a string checked once per type by `PreparedFor[T]`, which refuses each fault its documentation lists with a `*ConfigError`, among them an embedded struct holding a tagged field, a choice without options and repeated score levels, the last two of which `NewQuestions` accepts | struct tags are strings | — |
-| pyrefly fixtures | pyrefly expectation fixtures (`tests/typing/`) | the negative expectations map to `PreparedFor[T]`'s runtime rejections; the positive fixtures to `go vet ./examples/...` | Go's compiler checks what pyrefly checks | XT1 |
+| pyrefly fixtures | pyrefly expectation fixtures (`tests/typing/`) | the negative expectations map to `PreparedFor[T]`'s runtime rejections; the positive fixtures to the examples, which CI compiles and runs (`livetest.TestExamplesOffline`) | Go's compiler checks what pyrefly checks | XT1 |
 | typed decode by field offsets | pydantic builds the model | `DecodeAs[T]` writes each answer at its field's offset through `unsafe`, in one file of the package (`decodeas_store.go`), without allocating | the owner allowed it for an allocation-free typed decode | — |
 
 ## Tests and tooling

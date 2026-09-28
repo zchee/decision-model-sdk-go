@@ -86,12 +86,11 @@ jobs:
         run: uv run --script .github/scripts/docs-snippets.py --readme README.md --docs docs --examples examples
 
       # The examples are the Go counterpart of the Python SDK's positive
-      # typing fixtures, so they must compile. go vet ./... above covers
-      # them too; this step names them, and fails when examples/ holds no
-      # program or one that go list does not report as a package, so it
-      # cannot pass with nothing to check. The live tests compile only with
-      # -tags live, so they are vetted here as well.
-      - name: go vet the examples (XT1) and the live tests
+      # typing fixtures, so they must compile; golangci-lint above
+      # type-checks and vets every package, the examples included. This
+      # step fails when examples/ holds no program or one that go list does
+      # not report as a package, so ./... cannot leave one out.
+      - name: The examples are packages (XT1)
         run: |
           mapfile -t dirs < <(git ls-files -- 'examples/*.go' | grep -v '_test\.go$' | xargs -r -n1 dirname | sort -u)
           if [ "${#dirs[@]}" -eq 0 ]; then
@@ -105,9 +104,7 @@ jobs:
             printf '::error::go list ./examples/... reports [%s] where examples/ holds [%s]\n' "${listed//$'\n'/ }" "${want//$'\n'/ }"
             exit 1
           fi
-          echo "go vet: ${#dirs[@]} example programs: ${dirs[*]}"
-          go vet ./examples/...
-          go vet -tags live ./livetest/
+          echo "${#dirs[@]} example programs: ${dirs[*]}"
 
       - name: Report available dependency updates
         run: go list -m -u all

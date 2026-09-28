@@ -603,7 +603,7 @@ type (
 //	transport.py    async client._request(models) likewise                compile error, as above
 //
 // The positive fixtures (valid.py, transport.py, pydantic_response_models.py)
-// map to the examples, which CI's go vet ./examples/... checks.
+// map to the examples, which livetest.TestExamplesOffline compiles and runs.
 func TestPreparedForRejections(t *testing.T) {
 	_ = rejUnexported{}.spam // unexported fields exist only to be refused
 	_ = rejNamedUnexported{}.inner

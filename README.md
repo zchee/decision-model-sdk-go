@@ -424,9 +424,9 @@ each System One call; CI does not run these tests
 - [CI](.github/workflows/ci.yaml) runs the linters (gofumpt, modernize,
   golangci-lint, vet, staticcheck, govulncheck, `go mod tidy -diff`), the
   import-confinement tests, the port test matrix, the docs-snippets check,
-  `go vet` of the examples, and the compile-time refusal off the support
-  matrix; then the tests with `-race` on `ubuntu-26.04`, `xcode-27` and
-  `windows-2025`, and the allocation budgets without it.
+  the check that every example is a package, and the compile-time refusal
+  off the support matrix; then the tests with `-race` on `ubuntu-26.04`,
+  `xcode-27` and `windows-2025`, and the allocation budgets without it.
 - [Codecov](https://codecov.io/gh/zchee/typesafe-sdk-go) receives each
   image's coverage; its project status blocks at the 85 % target (the
   90 % goal and the patch status are informational), and every block the

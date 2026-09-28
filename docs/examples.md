@@ -3,9 +3,9 @@
 Each program under [`examples/`](../examples) is a package of this module
 and a complete program; every Go block on this page, and in the
 [README](../README.md), is one of them, byte for byte
-(`.github/scripts/docs-snippets.py` checks it in CI). CI also compiles them
-(`go vet ./examples/...`), and runs each against a local stand-in for the
-API (`livetest.TestExamplesOffline`); `livetest.TestExamples` runs them
+(`.github/scripts/docs-snippets.py` checks it in CI). CI also compiles and
+runs each with `go run` against a local stand-in for the API
+(`livetest.TestExamplesOffline`); `livetest.TestExamples` runs them
 against the API itself (`-tags live`, not in CI).
 
 Each program reads the API key from `TYPESAFE_API_KEY`, as every client
