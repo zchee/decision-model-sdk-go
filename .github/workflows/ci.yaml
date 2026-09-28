@@ -43,6 +43,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+          check-latest: true
 
       - uses: golangci/golangci-lint-action@v9
         with:
@@ -163,6 +164,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+          check-latest: true
 
       # -coverpkg=./... instruments every package in every test binary, so a
       # block counts as covered when any test of the module runs it: code
@@ -377,6 +379,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+          check-latest: true
 
       # The lists are the one place that names the targets: `fuzzed` runs
       # each for FUZZTIME, `seeded` names the targets that run only their
