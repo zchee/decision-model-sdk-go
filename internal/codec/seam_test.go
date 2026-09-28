@@ -17,8 +17,8 @@
 package codec
 
 // The seam tests hold the package boundaries over the whole module. CI runs
-// them on their own with go test -run Seam ./internal/codec/, and with every
-// other test.
+// them with every other test in the test job, on every image, with and
+// without -race.
 //
 // Mutation checks: each change below, planted in a copy of the tree, makes
 // the named test fail. Re-run them when a rule changes.

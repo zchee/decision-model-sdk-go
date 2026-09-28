@@ -73,12 +73,6 @@ jobs:
         run: |
           govulncheck ./... && go mod tidy -diff
 
-      # Import confinement (sonic, unsafe, x/net, JSON libraries), the per-file
-      # D1 constraint lines and the sonic JIT-path guard. The test job runs the
-      # same tests on every image; this step names them in the lint result.
-      - name: internal/codec seam tests
-        run: go test -run 'Seam' -count=1 -v ./internal/codec/
-
       # setup-uv publishes no floating major tag (only vX.Y.Z tags since v8), so
       # the major-only pin rule cannot apply; Dependabot bumps this full version.
       - uses: astral-sh/setup-uv@v10.2.0

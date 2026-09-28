@@ -63,8 +63,8 @@ toolchain) must each exit non-zero and print the identifier. The weekly `gotip`
 workflow checks the same with the development toolchain; any other outcome is
 a canary failure.
 
-The seam tests in `internal/codec/seam_test.go` run in the lint job on their
-own (`go test -run Seam ./internal/codec/`) and with every test run.
+The seam tests in `internal/codec/seam_test.go` run in CI's test job on
+every image, with every other test, with and without `-race`.
 `TestSeamBuildConstraints` asserts that every `internal/codec` file carries
 exactly one of the two constraint lines, as its first line; that the two are
 complements for every GOARCH and Go release; and that `unsupported.go` holds
