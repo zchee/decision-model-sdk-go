@@ -256,7 +256,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TITLE: "gotip canary failing"
-        run: |
+        run: |-
           run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           body="The gotip canary failed at $(date -u '+%Y-%m-%d %H:%M:%S UTC'): ${run_url}"
           # The search index lags behind new issues; list the open ones and

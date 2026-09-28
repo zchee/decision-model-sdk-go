@@ -118,7 +118,7 @@ jobs:
       # repeated sdk or naive row, a mean that is not positive), so an empty
       # report cannot pass.
       - name: AC-P7 gate (sdk mean below naive mean)
-        run: |
+        run: |-
           set -euo pipefail
           shopt -s nullglob
           results=("$RUNNER_TEMP"/profile.*.out/results/*.json)
