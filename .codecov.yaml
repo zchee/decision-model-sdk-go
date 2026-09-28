@@ -58,7 +58,7 @@ coverage:
 # number when they appear in a profile.
 ignore:
   - examples/** # Runnable examples, compiled and run by livetest.TestExamplesOffline; documentation, not library code.
-  - livetest/** # Opt-in tests against the billed live API (-tags live); not run in CI.
+  - livetest/** # Its tests against the billed live API are opt-in (-tags live) and not run in CI; its untagged tests, TestExamplesOffline among them, run in CI's test job.
   - internal/testsupport/** # Test servers, proxies and fixtures: the code doing the testing.
 
 # https://docs.codecov.com/docs/pull-request-comments
