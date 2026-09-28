@@ -107,9 +107,6 @@ jobs:
           fi
           echo "${#dirs[@]} example programs: ${dirs[*]}"
 
-      - name: Report available dependency updates
-        run: go list -m -u all
-
       # Off the support matrix internal/codec must refuse to compile, and go
       # vet and go build must both exit non-zero with output naming the D1
       # identifier. -tags go1.28 stands in for a Go 1.28 toolchain.
