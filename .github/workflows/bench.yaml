@@ -33,9 +33,12 @@ jobs:
         with:
           persist-credentials: false
 
-      # setup-go reads go.mod's toolchain line before its go line unless
-      # GOTOOLCHAIN=local is set (setup-go v7 src/installer.ts,
-      # parseGoVersionFile).
+      # go.mod has no toolchain line, so setup-go reads its go line, 1.27, as
+      # the version range 1.27.x: the newest 1.27 release in the runner
+      # image's tool cache, else the newest stable one in actions/go-versions
+      # (go.dev/dl when that lists none); check-latest is off. It then sets
+      # GOTOOLCHAIN=local for the later steps (setup-go v7 src/main.ts and
+      # src/installer.ts: parseGoVersionFile, getGo).
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod

@@ -2,8 +2,6 @@ module github.com/zchee/typesafe-sdk-go
 
 go 1.27
 
-toolchain go1.27.1
-
 require (
 	github.com/bytedance/sonic v1.15.4
 	github.com/google/go-cmp v0.7.0

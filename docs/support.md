@@ -16,10 +16,15 @@ Off the matrix there are two outcomes:
 
 - A `go` command from Go 1.21 to 1.26 never compiles the SDK itself.
   `go.mod` requires `go 1.27`, so with `GOTOOLCHAIN=auto` (the default) it
-  switches to a Go 1.27 toolchain (in this repository `go1.27.1`, from the
-  `toolchain` line) and builds with that; with `GOTOOLCHAIN=local` it refuses
-  the module. Go 1.17 to 1.20 predate toolchain switching: they attempt the
-  build and print `note: module requires Go 1.27` when it fails.
+  switches to a Go 1.27 toolchain and builds with that; with
+  `GOTOOLCHAIN=local` it refuses the module. In a checkout of this
+  repository, whose `go.mod` has no `toolchain` line, the switch goes to
+  `go1.27.0`, the first Go 1.27 release; Go 1.21.0 to 1.21.10 and 1.22.0 to
+  1.22.3 look for a toolchain named `go1.27`, which does not exist, and stop
+  with `toolchain not available`
+  ([golang.org/issue/62278](https://go.dev/issue/62278)). Go 1.17 to 1.20
+  predate toolchain switching: they attempt the build and print
+  `note: module requires Go 1.27` when it fails.
 - On a GOARCH other than `amd64` and `arm64`, or on Go 1.28 and later, the
   build fails with the D1 identifier described below.
 
