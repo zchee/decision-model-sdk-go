@@ -15,7 +15,6 @@
 package testsupport
 
 import (
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -23,6 +22,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bytedance/sonic"
 	gocmp "github.com/google/go-cmp/cmp"
 )
 
@@ -114,10 +114,10 @@ func TestFakeAPI(t *testing.T) {
 				t.Errorf("request id = %q after %d requests, want req_fake_1 after 1", id, api.Requests())
 			}
 			var got, want any
-			if err := json.Unmarshal(body, &got); err != nil {
+			if err := sonic.ConfigFastest.Unmarshal(body, &got); err != nil {
 				t.Fatalf("the body is not JSON: %v\n%s", err, body)
 			}
-			if err := json.Unmarshal([]byte(strings.ReplaceAll(tt.want, "BODYLEN", strconv.Itoa(len(tt.body)))), &want); err != nil {
+			if err := sonic.ConfigFastest.Unmarshal([]byte(strings.ReplaceAll(tt.want, "BODYLEN", strconv.Itoa(len(tt.body)))), &want); err != nil {
 				t.Fatal(err)
 			}
 			if diff := gocmp.Diff(want, got); diff != "" {

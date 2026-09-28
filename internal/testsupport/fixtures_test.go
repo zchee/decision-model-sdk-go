@@ -31,6 +31,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/bytedance/sonic"
 	gocmp "github.com/google/go-cmp/cmp"
 )
 
@@ -438,7 +439,7 @@ func TestFixtureLoader(t *testing.T) {
 
 // decodeBody decodes a JSON object with numbers kept as json.Number.
 func decodeBody(raw []byte) (map[string]any, error) {
-	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec := sonic.ConfigFastest.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
 	var b map[string]any
 	if err := dec.Decode(&b); err != nil {
@@ -712,19 +713,38 @@ func joinPath(path, name string) string {
 	return path + "." + name
 }
 
+// rawJSON is a JSON value's bytes as they were read, as json.RawMessage
+// holds them: UnmarshalJSON copies them, and MarshalJSON returns them, or
+// null for a nil value.
+type rawJSON []byte
+
+// MarshalJSON returns r, or null when r is nil.
+func (r rawJSON) MarshalJSON() ([]byte, error) {
+	if r == nil {
+		return []byte("null"), nil
+	}
+	return r, nil
+}
+
+// UnmarshalJSON sets *r to a copy of data.
+func (r *rawJSON) UnmarshalJSON(data []byte) error {
+	*r = append((*r)[:0], data...)
+	return nil
+}
+
 // typeLast checks that every answer object ends with its type member.
 func typeLast(raw []byte) error {
 	var root struct {
-		Answers map[string]json.RawMessage `json:"answers"`
+		Answers map[string]rawJSON `json:"answers"`
 	}
-	if err := json.Unmarshal(raw, &root); err != nil {
+	if err := sonic.ConfigFastest.Unmarshal(raw, &root); err != nil {
 		return err
 	}
 	for name, answer := range root.Answers {
 		var a struct {
 			Type string `json:"type"`
 		}
-		if err := json.Unmarshal(answer, &a); err != nil {
+		if err := sonic.ConfigFastest.Unmarshal(answer, &a); err != nil {
 			return err
 		}
 		if !bytes.HasSuffix(answer, []byte(`,"type":"`+a.Type+`"}`)) {
