@@ -7,7 +7,7 @@
 | 1.27.x | `amd64`, `arm64` | any GOOS the Go release supports on that architecture | supported |
 | 1.27.x | any other (`386`, `riscv64`, `wasm`, …) | any | refused at compile time |
 | 1.28 and later | any | any | refused at compile time until the bump below |
-| 1.26 and earlier | any | any | from 1.21, switches to a Go 1.27 toolchain or refuses the module; 1.17 to 1.20 fail the build (below) |
+| 1.26 and earlier | any | any | from 1.21, switches to a Go 1.27 toolchain, refuses the module with `GOTOOLCHAIN=local`, or stops with `toolchain not available` (below); 1.17 to 1.20 fail on missing standard-library packages (below) |
 
 CI runs the tests on `ubuntu-26.04` (linux/amd64), `xcode-27` (darwin/arm64)
 and `windows-2025` (windows/amd64).
@@ -17,14 +17,20 @@ Off the matrix there are two outcomes:
 - A `go` command from Go 1.21 to 1.26 never compiles the SDK itself.
   `go.mod` requires `go 1.27`, so with `GOTOOLCHAIN=auto` (the default) it
   switches to a Go 1.27 toolchain and builds with that; with
-  `GOTOOLCHAIN=local` it refuses the module. In a checkout of this
-  repository, whose `go.mod` has no `toolchain` line, the switch goes to
-  `go1.27.0`, the first Go 1.27 release; Go 1.21.0 to 1.21.10 and 1.22.0 to
-  1.22.3 look for a toolchain named `go1.27`, which does not exist, and stop
-  with `toolchain not available`
+  `GOTOOLCHAIN=local` it refuses the module (`requires go >= 1.27`). In a
+  module of yours, `go get github.com/zchee/typesafe-sdk-go` switches to the
+  newest Go 1.27 release (`go1.27.1` on 2026-09-28), which adds the SDK and
+  writes `go 1.27` into your `go.mod` with no `toolchain` line; the `go`
+  commands after it take their toolchain from that line, as they do in a
+  checkout of this repository, whose `go.mod` has no `toolchain` line
+  either. From that bare `go 1.27` line the switch goes to `go1.27.0`, the
+  first Go 1.27 release; Go 1.21.0 to 1.21.10 and 1.22.0 to 1.22.3 look for
+  a toolchain named `go1.27`, which does not exist, and stop with
+  `toolchain not available`
   ([golang.org/issue/62278](https://go.dev/issue/62278)). Go 1.17 to 1.20
-  predate toolchain switching: they attempt the build and print
-  `note: module requires Go 1.27` when it fails.
+  predate toolchain switching: `go get` of the SDK and `go build` in a
+  checkout fail, because the standard library of those releases lacks
+  packages the SDK imports (`package cmp is not in GOROOT`).
 - On a GOARCH other than `amd64` and `arm64`, or on Go 1.28 and later, the
   build fails with the D1 identifier described below.
 

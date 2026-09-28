@@ -18,14 +18,17 @@ go get github.com/zchee/typesafe-sdk-go
 ```
 
 - The SDK supports Go 1.27.x on `amd64` and `arm64`, the releases the newest
-  `github.com/bytedance/sonic` tag supports. A `go` command from Go 1.21 to
-  1.26 switches to a Go 1.27 toolchain through the `go.mod` line (with
-  `GOTOOLCHAIN=auto`, the default); Go 1.17 to 1.20 attempt the build and
-  print `note: module requires Go 1.27` when it fails. On any other GOARCH,
-  or on Go 1.28 and later, the build fails on purpose with the error
+  `github.com/bytedance/sonic` tag supports. Its `go.mod` says `go 1.27`, so
+  with `GOTOOLCHAIN=auto`, the default, `go get` from Go 1.21 to 1.26
+  switches to the newest Go 1.27 release and writes `go 1.27` into your
+  `go.mod`. Every `go` command after it in your module, as in a checkout of
+  this repository, then switches to `go1.27.0`, except that Go 1.21.0 to
+  1.21.10 and 1.22.0 to 1.22.3 stop with `toolchain not available`. Go 1.17
+  to 1.20 fail on the standard-library packages they lack. On any other
+  GOARCH, or on Go 1.28 and later, the build fails on purpose with the error
   `undefined: typesafe_sdk_go_requires_go1_17_to_go1_27_on_amd64_or_arm64`
-  ([`docs/support.md`](docs/support.md) explains why and holds the Go 1.28
-  bump procedure).
+  ([`docs/support.md`](docs/support.md) gives each case, explains why, and
+  holds the Go 1.28 bump procedure).
 
 ## Quick start
 
