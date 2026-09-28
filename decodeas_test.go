@@ -16,6 +16,7 @@ package typesafe
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -201,7 +202,7 @@ func TestDecodeAsOptionalFieldAndUnknownAnswer(t *testing.T) {
 	}
 	// The upstream model_dump holds "missing": None; the struct marshals the
 	// absent answer as null and the others as their kinds.
-	dump, err := testsupport.StdlibMarshal(got)
+	dump, err := json.Marshal(got)
 	if err != nil {
 		t.Fatalf("json.Marshal(typed struct): %v", err)
 	}

@@ -16,6 +16,7 @@ package typesafe
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -26,7 +27,6 @@ import (
 	"time"
 
 	"github.com/zchee/typesafe-sdk-go/internal/engine"
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
 // netTimeout is a net.Error whose Timeout is true, as a dial or read
@@ -156,14 +156,14 @@ func quoted(v string) string {
 	return q[1 : len(q)-1]
 }
 
-// jsonQuoted returns v as encoding/json writes it inside a JSON string
-// (through testsupport.StdlibMarshal: the root package's tests import no JSON
-// library), without the quotes: another such form.
+// jsonQuoted returns v as encoding/json, the encoder a caller's own code and
+// error texts go through, writes it inside a JSON string, without the
+// quotes: another such form.
 func jsonQuoted(t *testing.T, v string) string {
 	t.Helper()
-	b, err := testsupport.StdlibMarshal(v)
+	b, err := json.Marshal(v)
 	if err != nil {
-		t.Fatalf("StdlibMarshal: %v", err)
+		t.Fatalf("json.Marshal: %v", err)
 	}
 	return string(b[1 : len(b)-1])
 }

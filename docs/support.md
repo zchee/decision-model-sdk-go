@@ -73,8 +73,10 @@ package `internal/codec` compiles takes its `encoding/json` fallback
 (`compat.go` or a `*_compat.go` file importing `encoding/json`, next to
 `sonic.go`, `api.go`, `*_native.go` or `spec.go` on the JIT side), on the host
 and, by comparing build lines, for every GOARCH and Go release up to the
-cutoff. `TestSeamImports` keeps every JSON library out of the other packages
-(`internal/testsupport`, which holds test tooling, excepted).
+cutoff. `TestSeamImports` keeps every JSON library out of the other packages'
+non-test code (`internal/testsupport`, which holds test tooling, excepted);
+their tests may import `encoding/json`, to check what a caller's encoder sees,
+and no other JSON library.
 
 `internal/codec` also imports `encoding/json`, only for the
 `json.Number` type that sonic's `ast.Visitor` interface requires; nothing is

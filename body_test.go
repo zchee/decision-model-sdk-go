@@ -1137,9 +1137,9 @@ func TestNestedRawJSONEncodesAsJSON(t *testing.T) {
 	}
 }
 
-// rawMessage is json.RawMessage, which root tests cannot import (the seam
-// keeps encoding/json out of the root package): a byte slice whose
-// MarshalJSON returns it, so sonic validates it as it does a RawMessage.
+// rawMessage is a byte slice whose MarshalJSON returns it, as
+// json.RawMessage's does for a non-nil slice, so sonic validates it as it
+// does a RawMessage.
 type rawMessage []byte
 
 func (m rawMessage) MarshalJSON() ([]byte, error) { return m, nil }

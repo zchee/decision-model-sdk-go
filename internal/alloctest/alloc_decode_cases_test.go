@@ -15,6 +15,7 @@
 package alloctest
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -132,7 +133,7 @@ var linearityFloods = [2]string{"structured-legend-flood-1k.json", "structured-l
 func membersVisited(t *testing.T, body []byte) uint64 {
 	t.Helper()
 	var root map[string]any
-	if err := testsupport.StdlibUnmarshal(body, &root); err != nil {
+	if err := json.Unmarshal(body, &root); err != nil {
 		t.Fatalf("not a JSON object: %v", err)
 	}
 	answers, _ := root["answers"].(map[string]any)

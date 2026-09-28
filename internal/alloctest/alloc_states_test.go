@@ -15,6 +15,7 @@
 package alloctest
 
 import (
+	"encoding/json"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,7 +24,6 @@ import (
 	typesafe "github.com/zchee/typesafe-sdk-go"
 
 	"github.com/zchee/typesafe-sdk-go/internal/codec"
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
 )
 
 // The request states of the encode budget: one value of each state kind a
@@ -136,7 +136,7 @@ var stateKinds = []stateKind{
 	}},
 	{name: "json.RawMessage", sonic: 1, build: func(tb testing.TB, size int) stateCase {
 		raw := nestedMapJSON(tb, size)
-		boxed := testsupport.StdlibRawMessage(raw)
+		var boxed any = json.RawMessage(raw)
 		return stateCase{boxed: boxed, pass: func(qs *typesafe.Prepared) (codec.Body, error) {
 			return encodeBody(boxed, typesafe.DefaultModel, qs, nil)
 		}, json: raw}

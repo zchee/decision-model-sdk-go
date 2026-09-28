@@ -16,6 +16,7 @@ package alloctest
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"maps"
 	"net/http"
@@ -69,7 +70,7 @@ func TestAllocEncodeFunctional(t *testing.T) {
 				if !ok {
 					t.Fatalf("the body does not have the shape %s<state>%s; its first and last bytes: %q ... %q", prefix, suffix, got[:min(len(got), 64)], got[max(len(got)-64, 0):])
 				}
-				want, err := testsupport.StdlibMarshal(sc.boxed)
+				want, err := json.Marshal(sc.boxed)
 				if err != nil {
 					t.Fatalf("encoding/json: %v", err)
 				}
@@ -298,10 +299,10 @@ func sameJSON(t *testing.T, a, b []byte) bool {
 func canonicalJSON(t *testing.T, notJSON string, data []byte) []byte {
 	t.Helper()
 	var v any
-	if err := testsupport.StdlibUnmarshal(data, &v); err != nil {
+	if err := json.Unmarshal(data, &v); err != nil {
 		t.Fatalf("%s: %v", notJSON, err)
 	}
-	out, err := testsupport.StdlibMarshal(v)
+	out, err := json.Marshal(v)
 	if err != nil {
 		t.Fatal(err)
 	}

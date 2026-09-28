@@ -22,23 +22,27 @@ package codec
 //
 // Mutation checks: each change below, planted in a copy of the tree, makes
 // the named test fail. Re-run them when a rule changes.
-//   - TestSeamImports: encoding/json imported by internal/wire, by
-//     internal/h2gate or by a root test file; encoding/json/v2 imported by an
-//     internal/codec file; internal/testsupport imported by a non-test file
-//     of the root package; unsafe or sonic imported by a package below
-//     internal/codec, which the exemptions of internal/codec do not cover;
-//     "C" imported by a root or an internal/engine file whose C code writes
-//     through a reflect Pointer() passed as an integer. (internal/testsupport
-//     importing encoding/json passes by design.)
+//   - TestSeamImports: encoding/json imported by a non-test file of
+//     internal/wire, of internal/h2gate or of the root package;
+//     go-json-experiment or sonic imported by a root test file;
+//     encoding/json/v2 imported by an internal/codec file;
+//     internal/testsupport imported by a non-test file of the root package;
+//     unsafe or sonic imported by a package below internal/codec, which the
+//     exemptions of internal/codec do not cover; "C" imported by a root or an
+//     internal/engine file whose C code writes through a reflect Pointer()
+//     passed as an integer. (A root test file importing encoding/json passes
+//     by design, as internal/testsupport importing it does.)
 //   - TestSeamOneUnsafeFile: a second codec file importing unsafe, or a
 //     package below internal/codec importing it.
 //   - TestSeamImports, again: a package below internal/testsupport/naive
 //     importing unsafe, which the naive exemption no longer covers.
 //   - TestSeamRootRawPointers and TestSeamCodecUnsafeIsNoCopyString
 //     (seam_rawptr_test.go) list theirs.
-//   - TestSeamTransitiveImports: encoding/json imported by a root test file,
-//     sonic's encoder imported by a root file, internal/codec imported by an
-//     external test of internal/wire (each also fails TestSeamImports).
+//   - TestSeamTransitiveImports: encoding/json imported by a root non-test
+//     file, go-json-experiment or sonic imported by a root test file, sonic's
+//     encoder imported by a root file, internal/codec imported by an external
+//     test of internal/wire (each also fails TestSeamImports; a root test
+//     file importing encoding/json passes both).
 //   - TestSeamSonicJITPath, with sonic replaced by an edited copy: spec.go and
 //     spec_compat.go of internal/encoder/alg cut at go1.27, so the fallback is
 //     compiled on the host; encoder_native.go cut at go1.26 on amd64 only, so
@@ -286,7 +290,7 @@ func TestSeamImports(t *testing.T) {
 			applies: func(f goFile) bool { return !under(f.dir, "internal/testsupport") },
 			forbids: func(_ goFile, p string) bool { return under(p, "golang.org/x/net") },
 		},
-		"no JSON library outside internal/codec, which adds encoding/json only (section 4)": {
+		"no JSON library outside internal/codec except encoding/json in test files; internal/codec adds encoding/json only": {
 			// internal/testsupport, naive included, is test tooling: fixture
 			// loaders and the benchmark comparator may decode JSON with any
 			// library.
@@ -300,7 +304,9 @@ func TestSeamImports(t *testing.T) {
 					// json.Number type of sonic's ast.Visitor.
 					return !under(p, sonicPath) && p != "encoding/json"
 				}
-				return true
+				// A test may compare the SDK's types against encoding/json,
+				// the encoder a caller's own code goes through.
+				return !f.test || p != "encoding/json"
 			},
 		},
 		"internal/h2gate and internal/testsupport import neither root nor internal/codec (PM1)": {
@@ -311,9 +317,8 @@ func TestSeamImports(t *testing.T) {
 		},
 		"only test files import internal/testsupport, which keeps its JSON and x/net exemptions test tooling (review W2.4 NIT 2)": {
 			// testsupport may import encoding/json and x/net (the rules above
-			// exempt it) and passes encoding/json through to root tests
-			// (StdlibMarshal); a non-test importer would carry both into a
-			// build of the SDK.
+			// exempt it); a non-test importer would carry both into a build
+			// of the SDK.
 			applies: func(f goFile) bool { return !f.test && !under(f.dir, "internal/testsupport") },
 			forbids: func(_ goFile, p string) bool { return under(p, testsupportPath) },
 		},
@@ -394,17 +399,18 @@ func goList(t *testing.T, root string, args ...string) string {
 // package nor internal/codec, which do not compile on gotip by design.
 //
 // The root package is not on the canary list: it imports internal/codec for
-// the request body. Its row asserts instead that its files, tests included,
-// import no JSON library directly, in the build configuration of the host
-// (where TestSeamImports reads every file whatever its constraints); the JSON
-// layer is internal/codec's. internal/engine, which holds the root package's
-// call stages (rootCodeDirs), has the same row.
+// the request body. Its row asserts instead that its non-test files import
+// no JSON library directly and its test files encoding/json at most, in the
+// build configuration of the host (where TestSeamImports reads every file
+// whatever its constraints); the JSON layer is internal/codec's.
+// internal/engine, which holds the root package's call stages
+// (rootCodeDirs), has the same row.
 func TestSeamTransitiveImports(t *testing.T) {
 	mod := findModule(t)
 	for _, dir := range rootCodeDirs {
-		name := "root package imports no JSON library directly (R41)"
+		name := "root package: no JSON library in its non-test imports, encoding/json at most in its test imports"
 		if dir != "." {
-			name = dir + " imports no JSON library directly (R41, root code; review V77 MINOR 1)"
+			name = dir + " (root code): no JSON library in its non-test imports, encoding/json at most in its test imports"
 		}
 		t.Run(name, func(t *testing.T) { checkNoDirectJSON(t, mod, dir) })
 	}
@@ -438,26 +444,37 @@ func TestSeamTransitiveImports(t *testing.T) {
 	}
 }
 
-// checkNoDirectJSON checks that the files of the root-code package in dir
-// (rootCodeDirs), its tests included, import no JSON library directly in the
-// build configuration of the host, and that the package imports
-// internal/wire.
+// checkNoDirectJSON checks that the non-test files of the root-code package
+// in dir (rootCodeDirs) import no JSON library directly and its test files
+// encoding/json at most, in the build configuration of the host, and that
+// the package imports internal/wire.
 func checkNoDirectJSON(t *testing.T, mod module, dir string) {
 	t.Helper()
 	pattern := "."
 	if dir != "." {
 		pattern = "./" + dir
 	}
-	out := goList(t, mod.root, "-f", `{{join .Imports "\n"}}{{"\n"}}{{join .TestImports "\n"}}{{"\n"}}{{join .XTestImports "\n"}}`, pattern)
+	// The line "--" parts the imports of the package's own files from those
+	// of its tests.
+	out := goList(t, mod.root, "-f", `{{join .Imports "\n"}}{{"\n--\n"}}{{join .TestImports "\n"}}{{"\n"}}{{join .XTestImports "\n"}}`, pattern)
 	const wirePath = modulePath + "/internal/wire"
-	sawWire := false
+	sawWire, inTests := false, false
 	for line := range strings.Lines(out) {
 		p := strings.TrimSpace(line)
+		if p == "--" {
+			inTests = true
+			continue
+		}
 		if p == wirePath {
 			sawWire = true
 		}
-		if isJSONLibrary(p) {
+		if !isJSONLibrary(p) {
+			continue
+		}
+		if !inTests {
 			t.Errorf("%s imports %q directly; only internal/codec may import a JSON library", dir, p)
+		} else if p != "encoding/json" {
+			t.Errorf("the tests of %s import %q directly; outside internal/codec a test may import encoding/json and no other JSON library", dir, p)
 		}
 	}
 	// The root package's types wrap internal/wire values, and

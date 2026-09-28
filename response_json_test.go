@@ -16,6 +16,7 @@ package typesafe
 
 import (
 	"bytes"
+	"encoding/json"
 	"maps"
 	"net/http"
 	"slices"
@@ -37,8 +38,8 @@ import (
 // spikes@815453827b43:w2.4/results/python-dump.txt, probed 2026-09-26 05:30:45 JST (time
 // from date).
 
-// marshaler and unmarshaler are encoding/json's Marshaler and Unmarshaler,
-// which the root package's tests cannot import (TestSeamImports).
+// marshaler and unmarshaler are the method sets of encoding/json's
+// Marshaler and Unmarshaler.
 type (
 	marshaler   interface{ MarshalJSON() ([]byte, error) }
 	unmarshaler interface{ UnmarshalJSON(data []byte) error }
@@ -837,7 +838,7 @@ func TestStdlibJSON(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, err := testsupport.StdlibMarshal(tt.value)
+			got, err := json.Marshal(tt.value)
 			if err != nil {
 				t.Fatalf("json.Marshal: %v", err)
 			}
@@ -858,7 +859,7 @@ func TestStdlibJSON(t *testing.T) {
 			t.Fatal(err)
 		}
 		data := `{"Response":` + string(body) + `,"Pointer":` + string(body) + `,"Models":` + string(testsupport.Fixture(t, "models.json")) + `,"Kept":null}`
-		if err := testsupport.StdlibUnmarshal([]byte(data), &dst); err != nil {
+		if err := json.Unmarshal([]byte(data), &dst); err != nil {
 			t.Fatalf("json.Unmarshal: %v", err)
 		}
 		want := payloadOf(resp)
@@ -880,7 +881,7 @@ func TestStdlibJSON(t *testing.T) {
 		if got := marshal(t, r); got != payload {
 			t.Errorf("MarshalJSON = %s, want %s", got, payload)
 		}
-		got, err := testsupport.StdlibMarshal(r)
+		got, err := json.Marshal(r)
 		if err != nil {
 			t.Fatalf("json.Marshal: %v", err)
 		}
@@ -892,7 +893,7 @@ func TestStdlibJSON(t *testing.T) {
 
 	t.Run("error: json.Unmarshal returns UnmarshalJSON's error", func(t *testing.T) {
 		var dst struct{ Response SystemOneResponse }
-		err := testsupport.StdlibUnmarshal([]byte(`{"Response":{"model":"m","usage":{},"answers":{"n":{"type":"noul"}}}}`), &dst)
+		err := json.Unmarshal([]byte(`{"Response":{"model":"m","usage":{},"answers":{"n":{"type":"noul"}}}}`), &dst)
 		if rve := validationError(t, err); rve.FieldPath != "answers.n.noul" {
 			t.Errorf("FieldPath = %q", rve.FieldPath)
 		}

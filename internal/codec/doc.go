@@ -25,8 +25,9 @@
 // arm64; everywhere else the package is unsupported.go alone and fails to
 // compile on purpose (docs/support.md). The seam tests in seam_test.go
 // confine sonic and unsafe to those places, keep every JSON library out of
-// the SDK's other packages, and check the two build constraints file by
-// file.
+// the non-test code of the SDK's other packages, whose tests may use
+// encoding/json to check what a caller's encoder sees, and check the two
+// build constraints file by file.
 //
 // The package holds the request body's scratch pool ([Body]), the request
 // encoder that writes a state or a body member into it ([EncodeState],

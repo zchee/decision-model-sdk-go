@@ -16,6 +16,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -263,9 +264,9 @@ func TestRedactionCoversGoEscapeForms(t *testing.T) {
 				value = "Bearer " + tt.credential
 			}
 			h := http.Header{tt.header: {value}}
-			j, err := testsupport.StdlibMarshal(tt.credential)
+			j, err := json.Marshal(tt.credential)
 			if err != nil {
-				t.Fatalf("StdlibMarshal: %v", err)
+				t.Fatalf("json.Marshal: %v", err)
 			}
 			original := fmt.Errorf("raw=%s; quoted=%q; ascii=%+q; json=%s", tt.credential, tt.credential, tt.credential, j)
 			creds := RequestCredentials(h)
@@ -512,10 +513,9 @@ func TestScrubbedErrorFormat(t *testing.T) {
 }
 
 // TestJSONFormMatchesEncodingJSON checks jsonForm against the encoder a
-// caller's error text would carry, encoding/json (through
-// testsupport.StdlibMarshal: this package's tests, like the root package's,
-// import no JSON library), rather than against expected strings: for each
-// value, jsonForm writes what json.Marshal writes between the quotes.
+// caller's own code and error texts go through, encoding/json, rather than
+// against expected strings: for each value, jsonForm writes what
+// json.Marshal writes between the quotes.
 // The values cover obs-text bytes that are not UTF-8, a character above the
 // Basic Multilingual Plane, the HTML characters, quotes and backslashes,
 // controls, DEL, U+2028 and U+2029, and a header's own characters.
@@ -533,9 +533,9 @@ func TestJSONFormMatchesEncodingJSON(t *testing.T) {
 	}
 	for name, v := range tests {
 		t.Run(name, func(t *testing.T) {
-			b, err := testsupport.StdlibMarshal(v)
+			b, err := json.Marshal(v)
 			if err != nil {
-				t.Fatalf("StdlibMarshal: %v", err)
+				t.Fatalf("json.Marshal: %v", err)
 			}
 			if diff := gocmp.Diff(string(b[1:len(b)-1]), jsonForm(v)); diff != "" {
 				t.Errorf("jsonForm(%q) (-encoding/json +got):\n%s", v, diff)
