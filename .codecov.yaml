@@ -1,18 +1,19 @@
 # Codecov configuration for typesafe-sdk-go.
 # Reference: https://docs.codecov.com/docs/codecovyml-reference
 #
-# Coverage is uploaded by the test job of .github/workflows/ci.yaml, one Go
-# coverage profile per runner image.
+# Coverage is uploaded by the test jobs of .github/workflows/ci.yaml (the
+# SDK) and .github/workflows/adapter.yaml (the adapter module under
+# adapter/), one Go coverage profile per runner image each.
 
 # https://docs.codecov.com/docs/codecovyml-reference#codecov
 codecov:
   allow_coverage_offsets: true
   require_ci_to_pass: false
-  # The test job uploads one report per runner image (three). The statuses
-  # wait for all of them rather than reporting on the first uploads to
-  # arrive.
+  # Each commit gets six uploads: three from the SDK's test job and three
+  # from the adapter's, one per runner image. The statuses wait for all of
+  # them rather than reporting on the first uploads to arrive.
   notify:
-    after_n_builds: 3
+    after_n_builds: 6
 
 # https://docs.codecov.com/docs/codecovyml-reference#parsers
 parsers:
@@ -31,40 +32,80 @@ coverage:
   status:
     default_rules:
       flag_coverage_not_uploaded_behavior: include
-    project:
-      # Blocking: the status fails when the project's coverage is below 85 %.
-      default:
-        target: 85%
-        threshold: 1.0
-        if_not_found: success
-        informational: false
-      # The aim, reported without blocking.
-      goal:
-        target: 90%
-        if_not_found: success
-        informational: true
-    patch:
-      # The lines a change adds or modifies: 90 %, reported without blocking.
-      default:
-        target: 90%
-        # No only_pulls: changes land on main without pull requests.
-        informational: true
-        if_not_found: success
+    # No project-wide status: the SDK and the adapter module are measured
+    # apart, by the component statuses below, so that the two modules'
+    # lines never mix in one number.
+    project: off
+    patch: off
     changes: false
+
+# https://docs.codecov.com/docs/components
+#
+# One component per module, each with the three statuses the repository
+# had before the adapter existed: the project at 85 % (blocking), the aim
+# of 90 % (informational) and the lines a change adds or modifies at 90 %
+# (informational; no only_pulls: changes land on main without pull
+# requests).
+component_management:
+  individual_components:
+    - component_id: sdk
+      name: sdk
+      paths:
+        - "!adapter/**"
+      statuses:
+        - type: project
+          name_prefix: default-
+          target: 85%
+          threshold: 1.0
+          if_not_found: success
+          informational: false
+        - type: project
+          name_prefix: goal-
+          target: 90%
+          if_not_found: success
+          informational: true
+        - type: patch
+          target: 90%
+          if_not_found: success
+          informational: true
+    - component_id: adapter
+      name: adapter
+      paths:
+        - adapter/**
+      statuses:
+        - type: project
+          name_prefix: default-
+          target: 85%
+          threshold: 1.0
+          if_not_found: success
+          informational: false
+        - type: project
+          name_prefix: goal-
+          target: 90%
+          if_not_found: success
+          informational: true
+        - type: patch
+          target: 90%
+          if_not_found: success
+          informational: true
 
 # https://docs.codecov.com/docs/ignoring-paths
 #
-# These paths hold no shipped SDK behaviour, so they must not move the project
+# These paths hold no shipped behaviour, so they must not move a project
 # number when they appear in a profile.
 ignore:
   - examples/** # Runnable examples, compiled and run by livetest.TestExamplesOffline; documentation, not library code.
   - livetest/** # Its tests against the billed live API are opt-in (-tags live) and not run in CI; its untagged tests, TestExamplesOffline among them, run in CI's test job.
   - internal/testsupport/** # Test servers, proxies and fixtures: the code doing the testing.
+  - adapter/examples/** # The adapter's runnable examples; documentation, not library code.
+  - adapter/livetest/** # The adapter's tests against billed provider APIs, opt-in (-tags live).
+  - adapter/internal/cassette/** # Replay of recorded provider exchanges: the code doing the testing.
+  - adapter/internal/fake/** # A scripted LLM provider: the code doing the testing.
 
 # https://docs.codecov.com/docs/pull-request-comments
 comment:
-  layout: "header, diff, flags, files"
-  after_n_builds: 3
+  layout: "header, diff, flags, components, files"
+  after_n_builds: 6
   show_carryforward_flags: true
   hide_comment_details: false
   show_critical_paths: true

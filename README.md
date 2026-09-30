@@ -432,8 +432,9 @@ each System One call; CI does not run these tests
   import-confinement tests among them, with `-race` on `ubuntu-26.04`,
   `xcode-27` and `windows-2025`, and the allocation budgets without it.
 - [Codecov](https://codecov.io/gh/zchee/typesafe-sdk-go) receives each
-  image's coverage; its project status blocks at the 85 % target (the
-  90 % goal and the patch status are informational), and every block the
+  image's coverage and measures the SDK and the adapter module apart:
+  each one's project status blocks at the 85 % target (its 90 % goal and
+  its patch status are informational), and every block the SDK's
   tests leave unrun has a reason in
   [`docs/uncovered-lines.md`](docs/uncovered-lines.md).
 - [CodSpeed](https://codspeed.io/zchee/typesafe-sdk-go) runs every
@@ -442,6 +443,16 @@ each System One call; CI does not run these tests
   "AC-P7 gate" compares `BenchmarkCall/sdk`'s mean with
   `BenchmarkCall/naive`'s); every absolute time is reported, not enforced
   ([`docs/perf/codspeed.md`](docs/perf/codspeed.md)).
+
+## The adapter module
+
+[`adapter/`](adapter) holds a second Go module,
+`github.com/zchee/typesafe-sdk-go/adapter`, a port of
+[system-one-adapter-python](https://github.com/typesafe-ai/system-one-adapter-python)
+0.2.1. It answers the System One API with an LLM, as the `RoundTripper` of
+this SDK's `WithRoundTripper`, so that TypeSafe can be compared with an LLM
+on cost, speed and intelligence. It is not released yet;
+[`adapter/README.md`](adapter/README.md) describes it.
 
 ## License
 

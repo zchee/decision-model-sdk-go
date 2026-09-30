@@ -288,7 +288,7 @@ jobs:
           # which ./... skips) must be in one of those packages, or its tests
           # run nowhere.
           read -ra whole <<<"$NORACE_PKGS"
-          tests="$(git ls-files -- '*_test.go' | grep -Ev '(^|/)([_.][^/]*|testdata)/')"
+          tests="$(git ls-files -- '*_test.go' ':!:adapter/' | grep -Ev '(^|/)([_.][^/]*|testdata)/')"
           if [ -z "$tests" ]; then
             echo "::error::git ls-files found no test file to check for !race"
             exit 1
@@ -413,7 +413,7 @@ jobs:
           fi
           # grep exits 1 for a batch of files without a target; under the
           # step's pipefail that must not end the step.
-          declared="$({ git ls-files -z -- '*_test.go' | xargs -0 grep -H -o '^func Fuzz[A-Za-z0-9_]*' || true; } |
+          declared="$({ git ls-files -z -- '*_test.go' ':!:adapter/' | xargs -0 grep -H -o '^func Fuzz[A-Za-z0-9_]*' || true; } |
             sed -E 's|^(.*)/[^/]*_test\.go:func (.*)$|./\1 \2|; s|^[^/]*_test\.go:func (.*)$|. \1|' | sort -u)"
           # The scan above cannot come back empty in this tree: an empty
           # result is a broken scan, which would let every list pass.

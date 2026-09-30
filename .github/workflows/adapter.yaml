@@ -1,0 +1,191 @@
+name: adapter
+
+# CI for the nested module github.com/zchee/typesafe-sdk-go/adapter. The
+# root's workflows run ./... of the root module, which stops at
+# adapter/go.mod, so this module is linted and tested here.
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*" # a root tag: root-head then shows whether the tagged root still serves the adapter
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+    working-directory: adapter
+
+env:
+  GOWORK: "off"
+
+jobs:
+  lint:
+    name: lint
+    # A root tag push needs only root-head: lint and test would re-check an
+    # unchanged adapter tree.
+    if: github.ref_type != 'tag'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Check out system-one-adapter-python at the pinned upstream commit
+        uses: actions/checkout@v7
+        with:
+          repository: typesafe-ai/system-one-adapter-python
+          ref: e1d4cc938204b22fc5a3c3aca7044072fe3f712d
+          path: upstream-adapter
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: adapter/go.mod
+          cache-dependency-path: adapter/go.sum
+          check-latest: true
+
+      # The root's rules (.golangci.yaml), so the repository has one rule set.
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+          working-directory: adapter
+          args: --config ../.golangci.yaml
+
+      - name: golangci-lint fmt --diff
+        run: |
+          out="$(golangci-lint fmt --diff --config ../.golangci.yaml 2>&1)" || { echo "$out"; exit 1; }
+          if [ -n "$out" ]; then echo "$out"; exit 1; fi
+
+      - name: govulncheck, go mod tidy
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./... && go mod tidy -diff
+
+      # The cassettes and expected responses are upstream's files, and the
+      # list of upstream test functions the port test matrix is checked
+      # against is upstream's list at the pinned commit.
+      - name: The copied upstream files are upstream's bytes
+        run: |
+          diff -r ../upstream-adapter/tests/cassettes/test_client_with_live_apis testdata/cassettes
+          diff -r ../upstream-adapter/tests/expected_responses testdata/expected
+          grep -rhoE '^\s*(async )?def test_[A-Za-z0-9_]+' ../upstream-adapter/tests | sed -E 's/^\s*(async )?def //' | sort >"$RUNNER_TEMP/functions.txt"
+          grep -v '^#' testdata/upstream/functions.txt | sed -E 's/^.*:://' | sort | diff - "$RUNNER_TEMP/functions.txt"
+
+  test:
+    name: test (${{ matrix.os }})
+    if: github.ref_type != 'tag'
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-26.04
+          - xcode-27
+          - windows-2025
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: adapter/go.mod
+          cache-dependency-path: adapter/go.sum
+          check-latest: true
+
+      # The root's test job (ci.yaml) measured this failure: with -coverpkg,
+      # packages without tests each build the covdata tool into one cache
+      # entry, and on Linux one can exec it while another writes it ("text
+      # file busy"). Build it once first, as the root does, and keep the
+      # root's before/after listing of GOCACHE on Linux; the step is the
+      # root's, with this module's paths.
+      - name: go test -race with coverage
+        run: |
+          tool="$(go tool -n covdata)"
+          echo "go tool -n covdata: $tool"
+          # Each file named covdata in GOCACHE with its inode, size and
+          # mtime; -printf is GNU find's, hence Linux only.
+          covdata_files() {
+            find "$(go env GOCACHE)" -type f -name covdata -printf '%i %s %TY-%Tm-%Td %TT %p\n' | sort
+          }
+          if [ "$RUNNER_OS" = Linux ]; then
+            before="$(covdata_files)"
+            printf 'files named covdata in GOCACHE after the warm-up:\n%s\n' "$before"
+            if ! grep -qF -- " $tool" <<<"$before"; then
+              echo "::error::the path the warm-up printed, $tool, is not among the files named covdata in GOCACHE"
+              exit 1
+            fi
+          fi
+          # The test command's status is kept until the second list is out.
+          set +e
+          go test -race -count=1 -coverpkg=./... -coverprofile=coverage.out -covermode=atomic ./...
+          status=$?
+          set -e
+          if [ "$RUNNER_OS" = Linux ]; then
+            after="$(covdata_files)"
+            printf 'files named covdata in GOCACHE after the test command:\n%s\n' "$after"
+            if [ "$after" != "$before" ]; then
+              echo "::error::the test command changed the files named covdata in GOCACHE: the warm-up did not reach the entry it uses"
+              exit 1
+            fi
+          fi
+          exit "$status"
+
+      # go-json-experiment/json aliases the standard library under the
+      # default goexperiment.jsonv2 tag and uses its own copy without it:
+      # the second path is different code, so it runs too.
+      - name: go test with GOEXPERIMENT=nojsonv2 (the library's own code)
+        if: matrix.os == 'ubuntu-26.04'
+        env:
+          GOEXPERIMENT: nojsonv2
+        run: go test -count=1 ./...
+
+      # OIDC authentication, as in ci.yaml; the flag keeps this module's
+      # uploads apart from the root's.
+      - uses: codecov/codecov-action@v7
+        with:
+          use_oidc: true
+          files: adapter/coverage.out
+          disable_search: true
+          flags: adapter
+          fail_ci_if_error: true
+
+  # Blocking (no continue-on-error): every test of the adapter against the
+  # root at this commit, through a go.work outside the tree. It runs on
+  # every push to main, every dispatch and every root tag, so a root commit
+  # that breaks what the adapter relies on turns main's run red.
+  root-head:
+    name: adapter against the root at this commit
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: adapter/go.mod
+          check-latest: true
+
+      - name: go test with a go.work outside the tree
+        env:
+          GOWORK: ${{ runner.temp }}/go.work
+        run: |
+          go work init "$GITHUB_WORKSPACE" "$GITHUB_WORKSPACE/adapter"
+          go test -count=1 ./...
