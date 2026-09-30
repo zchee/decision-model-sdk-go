@@ -211,7 +211,7 @@ type Usage struct, comparable
 method (Usage) InputTokens() (uint64, bool)
 method (Usage) MarshalJSON() ([]byte, error)
 method (Usage) OutputTokens() (uint64, bool)
-const Version untyped string = "0.1.0"
+const Version untyped string = "0.1.1"
 func WithAPIKey(string) ClientOption
 func WithBaseURL(string) ClientOption
 func WithClientTrace(*net/http/httptrace.ClientTrace) ClientOption

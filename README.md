@@ -7,7 +7,7 @@ System One API, a port of
 JSON) and returns typed answers: a probability (noul), a choice among
 options, or a score on a scale.
 
-**Status: v0.1.0**, the first release (`typesafe.Version` is `0.1.0`).
+**Status: v0.1.1**, the second release (`typesafe.Version` is `0.1.1`).
 Before v1.0.0 a minor release may change the API, as
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) allows.
 

@@ -4,6 +4,39 @@ All notable changes to typesafe-sdk-go are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-09-30
+
+This release corrects documents and comments. No Go code changed apart
+from the constant `Version`, and `go.mod` and `go.sum` are those of 0.1.0.
+
+### Changed
+
+- `Version` is `0.1.1`, so every request names `typesafe-sdk-go/0.1.1` in
+  its `User-Agent` and `X-TypeSafe-SDK` headers.
+- The Go row of [`docs/perf/codspeed.md`](docs/perf/codspeed.md) also says
+  which Go release the benchmark job uses when the `actions/go-versions`
+  manifest cannot be read or lists no 1.27 release.
+
+### Fixed
+
+- The README said that a `go` command from Go 1.21 to 1.26 switches to a
+  Go 1.27 toolchain; Go 1.21.0 to 1.21.10 and 1.22.0 to 1.22.3 stop with
+  `toolchain not available` in a checkout of this repository, and in a
+  module of yours after the `go get` that adds the SDK. The README and
+  [`docs/support.md`](docs/support.md) said that Go 1.17 to 1.20 print
+  `note: module requires Go 1.27` when the build fails; they fail on the
+  standard-library packages they lack.
+- The comment of the `livetest/**` entry in `.codecov.yaml` said that the
+  package's tests are opt-in tests against the live API that CI does not
+  run. Those are its tests built with `-tags live`; its untagged tests,
+  `TestExamplesOffline` among them, run in CI's test job.
+- The comment above the `actions/setup-go` step of
+  `.github/workflows/bench.yaml` said that setup-go sets
+  `GOTOOLCHAIN=local` after it gets Go; it exports it before. The comment
+  now also names the failures after which the download comes from
+  go.dev/dl: reading the manifest, or downloading, extracting or caching
+  the file it lists.
+
 ## [0.1.0] - 2026-09-27
 
 The first release: a Go client for the TypeSafe System One API, ported from
@@ -171,4 +204,5 @@ ones:
   was rewritten on 2026-09-27 to remove them, so the module and a clone
   carry none of them.
 
+[0.1.1]: https://github.com/zchee/typesafe-sdk-go/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/zchee/typesafe-sdk-go/tree/v0.1.0
