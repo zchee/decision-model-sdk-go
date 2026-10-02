@@ -318,13 +318,23 @@ func TestPostSendsJSONAndReturnsTheBody(t *testing.T) {
 			before := tt.header.Clone()
 
 			got, err := c.Post(t.Context(), mustURL(t, tt.url), tt.header, []byte(`{"model":"made-up"}`))
+			// The handler records a request before it answers, so the
+			// record is here once Post has returned. It is taken before
+			// any check can end the case: a record left behind would make
+			// the next case's handler wait, and Post with it.
+			var sent seen
+			select {
+			case sent = <-requests:
+			default:
+				t.Error("the server recorded no request")
+			}
 			if err != nil {
 				t.Fatalf("Post() error = %v, want nil", err)
 			}
 			if diff := cmp.Diff(tt.wantBody, string(got)); diff != "" {
 				t.Errorf("Post() body mismatch (-want +got):\n%s", diff)
 			}
-			if diff := cmp.Diff(tt.want, <-requests); diff != "" {
+			if diff := cmp.Diff(tt.want, sent); diff != "" {
 				t.Errorf("request mismatch (-want +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(before, tt.header); diff != "" {
@@ -334,10 +344,47 @@ func TestPostSendsJSONAndReturnsTheBody(t *testing.T) {
 	}
 }
 
+// endlessBodyStop is how many bytes an endlessBody gives out before it
+// stops a reader that has not stopped by itself.
+const endlessBodyStop = 1 << 20
+
+// errEndlessBodyReadOn is what an endlessBody returns to a reader that read
+// endlessBodyStop bytes of it.
+var errEndlessBodyReadOn = errors.New("made-up error: the endless body was read without a limit")
+
+// endlessBody is a response body that does not end: every Read fills the
+// whole buffer. It counts the bytes it gave out and the Close calls. A
+// reader that goes on for endlessBodyStop bytes gets an error from then
+// on, so that a read without a limit fails its test instead of using up
+// the memory.
+type endlessBody struct {
+	read   atomic.Int64
+	closed atomic.Int64
+}
+
+// Read fills p and counts its length.
+func (b *endlessBody) Read(p []byte) (int, error) {
+	if b.read.Load() >= endlessBodyStop {
+		return 0, errEndlessBodyReadOn
+	}
+	for i := range p {
+		p[i] = 'a'
+	}
+	b.read.Add(int64(len(p)))
+	return len(p), nil
+}
+
+// Close counts the call.
+func (b *endlessBody) Close() error {
+	b.closed.Add(1)
+	return nil
+}
+
 // TestBodyCapAtItsBoundary checks the limit of a response body with a small
 // limit put in place of the 64 MiB: a body of exactly the limit is read
 // whole and one of a byte more is refused for a status of 200 to 299 and
-// cut for any other.
+// cut for any other; and of a body that does not end, one byte more than
+// the limit is read and no more, and the body is closed once.
 func TestBodyCapAtItsBoundary(t *testing.T) {
 	if maxBodyBytes != 64<<20 {
 		t.Errorf("maxBodyBytes = %d, want 64 MiB", maxBodyBytes)
@@ -398,6 +445,57 @@ func TestBodyCapAtItsBoundary(t *testing.T) {
 				if diff := cmp.Diff(tt.wantStatusBody, string(se.Body)); diff != "" {
 					t.Errorf("Body mismatch (-want +got):\n%s", diff)
 				}
+			}
+		})
+	}
+
+	// A body that does not end, handed over by a transport of the test's
+	// own, which counts what Post reads of it and how often Post closes it.
+	endless := map[string]struct {
+		status int
+		// wantErr is the error expected for a status of 200 to 299; any
+		// other status gives an *llm.StatusError with the body cut at the
+		// limit.
+		wantErr error
+	}{
+		"error: 200, a body that does not end": {status: http.StatusOK, wantErr: ErrBodyTooLarge},
+		"error: 299, a body that does not end": {status: 299, wantErr: ErrBodyTooLarge},
+		"error: 302, a body that does not end": {status: http.StatusFound},
+		"error: 503, a body that does not end": {status: http.StatusServiceUnavailable},
+	}
+	for name, tt := range endless {
+		t.Run(name, func(t *testing.T) {
+			body := &endlessBody{}
+			c := New(Config{HTTPClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return respond(req, tt.status, nil, body), nil
+			})}})
+			c.maxBody = limit
+
+			got, err := c.Post(t.Context(), mustURL(t, "https://provider.example.test/v1/call"), nil, []byte(`{}`))
+			if got != nil {
+				t.Errorf("Post() body = %d bytes beside the error", len(got))
+			}
+			if tt.wantErr != nil {
+				if err != tt.wantErr { //nolint:errorlint // Post returns the error value itself.
+					t.Errorf("Post() error = %#v, want %v itself", err, tt.wantErr)
+				}
+			} else {
+				se, ok := err.(*llm.StatusError) //nolint:errorlint // Post returns the status error itself.
+				if !ok {
+					t.Fatalf("Post() error = %#v, want an *llm.StatusError itself", err)
+				}
+				if se.StatusCode != tt.status {
+					t.Errorf("StatusCode = %d, want %d", se.StatusCode, tt.status)
+				}
+				if diff := cmp.Diff(atLimit, string(se.Body)); diff != "" {
+					t.Errorf("Body mismatch (-want +got):\n%s", diff)
+				}
+			}
+			if got := body.read.Load(); got != limit+1 {
+				t.Errorf("Post read %d bytes of a body that does not end, want %d: the limit and one byte", got, limit+1)
+			}
+			if got := body.closed.Load(); got != 1 {
+				t.Errorf("Post closed the response body %d times, want 1", got)
 			}
 		})
 	}
@@ -474,9 +572,9 @@ const redirectCanary = "canary-word-of-the-redirect-test"
 // the request body reaches it: for a Client that owns its HTTP client and
 // for one that borrows a client without a redirect policy, which is called
 // through a copy and is itself left as it was. A borrowed client that has
-// a policy of its own keeps it: the request is followed, and net/http
-// sends X-Api-Key and X-Goog-Api-Key on to the other host and removes
-// Authorization, which is why nothing is followed by default.
+// a policy of its own keeps it, on a copy too: the request is followed,
+// and net/http sends X-Api-Key and X-Goog-Api-Key on to the other host and
+// removes Authorization, which is why nothing is followed by default.
 func TestRedirectIsNotFollowed(t *testing.T) {
 	type arrival struct {
 		Method        string
@@ -601,6 +699,9 @@ func TestRedirectIsNotFollowed(t *testing.T) {
 			if diff := cmp.Diff(want, last.Load()); diff != "" {
 				t.Errorf("borrowed client with a policy: what the redirect's host received differs from the test's premise, that net/http sends the two key headers on and removes Authorization (-want +got):\n%s", diff)
 			}
+			if own.CheckRedirect == nil || own.Transport != http.RoundTripper(transport) || own.Timeout != 0 || own.Jar != nil {
+				t.Errorf("borrowed client with a policy: the caller's client was changed: %+v", own)
+			}
 		})
 	}
 }
@@ -617,8 +718,9 @@ func (c *closeCounter) CloseIdleConnections() { c.closed.Add(1) }
 // TestNewAndClose checks what New builds from a Config and what Close does:
 // an owned client over a clone of http.DefaultTransport that follows no
 // redirect and whose idle connections Close closes, a borrowed client that
-// is left alone and called as it is when it has a redirect policy and
-// through a copy when it has none, and the timeout's default.
+// is left alone and called through a copy, which keeps the caller's
+// redirect policy or, when the caller has none, follows no redirect, and
+// the timeout's default.
 func TestNewAndClose(t *testing.T) {
 	if DefaultTimeout != 600*time.Second {
 		t.Errorf("DefaultTimeout = %v, want 600s", DefaultTimeout)
@@ -671,20 +773,45 @@ func TestNewAndClose(t *testing.T) {
 
 	t.Run("success: borrowed client with a redirect policy", func(t *testing.T) {
 		counter := &closeCounter{RoundTripper: http.DefaultTransport}
-		policy := func(*http.Request, []*http.Request) error { return nil }
-		hc := &http.Client{Transport: counter, Timeout: 3 * time.Second, CheckRedirect: policy}
+		var asked atomic.Int64
+		errPolicy := errors.New("made-up answer of the caller's redirect policy")
+		policy := func(*http.Request, []*http.Request) error {
+			asked.Add(1)
+			return errPolicy
+		}
+		jar := http.CookieJar(nil)
+		hc := &http.Client{Transport: counter, Timeout: 3 * time.Second, CheckRedirect: policy, Jar: jar}
 		c := New(Config{HTTPClient: hc, Timeout: 5 * time.Second, BlankErrorBodyIsNone: true})
 		if c.owned {
 			t.Error("owned = true for a Config with an HTTPClient")
 		}
-		if c.http != hc {
-			t.Error("the Client does not call through the HTTPClient it was given, which has a redirect policy")
+		if c.http == hc {
+			t.Fatal("the Client calls through the caller's client itself, want a copy")
 		}
-		if hc.CheckRedirect == nil || hc.Timeout != 3*time.Second || hc.Transport != http.RoundTripper(counter) {
+		if c.http.CheckRedirect == nil {
+			t.Fatal("the copy has no CheckRedirect, want the caller's policy")
+		}
+		if err := c.http.CheckRedirect(nil, nil); err != errPolicy || asked.Load() != 1 { //nolint:errorlint // the caller's policy returns this value itself.
+			t.Errorf("the copy's CheckRedirect() = %v after %d calls of the caller's policy, want the caller's policy called once", err, asked.Load())
+		}
+		if c.http.Transport != http.RoundTripper(counter) || c.http.Timeout != 3*time.Second || c.http.Jar != jar {
+			t.Errorf("the copy does not share the caller's Transport, Timeout and Jar: %+v", c.http)
+		}
+		if hc.CheckRedirect == nil || hc.Timeout != 3*time.Second || hc.Transport != http.RoundTripper(counter) || hc.Jar != jar {
 			t.Errorf("New changed the borrowed client: %+v", hc)
 		}
 		if c.timeout != 5*time.Second || !c.blankIsNone {
 			t.Errorf("timeout = %v, blankIsNone = %t; want 5s, true", c.timeout, c.blankIsNone)
+		}
+
+		// The settings were read when New was called: what the caller
+		// changes afterwards does not reach the Client.
+		hc.CheckRedirect, hc.Timeout, hc.Transport = nil, 9*time.Second, nil
+		if err := c.http.CheckRedirect(nil, nil); err != errPolicy || asked.Load() != 2 { //nolint:errorlint // the caller's policy returns this value itself.
+			t.Errorf("after the caller's change: the copy's CheckRedirect() = %v after %d calls of the caller's first policy, want that policy called twice", err, asked.Load())
+		}
+		if c.http.Transport != http.RoundTripper(counter) || c.http.Timeout != 3*time.Second {
+			t.Errorf("after the caller's change: the copy has Transport %v and Timeout %v, want the settings New read", c.http.Transport, c.http.Timeout)
 		}
 		if err := c.Close(); err != nil {
 			t.Errorf("Close() = %v, want nil", err)
@@ -847,7 +974,7 @@ func TestRequestThatCannotBeBuilt(t *testing.T) {
 
 // TestEnv checks the environment lookup with made-up names and values: a
 // variable that is set gives its value, one that is set and empty gives ""
-// and true, and one that is not set gives "" and false.
+// and true, and one that is not set, or an empty name, gives "" and false.
 func TestEnv(t *testing.T) {
 	const (
 		setName   = "REST_TEST_MADE_UP_VARIABLE"

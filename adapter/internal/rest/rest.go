@@ -66,15 +66,17 @@ var keptHeaders = [...]string{"Retry-After", "Retry-After-Ms", "X-Typesafe-Reque
 type Config struct {
 	// HTTPClient performs the requests when it is not nil. The Client
 	// borrows it: it never writes to it, and Close leaves it alone. Its
-	// settings are read once, when New is called.
+	// settings are read once, when New is called: the Client calls through
+	// a copy of the client value, which shares the Transport and the Jar,
+	// so a field of the caller's client that is changed afterwards is not
+	// seen.
 	//
 	// A borrowed client whose CheckRedirect is nil follows no redirect
-	// either: the Client calls through a copy of the client value that has
-	// the policy of an owned client and shares the Transport, the Jar and
-	// the Timeout. A borrowed client whose CheckRedirect is set keeps that
-	// policy, and a caller who sets one decides where the header that
-	// carries the provider's key may go: net/http sends a request's headers
-	// on to the host a redirect names.
+	// either: the copy has the policy of an owned client. A borrowed client
+	// whose CheckRedirect is set keeps that policy on the copy, and a
+	// caller who sets one decides where the header that carries the
+	// provider's key may go: net/http sends a request's headers on to the
+	// host a redirect names.
 	//
 	// When HTTPClient is nil the Client owns a client of its own over a
 	// clone of http.DefaultTransport, which follows no redirect.
@@ -112,15 +114,18 @@ func New(cfg Config) *Client {
 	if c.timeout <= 0 {
 		c.timeout = DefaultTimeout
 	}
-	switch {
-	case c.http == nil:
+	if c.http == nil {
 		c.http, c.owned = &http.Client{Transport: ownedTransport(), CheckRedirect: noRedirect}, true
-	case c.http.CheckRedirect == nil:
-		// The caller's client is not written: the policy goes into a copy.
-		borrowed := *c.http
-		borrowed.CheckRedirect = noRedirect
-		c.http = &borrowed
+		return c
 	}
+	// The caller's client is not written: the Client keeps a copy of it,
+	// and the policy of an owned client goes into the copy when the caller
+	// set none.
+	borrowed := *c.http
+	if borrowed.CheckRedirect == nil {
+		borrowed.CheckRedirect = noRedirect
+	}
+	c.http = &borrowed
 	return c
 }
 
@@ -135,8 +140,8 @@ func ownedTransport() *http.Transport {
 	return &http.Transport{Proxy: http.ProxyFromEnvironment, ForceAttemptHTTP2: true}
 }
 
-// noRedirect is the redirect policy of an owned client and of a borrowed
-// one that has none of its own: the response of status 300 to 399 is
+// noRedirect is the redirect policy of an owned client and of the copy of a
+// borrowed one that has none of its own: the response of status 300 to 399 is
 // returned as it is, so Post reports it as an *llm.StatusError. A redirect
 // is not followed because net/http would send the request's headers to the
 // new host again. When that host is another one it removes only the
@@ -299,10 +304,16 @@ func redact(u *url.URL) string {
 
 // Env returns the value of the environment variable name and whether it is
 // set, as os.LookupEnv does. It is the one read of the environment a
-// provider makes, when it is built; it prints and logs nothing. Whether a
-// variable that is set and empty counts is the provider's rule, because the
-// vendors' Python SDKs differ: Anthropic's and Gemini's take an empty value
-// as none, OpenAI's takes it as the value.
+// provider makes, when it is built; it prints and logs nothing.
+//
+// An empty name is reported as not set without asking the operating system.
+// A variable that is set to the empty string is reported as set, with the
+// empty value. Whether such a variable counts is the provider's rule,
+// because the vendors' Python SDKs differ: Anthropic's and Gemini's take an
+// empty value as none, OpenAI's takes it as the value.
 func Env(name string) (value string, set bool) {
+	if name == "" {
+		return "", false
+	}
 	return os.LookupEnv(name)
 }
