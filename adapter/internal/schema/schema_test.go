@@ -45,6 +45,9 @@ const (
 	wantPydanticCore = "2.46.4"
 	wantUpstream     = "0.2.1"
 	wantCommit       = "e1d4cc938204b22fc5a3c3aca7044072fe3f712d"
+	// wantPythonSDK is the version of typesafe-sdk-python that upstream's
+	// release locks.
+	wantPythonSDK = "0.7.0"
 )
 
 // The text around the schema in the system message of a prompted request
@@ -293,7 +296,7 @@ type schemaCase struct {
 
 // readSchemaCases reads the generated case file after checking its header:
 // the format, the three reference versions, upstream's release and commit,
-// and the two counts.
+// the Python SDK's version, and the two counts.
 func readSchemaCases(t testing.TB) []schemaCase {
 	t.Helper()
 	data, err := os.ReadFile(schemaCasesPath)
@@ -317,6 +320,7 @@ func readSchemaCases(t testing.TB) []schemaCase {
 		{[]any{"pydantic_core"}, wantPydanticCore},
 		{[]any{"system_one_adapter", "version"}, wantUpstream},
 		{[]any{"system_one_adapter", "commit"}, wantCommit},
+		{[]any{"typesafe_sdk"}, wantPythonSDK},
 	} {
 		if got := text(check.path...); got != check.want {
 			t.Fatalf("%s: header %v = %q, want %q", schemaCasesPath, check.path, got, check.want)
@@ -688,8 +692,12 @@ func TestCleandoc(t *testing.T) {
 		"success: a tab is eight columns":            {doc: "\tx\n  y\n\n", want: "x\ny"},
 		"success: a tab after text":                  {doc: "ab\tc\n\td", want: "ab      c\nd"},
 		"success: a carriage return ends a column":   {doc: "a\r\n\tb\r\n", want: "a\r\nb\r"},
-		"success: wide characters are one column":    {doc: "日本\tx", want: "日本      x"},
-		"success: other white space is content":      {doc: "a\n\u00a0b\n  c", want: "a\n\u00a0b\n  c"},
+		// A carriage return by itself starts the columns again: c is at
+		// column 0, so the tab is seven spaces. Computed, like the other
+		// rows, with CPython 3.14.3's inspect.cleandoc.
+		"success: a carriage return alone ends a column": {doc: "ab\rc\td", want: "ab\rc       d"},
+		"success: wide characters are one column":        {doc: "日本\tx", want: "日本      x"},
+		"success: other white space is content":          {doc: "a\n\u00a0b\n  c", want: "a\n\u00a0b\n  c"},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
