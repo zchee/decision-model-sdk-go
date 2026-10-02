@@ -25,6 +25,9 @@
 //     they are given;
 //   - a reader, Read and Node, that gives a JSON text's values as Python's
 //     json.loads holds them, for code that looks members up;
+//   - a token reader, Tokens, that gives every token of a JSON text with its
+//     depth, for code that must see what Read drops: a member that a later
+//     one of the same name replaces, and each number as the text spells it;
 //   - semantic equality of two JSON texts for tests, Equal and EqualOrdered.
 //
 // No other package of the module imports the JSON library, so a change of

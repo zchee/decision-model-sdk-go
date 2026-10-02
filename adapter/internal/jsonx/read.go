@@ -43,6 +43,18 @@ func Read(doc []byte) (Node, error) {
 	return Node{n: &root}, nil
 }
 
+// PydanticJSON returns v as PydanticJSON writes the value of a JSON text:
+// the text pydantic_core.to_json writes for the Python value json.loads made
+// of v. The depth it counts starts at v, so a value that is too deep inside
+// its document may be written when it is taken by itself. It refuses with
+// ErrDepth.
+func (v Node) PydanticJSON() ([]byte, error) {
+	if v.n == nil {
+		return []byte("null"), nil
+	}
+	return appendNode(nil, v.n, 1)
+}
+
 // Kind returns the kind of v.
 func (v Node) Kind() Kind {
 	if v.n == nil {
