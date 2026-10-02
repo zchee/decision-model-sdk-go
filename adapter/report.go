@@ -224,8 +224,12 @@ var errReport = errors.New("adapter: report")
 
 // MarshalJSON writes {"usage": …, "debug": …} with upstream's member names
 // and order. It fails for a float that is NaN or an infinity, a Latency
-// outside its range, an Attempt.Schema that is not one JSON value, or an
-// encoding member other than "" and "text".
+// outside its range, an Attempt.Schema that is not one JSON value, an
+// encoding member other than "" and "text", and two questions, or two
+// labels of one question, whose names are one name once each byte that
+// is not valid UTF-8 is written as U+FFFD (a JSON object cannot hold a
+// name twice; the Adapter's own Reports never have such names, because
+// the question names and labels come from the request's JSON).
 func (r Report) MarshalJSON() ([]byte, error) {
 	members, err := r.members()
 	if err != nil {

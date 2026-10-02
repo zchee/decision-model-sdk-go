@@ -867,12 +867,15 @@ func (in *fuzzInput) body() []byte {
 	return slices.Clone(in.chunk())
 }
 
-// unique returns name, made unique among seen.
+// unique returns name, made unique among seen in the form MarshalJSON
+// writes names: each byte that is not part of valid UTF-8 replaced by
+// U+FFFD, as converting the string to runes replaces it. Two names that
+// differ only in such bytes are one name in the JSON.
 func unique(seen map[string]bool, name string) string {
-	for seen[name] {
+	for seen[string([]rune(name))] {
 		name += "'"
 	}
-	seen[name] = true
+	seen[string([]rune(name))] = true
 	return name
 }
 
@@ -1060,6 +1063,9 @@ func FuzzReportJSON(f *testing.F) {
 	}
 	f.Add(byte(1), []byte{}, int64(-1))
 	f.Add(byte(1), seedChunks(nil, nil, nil, nil, nil, nil, b("\x00\x00\x00\x00\x00\x00\xf8\x7f")), int64(0)) // a NaN max_error
+	// Two question names that differ only in invalid UTF-8 bytes, one
+	// name once written.
+	f.Add(byte('_'), []byte("\x00\x00\x00\x00\x00\x00\x00\x010\x0520000\x01\x9fn000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\xb7"), int64(3999999930))
 	f.Fuzz(func(t *testing.T, mode byte, data []byte, latency int64) {
 		var r Report
 		if mode%2 == 0 {
