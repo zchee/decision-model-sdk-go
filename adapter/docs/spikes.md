@@ -540,18 +540,30 @@ map the adapter's coverage profile to paths under `adapter/`?
 **Pass.** Codecov's validator accepts `.codecov.yaml`, and the first upload
 of the adapter's profile shows paths under `adapter/`.
 
-**Verdict.** Half measured. Measured: the validator accepts `.codecov.yaml`
-and understands the three keys the configuration depends on (`project: off`,
-`name_prefix` in a component status, the negated path `"!adapter/**"`), and
-Codecov posts one status per component and kind under these six names:
-`codecov/project/default-sdk`, `codecov/project/goal-sdk`,
+**Verdict.** Pass, measured in two steps. First, at a commit where the
+module had no statement outside its test files: the validator accepts
+`.codecov.yaml` and understands the three keys the configuration depends on
+(`project: off`, `name_prefix` in a component status, the negated path
+`"!adapter/**"`), and Codecov posts one status per component and kind under
+these six names: `codecov/project/default-sdk`, `codecov/project/goal-sdk`,
 `codecov/patch/sdk`, `codecov/project/default-adapter`,
-`codecov/project/goal-adapter`, `codecov/patch/adapter`. Not measured: the
-mapping of the module's files to paths under `adapter/`. At the commit this
-was run on, the module had no statement outside its test files, so its
-coverage profile was the single line `mode: atomic` and no file of it
-reached a report. The mapping is measured when the module has its first
-statements.
+`codecov/project/goal-adapter`, `codecov/patch/adapter`. The module's
+coverage profile was then the single line `mode: atomic`, and no file of it
+reached a report; the two sections below describe that commit.
+
+Second, at commit `948db511eb872ceb7588a35e262c490ad97fecc5`, the first whose
+profile holds statements (rows S8-12 to S8-16): Codecov lists the module's
+files under `adapter/`, as paths of the repository, and none under the
+module's import path, so `.codecov.yaml` needs no `fixes:` entry. All six
+uploads of the commit were merged, three from one run of the SDK's workflow
+and three from one run of the adapter's, and the six statuses were posted
+within a minute of the sixth upload, all `success`. The component `adapter`
+stands at 99.31 % and the component `sdk` at 98.17 %. The two project
+statuses of the adapter carry no percentage at that commit: its parent has
+no coverage of the module, and Codecov then says `No coverage information
+found on base report` and compares nothing with the target. The adapter's
+figure is read from Codecov's API there; from the next commit on, the base
+has coverage of the module.
 
 **What was seen.** The upload step succeeded on all three runner images
 every time; it only hands the file over. Codecov refused five of the
@@ -584,10 +596,12 @@ landed, one CI run gives three merged sessions and Codecov posts no status,
 so the SDK's coverage there is read from Codecov's API (the component
 `sdk`). The statuses appear with a second CI run of the same commit, the
 one a landing on `main` starts. Once the adapter's profile holds statements,
-one CI run and one adapter run of a commit are expected to give the six
-sessions between them. That is not measured yet, and one of the adapter's
-uploads here stalled in `started` without an error, so a run can also come
-out one session short.
+one CI run and one adapter run of a commit give the six sessions between
+them: measured at commit `948db511eb872ceb7588a35e262c490ad97fecc5`, the
+first with such a profile, where the six statuses were posted 45 to 50
+seconds after the sixth upload was created. At the earlier commit one of the
+adapter's uploads stalled in `started` without an error, so a run can also
+come out one session short.
 
 | Row | Date (UTC) | Host | Toolchain | Command | Result |
 | --- | --- | --- | --- | --- | --- |
@@ -602,3 +616,8 @@ out one session short.
 | S8-9 | 2026-10-02T05:06:33Z | (M) | curl | `curl -fsSL https://docs.codecov.com/docs/notifications.md`, and `apps/worker/tasks/notify.py` and `upload_finisher.py` of `codecov/umbrella` at commit `90fc7dc04cd3` | the page: `after_n_builds` delays notifications "until a certain number of uploads have been received and processed". The source compares `after_n_builds` with the number of sessions in the commit's report (`notify.py` lines 805 to 820, `upload_finisher.py` lines 827 to 840) and sends nothing while it is larger: here 6 against 3 |
 | S8-10 | 2026-10-02T05:22:49Z | (M) | curl | the two reads of S8-6 and the commit's totals, after a second CI run (36967681205) and a second adapter run (36967681280) of the same commit, the ones its push to `main` started | 12 uploads. The six from the two CI runs are merged, the last at 05:14:31Z; the report has 6 sessions, 50 files, none under `adapter/`. Of the six with the flag `adapter`, five are `error` with `REPORT_EMPTY` and one is still `started` |
 | S8-11 | 2026-10-02T05:22:49Z | (M) | gh | `gh api repos/zchee/typesafe-sdk-go/commits/a0b2b824914f1ca7bee625fa19ea897cbc91dde3/status` | state `success`, 6 statuses, posted from 05:14:34Z to 05:14:37Z. `codecov/project/default-sdk`: `98.1% (target 85.0%)`. `codecov/project/goal-sdk`: `98.1% (target 90.0%)`. `codecov/patch/sdk` and `codecov/patch/adapter`: `Coverage not affected when comparing` the parent and the commit. `codecov/project/default-adapter` and `codecov/project/goal-adapter`: `No coverage information found on head` |
+| S8-12 | 2026-10-02T10:39:33Z | (M) | curl | `curl -sS 'https://api.codecov.io/api/v2/github/zchee/repos/typesafe-sdk-go/commits/948db511eb872ceb7588a35e262c490ad97fecc5/uploads/?page_size=50'`, and the commit itself at `https://api.codecov.io/api/v2/github/zchee/repos/typesafe-sdk-go/commits/948db511eb872ceb7588a35e262c490ad97fecc5/` | 6 uploads, every one in state `merged`, none in error and none stalled: three with the flag `adapter`, created from 10:28:07Z to 10:29:13Z (12 files, 735 lines, 99.3 each), and three from the SDK's workflow with the flags `xcode-27`, `ubuntu-26.04` and `windows-2025`, created from 10:30:59Z to 10:31:36Z (49 files, 4482 lines, 98.1 each). The commit: state `complete`, 6 sessions; 62 files, 5218 lines, 5131 hits, 87 misses, 98.33 |
+| S8-13 | 2026-10-02T10:39:44Z | (M) | curl, jq | `curl -sS 'https://api.codecov.io/api/v2/github/zchee/repos/typesafe-sdk-go/report/?sha=948db511eb872ceb7588a35e262c490ad97fecc5'`, then `jq '.files[].name'` | 12 files under `adapter/`, written as paths of the repository: `adapter/reason.go`, `adapter/retry.go`, five under `adapter/internal/jsonx/`, three under `adapter/internal/prob/`, two under `adapter/llm/`. No file under the module's import path. The other 50 are the SDK's. `adapter/internal/fake` is absent, as `.codecov.yaml` ignores it, and so are the two files that hold no statement |
+| S8-14 | 2026-10-02T10:39:45Z | (M) | curl | the address of S8-13 with `&component_id=adapter`, and with `&component_id=sdk` | component `adapter`: 12 files, 735 lines, 730 hits, 5 misses, no partials, 99.31 % against the target of 85 %. Component `sdk`: 50 files, 4483 lines, 4401 hits, 82 misses, 98.17 % |
+| S8-15 | 2026-10-02T10:39:45Z | (M) | curl | `curl -sS 'https://api.codecov.io/api/v2/github/zchee/repos/typesafe-sdk-go/compare/components?base=c39c6927339016b96f34f7bae88bc565e4185975&head=948db511eb872ceb7588a35e262c490ad97fecc5'` | component `adapter`: at the base 0 files and 0 lines, at the head 12 files and 99.31 %. Component `sdk`: 98.17 % at both |
+| S8-16 | 2026-10-02T10:39:55Z | (M) | gh | `gh api repos/zchee/typesafe-sdk-go/commits/948db511eb872ceb7588a35e262c490ad97fecc5/status` | state `success`, 6 statuses, posted from 10:32:21Z to 10:32:26Z, 45 to 50 seconds after the sixth upload was created. `codecov/project/default-sdk`: `98.1% (target 85.0%)`. `codecov/project/goal-sdk`: `98.1% (target 90.0%)`. `codecov/patch/sdk`: `Coverage not affected when comparing` the parent and the commit. `codecov/project/default-adapter` and `codecov/project/goal-adapter`: `No coverage information found on base report`. `codecov/patch/adapter`: `99.3% of diff hit (target 90.0%)` |
