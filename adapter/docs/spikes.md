@@ -60,15 +60,53 @@ Measured on (M) at 2026-10-02T04:38:38Z: `sum([0.7, 0.2, 0.1])` is
 **Question.** Does a Go schema writer reproduce upstream's schema and
 request bodies?
 
-**Pass.** For each of the 24 recorded provider exchanges: the native schema
-equals the recorded one as a JSON value, the schema text of a prompted
-request equals the recorded text byte for byte, and the whole request body
-equals the recorded body as a JSON value.
+**Pass.** Each of the 24 recorded provider exchanges passes every comparison
+that exists for it. A native request carries a schema object and no schema
+text, and a prompted request carries the text and no object. So the native
+schema is compared with the recorded one as a JSON value for the 12 native
+recordings, the schema text is compared byte for byte for the 12 prompted
+ones, and the whole request body is compared as a JSON value for all 24.
 
-**Verdict.** pending
+**Verdict.** Pass: 12 of 12, 12 of 12 and 24 of 24 on both hosts, with the
+standard library's JSON code and with the JSON library's own
+(`GOEXPERIMENT=nojsonv2`).
+
+**What the port does because of it.** `internal/schema` writes the schema
+from a typed tree in pydantic's order: keywords sorted by name, the members
+of `$defs` sorted by name, the members of `properties` in question and
+label order. The order comes from the tree, not from dumping a map.
+
+The 24 recordings are necessary and not enough. Four of the writer's rules
+can each be removed and all 24 still pass:
+
+1. the key order of a property that is itself named `properties` or
+   `default`, which keeps pydantic's generation order (`type` before
+   `description`) instead of the sorted one;
+2. `inspect.cleandoc` on the description of a probability map (tabs
+   expanded, the common margin and trailing empty lines removed);
+3. the order of `$defs`, which is sorted by name and not left in insertion
+   order;
+4. the replacement of `<` and of `>` in the state text, each on its own.
+
+Requests built by upstream's own code, without a provider call, do pin
+them: 52 of 52 such cases equal the writer's output, and removing one rule
+fails between 2 and 12 of them. So the schema package will also be tested
+against cases generated from upstream's code, besides the recordings.
+
+In four native recordings (`probabilities-native` for OpenAI and Anthropic)
+the recorded schema has another key order than the writer's, because
+upstream's vendor SDKs reordered it before sending; the values are equal.
+[`deviations.md`](deviations.md) has this as DV13.
 
 | Row | Date (UTC) | Host | Toolchain | Command | Result |
 | --- | --- | --- | --- | --- | --- |
+| S1-1 | 2026-10-02T04:46:28Z | (M) | go1.27.1 darwin/arm64 | `go test -count=1 -race ./...` in a module outside this one that holds the writer, reading `testdata/cassettes`; its comparison is the seed of the schema package's tests | recordings: native schema as a value 12/12, prompted text as bytes 12/12, body as a value 24/24. Cases built by upstream's code (13 requests, both answer modes, both output modes; schema and prompt texts as bytes, bodies as values): 52/52 |
+| S1-2 | 2026-10-02T04:46:28Z | (M) | go1.27.1 darwin/arm64, `GOEXPERIMENT=nojsonv2` added | the same test | the same: 12/12, 12/12, 24/24; 52/52 |
+| S1-3 | 2026-10-02T04:46:36Z | (L) | go1.27.1 linux/amd64 | the same test, the same files | the same: 12/12, 12/12, 24/24; 52/52 |
+| S1-4 | 2026-10-02T04:46:36Z | (L) | go1.27.1 linux/amd64, `GOEXPERIMENT=nojsonv2` | the same test | the same: 12/12, 12/12, 24/24; 52/52 |
+| S1-5 | 2026-10-02T04:46:32Z | (M) | jq, `cmp` | the writer's output written to files and compared with the recordings by `jq -S` and `diff` for the values and by `cmp` for the prompted text, without the test's own comparison | 12/12, 12/12, 24/24 |
+| S1-6 | 2026-10-02T04:46:32Z | (M) | go1.27.1 darwin/arm64 | the test of S1-1 three times, each with one deliberate difference: one bit of one question's instructions changed; the last question dropped; one character added to the model name | each run fails for 24 of 24 recordings; the first two fail every comparison, the third only the body |
+| S1-7 | 2026-10-02T04:46:33Z | (M) | go1.27.1 darwin/arm64 | the test of S1-1 four times, each with one rule of the writer removed: the generation order under `properties` and `default`; `inspect.cleandoc`; the sort of `$defs`; the `<` replacement in the state text | the recordings pass 24/24 every time; of the 52 cases built by upstream's code, 8, 2, 2 and 12 fail |
 
 ## S2: Python's `sum()` of floats
 
