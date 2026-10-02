@@ -179,6 +179,9 @@ func readReportCases(t *testing.T) []reportCase {
 		if err != nil {
 			t.Fatal(err)
 		}
+		// A case is named <row>/<parameters>: the row is the row of
+		// adapter/docs/port-test-matrix.md (FM6 to FM9, FM11) whose
+		// upstream test the scenario ports.
 		name, _ := row.Member("case")
 		c := reportCase{name: name.Text()}
 		c.scenario, _ = row.Member("scenario")
@@ -231,11 +234,12 @@ func failureBody(t *testing.T, debug jsonx.Node) []byte {
 // the same order with the same values (DV4): the 12 expected responses of
 // upstream's recorded runs (tests/expected_responses, written with json.dumps
 // of model_dump(mode="json"), tests/test_client_with_live_apis.py:143), and
-// the responses and error.debug of the fake-provider scenarios of FM6 to FM9
-// and FM11 that adapter/testdata/python/gen_report_cases.py ran through
-// upstream's client. Report reads the attempts' bodies (schema,
-// llm_response, request) as JSON and writes them back with their member
-// order, so they are compared with order too, which is stricter than N5.
+// the responses and error.debug of the fake-provider scenarios of
+// tests/test_client_with_fake_model.py that
+// adapter/testdata/python/gen_report_cases.py ran through upstream's
+// client. Report reads the attempts' bodies (schema, llm_response, request)
+// as JSON and writes them back with their member order, so they are
+// compared with order too, which is stricter than comparing them as values.
 // The latency is dropped on both sides. A failed call's Report has the
 // probability members upstream's error.debug lacks; they are added to
 // upstream's data with their zero values before the comparison.
@@ -477,12 +481,11 @@ func TestReportMarshalJSONRefuses(t *testing.T) {
 	}
 }
 
-// TestReportBodyForms pins plan 7.4's rule 2 for each hostile class of
-// provider body (7.4, line 980), and its additions here: a body is
-// embedded as JSON only when it is valid, within 1000 levels, without a
-// repeated member name and without an integer longer than json.loads reads;
-// any other body is a string of its text, invalid UTF-8 replaced, and
-// debug_info says llm_response_encoding "text".
+// TestReportBodyForms pins how a Report writes a provider's body, for each
+// hostile class of body: a body is embedded as JSON only when it is valid,
+// within 1000 levels, without a repeated member name and without an integer
+// longer than json.loads reads; any other body is a string of its text,
+// invalid UTF-8 replaced, and debug_info says llm_response_encoding "text".
 func TestReportBodyForms(t *testing.T) {
 	deep := func(n int) string { return strings.Repeat("[", n) + strings.Repeat("]", n) }
 	tests := map[string]struct {
@@ -1140,8 +1143,9 @@ func FuzzReportJSON(f *testing.F) {
 			b(`{"type":"object"}`), []byte{1}, b("m"), b("p"))
 		f.Add(byte(1), seed, int64(i)*1_000_000_007)
 	}
-	// A body of 1500 levels, which rule 2 writes as text. It is longer than
-	// a chunk of the built Reports can be, so it enters as a read body.
+	// A body of 1500 levels, deeper than maxEmbedDepth, so it is written as
+	// text. It is longer than a chunk of the built Reports can be, so it
+	// enters as a read body.
 	deepBody := b(strings.Repeat("[", 1500) + strings.Repeat("]", 1500))
 	deep, err := Report{Debug: Debug{Attempts: []Attempt{{Response: deepBody, Request: deepBody, Info: AttemptInfo{ModelName: "m", Provider: "p"}}}}}.MarshalJSON()
 	if err != nil || !bytes.Contains(deep, b(`"llm_response_encoding":"text","request_encoding":"text"`)) {

@@ -22,11 +22,11 @@
 
 The scenarios are those of tests/test_client_with_fake_model.py at
 system-one-adapter 0.2.1 whose usage and debug data the Go port reproduces:
-``test_malformed_retry_exhaustion_preserves_debug`` (FM6),
-``test_usage_totals_preserve_unknown_counts_across_corrections`` (FM7),
-``test_usage_separates_last_attempt_from_cumulative_totals`` (FM8),
-``test_attempts_are_independent_and_replayable`` (FM9, its first call) and
-``test_malformed_structure_is_retried`` (FM11), each with every parameter of
+``test_malformed_retry_exhaustion_preserves_debug``,
+``test_usage_totals_preserve_unknown_counts_across_corrections``,
+``test_usage_separates_last_attempt_from_cumulative_totals``,
+``test_attempts_are_independent_and_replayable`` (its first call) and
+``test_malformed_structure_is_retried``, each with every parameter of
 the synchronous client. Each runs through upstream's ``SystemOneAdapterClient``
 with a port of the test file's scripted provider (lines 41-87), so the data is
 what upstream's own code writes.

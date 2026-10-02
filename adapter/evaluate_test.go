@@ -226,10 +226,12 @@ func TestSystemPromptsMatchRecordings(t *testing.T) {
 	}
 }
 
-// TestExtractJSON ports upstream's _extract_json (_client.py:97-107): plan
-// 6.4's cases, and the 24 rows of validator_verdicts.jsonl whose verdict
-// upstream's own run of _extract_json changes (after_extract_json), with
-// the validator built from the row's model.
+// TestExtractJSON ports upstream's _extract_json (_client.py:97-107): a
+// code fence with and without a json tag in any case, no closing fence,
+// white space around the fence and no fence at all, and the 24 rows of
+// validator_verdicts.jsonl whose verdict upstream's own run of
+// _extract_json changes (after_extract_json), with the validator built
+// from the row's model.
 func TestExtractJSON(t *testing.T) {
 	tests := map[string]struct {
 		in   string
@@ -1289,7 +1291,8 @@ func TestEvaluateRefusesBeforeItStarts(t *testing.T) {
 
 // TestEvaluateEndsWithItsContext checks the two ends a call's context
 // gives an evaluation: a cancellation records nothing in the attempt and
-// returns the context's error with the Report, which W2.2 drops (DV2); a
+// returns the context's error with the Report, which the caller of a
+// cancelled call never gets: it gets ctx.Err() without a Report (DV2); a
 // deadline records the timeout in the attempt.
 func TestEvaluateEndsWithItsContext(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
@@ -1458,7 +1461,8 @@ func stepOutcome(t testing.TB, step jsonx.Node) fake.Outcome {
 }
 
 // TestRunMatchesUpstreamReportCases runs the 17 scenarios of
-// report_cases.jsonl (FM6 to FM9 and FM11, generated with upstream's own
+// report_cases.jsonl (the fake-provider scenarios of upstream's
+// tests/test_client_with_fake_model.py, generated with upstream's own
 // client) through the port's evaluation and compares, member by member and
 // in order: the usage without latency, the debug data and the answers of a
 // call that answered; the attempts, the retry reasons and the error's class

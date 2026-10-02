@@ -164,9 +164,9 @@ type AttemptInfo struct {
 	// Provider is provider: the Go type of the provider, such as
 	// "github.com/zchee/typesafe-sdk-go/adapter/openai.Provider".
 	Provider string
-	// API is api: the provider's API, such as "responses", "messages" or
-	// "interactions"; empty means absent, as when the provider recorded
-	// no request.
+	// API is api: the provider's API, such as "responses",
+	// "chat_completions", "messages" or "interactions"; empty means absent,
+	// as when the provider recorded no request.
 	API string
 	// Responded reports that a response was recorded, so that
 	// finish_reason is written.
@@ -246,7 +246,8 @@ func (r *Report) members() ([]jsonx.Member, error) {
 	return []jsonx.Member{{Name: "usage", Value: usage}, {Name: "debug", Value: debug}}, nil
 }
 
-// value returns u in FA16's member order.
+// value returns u in the member order of upstream's Usage
+// (_response.py:15-22), the SDK's two counts first.
 func (u *Usage) value() jsonx.Value {
 	return jsonx.Object(
 		jsonx.Member{Name: "input_tokens", Value: countValue(u.InputTokens)},
