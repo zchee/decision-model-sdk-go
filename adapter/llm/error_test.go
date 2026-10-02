@@ -287,3 +287,74 @@ func TestStatusErrorGoString(t *testing.T) {
 		})
 	}
 }
+
+// TestStatusErrorFormat checks what the fmt verbs print for a StatusError:
+// a value prints its status code and nothing of its header or body, which
+// may carry a cookie, a credential or any text; a pointer, which is an
+// error, prints its Error text for %v, %+v and %s, with the body and no
+// header value; a nil pointer prints as <nil>.
+func TestStatusErrorFormat(t *testing.T) {
+	const (
+		headerCanary = "canary-header-7f3a"
+		bodyCanary   = "canary-body-91c2"
+	)
+	full := llm.StatusError{
+		StatusCode: http.StatusUnauthorized,
+		Header: http.Header{
+			"Set-Cookie":    {"session=" + headerCanary},
+			"Authorization": {"Bearer " + headerCanary},
+		},
+		Body: []byte(bodyCanary),
+	}
+	const (
+		short    = "llm.StatusError(401)"
+		goSyntax = "llm.StatusError{StatusCode:401}"
+		errText  = "401 " + bodyCanary
+	)
+	if diff := cmp.Diff(errText, (&full).Error()); diff != "" {
+		t.Fatalf("Error() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(short, full.String()); diff != "" {
+		t.Errorf("String() mismatch (-want +got):\n%s", diff)
+	}
+
+	tests := map[string]struct {
+		v        any
+		want     map[string]string // by verb
+		wantBody bool              // the body is printed, by design
+	}{
+		"success: value prints the status only": {
+			v:    full,
+			want: map[string]string{"%v": short, "%+v": short, "%s": short, "%#v": goSyntax},
+		},
+		"success: pointer prints its Error text": {
+			v:        &full,
+			want:     map[string]string{"%v": errText, "%+v": errText, "%s": errText, "%#v": goSyntax},
+			wantBody: true,
+		},
+		"success: nil pointer": {
+			v:    (*llm.StatusError)(nil),
+			want: map[string]string{"%v": "<nil>", "%+v": "<nil>", "%s": "<nil>", "%#v": "<nil>"},
+		},
+		"success: value inside a slice": {
+			v:    []any{full},
+			want: map[string]string{"%v": "[" + short + "]", "%+v": "[" + short + "]", "%s": "[" + short + "]", "%#v": "[]interface {}{" + goSyntax + "}"},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			for verb, want := range tt.want {
+				got := fmt.Sprintf(verb, tt.v)
+				if diff := cmp.Diff(want, got); diff != "" {
+					t.Errorf("%s mismatch (-want +got):\n%s", verb, diff)
+				}
+				if strings.Contains(got, headerCanary) {
+					t.Errorf("%s = %q prints a header value", verb, got)
+				}
+				if !tt.wantBody && strings.Contains(got, bodyCanary) {
+					t.Errorf("%s = %q prints a body byte", verb, got)
+				}
+			}
+		})
+	}
+}

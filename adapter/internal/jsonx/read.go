@@ -89,12 +89,24 @@ func (v Node) Len() int {
 }
 
 // Index returns the i-th element of an array or the value of the i-th
-// member of an object. It panics when i is out of range.
-func (v Node) Index(i int) Node { return Node{n: &v.n.elems[i]} }
+// member of an object. For the zero Node it returns the zero Node, whatever
+// i is; otherwise it panics when i is out of range.
+func (v Node) Index(i int) Node {
+	if v.n == nil {
+		return Node{}
+	}
+	return Node{n: &v.n.elems[i]}
+}
 
-// Name returns the name of the i-th member of an object. It panics when v is
-// not an object or i is out of range.
-func (v Node) Name(i int) string { return v.n.names[i] }
+// Name returns the name of the i-th member of an object. For the zero Node
+// it returns "", whatever i is; otherwise it panics when v is not an object
+// or i is out of range.
+func (v Node) Name(i int) string {
+	if v.n == nil {
+		return ""
+	}
+	return v.n.names[i]
+}
 
 // Member returns the value of the member of an object named name, and
 // whether there is one; for any other kind it reports false.

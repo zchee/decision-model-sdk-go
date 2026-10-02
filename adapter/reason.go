@@ -265,8 +265,7 @@ func appendPyRepr(dst []byte, v jsonx.Node) []byte {
 // backslash; \t, \n and \r; \xhh for the other ASCII control characters and
 // for a character up to U+00FF that is not printable; \uhhhh and
 // \Uhhhhhhhh for the other characters that are not printable. Printable is
-// str.isprintable, which unicode.IsPrint equals: Go 1.27 and CPython 3.14
-// both use Unicode 16.0.
+// isPyPrintable.
 func appendPyStrRepr(dst []byte, s string) []byte {
 	quote := byte('\'')
 	if strings.IndexByte(s, '\'') >= 0 && strings.IndexByte(s, '"') < 0 {
@@ -285,7 +284,7 @@ func appendPyStrRepr(dst []byte, s string) []byte {
 			dst = append(dst, `\r`...)
 		case r < ' ' || r == 0x7f:
 			dst = appendHexEscape(dst, 'x', r, 2)
-		case r < utf8.RuneSelf || unicode.IsPrint(r):
+		case r < utf8.RuneSelf || isPyPrintable(r):
 			dst = utf8.AppendRune(dst, r)
 		case r <= 0xff:
 			dst = appendHexEscape(dst, 'x', r, 2)
@@ -296,6 +295,75 @@ func appendPyStrRepr(dst []byte, s string) []byte {
 		}
 	}
 	return append(dst, quote)
+}
+
+// isPyPrintable reports whether r is printable for CPython 3.14.3's
+// str.isprintable, the test its repr escapes by. CPython 3.14.3 holds the
+// character data of Unicode 16.0.0 (unicodedata.unidata_version) and Go
+// 1.27.1 that of Unicode 17.0.0 (unicode.Version), so unicode.IsPrint also
+// accepts the characters Unicode 17.0 assigned: over every code point it
+// accepts the 4803 of notPyPrintable that str.isprintable refuses, and
+// refuses none that str.isprintable accepts.
+func isPyPrintable(r rune) bool {
+	return unicode.IsPrint(r) && !unicode.Is(notPyPrintable, r)
+}
+
+// notPyPrintable holds the code points that Go 1.27.1's unicode.IsPrint
+// accepts and CPython 3.14.3's str.isprintable refuses: 4803 code points in
+// 47 ranges, each unassigned in Unicode 16.0.0. A Go release with the
+// character data of another Unicode version needs the table measured again.
+var notPyPrintable = &unicode.RangeTable{
+	R16: []unicode.Range16{
+		{Lo: 0x088f, Hi: 0x088f, Stride: 1},
+		{Lo: 0x0c5c, Hi: 0x0c5c, Stride: 1},
+		{Lo: 0x0cdc, Hi: 0x0cdc, Stride: 1},
+		{Lo: 0x1acf, Hi: 0x1add, Stride: 1},
+		{Lo: 0x1ae0, Hi: 0x1aeb, Stride: 1},
+		{Lo: 0x20c1, Hi: 0x20c1, Stride: 1},
+		{Lo: 0x2b96, Hi: 0x2b96, Stride: 1},
+		{Lo: 0xa7ce, Hi: 0xa7cf, Stride: 1},
+		{Lo: 0xa7d2, Hi: 0xa7d2, Stride: 1},
+		{Lo: 0xa7d4, Hi: 0xa7d4, Stride: 1},
+		{Lo: 0xa7f1, Hi: 0xa7f1, Stride: 1},
+		{Lo: 0xfbc3, Hi: 0xfbd2, Stride: 1},
+		{Lo: 0xfd90, Hi: 0xfd91, Stride: 1},
+		{Lo: 0xfdc8, Hi: 0xfdce, Stride: 1},
+	},
+	R32: []unicode.Range32{
+		{Lo: 0x10940, Hi: 0x10959, Stride: 1},
+		{Lo: 0x10ec5, Hi: 0x10ec7, Stride: 1},
+		{Lo: 0x10ed0, Hi: 0x10ed8, Stride: 1},
+		{Lo: 0x10efa, Hi: 0x10efb, Stride: 1},
+		{Lo: 0x11b60, Hi: 0x11b67, Stride: 1},
+		{Lo: 0x11db0, Hi: 0x11ddb, Stride: 1},
+		{Lo: 0x11de0, Hi: 0x11de9, Stride: 1},
+		{Lo: 0x16ea0, Hi: 0x16eb8, Stride: 1},
+		{Lo: 0x16ebb, Hi: 0x16ed3, Stride: 1},
+		{Lo: 0x16ff2, Hi: 0x16ff6, Stride: 1},
+		{Lo: 0x187f8, Hi: 0x187ff, Stride: 1},
+		{Lo: 0x18d09, Hi: 0x18d1e, Stride: 1},
+		{Lo: 0x18d80, Hi: 0x18df2, Stride: 1},
+		{Lo: 0x1ccfa, Hi: 0x1ccfc, Stride: 1},
+		{Lo: 0x1ceba, Hi: 0x1ced0, Stride: 1},
+		{Lo: 0x1cee0, Hi: 0x1cef0, Stride: 1},
+		{Lo: 0x1e6c0, Hi: 0x1e6de, Stride: 1},
+		{Lo: 0x1e6e0, Hi: 0x1e6f5, Stride: 1},
+		{Lo: 0x1e6fe, Hi: 0x1e6ff, Stride: 1},
+		{Lo: 0x1f6d8, Hi: 0x1f6d8, Stride: 1},
+		{Lo: 0x1f777, Hi: 0x1f77a, Stride: 1},
+		{Lo: 0x1f8d0, Hi: 0x1f8d8, Stride: 1},
+		{Lo: 0x1fa54, Hi: 0x1fa57, Stride: 1},
+		{Lo: 0x1fa8a, Hi: 0x1fa8a, Stride: 1},
+		{Lo: 0x1fa8e, Hi: 0x1fa8e, Stride: 1},
+		{Lo: 0x1fac8, Hi: 0x1fac8, Stride: 1},
+		{Lo: 0x1facd, Hi: 0x1facd, Stride: 1},
+		{Lo: 0x1faea, Hi: 0x1faea, Stride: 1},
+		{Lo: 0x1faef, Hi: 0x1faef, Stride: 1},
+		{Lo: 0x1fbfa, Hi: 0x1fbfa, Stride: 1},
+		{Lo: 0x2b73a, Hi: 0x2b73f, Stride: 1},
+		{Lo: 0x2cea2, Hi: 0x2cead, Stride: 1},
+		{Lo: 0x323b0, Hi: 0x33479, Stride: 1},
+	},
 }
 
 // appendHexEscape appends a backslash, letter and r in width lowercase hex

@@ -33,7 +33,10 @@ type StatusError struct {
 	// StatusCode is the response's HTTP status code.
 	StatusCode int
 	// Header is the response header, for Retry-After; never recorded in a
-	// trace.
+	// trace. Its keys are in the canonical form of
+	// http.CanonicalHeaderKey, as http.Header's methods and a net/http
+	// response keep them: the Adapter reads Retry-After and the request id
+	// by their canonical names and does not find a key in another case.
 	Header http.Header
 	// Body is the response body as received. For the Adapter's retry
 	// reason, a nil Body is a response without a body and a Body that is
@@ -61,6 +64,15 @@ func (e *StatusError) Error() string {
 		n++
 	}
 	return string(append(b, body...))
+}
+
+// String returns the status code alone, as "llm.StatusError(<status>)". It
+// is what %v, %+v and %s print for a StatusError value, which is not an
+// error, so that they print no header value and no body byte as fmt's
+// field-by-field form would. A *StatusError is an error, and the same verbs
+// print its Error text.
+func (e StatusError) String() string {
+	return "llm.StatusError(" + strconv.Itoa(e.StatusCode) + ")"
 }
 
 // GoString returns what %#v prints for e, a StatusError value or a pointer

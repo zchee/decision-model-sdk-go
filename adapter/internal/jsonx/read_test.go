@@ -80,7 +80,8 @@ func TestRead(t *testing.T) {
 }
 
 // TestNodeMember checks Member on an object, a name it lacks, and every
-// other kind, which has no members, and the zero Node, which is null.
+// other kind, which has no members, and the zero Node, which is null and
+// whose Index and Name return the zero Node and the empty name.
 func TestNodeMember(t *testing.T) {
 	obj, err := Read([]byte(`{"error":{"message":"boom"},"n":null}`))
 	if err != nil {
@@ -111,6 +112,17 @@ func TestNodeMember(t *testing.T) {
 	var zero Node
 	if zero.Kind() != KindNull || zero.Len() != 0 || zero.Text() != "" || zero.IsInt() {
 		t.Errorf("zero Node: kind %v, len %d, text %q, int %t; want null, 0, \"\", false", zero.Kind(), zero.Len(), zero.Text(), zero.IsInt())
+	}
+	for _, i := range []int{0, 1, -1} {
+		if got := zero.Index(i); got != (Node{}) {
+			t.Errorf("zero Node: Index(%d) = %v, want the zero Node", i, got.Kind())
+		}
+		if got := zero.Name(i); got != "" {
+			t.Errorf("zero Node: Name(%d) = %q, want \"\"", i, got)
+		}
+	}
+	if m, ok := zero.Member("a"); ok || m != (Node{}) {
+		t.Errorf("zero Node: Member = %v, %t; want the zero Node, false", m.Kind(), ok)
 	}
 }
 
