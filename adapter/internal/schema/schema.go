@@ -68,6 +68,8 @@ type Spec struct {
 	questions []Question
 	mode      Mode
 	schema    []byte
+	// top is the top-level object of an answer, for Validate.
+	top *level
 }
 
 // Build makes the Spec of a question set that ParseQuestions returned, in
@@ -94,7 +96,8 @@ func Build(questions []Question, mode Mode) (*Spec, error) {
 	if err != nil {
 		return nil, fmt.Errorf("schema: %w", err)
 	}
-	return &Spec{questions: slices.Clone(questions), mode: mode, schema: text}, nil
+	questions = slices.Clone(questions)
+	return &Spec{questions: questions, mode: mode, schema: text, top: levels(questions, mode)}, nil
 }
 
 // Schema returns the schema as compact JSON in pydantic's order, the bytes
@@ -117,6 +120,11 @@ func (s *Spec) Schema() []byte { return bytes.Clone(s.schema) }
 
 // Mode returns the answer mode the Spec was built for.
 func (s *Spec) Mode() Mode { return s.mode }
+
+// Questions returns the questions the Spec was built from, in their order,
+// which is the order of the answers Validate returns. Each call returns a
+// slice of its own.
+func (s *Spec) Questions() []Question { return slices.Clone(s.questions) }
 
 // node is one JSON Schema object of the closed keyword set upstream sends:
 // "$defs", "$ref", "additionalProperties", "description", "enum",

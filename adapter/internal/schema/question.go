@@ -18,7 +18,8 @@
 // request as they arrive on the wire, and refuses what upstream's question
 // models refuse (ParseQuestions); and it builds from them the answer schema
 // of the request in an answer mode (Build), whose text is byte for byte the
-// one upstream gives a provider (Spec.Schema).
+// one upstream gives a provider (Spec.Schema), and checks a model's answer
+// against it as upstream's generated pydantic model does (Spec.Validate).
 package schema
 
 import (
