@@ -110,10 +110,50 @@ retry policy make for each class?
 **Pass.** Each case behaves as the design of the seam says, or the design is
 corrected.
 
-**Verdict.** pending
+**Verdict.** Pass: 38 cases over the 15 failure classes, each under
+`NoRetry()` and under `DefaultRetry()`, behave as designed on both hosts,
+and the two hosts' observations are equal byte for byte.
+
+**What the port does because of it.** The failure classes stay as designed.
+
+- A provider timeout and a connection failure leave `RoundTrip` as the
+  Adapter's own error. The SDK wraps it in its `*typesafe.TimeoutError` or
+  `*typesafe.ConnectionError`, and `errors.As` reaches the Adapter's error,
+  and through it the Report, in both. The provider's own error is not kept
+  in the chain, so a URL that holds a key cannot be printed from it.
+- A Report is carried by exactly the classes that end after an evaluation
+  has started: a provider status, a provider timeout, a connection failure,
+  a passed deadline, a non-answer, any other provider error, and malformed
+  output. It is read from the body the SDK keeps (`APIError.Body`,
+  `ResponseValidationError.Body`) or from the Adapter's error. A call that
+  ends before an evaluation starts has none: an invalid body, invalid
+  questions or state, a model or provider that cannot be resolved or built,
+  the Adapter's own encoding failure, an unknown path, a closed Adapter, a
+  cancelled call.
+- A non-answer, any other provider error and the Adapter's own encoding
+  failure answer status 424, and malformed output answers 200 with
+  `"answers": null`. A client with `DefaultRetry()` makes one attempt for
+  each, so it does not run a billed evaluation again.
+- A client with `DefaultRetry()` does run the evaluation again, three
+  attempts in all, for a provider status of 408, 429 or 500 to 599 (529
+  included; 409 is not retried), a provider timeout, a connection failure
+  and the SDK's own per-attempt timeout. The caller gets the last attempt's
+  Report only, and its `debug.sdk_retry_count` of 2 says that two
+  evaluations ran before it. The client that `NewClient` builds does not
+  retry.
+- `TimeoutError.Timeout` is the SDK's per-attempt timeout, whatever timed
+  out: zero under `WithNoTimeout`, which is what the Adapter's own client
+  sets. So a provider timeout and a caller's passed deadline look the same
+  in that field; `ctx.Err()` or the Report tells them apart.
+- A cancelled call returns `context.Canceled` itself, with no SDK error
+  type around it and no Report, even when `RoundTrip` returned one.
 
 | Row | Date (UTC) | Host | Toolchain | Command | Result |
 | --- | --- | --- | --- | --- | --- |
+| S4-1 | 2026-10-02T04:40:41Z | (M) | go1.27.1 darwin/arm64, `github.com/zchee/typesafe-sdk-go` v0.1.1 | `go test -count=1 -race -v ./...` in a module outside this one, which requires the SDK at v0.1.1 from the module proxy and puts stand-ins for the Adapter's error and report types behind `typesafe.WithRoundTripper`; the test is the seed of this module's `TestSeamContract` | ok; 76 subtests, 38 cases under each of the two retry policies, 0 failed |
+| S4-2 | 2026-10-02T04:41:20Z | (L) | go1.27.1 linux/amd64, the same SDK version | the same test, the same files | ok; 0 failed; the 80 observation lines equal (M)'s byte for byte |
+| S4-3 | 2026-10-02T04:41:01Z | (M) | as S4-1 | the same test twice with one expectation or one stand-in changed: the expected attempts of the non-answer class set to 3; the Adapter's error text made to hold the SDK's key | fails both times: 2 subtests for the wrong count; 16 subtests for the key, because the SDK then replaces the cause and `errors.As` no longer reaches the Adapter's error |
+| S4-4 | 2026-10-02T04:41:38Z | (L) | as S4-2 | the same two changed runs | fails both times, the same 2 and 16 subtests |
 
 ## S5: license detection by pkg.go.dev
 
