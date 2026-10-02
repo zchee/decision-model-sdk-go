@@ -22,6 +22,13 @@ import "math"
 // distribution is around its mode, from 0 (as spread as a uniform
 // distribution, or more) to 1. A distribution of one answer gives 1. It
 // panics on an empty distribution.
+//
+// The center of the distribution, (n-1)/2, is rounded on its own before it
+// is subtracted from each index, as Python computes it, so the result does
+// not depend on whether the compiler fuses the halving and the subtraction
+// into one rounding, which it does on arm64 without the explicit conversion.
+// The halving is exact for every length, so both ways give the same bits
+// today; the conversion keeps that from resting on the compiler.
 func ScoreConfidence(ps []float64) float64 {
 	if len(ps) == 1 {
 		return 1.0
@@ -33,7 +40,8 @@ func ScoreConfidence(ps []float64) float64 {
 		distance.addProduct(p, math.Abs(float64(i-mode)))
 	}
 	n := len(normalized)
-	center := float64(n-1) / 2
+	// The conversion forbids fusing the halving with the subtraction below.
+	center := float64(float64(n-1) / 2)
 	var deviation compensated
 	for i := range n {
 		deviation.add(math.Abs(float64(i) - center))
