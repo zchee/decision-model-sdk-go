@@ -21,7 +21,8 @@ module ports (`UpstreamVersion` and `UpstreamCommit` in
 
 A comparison of floating-point results runs on both hosts against the same
 vector files, because the Go compiler may fuse `x*y + z` into one
-instruction on arm64 and does not on amd64.
+instruction on arm64, and on amd64 when `GOAMD64` is `v3` or higher; at the
+default `v1` it does not.
 
 ## The Python reference
 
@@ -238,8 +239,10 @@ The three classes where Python accepts and the port refuses:
   `RawJSON`, as `typesafe.JSON` content or from a caller's `Marshaler`,
   always with a duplicate name the caller wrote. Upstream itself cannot be
   given such a document, because a Python dict has no duplicate names.
-  Reading the body with invalid UTF-8 allowed would bring the class to 0,
-  and that option must stay off.
+  Reading the body with invalid UTF-8 allowed, and decoding each string
+  itself so that a lone surrogate is refused only where it is written,
+  would bring the class to 0; reading with invalid UTF-8 allowed must stay
+  off.
   The port refuses it, a deviation from upstream that belongs in
   [`deviations.md`](deviations.md).
 - `read-depth` (2; 2 committed): a replaced value nested past the JSON
@@ -264,9 +267,11 @@ with objects around a number. An earlier count saw a difference of one
 between arrays and objects; it came from shapes that ended differently
 (`[]` against `1`) and from a reader that counted a scalar as a level and
 so was one level stricter than its library. The port checks the limit when
-a container is opened. The 10 000 is read from the library, so a library
-version with another constant changes a constant here, and those boundary
-rows show it, without a broken test.
+a container is opened. The 10 000 is read from the library. A library
+version with a lower limit fails those boundary rows; one with a higher
+limit passes them, because the port's own check stays at 10 000, and no row
+shows the change. So the port's constant is compared with the library's
+whenever the library is updated.
 
 The class `two-defects` (14 committed documents) marks a document that both
 sides refuse while the kind of error may differ, because a JSON reader
@@ -342,7 +347,8 @@ and the two hosts' observations are equal byte for byte.
   attempts in all, for a provider status of 408, 429 or 500 to 599 (529
   included; 409 is not retried), a provider timeout, a connection failure
   and the SDK's own per-attempt timeout. The caller gets the last attempt's
-  Report only, and its `debug.sdk_retry_count` of 2 says that two
+  Report only, unless the caller's deadline passes while the SDK waits
+  between attempts, and its `debug.sdk_retry_count` of 2 says that two
   evaluations ran before it. The client that `NewClient` builds does not
   retry.
 - `TimeoutError.Timeout` is the SDK's per-attempt timeout, whatever timed
@@ -387,7 +393,7 @@ license asks of a copy.
 | --- | --- | --- | --- | --- | --- |
 | S5-1 | 2026-10-02T04:33:39Z | (M) | curl | `curl -fsSL https://pkg.go.dev/license-policy` | HTTP 200. The page names `github.com/google/licensecheck`, lists 44 license file names matched without regard to case (`LICENSE` is one; `LICENSE-UPSTREAM` is not), and names no threshold |
 | S5-2 | 2026-10-02T04:33:48Z | (M) | curl | `curl -fsSL https://raw.githubusercontent.com/golang/pkgsite/b0feb34c6d91fdea7d471ec6026383042ba8aa12/internal/licenses/licenses.go` | `coverageThreshold = 75`; a file whose name is not in the list is not read. The `go.mod` of the same commit requires licensecheck v0.3.1 |
-| S5-3 | 2026-10-02T04:34:19Z | (M) | go1.27.1 darwin/arm64, licensecheck v0.3.1 | `go run . LICENSE LICENSE-UPSTREAM`, where `.` is a program outside this module that prints the result of `licensecheck.Scan` for each file | `LICENSE`: Apache-2.0, 100.00 %, bytes 0 to 11357 of 11357. `LICENSE-UPSTREAM`: MIT, 98.82 %, bytes 13 to 1068 of 1068; the 13 bytes before the match are the title line |
+| S5-3 | 2026-10-02T04:34:19Z | (M) | go1.27.1 darwin/arm64, licensecheck v0.3.1 | `go run <program> LICENSE LICENSE-UPSTREAM` in the module's directory, where `<program>` is a program outside this module that prints the result of `licensecheck.Scan` for each file | `LICENSE`: Apache-2.0, 100.00 %, bytes 0 to 11357 of 11357. `LICENSE-UPSTREAM`: MIT, 98.82 %, bytes 13 to 1068 of 1068; the 13 bytes before the match are the title line |
 | S5-4 | 2026-10-02T04:36:19Z | (L) | go1.27.1 linux/amd64, licensecheck v0.3.1 | the same program on the same two files | the same |
 | S5-5 | 2026-10-02T04:34:19Z | (M) | go1.27.1 darwin/arm64, licensecheck v0.3.1 | the same program on two files that are not a license: the first 5000 bytes of `LICENSE` followed by 9000 bytes of prose, and 1068 bytes of prose | 0.00 % and no match for both, so the scan can fail the pass line |
 | S5-6 | 2026-10-02T04:36:19Z | (L) | go1.27.1 linux/amd64, licensecheck v0.3.1 | the same program on the same two files that are not a license | the same |
@@ -411,8 +417,8 @@ workflow, `.github/workflows/adapter.yaml`, which runs
 set for the repository, two runs. The root's run is given the packages of
 `./...` in the root module, and `go list ./...` there stops at
 `adapter/go.mod`. The root's
-`golangci-lint fmt --diff` is different: it walks every tracked Go file, so
-it checks the adapter's formatting as well.
+`golangci-lint fmt --diff` is different: it walks every Go file under the
+repository root, so it checks the adapter's formatting as well.
 
 | Row | Date (UTC) | Host | Toolchain | Command | Result |
 | --- | --- | --- | --- | --- | --- |
@@ -422,7 +428,7 @@ it checks the adapter's formatting as well.
 | S6-4 | 2026-10-02T04:35:26Z | (M) | the same | `golangci-lint run --config ../.golangci.yaml ./...` in `adapter/` of that copy | exit 1, `adapter/planted.go:9:26: Error return value of os.Chdir is not checked (errcheck)` |
 | S6-5 | 2026-10-02T04:35:29Z | (M) | the same | `golangci-lint run` at the repository root of a copy with the same file planted in the root package | exit 1, `planted.go:9:26: Error return value of os.Chdir is not checked (errcheck)`: the root run reports in its own module what it does not report under `adapter/` |
 | S6-6 | 2026-10-02T04:51:55Z | (M) | go1.27.1 darwin/arm64, golangci-lint v2.14.0 | the five commands of S6-1 to S6-5 (the first without `--verbose`), on the same copies | the same exit codes and the same two `errcheck` lines: 0, 0, 0, 1, 1 |
-| S6-7 | 2026-10-02T04:51:59Z | CI | go1.27.1 linux/amd64, golangci-lint v2.14.0 | `gh run view <run> --log` for the two lint jobs at the commit the measurements above were made on | both jobs print `Requested golangci-lint 'latest', using 'v2.14.0'` and `0 issues.`: the root's job runs `golangci-lint run` at the repository root, the adapter's runs `golangci-lint run --path-mode=abs --config ../.golangci.yaml` in `adapter/` |
+| S6-7 | 2026-10-02T04:51:59Z | CI | go1.27.1 linux/amd64, golangci-lint v2.14.0 | `gh run view 36965184872 --log` and `gh run view 36965201873 --log`, the lint jobs of the adapter workflow and of CI at commit `a0b2b824914f1ca7bee625fa19ea897cbc91dde3`, the commit the measurements above were made on | both jobs print `Requested golangci-lint 'latest', using 'v2.14.0'` and `0 issues.`: the root's job runs `golangci-lint run` at the repository root, the adapter's runs `golangci-lint run --path-mode=abs --config ../.golangci.yaml` in `adapter/` |
 
 ## S7: pydantic's strict-mode verdicts
 
@@ -479,8 +485,8 @@ trailing data are refused. The five classes:
   so it differs from pydantic on these 18 rows, a deviation from upstream
   that belongs in [`deviations.md`](deviations.md).
 
-A row with two classes has pydantic's verdict in the port only when every
-class on it is reproduced. The one row with `internal-name` and
+A row with two classes has pydantic's verdict in the port when every class
+on it is reproduced. The one row with `internal-name` and
 `recursion-limit` is refused by pydantic and by the port. The six rows with
 `internal-name` and `non-finite-token` follow the `non-finite-token` line
 above.
@@ -587,10 +593,10 @@ out one session short.
 | S8-2 | 2026-10-02T04:35:54Z | (M) | curl | `curl -sS -X POST --data-binary @.codecov.yaml https://codecov.io/validate` at the repository root | HTTP 200, `Valid!`, then the configuration as Codecov reads it: `project: off` and `patch: off` as `false`; `name_prefix` as written, `default-` and `goal-`; the component paths `"!adapter/**"` and `adapter/**` as `!(?s:adapter/.*)\Z` and `(?s:adapter/.*)\Z` |
 | S8-3 | 2026-10-02T04:36:05Z | (M) | curl | the same on three changed copies, one change each: `name_prefix` misspelt, `project: maybe`, a number in place of a path | HTTP 400 each, with the place of the error: the validator refuses an unknown key, a wrong value and a wrong type, so its `Valid!` is a result |
 | S8-4 | 2026-10-02T05:06:34Z | (M) | curl | `curl -sS -X POST --data-binary @.codecov.yaml https://api.codecov.io/validate`, the address the same documentation page links | HTTP 200, `Valid!`, the same answer as S8-2 byte for byte |
-| S8-5 | 2026-10-02T04:42:48Z | CI | codecov-action v7 | `gh run view <run> --log`, the upload step in the three test jobs of the adapter workflow's first run | each job: `Found 1 coverage files to report`, `Upload queued for processing complete`; the step succeeds |
-| S8-6 | 2026-10-02T04:43:49Z | (M) | curl | `curl -sS https://api.codecov.io/api/v2/github/zchee/repos/typesafe-sdk-go/commits/<commit>/uploads/`, and the uploads' error codes from `https://api.codecov.io/graphql/gh`, both without a token | 6 uploads for the commit so far. Of the three with the flag `adapter`, two are in state `error` with the code `REPORT_EMPTY`; the third has no error recorded and stays in `started` |
-| S8-7 | 2026-10-02T04:54:35Z | (M) | curl | `curl -sS 'https://api.codecov.io/api/v2/github/zchee/repos/typesafe-sdk-go/report/?sha=<commit>'` and the same address with `components/` | after the SDK's three uploads are merged: 50 files, none under `adapter/`, 3 sessions; component `sdk` 98.17 %, component `adapter` without a value |
-| S8-8 | 2026-10-02T04:55:44Z | (M) | gh | `gh api repos/zchee/typesafe-sdk-go/commits/<commit>/status`, 7 minutes after the three uploads of the first CI run were merged | state `pending`, 0 statuses |
+| S8-5 | 2026-10-02T04:42:48Z | CI | codecov-action v7 | `gh run view 36965184872 --log`, the upload step in the three test jobs of the adapter workflow's first run, at commit `a0b2b824914f1ca7bee625fa19ea897cbc91dde3` | each job: `Found 1 coverage files to report`, `Upload queued for processing complete`; the step succeeds |
+| S8-6 | 2026-10-02T04:43:49Z | (M) | curl | `curl -sS https://api.codecov.io/api/v2/github/zchee/repos/typesafe-sdk-go/commits/a0b2b824914f1ca7bee625fa19ea897cbc91dde3/uploads/`, and the uploads' error codes from `https://api.codecov.io/graphql/gh`, both without a token | 6 uploads for the commit so far. Of the three with the flag `adapter`, two are in state `error` with the code `REPORT_EMPTY`; the third has no error recorded and stays in `started` |
+| S8-7 | 2026-10-02T04:54:35Z | (M) | curl | `curl -sS 'https://api.codecov.io/api/v2/github/zchee/repos/typesafe-sdk-go/report/?sha=a0b2b824914f1ca7bee625fa19ea897cbc91dde3'` and the same address with `components/` | after the SDK's three uploads are merged: 50 files, none under `adapter/`, 3 sessions; component `sdk` 98.17 %, component `adapter` without a value |
+| S8-8 | 2026-10-02T04:55:44Z | (M) | gh | `gh api repos/zchee/typesafe-sdk-go/commits/a0b2b824914f1ca7bee625fa19ea897cbc91dde3/status`, 7 minutes after the three uploads of the first CI run were merged | state `pending`, 0 statuses |
 | S8-9 | 2026-10-02T05:06:33Z | (M) | curl | `curl -fsSL https://docs.codecov.com/docs/notifications.md`, and `apps/worker/tasks/notify.py` and `upload_finisher.py` of `codecov/umbrella` at commit `90fc7dc04cd3` | the page: `after_n_builds` delays notifications "until a certain number of uploads have been received and processed". The source compares `after_n_builds` with the number of sessions in the commit's report (`notify.py` lines 805 to 820, `upload_finisher.py` lines 827 to 840) and sends nothing while it is larger: here 6 against 3 |
-| S8-10 | 2026-10-02T05:22:49Z | (M) | curl | the two reads of S8-6 and the commit's totals, after a second CI run and a second adapter run of the same commit | 12 uploads. The six from the two CI runs are merged, the last at 05:14:31Z; the report has 6 sessions, 50 files, none under `adapter/`. Of the six with the flag `adapter`, five are `error` with `REPORT_EMPTY` and one is still `started` |
-| S8-11 | 2026-10-02T05:22:49Z | (M) | gh | `gh api repos/zchee/typesafe-sdk-go/commits/<commit>/status` | state `success`, 6 statuses, posted from 05:14:34Z to 05:14:37Z. `codecov/project/default-sdk`: `98.1% (target 85.0%)`. `codecov/project/goal-sdk`: `98.1% (target 90.0%)`. `codecov/patch/sdk` and `codecov/patch/adapter`: `Coverage not affected when comparing` the parent and the commit. `codecov/project/default-adapter` and `codecov/project/goal-adapter`: `No coverage information found on head` |
+| S8-10 | 2026-10-02T05:22:49Z | (M) | curl | the two reads of S8-6 and the commit's totals, after a second CI run (36967681205) and a second adapter run (36967681280) of the same commit, the ones its push to `main` started | 12 uploads. The six from the two CI runs are merged, the last at 05:14:31Z; the report has 6 sessions, 50 files, none under `adapter/`. Of the six with the flag `adapter`, five are `error` with `REPORT_EMPTY` and one is still `started` |
+| S8-11 | 2026-10-02T05:22:49Z | (M) | gh | `gh api repos/zchee/typesafe-sdk-go/commits/a0b2b824914f1ca7bee625fa19ea897cbc91dde3/status` | state `success`, 6 statuses, posted from 05:14:34Z to 05:14:37Z. `codecov/project/default-sdk`: `98.1% (target 85.0%)`. `codecov/project/goal-sdk`: `98.1% (target 90.0%)`. `codecov/patch/sdk` and `codecov/patch/adapter`: `Coverage not affected when comparing` the parent and the commit. `codecov/project/default-adapter` and `codecov/project/goal-adapter`: `No coverage information found on head` |
