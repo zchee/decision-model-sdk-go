@@ -702,9 +702,11 @@ func TestContextWithRetry(t *testing.T) {
 // TestRetryContextEndsLoop checks that a context that is done ends the loop
 // with ctx.Err() itself and makes no further attempt: cancelled before the
 // first attempt, during an attempt that then fails, and during a wait; and
-// an expired deadline before the first attempt and during a wait. A reason
-// recorded before a wait that the context ended stays recorded, as upstream
-// records it before the sleep.
+// an expired deadline before the first attempt, during a wait, and exactly
+// at the end of a wait, where the context's own timer and the wait's fire
+// at one instant. A reason recorded before a wait that the context ended
+// stays recorded, as upstream records it before the sleep, and the retries
+// returned count only the attempts that started.
 func TestRetryContextEndsLoop(t *testing.T) {
 	p := DefaultRetry().MaxRetries(10).Backoff(time.Second, time.Second, 0).NoBudget()
 	tests := map[string]struct {
@@ -713,6 +715,7 @@ func TestRetryContextEndsLoop(t *testing.T) {
 		setup       func(t *testing.T, ctx context.Context) (context.Context, func(n int))
 		wantErr     error
 		wantStarts  []time.Duration
+		wantRetries int
 		wantReasons int
 		wantElapsed time.Duration
 	}{
@@ -736,6 +739,7 @@ func TestRetryContextEndsLoop(t *testing.T) {
 			},
 			wantErr:     context.Canceled,
 			wantStarts:  []time.Duration{0, time.Second},
+			wantRetries: 1,
 			wantReasons: 1,
 			wantElapsed: time.Second,
 		},
@@ -748,6 +752,7 @@ func TestRetryContextEndsLoop(t *testing.T) {
 			},
 			wantErr:     context.Canceled,
 			wantStarts:  []time.Duration{0, time.Second},
+			wantRetries: 1,
 			wantReasons: 2,
 			wantElapsed: ms(1500),
 		},
@@ -767,8 +772,33 @@ func TestRetryContextEndsLoop(t *testing.T) {
 			},
 			wantErr:     context.DeadlineExceeded,
 			wantStarts:  []time.Duration{0, time.Second, 2 * time.Second},
+			wantRetries: 2,
 			wantReasons: 3,
 			wantElapsed: ms(2500),
+		},
+		"error: deadline at the end of the first wait": {
+			setup: func(t *testing.T, ctx context.Context) (context.Context, func(int)) {
+				ctx, cancel := context.WithTimeout(ctx, time.Second)
+				t.Cleanup(cancel)
+				return ctx, nil
+			},
+			wantErr:     context.DeadlineExceeded,
+			wantStarts:  []time.Duration{0},
+			wantRetries: 0,
+			wantReasons: 1,
+			wantElapsed: time.Second,
+		},
+		"error: deadline at the end of the second wait": {
+			setup: func(t *testing.T, ctx context.Context) (context.Context, func(int)) {
+				ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+				t.Cleanup(cancel)
+				return ctx, nil
+			},
+			wantErr:     context.DeadlineExceeded,
+			wantStarts:  []time.Duration{0, time.Second},
+			wantRetries: 1,
+			wantReasons: 2,
+			wantElapsed: 2 * time.Second,
 		},
 	}
 	for name, tt := range tests {
@@ -784,6 +814,9 @@ func TestRetryContextEndsLoop(t *testing.T) {
 				}
 				if got := prov.Calls(); got != len(tt.wantStarts) {
 					t.Errorf("calls = %d, want %d", got, len(tt.wantStarts))
+				}
+				if l.retries != tt.wantRetries {
+					t.Errorf("retries = %d, want %d", l.retries, tt.wantRetries)
 				}
 				if got := len(l.reasons); got != tt.wantReasons {
 					t.Errorf("%d reasons, want %d", got, tt.wantReasons)
@@ -878,4 +911,46 @@ func TestRetryPolicyIsAValue(t *testing.T) {
 			t.Errorf("attempt start times %v, want [0 1ms 3ms]", l.starts)
 		}
 	})
+}
+
+// TestRetryReasonMessage checks the message of the reason recorded for a
+// retry: upstream records str() of the translated error its provider
+// raised, never of a wrapper (system-one-adapter-python v0.2.1,
+// src/system_one_adapter/providers/base.py:35-41 and
+// _utils/error_handling.py:75-82), so a provider timeout, connection
+// failure or status error gives the text of that typed error, bare or
+// wrapped; an error only the predicate retries gives its own text.
+func TestRetryReasonMessage(t *testing.T) {
+	custom := &errCustom{msg: "vendor: overloaded"}
+	p := DefaultRetry().MaxRetries(1).Backoff(time.Millisecond, time.Second, 0).
+		Predicate(func(err error) bool { return errors.As(err, new(*errCustom)) })
+	timeoutText := "Request timed out (timeout=Timeout(timeout=None))."
+	tests := map[string]struct {
+		err  error
+		want string
+	}{
+		"success: timeout":                   {err: &llm.TimeoutError{Err: context.DeadlineExceeded}, want: timeoutText},
+		"success: wrapped timeout":           {err: fmt.Errorf("gemini: %w", &llm.TimeoutError{Err: context.DeadlineExceeded}), want: timeoutText},
+		"success: timeout wrapped twice":     {err: fmt.Errorf("a: %w", fmt.Errorf("b: %w", &llm.TimeoutError{})), want: timeoutText},
+		"success: connection failure":        {err: &llm.ConnectionError{Err: errors.New("dial tcp: refused")}, want: "Connection error."},
+		"success: wrapped connection":        {err: fmt.Errorf("openai: %w", &llm.ConnectionError{}), want: "Connection error."},
+		"success: status error":              {err: unavailable(), want: `503 {"m":"unavailable"}`},
+		"success: wrapped status error":      {err: fmt.Errorf("anthropic: %w", unavailable()), want: `503 {"m":"unavailable"}`},
+		"success: predicate's error":         {err: custom, want: "vendor: overloaded"},
+		"success: wrapped predicate's error": {err: fmt.Errorf("custom provider: %w", custom), want: "custom provider: vendor: overloaded"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				l, _ := runLoop(t.Context(), p, nil, nil, fake.Error(tt.err), fake.Text("ok"))
+				if l.err != nil {
+					t.Fatalf("err = %v, want nil after one retry", l.err)
+				}
+				want := []RetryReason{{Category: "provider_error", Message: tt.want}}
+				if diff := cmp.Diff(want, l.reasons); diff != "" {
+					t.Errorf("reasons mismatch (-want +got):\n%s", diff)
+				}
+			})
+		})
+	}
 }

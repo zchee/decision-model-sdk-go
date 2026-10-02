@@ -23,7 +23,7 @@ import (
 
 // maxErrorBodyChars is how many characters of a response body
 // StatusError.Error prints before it cuts the body off: typesafe-sdk-python
-// 0.7.1's MAX_ERROR_BODY_LENGTH (_core/constants.py:3).
+// 0.7.0's MAX_ERROR_BODY_LENGTH (_core/constants.py:3).
 const maxErrorBodyChars = 200
 
 // StatusError is a provider's non-2xx response. It ports the TypeSafeAPIError
@@ -39,7 +39,7 @@ type StatusError struct {
 	Body []byte
 }
 
-// Error returns "<status> <body>", the text typesafe-sdk-python 0.7.1's
+// Error returns "<status> <body>", the text typesafe-sdk-python 0.7.0's
 // TypeSafeAPIError.__str__ prints for a body whose message it does not
 // extract (_core/errors.py:86-100): "<status> status code (no body)" for an
 // empty body, otherwise the body cut at 200 characters, with "…" appended
@@ -59,6 +59,16 @@ func (e *StatusError) Error() string {
 		n++
 	}
 	return string(append(b, body...))
+}
+
+// GoString returns the Go syntax %#v prints for e, with the status code
+// only: a response header may carry a cookie or a credential and a body
+// any text, so neither is printed.
+func (e *StatusError) GoString() string {
+	if e == nil {
+		return "(*llm.StatusError)(nil)"
+	}
+	return "&llm.StatusError{StatusCode:" + strconv.Itoa(e.StatusCode) + "}"
 }
 
 // TimeoutError is a provider request that timed out. It ports the

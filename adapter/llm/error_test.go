@@ -77,6 +77,13 @@ func TestTimeoutErrorIsNetError(t *testing.T) {
 			if tt.cause != nil && !errors.Is(err, tt.cause) {
 				t.Errorf("errors.Is(%v, %v) = false, want true: Err must stay reachable", err, tt.cause)
 			}
+			wantUnwrap := tt.cause
+			if wantUnwrap == nil {
+				wantUnwrap = context.DeadlineExceeded
+			}
+			if got := te.Unwrap(); got != wantUnwrap { //nolint:errorlint // Unwrap returns Err itself, or the sentinel itself.
+				t.Errorf("Unwrap() = %v, want %v itself", got, wantUnwrap)
+			}
 			var got *llm.TimeoutError
 			if !errors.As(err, &got) || got != te {
 				t.Errorf("errors.As(%v, **llm.TimeoutError) = %p, want %p", err, got, te)
@@ -239,6 +246,49 @@ func TestErrorText(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if diff := cmp.Diff(tt.want, tt.err.Error()); diff != "" {
 				t.Errorf("Error() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestStatusErrorGoString checks that %#v of a *llm.StatusError prints its
+// status code and nothing of its header or body, which may carry a cookie,
+// a credential or any text, bare and as a nil pointer.
+func TestStatusErrorGoString(t *testing.T) {
+	const canary = "canary-7f3a"
+	tests := map[string]struct {
+		err  *llm.StatusError
+		want string
+	}{
+		"success: header and body not printed": {
+			err: &llm.StatusError{
+				StatusCode: http.StatusUnauthorized,
+				Header: http.Header{
+					"Set-Cookie":    {"session=" + canary},
+					"Authorization": {"Bearer " + canary},
+					"Retry-After":   {"30"},
+				},
+				Body: []byte(`{"error":{"message":"` + canary + `"}}`),
+			},
+			want: "&llm.StatusError{StatusCode:401}",
+		},
+		"success: no header and no body": {
+			err:  &llm.StatusError{StatusCode: http.StatusServiceUnavailable},
+			want: "&llm.StatusError{StatusCode:503}",
+		},
+		"success: nil pointer": {
+			err:  nil,
+			want: "(*llm.StatusError)(nil)",
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := fmt.Sprintf("%#v", tt.err)
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("%%#v mismatch (-want +got):\n%s", diff)
+			}
+			if strings.Contains(got, canary) {
+				t.Errorf("%%#v = %q prints a header value or a body byte", got)
 			}
 		})
 	}

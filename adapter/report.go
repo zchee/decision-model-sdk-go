@@ -22,7 +22,8 @@ type RetryReason struct {
 	// "provider_error" for a transient provider failure, or
 	// "malformed_structure" for a corrective retry after malformed output.
 	Category string
-	// Message is the cause: the failed attempt's error text (upstream's
-	// msg, str() of the error).
+	// Message is the cause, upstream's msg, str() of the failed attempt's
+	// error: for a provider timeout, connection failure or status error
+	// the text of that typed error, also when the provider wrapped it.
 	Message string
 }

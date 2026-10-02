@@ -30,7 +30,7 @@ import (
 	"github.com/zchee/typesafe-sdk-go/adapter/llm"
 )
 
-// The settings of [DefaultRetry]: typesafe-sdk-python 0.7.1's RetryPolicy()
+// The settings of [DefaultRetry]: typesafe-sdk-python 0.7.0's RetryPolicy()
 // (_core/retry.py:52-86).
 const (
 	defaultMaxRetries     = 2
@@ -48,7 +48,7 @@ const categoryProviderError = "provider_error"
 // failed transiently. The zero value is NoRetry(), upstream's default
 // (src/system_one_adapter/_client.py:374).
 //
-// A policy has the settings of typesafe-sdk-python 0.7.1's RetryPolicy, whose
+// A policy has the settings of typesafe-sdk-python 0.7.0's RetryPolicy, whose
 // retry loop upstream runs every provider request in
 // (_utils/error_handling.py:85-95), and the builder names of the TypeSafe Go
 // SDK's own policy; it is the Adapter's own type. Each builder returns a
@@ -354,12 +354,14 @@ func roundMillis(seconds float64) float64 {
 //     error when MaxRetries retries were made or the budget refuses the
 //     wait;
 //   - before each wait, record (when not nil) receives one RetryReason
-//     {"provider_error", err.Error()}, as upstream's before_sleep records
-//     str(error) (error_handling.py:75-82); a context that ends during the
-//     wait ends the loop with ctx.Err(), and that reason stays recorded.
+//     {"provider_error", retryMessage(err)}, as upstream's before_sleep
+//     records str(error) (error_handling.py:75-82); a context that ends
+//     during the wait, or whose deadline falls no later than the wait's
+//     end, ends the loop with ctx.Err(), and that reason stays recorded.
 //
-// random is the backoff's jitter source, a math/rand/v2 Float64; nil means
-// rand.Float64.
+// The number of retries returned counts the attempts that started after
+// the first. random is the backoff's jitter source, a math/rand/v2 Float64;
+// nil means rand.Float64.
 func runWithRetries(ctx context.Context, p RetryPolicy, random func() float64, attempt func() (*llm.Result, error), record func(RetryReason)) (*llm.Result, int, error) {
 	if err := p.check(); err != nil {
 		return nil, 0, err
@@ -367,11 +369,12 @@ func runWithRetries(ctx context.Context, p RetryPolicy, random func() float64, a
 	if random == nil {
 		random = rand.Float64
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, 0, err
+	}
 	start := time.Now()
+	// retries grows only after waitRetry has let the next attempt start.
 	for retries := 0; ; retries++ {
-		if err := ctx.Err(); err != nil {
-			return nil, retries, err
-		}
 		result, err := attempt()
 		if err == nil {
 			return result, retries, nil
@@ -391,19 +394,66 @@ func runWithRetries(ctx context.Context, p RetryPolicy, random func() float64, a
 			return nil, retries, err
 		}
 		if record != nil {
-			record(RetryReason{Category: categoryProviderError, Message: err.Error()})
+			record(RetryReason{Category: categoryProviderError, Message: retryMessage(err)})
 		}
-		if d > 0 {
-			t := time.NewTimer(d)
-			select {
-			case <-t.C:
-			case <-ctx.Done():
-				t.Stop()
-				return nil, retries, ctx.Err()
-			}
+		if werr := waitRetry(ctx, d); werr != nil {
+			return nil, retries, werr
 		}
 	}
 }
+
+// waitRetry waits d before a retry and returns nil when the retry may
+// start, or ctx.Err() when the context ends first. A deadline that falls no
+// later than the end of the wait ends it at the deadline, because the
+// context's own timer may not have run yet at that instant; the context is
+// checked again when the wait ends, so no retry starts on a context that
+// has ended. The TypeSafe Go SDK's retry wait does the same.
+func waitRetry(ctx context.Context, d time.Duration) error {
+	if dl, ok := ctx.Deadline(); ok && !dl.After(time.Now().Add(d)) {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	if d > 0 {
+		t := time.NewTimer(d)
+		select {
+		case <-t.C:
+		case <-ctx.Done():
+			// Since Go 1.23 a stopped timer's channel holds no stale value,
+			// so nothing needs draining.
+			t.Stop()
+		}
+	}
+	return ctx.Err()
+}
+
+// retryMessage returns the text upstream records for a retry after err:
+// str() of the error its retry loop caught (error_handling.py:75-82).
+// Upstream's providers raise the translated error itself, not a wrapper
+// (src/system_one_adapter/providers/base.py:35-41), so the text is that of
+// the typed provider error errors.As finds in err, tested in the order
+// retryable tests them, and not the text of an error wrapping it. Any
+// other error, which only a predicate retries, gives its own text.
+func retryMessage(err error) string {
+	var (
+		timeout    *llm.TimeoutError
+		connection *llm.ConnectionError
+		status     *llm.StatusError
+	)
+	switch {
+	case errors.As(err, &timeout):
+		return timeout.Error()
+	case errors.As(err, &connection):
+		return connection.Error()
+	case errors.As(err, &status):
+		return statusMessage(status)
+	}
+	return err.Error()
+}
+
+// statusMessage returns the text upstream records for a provider status
+// error: for now StatusError.Error's, the "<status> <body>" form that does
+// not read the body as JSON.
+func statusMessage(e *llm.StatusError) string { return e.Error() }
 
 // retryContextKey is the context key of ContextWithRetry's policy.
 type retryContextKey struct{}
