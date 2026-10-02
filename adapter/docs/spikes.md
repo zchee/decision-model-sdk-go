@@ -316,10 +316,94 @@ number, huge integers, a `NaN` token, a byte order mark, trailing data?
 **Pass.** A table of verdicts, complete for those inputs and for every
 model each applies to, that the Go validator must match.
 
-**Verdict.** pending
+**Verdict.** Pass: `testdata/python/validator_verdicts.jsonl` holds 882
+verdicts of `model_validate_json` over 12 models, 189 accepted and 693
+refused, and each of the ten inputs of the question has a row on each of
+the six models (noul, score and choice, each discrete and with
+probabilities). Five behaviours of pydantic differ from what a strict
+validator over a JSON token reader does by itself. The 46 rows that rest on
+one of them carry a `class` member: `internal-name` 19, `non-finite-token`
+18, `negative-zero` 8, `recursion-limit` 5, `integer-length` 3; seven rows
+carry two.
+
+**What the port does because of it.** The Go validator gives pydantic's
+verdict on every row of the table, except where the list below says it
+differs. The plain rules are confirmed: a duplicate member name is
+last-wins at every level; an integer accepts only an integer literal (`1.0`
+and `1e0` are refused); a probability accepts any number from 0 to 1, an
+integer included, and refuses `true`; a label must equal one of the set
+exactly, after unescaping; every member is required; a byte order mark and
+trailing data are refused. The five classes:
+
+- `internal-name`: reproduced. A member named `answer_<i>` in `answers`, or
+  `probability_<j>` in a probability map, whose index exists and which is
+  not itself a question id or a label, is ignored whatever its value. These
+  are the field names of upstream's generated models; the ids and labels
+  are their aliases.
+- `recursion-limit`: reproduced. A text in which a value has more than 200
+  arrays and objects around it is refused as a whole, also where that value
+  would be ignored. This is the limit of the JSON parser on the model's
+  output; the limit of 255 in S3 is the serializer's, on the state.
+- `negative-zero`: reproduced. `-0` for a probability is `+0.0`; `-0.0` and
+  `-0e0` keep the sign.
+- `integer-length`: reproduced. A text in which the integer part of a
+  number, its sign counted, is longer than 4300 characters is refused
+  wherever the number stands. The length check runs on every number token
+  before any conversion, and a number that is skipped, behind a later
+  duplicate or in an ignored member, is not converted: a decoder that
+  converts every number refuses for overflow the two rows with exactly 4300
+  characters, which pydantic accepts.
+- `non-finite-token`: pydantic's parser reads the tokens `NaN`, `Infinity`
+  and `-Infinity` as numbers, and accepts the document when the token
+  stands in a value that is not validated: 12 rows with this class alone
+  and 6 that also have `internal-name`, all 18 accepted by pydantic.
+  The port refuses a text that holds one of these tokens as invalid JSON,
+  so it differs from pydantic on these 18 rows, a deviation from upstream
+  that belongs in [`deviations.md`](deviations.md).
+
+A row with two classes has pydantic's verdict in the port only when every
+class on it is reproduced. The one row with `internal-name` and
+`recursion-limit` is refused by pydantic and by the port. The six rows with
+`internal-name` and `non-finite-token` follow the `non-finite-token` line
+above.
+
+Two baselines show where the work is. Decoding into a Go struct shaped like
+the model agrees with pydantic on 551 of the 731 rows of the six models: it
+accepts 156 that pydantic refuses, refuses 21 that pydantic accepts and
+gives another value in 3. A strict JSON token reader agrees with pydantic's
+parser about what is JSON on 813 of the 882 rows.
+
+The table is JSON Lines in ASCII: a header line, then for each model one
+line with its answer mode and questions, followed by its rows. A row's
+`input`, decoded, is the exact text validated. The table has no random
+part, and the generator refuses to run on another interpreter, another
+pydantic, or an upstream whose sources differ from the release. Running it
+installs upstream's release and what it depends on from the package index,
+at the versions upstream locks. The header's `python` member is the
+interpreter's whole `sys.version`, as in S2, so the file's bytes reproduce
+with the build named there. Its `typesafe_sdk` member, `0.7.0`, is the
+version of the Python package upstream depends on, not of this module or of
+the Go SDK.
+
+Not measured: input given as bytes (upstream passes a string, so invalid
+UTF-8 cannot reach the validator); the wording of pydantic's error
+messages beyond the parser's; models other than the twelve; names close to
+the internal ones, such as `answer_00`. The length rule has rows on one
+model and at the position of a replaced duplicate; a review of this table
+measured it at 220 further combinations of model, spelling and position,
+which are not rows here, and found the same rule.
 
 | Row | Date (UTC) | Host | Toolchain | Command | Result |
 | --- | --- | --- | --- | --- | --- |
+| S7-1 | 2026-10-02T05:46:22Z | (M) | CPython 3.14.3, pydantic 2.13.4, pydantic-core 2.46.4, system-one-adapter 0.2.1, uv 0.12.19 | `uv run --python 3.14.3 --with pydantic==2.13.4 --with pydantic-core==2.46.4 testdata/python/gen_validator_verdicts.py` | writes `testdata/python/validator_verdicts.jsonl`: 882 rows over 12 models, 189 accepted and 693 refused, 188 965 bytes, sha256 `76932ffffde130059c476814901c43030220595bcfd0c4deedeadfbd54fa75a6`, the committed file; a second run gives the same bytes |
+| S7-2 | 2026-10-02T05:46:22Z | (M) | the same | `testdata/python/gen_validator_verdicts.py --check`, which runs through the script's first line, `uv run --script`, and its inline list of 14 pinned packages | `validator_verdicts.jsonl: equal to a fresh table` |
+| S7-3 | 2026-10-02T05:37:14Z | (M) | the same, with upstream installed from a checkout of its commit `e1d4cc9` instead of the release | the command of S7-1 with `--with <checkout>` and `--check` | equal to a fresh table; the 14 Python files of the release and of the checkout have the same digest |
+| S7-4 | 2026-10-02T05:37:15Z | (M) | the same as S7-1 | a second script outside this module, which shares no code with the generator: it reads the table alone, rebuilds each model from its model line and validates every input again | 882 of 882 equal in verdict, value (floats by their bits) and error list |
+| S7-5 | 2026-10-02T05:36:46Z | (M) | CPython 3.14.6, pydantic 2.13.4, pydantic-core 2.46.4 | a copy of the generator outside this module with only its expected interpreter changed, run with `--python 3.14.6` | every line after the header equals the table of S7-1 |
+| S7-6 | 2026-10-02T05:37:16Z | (M) | the same as S7-1 | `--check` and the script of S7-4 against three copies of the table, each with one deliberate difference: an accepted value changed from 0.0 to -0.0; an accepted row turned into a refused one; a row removed | all six runs fail; for the first two differences both name the one row; for the third `--check` names every line from the removed one on, and the second script the row count |
+| S7-7 | 2026-10-02T05:36:46Z | (M) | the same as S7-1 | three copies of the generator outside this module, each with the class of one case changed where the case is built | each run stops with `class and verdict differ` and writes no table |
+| S7-8 | 2026-10-02T05:36:47Z | (M) | go1.27.1 darwin/arm64 | a Go program in a module outside this one, which reads the table and compares each row with two baselines: a struct decode with `encoding/json`, and the syntax check of a strict JSON token reader | struct decode: 551 of 731 rows agree, 156 accepted that pydantic refuses, 21 refused that pydantic accepts, 3 with another value. Token reader against pydantic's parser: 813 of 882 agree, 61 refused by the reader only, 8 read by the reader only |
+| S7-9 | 2026-10-02T05:37:04Z | (L) | go1.27.1 linux/amd64 | the same program, the same file | the same numbers; the output equals (M)'s line by line |
 
 ## S8: Codecov with two modules
 
