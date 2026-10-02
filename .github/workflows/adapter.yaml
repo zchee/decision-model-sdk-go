@@ -166,6 +166,42 @@ jobs:
           flags: adapter
           fail_ci_if_error: true
 
+  # Each fuzz target of the module for 60 s. The list is checked against the
+  # tree: a func Fuzz... that is declared in a test file of this module and
+  # not listed fails the job, and so does a listed target that go test -list
+  # does not find.
+  fuzz:
+    name: fuzz
+    if: github.ref_type != 'tag'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: adapter/go.mod
+          cache-dependency-path: adapter/go.sum
+          check-latest: true
+
+      - name: Fuzz every target for 60 s
+        run: |
+          targets=(
+            "./internal/jsonx FuzzStateEncode" # the state re-encoding
+          )
+          # git ls-files runs in adapter/, so it lists this module's files only.
+          declared="$({ git ls-files -z -- '*_test.go' | xargs -0 grep -H -o '^func Fuzz[A-Za-z0-9_]*' || true; } |
+            sed -E 's|^(.*)/[^/]*_test\.go:func (.*)$|./\1 \2|; s|^[^/]*_test\.go:func (.*)$|. \1|' | sort -u)"
+          unlisted="$(comm -23 <(printf '%s\n' "$declared") <(printf '%s\n' "${targets[@]}" | sort -u))"
+          if [ -n "$unlisted" ]; then echo "::error::fuzz targets not listed: $unlisted"; exit 1; fi
+          for entry in "${targets[@]}"; do
+            read -r pkg target <<<"$entry"
+            test "$(go test -list "^$target\$" "$pkg" | grep -cx "$target")" = 1
+            go test -run '^$' -fuzz "^$target\$" -fuzztime 60s "$pkg"
+          done
+
   # Blocking (no continue-on-error): every test of the adapter against the
   # root at this commit, through a go.work outside the tree. It runs on
   # every push to main, every dispatch and every root tag, so a root commit
