@@ -61,14 +61,12 @@ func (e *StatusError) Error() string {
 	return string(append(b, body...))
 }
 
-// GoString returns the Go syntax %#v prints for e, with the status code
-// only: a response header may carry a cookie or a credential and a body
-// any text, so neither is printed.
-func (e *StatusError) GoString() string {
-	if e == nil {
-		return "(*llm.StatusError)(nil)"
-	}
-	return "&llm.StatusError{StatusCode:" + strconv.Itoa(e.StatusCode) + "}"
+// GoString returns what %#v prints for e, a StatusError value or a pointer
+// to one, with the status code only: a response header may carry a cookie
+// or a credential and a body any text, so neither is printed. A nil
+// *StatusError prints as <nil>.
+func (e StatusError) GoString() string {
+	return "llm.StatusError{StatusCode:" + strconv.Itoa(e.StatusCode) + "}"
 }
 
 // TimeoutError is a provider request that timed out. It ports the

@@ -251,39 +251,33 @@ func TestErrorText(t *testing.T) {
 	}
 }
 
-// TestStatusErrorGoString checks that %#v of a *llm.StatusError prints its
-// status code and nothing of its header or body, which may carry a cookie,
-// a credential or any text, bare and as a nil pointer.
+// TestStatusErrorGoString checks that %#v of a StatusError, as a value and
+// as a pointer, prints its status code and nothing of its header or body,
+// which may carry a cookie, a credential or any text, and that a nil
+// pointer prints as <nil>.
 func TestStatusErrorGoString(t *testing.T) {
 	const canary = "canary-7f3a"
+	full := llm.StatusError{
+		StatusCode: http.StatusUnauthorized,
+		Header: http.Header{
+			"Set-Cookie":    {"session=" + canary},
+			"Authorization": {"Bearer " + canary},
+			"Retry-After":   {"30"},
+		},
+		Body: []byte(`{"error":{"message":"` + canary + `"}}`),
+	}
 	tests := map[string]struct {
-		err  *llm.StatusError
+		v    any
 		want string
 	}{
-		"success: header and body not printed": {
-			err: &llm.StatusError{
-				StatusCode: http.StatusUnauthorized,
-				Header: http.Header{
-					"Set-Cookie":    {"session=" + canary},
-					"Authorization": {"Bearer " + canary},
-					"Retry-After":   {"30"},
-				},
-				Body: []byte(`{"error":{"message":"` + canary + `"}}`),
-			},
-			want: "&llm.StatusError{StatusCode:401}",
-		},
-		"success: no header and no body": {
-			err:  &llm.StatusError{StatusCode: http.StatusServiceUnavailable},
-			want: "&llm.StatusError{StatusCode:503}",
-		},
-		"success: nil pointer": {
-			err:  nil,
-			want: "(*llm.StatusError)(nil)",
-		},
+		"success: pointer, header and body not printed": {v: &full, want: "llm.StatusError{StatusCode:401}"},
+		"success: value, header and body not printed":   {v: full, want: "llm.StatusError{StatusCode:401}"},
+		"success: no header and no body":                {v: &llm.StatusError{StatusCode: http.StatusServiceUnavailable}, want: "llm.StatusError{StatusCode:503}"},
+		"success: nil pointer":                          {v: (*llm.StatusError)(nil), want: "<nil>"},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := fmt.Sprintf("%#v", tt.err)
+			got := fmt.Sprintf("%#v", tt.v)
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("%%#v mismatch (-want +got):\n%s", diff)
 			}

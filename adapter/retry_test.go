@@ -706,8 +706,11 @@ func TestContextWithRetry(t *testing.T) {
 // at the end of a wait, where the context's own timer and the wait's fire
 // at one instant. A reason recorded before a wait that the context ended
 // stays recorded, as upstream records it before the sleep, and the retries
-// returned count only the attempts that started.
+// returned count only the attempts that started. Each case runs in
+// tieRuns bubbles: at a tie the order in which the wait's timer and the
+// context's own timer fire is not fixed, so one run can pass by chance.
 func TestRetryContextEndsLoop(t *testing.T) {
+	const tieRuns = 64
 	p := DefaultRetry().MaxRetries(10).Backoff(time.Second, time.Second, 0).NoBudget()
 	tests := map[string]struct {
 		// setup returns the loop's context and a hook run at the start of
@@ -803,28 +806,30 @@ func TestRetryContextEndsLoop(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			synctest.Test(t, func(t *testing.T) {
-				ctx, before := tt.setup(t, t.Context())
-				l, prov := runLoop(ctx, p, nil, before, fake.Error(unavailable()))
-				if l.err != tt.wantErr { //nolint:errorlint // the loop returns ctx.Err() itself, unwrapped.
-					t.Errorf("err = %v, want %v itself", l.err, tt.wantErr)
-				}
-				if diff := cmp.Diff(tt.wantStarts, l.starts); diff != "" {
-					t.Errorf("attempt start times mismatch (-want +got):\n%s", diff)
-				}
-				if got := prov.Calls(); got != len(tt.wantStarts) {
-					t.Errorf("calls = %d, want %d", got, len(tt.wantStarts))
-				}
-				if l.retries != tt.wantRetries {
-					t.Errorf("retries = %d, want %d", l.retries, tt.wantRetries)
-				}
-				if got := len(l.reasons); got != tt.wantReasons {
-					t.Errorf("%d reasons, want %d", got, tt.wantReasons)
-				}
-				if l.elapsed != tt.wantElapsed {
-					t.Errorf("elapsed %v, want %v", l.elapsed, tt.wantElapsed)
-				}
-			})
+			for run := 0; run < tieRuns && !t.Failed(); run++ {
+				synctest.Test(t, func(t *testing.T) {
+					ctx, before := tt.setup(t, t.Context())
+					l, prov := runLoop(ctx, p, nil, before, fake.Error(unavailable()))
+					if l.err != tt.wantErr { //nolint:errorlint // the loop returns ctx.Err() itself, unwrapped.
+						t.Errorf("err = %v, want %v itself", l.err, tt.wantErr)
+					}
+					if diff := cmp.Diff(tt.wantStarts, l.starts); diff != "" {
+						t.Errorf("attempt start times mismatch (-want +got):\n%s", diff)
+					}
+					if got := prov.Calls(); got != len(tt.wantStarts) {
+						t.Errorf("calls = %d, want %d", got, len(tt.wantStarts))
+					}
+					if l.retries != tt.wantRetries {
+						t.Errorf("retries = %d, want %d", l.retries, tt.wantRetries)
+					}
+					if got := len(l.reasons); got != tt.wantReasons {
+						t.Errorf("%d reasons, want %d", got, tt.wantReasons)
+					}
+					if l.elapsed != tt.wantElapsed {
+						t.Errorf("elapsed %v, want %v", l.elapsed, tt.wantElapsed)
+					}
+				})
+			}
 		})
 	}
 }
@@ -929,15 +934,17 @@ func TestRetryReasonMessage(t *testing.T) {
 		err  error
 		want string
 	}{
-		"success: timeout":                   {err: &llm.TimeoutError{Err: context.DeadlineExceeded}, want: timeoutText},
-		"success: wrapped timeout":           {err: fmt.Errorf("gemini: %w", &llm.TimeoutError{Err: context.DeadlineExceeded}), want: timeoutText},
-		"success: timeout wrapped twice":     {err: fmt.Errorf("a: %w", fmt.Errorf("b: %w", &llm.TimeoutError{})), want: timeoutText},
-		"success: connection failure":        {err: &llm.ConnectionError{Err: errors.New("dial tcp: refused")}, want: "Connection error."},
-		"success: wrapped connection":        {err: fmt.Errorf("openai: %w", &llm.ConnectionError{}), want: "Connection error."},
-		"success: status error":              {err: unavailable(), want: `503 {"m":"unavailable"}`},
-		"success: wrapped status error":      {err: fmt.Errorf("anthropic: %w", unavailable()), want: `503 {"m":"unavailable"}`},
-		"success: predicate's error":         {err: custom, want: "vendor: overloaded"},
-		"success: wrapped predicate's error": {err: fmt.Errorf("custom provider: %w", custom), want: "custom provider: vendor: overloaded"},
+		"success: timeout":                             {err: &llm.TimeoutError{Err: context.DeadlineExceeded}, want: timeoutText},
+		"success: wrapped timeout":                     {err: fmt.Errorf("gemini: %w", &llm.TimeoutError{Err: context.DeadlineExceeded}), want: timeoutText},
+		"success: timeout wrapped twice":               {err: fmt.Errorf("a: %w", fmt.Errorf("b: %w", &llm.TimeoutError{})), want: timeoutText},
+		"success: connection failure":                  {err: &llm.ConnectionError{Err: errors.New("dial tcp: refused")}, want: "Connection error."},
+		"success: wrapped connection":                  {err: fmt.Errorf("openai: %w", &llm.ConnectionError{}), want: "Connection error."},
+		"success: timeout inside a connection failure": {err: &llm.ConnectionError{Err: &llm.TimeoutError{}}, want: timeoutText},
+		"success: connection failure inside a timeout": {err: &llm.TimeoutError{Err: &llm.ConnectionError{}}, want: timeoutText},
+		"success: status error":                        {err: unavailable(), want: `503 {"m":"unavailable"}`},
+		"success: wrapped status error":                {err: fmt.Errorf("anthropic: %w", unavailable()), want: `503 {"m":"unavailable"}`},
+		"success: predicate's error":                   {err: custom, want: "vendor: overloaded"},
+		"success: wrapped predicate's error":           {err: fmt.Errorf("custom provider: %w", custom), want: "custom provider: vendor: overloaded"},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
