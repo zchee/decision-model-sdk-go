@@ -46,8 +46,9 @@ how the case is built, never from the text, and the script stops when a row
 does not show the behaviour its case was built for:
 
 - ``convert-depth``: the criterion is nested 255 levels deep, which the
-  question validation accepts and the answer conversion refuses
-  (``PydanticSerializationError``), so upstream answers nothing.
+  question validation accepts; after the model call the answer conversion
+  raises ``PydanticSerializationError``, so upstream returns neither an
+  answer nor a typed error.
 
 A criterion with an escaped surrogate without its partner is left out: a
 strict reader of JSON in UTF-8 refuses the request text before any question is
@@ -125,17 +126,17 @@ CHARACTERS = (
     "\x9f",
     "\xa0",
     "\xe9",
-    "߿",
-    "ࠀ",
-    " ",
-    " ",
-    "﻿",
-    "�",
-    "￿",
+    "\u07ff",
+    "\u0800",
+    "\u2028",
+    "\u2029",
+    "\ufeff",
+    "\ufffd",
+    "\uffff",
     "\U00010000",
     "\U0001f600",
     "\U0010ffff",
-    "é",
+    "e\u0301",
 )
 
 # Number literals, each the one element of an array criterion.

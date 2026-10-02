@@ -57,7 +57,7 @@ Five kinds of value are replaced, the same way in every row:
 - ``debug_info.provider`` by ``provider``: the class path of the scripted
   provider here, the Go type in the port.
 
-A script step is ``{"text": …}`` (the provider's text with its usage),
+A script step is ``{"text": \u2026}`` (the provider's text with its usage),
 ``{"result": {"text", "input_tokens", "output_tokens"}}`` (a result as it is)
 or ``{"status": <code>}`` (the error the test file's ``_provider_error``
 builds: the SDK's error for that status with the body

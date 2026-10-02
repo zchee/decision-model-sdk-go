@@ -121,8 +121,11 @@ func readReprVectors(t *testing.T) []reprVector {
 // that upstream's question validation refuses because a criterion is not
 // text, an object or an array belong to the question parser, which is not
 // in this package; they are counted. The one class, convert-depth, is a
-// criterion of 255 levels that upstream's validation accepts and its answer
-// conversion refuses: Value writes it.
+// criterion of 255 levels that upstream's question validation accepts;
+// after the model call, upstream's legend conversion
+// (system-one-adapter-python v0.2.1, _client.py:147) raises
+// PydanticSerializationError, an exception that is neither a result nor a
+// typed error. The port answers at that depth: Value writes the criterion.
 func TestNodeValueMatchesUpstreamLegend(t *testing.T) {
 	rows := readReprVectors(t)
 	var equal, refusedBoth, notHere, classed int

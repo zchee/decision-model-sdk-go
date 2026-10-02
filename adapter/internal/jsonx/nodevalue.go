@@ -27,10 +27,13 @@ import "math"
 //
 // Members keep their order, a repeated member name its first position and
 // its last value, as Read resolved them. An integer literal is written as
-// its value (-0 as 0); any other number in style; a number literal beyond
-// the range of a double, of which Python makes an infinity, as null, which
-// is what model_dump(mode="json") makes of an infinity; strings as String
-// writes them.
+// its value (-0 as 0); any other number in style; strings as String
+// writes them. A number literal beyond the range of a double (1e400), of
+// which Python makes an infinity, is written null in both styles, while
+// Node.PydanticJSON writes it Infinity: upstream's legend passes through
+// model_dump(mode="json"), which turns an infinity into None, before
+// json.dumps writes the response, so the legend holds null where
+// pydantic-core's own to_json would write Infinity.
 //
 // The depth it counts starts at v, as Node.PydanticJSON counts it, and it
 // refuses a value nested deeper than 255 levels with ErrDepth.
