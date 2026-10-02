@@ -87,6 +87,11 @@ type cleanup struct {
 	err  error
 }
 
+// errCleanupPanicked is what a Close that waited for another Close's
+// cleanup returns when a provider's Close panicked in that cleanup. The
+// panic itself propagates in the goroutine whose Close ran the cleanup.
+var errCleanupPanicked = errors.New("adapter: a provider's Close panicked while the Adapter closed its providers")
+
 // New returns an Adapter that asks for answer mode a with output mode o, as
 // upstream requires llm_answer_mode and structured_outputs. It refuses a
 // mode that is not one of the two constants of its type, a negative
@@ -239,6 +244,13 @@ func (ad *Adapter) provider(t target) (llm.Provider, error) {
 // counts itself as running under it, and Close sets the flag under it
 // before it waits, as a sync.WaitGroup requires an Add from zero to happen
 // before its Wait.
+//
+// A provider whose Close panics is not recovered: the panic propagates in
+// the goroutine whose Close ran the cleanup. The providers closed before it
+// are no longer owned; it and the providers not yet reached stay owned for
+// the next Close; and a concurrent Close that waited for that cleanup
+// returns an error of its own, as upstream's waiters raise the cleanup's
+// exception (_client.py:516-524).
 func (ad *Adapter) Close() error {
 	ad.mu.Lock()
 	ad.closed = true
@@ -247,7 +259,8 @@ func (ad *Adapter) Close() error {
 		<-c.done
 		return c.err
 	}
-	c := &cleanup{done: make(chan struct{})}
+	// The result stays errCleanupPanicked unless the cleanup returns.
+	c := &cleanup{done: make(chan struct{}), err: errCleanupPanicked}
 	ad.closing = c
 	ad.mu.Unlock()
 	defer func() {
@@ -263,13 +276,18 @@ func (ad *Adapter) Close() error {
 
 // closeOwned closes every owned provider that is an io.Closer and keeps
 // those whose Close failed, returning the first error; a provider that is
-// not an io.Closer is dropped, as upstream drops one without close.
+// not an io.Closer is dropped, as upstream drops one without close. When a
+// provider's Close panics, the providers closed before it are dropped and
+// it and those after it are kept.
 func (ad *Adapter) closeOwned() error {
 	ad.cacheMu.Lock()
 	defer ad.cacheMu.Unlock()
 	var first error
 	var kept []providerKey
-	for _, key := range ad.order {
+	i := 0
+	defer func() { ad.order = append(kept, ad.order[i:]...) }()
+	for ; i < len(ad.order); i++ {
+		key := ad.order[i]
 		c, ok := ad.owned[key].(io.Closer)
 		if !ok {
 			delete(ad.owned, key)
@@ -284,6 +302,5 @@ func (ad *Adapter) closeOwned() error {
 		}
 		delete(ad.owned, key)
 	}
-	ad.order = kept
 	return first
 }
