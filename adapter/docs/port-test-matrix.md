@@ -41,16 +41,16 @@ collapses into one Go case (DV1), so a row has fewer Go cases than items.
 | ID | Upstream | Items | Go test | Go cases | Intended outcome | Status |
 | --- | --- | --- | --- | --- | --- | --- |
 | FM1 | `tests/test_client_with_fake_model.py::test_sdk_questions_and_response_serialization` | 4 | `adapter.TestSDKQuestionsAndResponseSerialization` (`evaluate_test.go`) | 2 | ported (DV1, DV5) | planned |
-| FM2 | `tests/test_client_with_fake_model.py::test_prompted_mode_adds_schema_instructions_native_does_not` | 2 | `adapter.TestPromptedModeAddsSchemaInstructions` (`evaluate_test.go`) | 2 | ported | planned |
-| FM3 | `tests/test_client_with_fake_model.py::test_structured_state_prompt_is_delimited_and_escapes_embedded_tags` | 1 | `adapter.TestStatePromptIsDelimitedAndEscaped` (`evaluate_test.go`) | 1 | ported | planned |
+| FM2 | `tests/test_client_with_fake_model.py::test_prompted_mode_adds_schema_instructions_native_does_not` | 2 | `adapter.TestPromptedModeAddsSchemaInstructions` (`evaluate_test.go`) | 2 | ported | ported |
+| FM3 | `tests/test_client_with_fake_model.py::test_structured_state_prompt_is_delimited_and_escapes_embedded_tags` | 1 | `adapter.TestStatePromptIsDelimitedAndEscaped` (`evaluate_test.go`) | 1 | ported | ported |
 | FM4 | `tests/test_client_with_fake_model.py::test_transient_errors_are_retried` | 4 | `adapter.TestTransientErrorsAreRetried` (`evaluate_test.go`) | 2 | ported (DV1, DV3: per call via `ContextWithRetry`) | planned |
 | FM5 | `tests/test_client_with_fake_model.py::test_retries_are_exhausted` | 2 | `adapter.TestRetriesAreExhausted` (`evaluate_test.go`) | 1 | ported (DV1) | planned |
-| FM6 | `tests/test_client_with_fake_model.py::test_malformed_retry_exhaustion_preserves_debug` | 8 | `adapter.TestMalformedRetryExhaustionPreservesDebug` (`evaluate_test.go`) | 4 | ported (DV1, DV8) | planned |
-| FM7 | `tests/test_client_with_fake_model.py::test_usage_totals_preserve_unknown_counts_across_corrections` | 14 | `adapter.TestUsageTotalsPreserveUnknownCounts` (`evaluate_test.go`) | 7 | ported (DV1) | planned |
-| FM8 | `tests/test_client_with_fake_model.py::test_usage_separates_last_attempt_from_cumulative_totals` | 2 | `adapter.TestUsageSeparatesLastAttemptFromTotals` (`evaluate_test.go`) | 1 | ported (DV1) | planned |
-| FM9 | `tests/test_client_with_fake_model.py::test_attempts_are_independent_and_replayable` | 2 | `adapter.TestAttemptsAreIndependentAndReplayable` (`evaluate_test.go`) | 1 | ported (DV1) | planned |
+| FM6 | `tests/test_client_with_fake_model.py::test_malformed_retry_exhaustion_preserves_debug` | 8 | `adapter.TestMalformedRetryExhaustionPreservesDebug` (`evaluate_test.go`) | 4 | ported (DV1, DV8) | ported |
+| FM7 | `tests/test_client_with_fake_model.py::test_usage_totals_preserve_unknown_counts_across_corrections` | 14 | `adapter.TestUsageTotalsPreserveUnknownCounts` (`evaluate_test.go`) | 7 | ported (DV1) | ported |
+| FM8 | `tests/test_client_with_fake_model.py::test_usage_separates_last_attempt_from_cumulative_totals` | 2 | `adapter.TestUsageSeparatesLastAttemptFromTotals` (`evaluate_test.go`) | 1 | ported (DV1) | ported |
+| FM9 | `tests/test_client_with_fake_model.py::test_attempts_are_independent_and_replayable` | 2 | `adapter.TestAttemptsAreIndependentAndReplayable` (`evaluate_test.go`) | 1 | ported (DV1) | ported |
 | FM10 | `tests/test_client_with_fake_model.py::test_invalid_questions_are_rejected` | 5 | `adapter.TestInvalidQuestionsAreRejected` (`seam_test.go`; raw bodies, plus the SDK's own refusal where it refuses first) | 5 | ported (DV11) | planned |
-| FM11 | `tests/test_client_with_fake_model.py::test_malformed_structure_is_retried` | 8 | `adapter.TestMalformedStructureIsRetried` (`evaluate_test.go`) | 4 | ported (DV1, DV8) | planned |
+| FM11 | `tests/test_client_with_fake_model.py::test_malformed_structure_is_retried` | 8 | `adapter.TestMalformedStructureIsRetried` (`evaluate_test.go`) | 4 | ported (DV1, DV8) | ported |
 | FM12 | `tests/test_client_with_fake_model.py::test_missing_provider_setting_is_rejected` | 2 | `adapter.TestMissingProviderIsRejected` (`model_test.go`) | 1 | ported (DV1, DV9) | planned |
 | LV1 | `tests/test_client_with_live_apis.py::test_live_responses_match_reference_shape` | 12 | `adapter.TestReplayReferenceShape` (`replay_test.go`, 12 cassettes); live: `adapter/livetest.TestLiveReferenceShape` (`-tags live`) | 12 | ported (DV6, DV7: the members those deviations change are normalised before the comparison) | planned |
 | LV2 | `tests/test_client_with_live_apis.py::test_live_models_follow_question_instructions_and_criteria` | 12 | `adapter.TestReplayFollowsInstructionsAndCriteria` (`replay_test.go`); live: `adapter/livetest.TestLiveFollowsInstructionsAndCriteria` | 12 | ported | planned |
