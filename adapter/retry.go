@@ -450,11 +450,6 @@ func retryMessage(err error) string {
 	return err.Error()
 }
 
-// statusMessage returns the text upstream records for a provider status
-// error: for now StatusError.Error's, the "<status> <body>" form that does
-// not read the body as JSON.
-func statusMessage(e *llm.StatusError) string { return e.Error() }
-
 // retryContextKey is the context key of ContextWithRetry's policy.
 type retryContextKey struct{}
 

@@ -23,6 +23,8 @@
 //     upstream's replacement of '<' and '>';
 //   - an ordered writer, Value and Marshal, that writes members in the order
 //     they are given;
+//   - a reader, Read and Node, that gives a JSON text's values as Python's
+//     json.loads holds them, for code that looks members up;
 //   - semantic equality of two JSON texts for tests, Equal and EqualOrdered.
 //
 // No other package of the module imports the JSON library, so a change of

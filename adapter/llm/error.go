@@ -35,7 +35,9 @@ type StatusError struct {
 	// Header is the response header, for Retry-After; never recorded in a
 	// trace.
 	Header http.Header
-	// Body is the response body as received.
+	// Body is the response body as received. For the Adapter's retry
+	// reason, a nil Body is a response without a body and a Body that is
+	// not nil and empty is an empty body; Error prints the two alike.
 	Body []byte
 }
 

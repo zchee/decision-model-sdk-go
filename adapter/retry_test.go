@@ -943,6 +943,7 @@ func TestRetryReasonMessage(t *testing.T) {
 		"success: connection failure inside a timeout": {err: &llm.TimeoutError{Err: &llm.ConnectionError{}}, want: timeoutText},
 		"success: status error":                        {err: unavailable(), want: `503 {"m":"unavailable"}`},
 		"success: wrapped status error":                {err: fmt.Errorf("anthropic: %w", unavailable()), want: `503 {"m":"unavailable"}`},
+		"success: status error's message":              {err: fmt.Errorf("openai: %w", &llm.StatusError{StatusCode: 503, Body: []byte(`{"error":{"message":"boom"}}`)}), want: "503 boom"},
 		"success: predicate's error":                   {err: custom, want: "vendor: overloaded"},
 		"success: wrapped predicate's error":           {err: fmt.Errorf("custom provider: %w", custom), want: "custom provider: vendor: overloaded"},
 	}
