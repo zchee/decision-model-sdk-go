@@ -40,7 +40,7 @@ collapses into one Go case (DV1), so a row has fewer Go cases than items.
 
 | ID | Upstream | Items | Go test | Go cases | Intended outcome | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| FM1 | `tests/test_client_with_fake_model.py::test_sdk_questions_and_response_serialization` | 4 | `adapter.TestSDKQuestionsAndResponseSerialization` (`evaluate_test.go`) | 2 | ported (DV1, DV5) | planned |
+| FM1 | `tests/test_client_with_fake_model.py::test_sdk_questions_and_response_serialization` | 4 | `adapter.TestSDKQuestionsAndResponseSerialization` (`evaluate_test.go`) | 2 | ported (DV1, DV5) | ported |
 | FM2 | `tests/test_client_with_fake_model.py::test_prompted_mode_adds_schema_instructions_native_does_not` | 2 | `adapter.TestPromptedModeAddsSchemaInstructions` (`evaluate_test.go`) | 2 | ported | ported |
 | FM3 | `tests/test_client_with_fake_model.py::test_structured_state_prompt_is_delimited_and_escapes_embedded_tags` | 1 | `adapter.TestStatePromptIsDelimitedAndEscaped` (`evaluate_test.go`) | 1 | ported | ported |
 | FM4 | `tests/test_client_with_fake_model.py::test_transient_errors_are_retried` | 4 | `adapter.TestTransientErrorsAreRetried` (`evaluate_test.go`) | 2 | ported (DV1, DV3: per call via `ContextWithRetry`) | planned |
@@ -49,9 +49,9 @@ collapses into one Go case (DV1), so a row has fewer Go cases than items.
 | FM7 | `tests/test_client_with_fake_model.py::test_usage_totals_preserve_unknown_counts_across_corrections` | 14 | `adapter.TestUsageTotalsPreserveUnknownCounts` (`evaluate_test.go`) | 7 | ported (DV1) | ported |
 | FM8 | `tests/test_client_with_fake_model.py::test_usage_separates_last_attempt_from_cumulative_totals` | 2 | `adapter.TestUsageSeparatesLastAttemptFromTotals` (`evaluate_test.go`) | 1 | ported (DV1) | ported |
 | FM9 | `tests/test_client_with_fake_model.py::test_attempts_are_independent_and_replayable` | 2 | `adapter.TestAttemptsAreIndependentAndReplayable` (`evaluate_test.go`) | 1 | ported (DV1) | ported |
-| FM10 | `tests/test_client_with_fake_model.py::test_invalid_questions_are_rejected` | 5 | `adapter.TestInvalidQuestionsAreRejected` (`seam_test.go`; raw bodies, plus the SDK's own refusal where it refuses first) | 5 | ported (DV11) | planned |
+| FM10 | `tests/test_client_with_fake_model.py::test_invalid_questions_are_rejected` | 5 | `adapter.TestInvalidQuestionsAreRejected` (`seam_test.go`; raw bodies, plus the SDK's own refusal where it refuses first) | 5 | ported (DV11) | ported |
 | FM11 | `tests/test_client_with_fake_model.py::test_malformed_structure_is_retried` | 8 | `adapter.TestMalformedStructureIsRetried` (`evaluate_test.go`) | 4 | ported (DV1, DV8) | ported |
-| FM12 | `tests/test_client_with_fake_model.py::test_missing_provider_setting_is_rejected` | 2 | `adapter.TestMissingProviderIsRejected` (`model_test.go`) | 1 | ported (DV1, DV9) | planned |
+| FM12 | `tests/test_client_with_fake_model.py::test_missing_provider_setting_is_rejected` | 2 | `adapter.TestMissingProviderIsRejected` (`model_test.go`) | 1 | ported (DV1, DV9) | ported |
 | LV1 | `tests/test_client_with_live_apis.py::test_live_responses_match_reference_shape` | 12 | `adapter.TestReplayReferenceShape` (`replay_test.go`, 12 cassettes); live: `adapter/livetest.TestLiveReferenceShape` (`-tags live`) | 12 | ported (DV6, DV7: the members those deviations change are normalised before the comparison) | planned |
 | LV2 | `tests/test_client_with_live_apis.py::test_live_models_follow_question_instructions_and_criteria` | 12 | `adapter.TestReplayFollowsInstructionsAndCriteria` (`replay_test.go`); live: `adapter/livetest.TestLiveFollowsInstructionsAndCriteria` | 12 | ported | planned |
 | LV3 | `tests/test_client_with_live_apis.py::test_live_typesafe_response_matches_reference_shape` | 1 | `adapter.TestReplayTypeSafeReference` (`replay_test.go`: the root SDK against the TypeSafe cassette, the baseline shape); live: `adapter/livetest.TestLiveTypeSafeReference` | 1 | ported | planned |
@@ -103,7 +103,7 @@ collapses into one Go case (DV1), so a row has fewer Go cases than items.
 | SC5 | `tests/test_schema.py::test_output_validation_preserves_types_bounds_and_allowed_values` | 13 | `adapter/internal/schema.TestOutputValidationTypesBoundsAndValues` (the `nan` case is a `NaN` token, invalid JSON for `jsontext`: rejected, as upstream rejects it) | 13 | ported | ported |
 | SC6 | `tests/test_schema.py::test_output_rejects_extra_fields_and_internal_field_names` | 3 | `adapter/internal/schema.TestOutputRejectsExtraMembers` | 3 | ported | ported |
 | UC1 | `tests/utils/test_confidence_metrics.py::test_confidence_metrics` | 8 | `adapter/internal/prob.TestConfidence` (`internal/prob/confidence_test.go`) | 8 | ported | ported |
-| UE1 | `tests/utils/test_error_handling.py::test_status_errors_map_and_preserve_status_and_body` | 18 | `adapter/internal/rest.TestStatusErrorKeepsStatusAndBody` (6 statuses × 3 providers' error bodies) and `adapter.TestFailureClasses` (status → SDK kind) | 18 | ported (DV11) | planned |
+| UE1 | `tests/utils/test_error_handling.py::test_status_errors_map_and_preserve_status_and_body` | 18 | `adapter/internal/rest.TestStatusErrorKeepsStatusAndBody` (6 statuses × 3 providers' error bodies) and `adapter.TestFailureClasses` (status → SDK kind) | 18 | ported (DV11) | ported |
 | UE2 | `tests/utils/test_error_handling.py::test_timeout_and_connection_errors_map` | 3 | `adapter/internal/rest.TestTransportErrorsClassify` | 3 | ported | ported |
 | UE3 | `tests/utils/test_error_handling.py::test_unknown_and_sdk_errors_pass_through` | 3 | none: no translation layer | 0 | deviation DV14 | deviation |
 | UE4 | `tests/utils/test_error_handling.py::test_translating_context_manager_reraises_translated_error` | 1 | none: no `translating` context manager | 0 | deviation DV14 | deviation |

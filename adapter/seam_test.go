@@ -202,3 +202,451 @@ func goTool(t *testing.T) string {
 	}
 	return p
 }
+
+// requestFieldMutants are RoundTrip bodies that TestRequestFieldPolicy must
+// refuse: each reads, writes, passes or keeps the request otherwise than
+// RoundTrip's contract allows.
+var requestFieldMutants = map[string]string{ //nolint:gosec // G101: Go source texts of the test, which name headers and hold no credential.
+	"passed to a function":             `helper(req)`,
+	"assigned to a variable":           `r := req; _ = r`,
+	"the header map indexed":           `_ = req.Header["X-TypeSafe-Retry-Count"]`,
+	"the header's values read":         `_ = req.Header.Values("X-TypeSafe-Retry-Count")`,
+	"another header read":              `_ = req.Header.Get("Authorization")`,
+	"the header name held in a const":  `const name = "X-TypeSafe-Retry-Count"; _ = req.Header.Get(name)`,
+	"a header written":                 `req.Header.Set("X-Other", "1")`,
+	"the URL's query read":             `_ = req.URL.Query()`,
+	"GetBody read":                     `_ = req.GetBody`,
+	"ContentLength read":               `_ = req.ContentLength`,
+	"kept in a field":                  `ad.last = req`,
+	"captured by a closure":            `go func() { _ = req.Method }()`,
+	"the body closed by a closure":     `defer func() { _ = req.Body.Close() }()`,
+	"the body copied":                  `_, _ = io.Copy(io.Discard, req.Body)`,
+	"the method written":               `req.Method = "GET"`,
+	"the address of the path taken":    `_ = &req.URL.Path`,
+	"returned from a function literal": `_ = func() any { return req }`,
+}
+
+// requestFieldSource returns a file of package adapter whose RoundTrip runs
+// body.
+func requestFieldSource(body string) map[string]string {
+	return map[string]string{"roundtrip.go": `package adapter
+
+import (
+	"io"
+	"net/http"
+)
+
+func (ad *Adapter) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Body != nil {
+		defer req.Body.Close()
+		_, _ = io.ReadAll(req.Body)
+	}
+	_ = req.Header.Get("X-TypeSafe-Retry-Count")
+	_, _, _ = req.Method, req.URL.Path, req.Context()
+	` + body + `
+	return &http.Response{Request: req}, nil
+}
+`}
+}
+
+// TestRequestFieldPolicy checks statically that RoundTrip uses its request
+// only as its contract allows: it reads the method, the path and the
+// context, reads the body to its end and closes it, reads one header,
+// X-TypeSafe-Retry-Count, with Header.Get, and returns the request as its
+// response's Request; it never passes, stores, copies or captures the
+// request, and reads no other header, so the SDK's Authorization value
+// never reaches it. A read or a copy of a Go map cannot be observed at run
+// time, so the check reads the source. It refuses each of
+// requestFieldMutants.
+func TestRequestFieldPolicy(t *testing.T) {
+	n, violations := requestFieldViolations(packageSources(t))
+	if n != 1 {
+		t.Fatalf("the package has %d methods RoundTrip of *Adapter, want 1", n)
+	}
+	for _, v := range violations {
+		t.Errorf("RoundTrip: %s", v)
+	}
+	if n, v := requestFieldViolations(requestFieldSource("")); n != 1 || len(v) != 0 {
+		t.Fatalf("the allowed form is refused: %d methods, %v", n, v)
+	}
+	for name, body := range requestFieldMutants {
+		t.Run(name, func(t *testing.T) {
+			if _, v := requestFieldViolations(requestFieldSource(body)); len(v) == 0 {
+				t.Errorf("RoundTrip running %q passes the check", body)
+			}
+		})
+	}
+}
+
+// TestRoundTripLeavesRequestUntouched checks that RoundTrip never writes
+// to its request: 64 concurrent calls share one header map, as the SDK's
+// calls do, and the map equals its copy taken before; the race detector
+// sees any write.
+func TestRoundTripLeavesRequestUntouched(t *testing.T) {
+	ad := fakeAdapter(t, fakeAnswering(noulAnswer))
+	header := retryCountHeader("2")
+	before := header.Clone()
+	const n = 64
+	done := make(chan string, n)
+	start := make(chan struct{})
+	for i := range n {
+		go func() {
+			<-start
+			body := &closeCounter{r: strings.NewReader(noulBody)}
+			path := systemOnePath
+			if i%8 == 0 {
+				path = modelsPath
+			}
+			method := "POST"
+			if path == modelsPath {
+				method = "GET"
+			}
+			resp, err := ad.RoundTrip(requestWith(t.Context(), method, path, body, header))
+			if err != nil {
+				done <- err.Error()
+				return
+			}
+			_ = resp.Body.Close()
+			switch {
+			case resp.Status != "200 OK":
+				done <- resp.Status
+			case body.closes.Load() != 1 || !body.ended.Load():
+				done <- "the body was not read to its end and closed once"
+			default:
+				done <- ""
+			}
+		}()
+	}
+	close(start)
+	for range n {
+		if msg := <-done; msg != "" {
+			t.Error(msg)
+		}
+	}
+	if len(header) != len(before) {
+		t.Fatalf("the header has %d names after the calls, %d before", len(header), len(before))
+	}
+	for name, values := range before {
+		if !slices.Equal(header[name], values) {
+			t.Errorf("header %s = %q after the calls, %q before", name, header[name], values)
+		}
+	}
+}
+
+// TestInvalidQuestionsAreRejected ports
+// tests/test_client_with_fake_model.py::test_invalid_questions_are_rejected:
+// an empty question set and a Choice or Score question with fewer than two
+// criteria are refused before any provider request, with upstream's
+// message. The SDK's Prepare refuses two of the cases itself; those reach
+// the Adapter as raw bodies. A questions member that is null or an array is
+// not a question set (400), and an empty object is the empty set (422).
+func TestInvalidQuestionsAreRejected(t *testing.T) {
+	tests := map[string]struct {
+		// sdkRefuses is Prepare's error text for a case the SDK refuses
+		// itself; empty when the SDK sends the case.
+		sdkRefuses string
+		// raw is the questions member sent as a raw body.
+		raw         string
+		wantStatus  int
+		wantType    string
+		wantMessage string
+	}{
+		"no-questions": {
+			sdkRefuses:  "At least one question is required.",
+			raw:         `{}`,
+			wantStatus:  422,
+			wantType:    "invalid_questions",
+			wantMessage: "At least one question is required.",
+		},
+		"empty-score-criteria": {
+			sdkRefuses:  `Score question "stars" has no criteria; at least one score is required.`,
+			raw:         `{"stars":{"type":"score","instructions":"Rating.","criteria":[]}}`,
+			wantStatus:  422,
+			wantType:    "invalid_questions",
+			wantMessage: "Score and choice questions require at least two criteria.",
+		},
+		"single-score-criterion": {
+			raw:         `{"stars":{"type":"score","instructions":"Rating.","criteria":["Good."]}}`,
+			wantStatus:  422,
+			wantType:    "invalid_questions",
+			wantMessage: "Score and choice questions require at least two criteria.",
+		},
+		"empty-choice-criteria": {
+			raw:         `{"genre":{"type":"choice","instructions":"Genre.","criteria":{}}}`,
+			wantStatus:  422,
+			wantType:    "invalid_questions",
+			wantMessage: "Score and choice questions require at least two criteria.",
+		},
+		"single-choice-criterion": {
+			raw:         `{"genre":{"type":"choice","instructions":"Genre.","criteria":{"fiction":"A story."}}}`,
+			wantStatus:  422,
+			wantType:    "invalid_questions",
+			wantMessage: "Score and choice questions require at least two criteria.",
+		},
+		"questions null": {
+			raw:         `null`,
+			wantStatus:  400,
+			wantType:    "invalid_body",
+			wantMessage: "The request body's questions is not a JSON object.",
+		},
+		"questions an array": {
+			raw:         `[]`,
+			wantStatus:  400,
+			wantType:    "invalid_body",
+			wantMessage: "The request body's questions is not a JSON object.",
+		},
+		"questions an empty object": {
+			raw:         `{}`,
+			wantStatus:  422,
+			wantType:    "invalid_questions",
+			wantMessage: "At least one question is required.",
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			p := fakeAnswering(`{"answers":{}}`)
+			ad := fakeAdapter(t, p)
+			if tt.wantType == "invalid_questions" && !strings.Contains(tt.wantMessage, "required") && !strings.Contains(tt.wantMessage, "criteria") {
+				t.Fatalf("message %q does not match upstream's pattern required|criteria", tt.wantMessage)
+			}
+			if _, isUpstream := map[string]bool{"no-questions": true, "empty-score-criteria": true, "single-score-criterion": true, "empty-choice-criteria": true, "single-choice-criterion": true}[name]; isUpstream {
+				q, err := fm10Questions(name)
+				switch {
+				case tt.sdkRefuses != "" && (err == nil || !strings.Contains(err.Error(), tt.sdkRefuses)):
+					t.Errorf("Prepare error = %v, want the SDK's own refusal %q", err, tt.sdkRefuses)
+				case tt.sdkRefuses == "" && err != nil:
+					t.Fatalf("Prepare error = %v; the SDK sends this case", err)
+				case tt.sdkRefuses == "":
+					_, err := sdkClient(t, ad, false).SystemOne(t.Context(), "state", q)
+					status, errorType, message, report := apiErrorParts(err)
+					if status != tt.wantStatus || errorType != tt.wantType || message != tt.wantMessage || report {
+						t.Errorf("through the SDK: %d %q %q report %v, want %d %q %q no report", status, errorType, message, report, tt.wantStatus, tt.wantType, tt.wantMessage)
+					}
+				}
+			}
+			status, body, err := send(t, ad, rawRequest(t.Context(), "POST", systemOnePath, `{"state":"state","model":"fake","questions":`+tt.raw+`}`))
+			if err != nil {
+				t.Fatalf("RoundTrip error = %v", err)
+			}
+			message, errorType := detailOf(t, body)
+			if status != tt.wantStatus || errorType != tt.wantType || message != tt.wantMessage {
+				t.Errorf("raw body: %d %q %q, want %d %q %q", status, errorType, message, tt.wantStatus, tt.wantType, tt.wantMessage)
+			}
+			if p.Calls() != 0 {
+				t.Errorf("provider calls = %d, want 0", p.Calls())
+			}
+		})
+	}
+}
+
+// TestInvalidQuestionsListTheirDefects checks the list of a 422
+// invalid_questions body: detail keeps upstream's message and the error
+// type, and its member errors lists each defective question's place as
+// ["body", "questions", <name>, <field>…] with the rule it breaks, in the
+// request's order; a refusal that names no question has no such member.
+func TestInvalidQuestionsListTheirDefects(t *testing.T) {
+	p := fakeAnswering(`{"answers":{}}`)
+	ad := fakeAdapter(t, p)
+	_, err := sdkClient(t, ad, false).SystemOne(t.Context(), "state", rawQuestionsWithDefects(t))
+	status, errorType, message, _ := apiErrorParts(err)
+	if status != 422 || errorType != "invalid_questions" || message != "a question does not have the shape of its type" {
+		t.Fatalf("SystemOne: %d %q %q", status, errorType, message)
+	}
+	got := detailErrors(t, apiErrorBody(err))
+	want := []string{
+		`["body","questions","zeta","color"]: a noul question has no such member`,
+		`["body","questions","alpha","criteria"]: must be an object from each label to its criterion`,
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("detail.errors = %q, want %q", got, want)
+	}
+	_, body, err := send(t, ad, rawRequest(t.Context(), "POST", systemOnePath, `{"state":"s","model":"fake","questions":{}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := detailErrors(t, body); got != nil {
+		t.Errorf("the empty set lists %q, want no member errors", got)
+	}
+}
+
+// TestUnknownPath checks that a request to any other method or path is
+// answered 404 with {"detail": "Not Found"}, its body read to its end and
+// closed once, or not touched when it is nil; a closed Adapter refuses it
+// as any other request and still closes its body.
+func TestUnknownPath(t *testing.T) {
+	tests := map[string]struct {
+		method, path string
+	}{
+		"GET of the evaluation path":   {method: "GET", path: systemOnePath},
+		"PUT of the evaluation path":   {method: "PUT", path: systemOnePath},
+		"POST of the models path":      {method: "POST", path: modelsPath},
+		"a longer path":                {method: "POST", path: systemOnePath + "/more"},
+		"another version":              {method: "POST", path: "/v2/systemone"},
+		"the root":                     {method: "GET", path: "/"},
+		"DELETE of the models path":    {method: "DELETE", path: modelsPath},
+		"a path that only contains it": {method: "POST", path: "/v1/systemone.json"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			for _, withBody := range []bool{false, true} {
+				ad := fakeAdapter(t, fakeAnswering(noulAnswer))
+				var body *closeCounter
+				req := requestWith(t.Context(), tt.method, tt.path, nil, retryCountHeader(""))
+				if withBody {
+					body = &closeCounter{r: strings.NewReader(noulBody)}
+					req = requestWith(t.Context(), tt.method, tt.path, body, retryCountHeader(""))
+				}
+				status, got, err := send(t, ad, req)
+				if err != nil || status != 404 || string(got) != `{"detail": "Not Found"}` {
+					t.Errorf("RoundTrip = %d %s, %v; want 404 {\"detail\": \"Not Found\"}", status, got, err)
+				}
+				if withBody && (body.closes.Load() != 1 || !body.ended.Load()) {
+					t.Errorf("the body was closed %d times, read to its end %v", body.closes.Load(), body.ended.Load())
+				}
+				if err := ad.Close(); err != nil {
+					t.Fatal(err)
+				}
+				closedBody := &closeCounter{r: strings.NewReader(noulBody)}
+				if _, _, err := send(t, ad, requestWith(t.Context(), tt.method, tt.path, closedBody, retryCountHeader(""))); !isClosedError(err) {
+					t.Errorf("a closed Adapter answered %v, want the closed Error", err)
+				}
+				if closedBody.closes.Load() != 1 || !closedBody.ended.Load() {
+					t.Errorf("a closed Adapter closed the body %d times, read it to its end %v", closedBody.closes.Load(), closedBody.ended.Load())
+				}
+			}
+		})
+	}
+}
+
+// TestModelsAndWarmUp checks GET /v1/models through the SDK: one card for
+// the default model and one for each WithProvider name that is not the
+// default, in the order they were registered, and no card for an Adapter
+// with neither; WarmUp, which sends this request, succeeds. The request
+// arrives without a body.
+func TestModelsAndWarmUp(t *testing.T) {
+	tests := map[string]struct {
+		opts      []Option
+		wantNames []string
+	}{
+		"a default of a factory and two providers": {
+			opts:      []Option{WithFactory("openai", factoryOf(fakeAnswering(noulAnswer))), WithDefaultModel("openai:gpt-x"), WithProvider("zeta", fakeAnswering(noulAnswer)), WithProvider("alpha", fakeAnswering(noulAnswer))},
+			wantNames: []string{"openai:gpt-x", "zeta", "alpha"},
+		},
+		"a default that is a provider": {
+			opts:      []Option{WithProvider("zeta", fakeAnswering(noulAnswer)), WithProvider("alpha", fakeAnswering(noulAnswer)), WithDefaultModel("alpha")},
+			wantNames: []string{"alpha", "zeta"},
+		},
+		"neither": {},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			ad := newAdapter(t, tt.opts...)
+			c := sdkClient(t, ad, false)
+			resp, err := c.Models().List(t.Context())
+			if err != nil {
+				t.Fatalf("Models().List: %v", err)
+			}
+			var names []string
+			for _, card := range resp.Models() {
+				names = append(names, card.Name())
+				if card.ReleaseDate() != "2026-09-22" || !strings.Contains(card.Description(), "system-one-adapter-go "+Version) {
+					t.Errorf("card %q: description %q, release date %q", card.Name(), card.Description(), card.ReleaseDate())
+				}
+			}
+			if !slices.Equal(names, tt.wantNames) {
+				t.Errorf("model names = %q, want %q", names, tt.wantNames)
+			}
+			if err := c.WarmUp(t.Context()); err != nil {
+				t.Errorf("WarmUp: %v", err)
+			}
+			body := &closeCounter{r: strings.NewReader("ignored")}
+			status, _, err := send(t, ad, requestWith(t.Context(), "GET", modelsPath, body, retryCountHeader("")))
+			if err != nil || status != 200 || body.closes.Load() != 1 {
+				t.Errorf("GET with a body: %d, %v, closes %d", status, err, body.closes.Load())
+			}
+		})
+	}
+}
+
+// TestRoundTripNeverReturnsNilResponse checks RoundTrip's contract on
+// every failure class, through a transport that wraps the Adapter: a
+// response with a body and the request as its Request, or an error, never
+// both and never neither, and a request id on every response.
+func TestRoundTripNeverReturnsNilResponse(t *testing.T) {
+	for name, tt := range classCases() {
+		t.Run(name, func(t *testing.T) {
+			if n := contractChecked(t, tt); n == 0 {
+				t.Error("no request reached the Adapter")
+			}
+		})
+	}
+	ad := fakeAdapter(t, fakeAnswering(noulAnswer))
+	for _, body := range []string{"", "not JSON", `{"state":null,"model":"fake","questions":{}}`, noulBody} {
+		if _, _, err := send(t, ad, rawRequest(t.Context(), "POST", systemOnePath, body)); err != nil {
+			t.Errorf("body %q: %v", body, err)
+		}
+	}
+}
+
+// TestResponsesCarryARequestID checks that every response carries
+// X-Typesafe-Request-Id: "adp_" and 16 lower-case hex digits, another on
+// each response, which the SDK reads as the response's request id.
+func TestResponsesCarryARequestID(t *testing.T) {
+	ad := fakeAdapter(t, fakeAnswering(noulAnswer))
+	seen := map[string]bool{}
+	for i := range 50 {
+		method, path, body := "POST", systemOnePath, noulBody
+		switch i % 5 {
+		case 1:
+			method, path, body = "GET", modelsPath, ""
+		case 2:
+			path = "/v1/other"
+		case 3:
+			body = "not JSON"
+		case 4:
+			body = `{"state":"s","model":"fake","questions":{}}`
+		}
+		id := responseRequestID(t, ad, rawRequest(t.Context(), method, path, body))
+		if len(id) != 20 || !strings.HasPrefix(id, "adp_") || strings.Trim(id[4:], "0123456789abcdef") != "" {
+			t.Errorf("request id %q is not adp_ and 16 lower-case hex digits", id)
+		}
+		if seen[id] {
+			t.Errorf("request id %q repeats", id)
+		}
+		seen[id] = true
+	}
+	resp, err := sdkClient(t, ad, false).SystemOne(t.Context(), "state", noulQuestions(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id, ok := resp.Meta().RequestID(); !ok || !strings.HasPrefix(id, "adp_") {
+		t.Errorf("the SDK reads request id %q, %v", id, ok)
+	}
+}
+
+// TestInvalidQuestionsHoldNoContent checks that a 422 invalid_questions
+// body is built from the parser's own texts and the members' names only:
+// a marker in a question's instructions, in a criterion's value, in an
+// unknown member's value and in an unknown type appears nowhere in it.
+func TestInvalidQuestionsHoldNoContent(t *testing.T) {
+	const marker = "content-marker-41d7"
+	questions := `{"a":{"type":"noul","instructions":"` + marker + ` one","color":"` + marker + ` two"},` +
+		`"b":{"type":"choice","criteria":{"x":"` + marker + ` three"},"size":["` + marker + ` four"]},` +
+		`"c":{"type":"` + marker + ` five"}}`
+	ad := fakeAdapter(t, fakeAnswering(noulAnswer))
+	status, body, err := send(t, ad, rawRequest(t.Context(), "POST", systemOnePath, `{"state":"s","model":"fake","questions":`+questions+`}`))
+	if err != nil || status != 422 {
+		t.Fatalf("RoundTrip = %d %s, %v; want 422", status, body, err)
+	}
+	if strings.Contains(string(body), marker) {
+		t.Errorf("the 422 body holds the request's content: %s", body)
+	}
+	want := []string{
+		`["body","questions","a","color"]: a noul question has no such member`,
+		`["body","questions","b","size"]: a choice question has no such member`,
+		`["body","questions","c","type"]: must be noul, choice or score`,
+	}
+	if got := detailErrors(t, body); !slices.Equal(got, want) {
+		t.Errorf("detail.errors = %q, want %q", got, want)
+	}
+}

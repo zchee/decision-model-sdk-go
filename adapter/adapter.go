@@ -16,12 +16,15 @@
 package adapter
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"log/slog"
 	"maps"
+	"net/http"
 	"strconv"
 	"sync"
+	"sync/atomic"
 
 	"github.com/zchee/decision-model-sdk-go/adapter/llm"
 )
@@ -47,6 +50,9 @@ type Adapter struct {
 	providerList []string
 	factories    map[string]llm.Factory
 	logger       *slog.Logger
+
+	// given is set once NewClient has given the Adapter to a client.
+	given atomic.Bool
 
 	// mu orders each call's entry against Close: it guards closed, the
 	// Add of running, and closing. It is not cacheMu, so Close never waits
@@ -123,6 +129,65 @@ func New(a AnswerMode, o OutputMode, opts ...Option) (*Adapter, error) {
 	}
 	ad.defaultName = name
 	return ad, nil
+}
+
+// RoundTrip answers one request of the root SDK: POST <base>/v1/systemone
+// with an evaluation, GET <base>/v1/models with the model list, and any
+// other method or path with 404 {"detail": "Not Found"}. It reads
+// req.Method, req.URL.Path and req.Context(), reads req.Body to its end and
+// closes it on every path when it is not nil (a GET carries none), and
+// reads one header, X-TypeSafe-Retry-Count, which it records in the
+// Report; it never writes, copies or keeps req or any of its fields, and
+// reads no other header, so the SDK's API key never reaches it. Every
+// response carries X-Typesafe-Request-Id, "adp_" and 16 random hex digits,
+// and has req as its Request.
+//
+// A request that fails answers with a status and an error body
+// {"detail": {"message", "error_type"}, "usage", "debug"}, usage and debug
+// present once the evaluation has started: 400 for a body that is not a
+// System One request (invalid_body), a call without a model
+// (model_required) or a provider (provider_required), a provider that
+// cannot be built (provider_config) and a ContextWithRetry policy out of
+// range (invalid_retry); 422 for a state that is null, not a string, object
+// or array, or nested too deeply (invalid_state), and for invalid questions
+// (invalid_questions); the provider's status after the retries
+// (provider_status), 424 when that status is outside 400 to 599; 424 for a
+// non-answer (non_answer) and any other provider error (provider_error);
+// and 200 with "answers": null for output that still does not match the
+// schema after the corrective retries. A provider timeout or connection
+// failure after the retries, and a call whose context deadline passed,
+// return an *Error with the Report; a cancelled call returns its context's
+// error and no Report; a closed Adapter returns an *Error of KindClosed.
+func (ad *Adapter) RoundTrip(req *http.Request) (*http.Response, error) {
+	var body []byte
+	var readErr error
+	if req.Body != nil {
+		defer req.Body.Close()
+		body, readErr = io.ReadAll(req.Body)
+	}
+	ad.mu.Lock()
+	if ad.closed {
+		ad.mu.Unlock()
+		return nil, &Error{Kind: KindClosed}
+	}
+	ad.running.Add(1)
+	ad.mu.Unlock()
+	defer ad.running.Done()
+	r := ad.serve(req.Context(), req.Method, req.URL.Path, req.Header.Get("X-TypeSafe-Retry-Count"), body, readErr)
+	if r.err != nil {
+		return nil, r.err
+	}
+	return &http.Response{
+		Status:        strconv.Itoa(r.status) + " " + http.StatusText(r.status),
+		StatusCode:    r.status,
+		Proto:         "HTTP/1.1",
+		ProtoMajor:    1,
+		ProtoMinor:    1,
+		Header:        responseHeader(len(r.body), newRequestID()),
+		Body:          io.NopCloser(bytes.NewReader(r.body)),
+		ContentLength: int64(len(r.body)),
+		Request:       req,
+	}, nil
 }
 
 // provider returns the provider of t: the borrowed one, or the owned one

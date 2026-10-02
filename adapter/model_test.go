@@ -17,13 +17,17 @@ package adapter
 
 import (
 	"errors"
+	"net/http"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	gocmp "github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+
+	decision "github.com/zchee/decision-model-sdk-go"
 
 	"github.com/zchee/decision-model-sdk-go/adapter/internal/fake"
 	"github.com/zchee/decision-model-sdk-go/adapter/llm"
@@ -71,6 +75,13 @@ func (l *factoryLog) snapshot() map[string][]string {
 		out[name] = slices.Clone(models)
 	}
 	return out
+}
+
+// providers returns the providers built, in build order.
+func (l *factoryLog) providers() []*fake.Provider {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Clone(l.built)
 }
 
 // TestResolveModel checks how a call's model string selects its provider
@@ -424,5 +435,26 @@ func TestNewAccepts(t *testing.T) {
 	}
 	if ad.defaultModel != "a" || ad.defaultName != "" {
 		t.Errorf("default = %q, name %q; want \"a\", \"\"", ad.defaultModel, ad.defaultName)
+	}
+}
+
+// TestMissingProviderIsRejected ports
+// tests/test_client_with_fake_model.py::test_missing_provider_setting_is_rejected:
+// a call that names a bare model on an Adapter without a default provider
+// is refused with upstream's provider_required text, before any provider is
+// built.
+func TestMissingProviderIsRejected(t *testing.T) {
+	var log factoryLog
+	ad, err := New(Probabilities, Structured, WithFactory("openai", log.factory("openai")))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	_, err = sdkClient(t, ad, false).SystemOne(t.Context(), "state", noulQuestions(t), decision.Model("gpt-4o-mini"))
+	apiErr, ok := errors.AsType[*decision.APIError](err)
+	if !ok || apiErr.StatusCode != http.StatusBadRequest || apiErr.ErrorType != "provider_required" || !strings.Contains(apiErr.Message, "provider") {
+		t.Fatalf("SystemOne error = %v, want 400 provider_required naming the provider", err)
+	}
+	if len(log.snapshot()) != 0 {
+		t.Errorf("factory builds = %v, want none", log.snapshot())
 	}
 }

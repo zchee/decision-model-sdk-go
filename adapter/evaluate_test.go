@@ -1570,3 +1570,164 @@ func upstreamAnswers(t testing.TB, res *evalResult) string {
 	}
 	return string(out)
 }
+
+// TestSDKQuestionsAndResponseSerialization ports
+// tests/test_client_with_fake_model.py::test_sdk_questions_and_response_serialization:
+// upstream's three questions, as the SDK's question types and as the
+// dictionaries upstream also accepts, evaluated through the SDK, give the
+// noul, the expected score with its legend, the choice and the
+// probabilities keyed by level; the response serialised and read back has
+// the same answers. Serialising the SDK's response drops the Adapter's
+// members, which the raw body and the Report keep (DV5).
+func TestSDKQuestionsAndResponseSerialization(t *testing.T) {
+	tests := map[string]struct {
+		dictionaries bool
+	}{
+		"sdk-models":   {},
+		"dictionaries": {dictionaries: true},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			p := fake.New(fake.Text(`{"answers":{"positive":0.8,"stars":{"0":0.25,"1":0.75},"genre":{"fiction":0.9,"nonfiction":0.1}}}`))
+			c := sdkClient(t, fakeAdapter(t, p), false)
+			resp, err := c.SystemOne(t.Context(), "This is a delightful fiction novel.", fm1Questions(t, tt.dictionaries))
+			if err != nil {
+				t.Fatalf("SystemOne: %v", err)
+			}
+			answers := resp.Answers()
+			noul, _ := answers.Noul("positive")
+			score, _ := answers.Score("stars")
+			choice, _ := answers.Choice("genre")
+			if noul.Noul() != 0.8 || score.Score() != 0.75 || choice.Choice() != "fiction" {
+				t.Errorf("noul %v, score %v, choice %q; want 0.8, 0.75, fiction", noul.Noul(), score.Score(), choice.Choice())
+			}
+			var legend, probabilities []string
+			for level, content := range score.Legend() {
+				legend = append(legend, fmt.Sprintf("%d=%s", level, content.Text()))
+			}
+			for level, p := range score.Probabilities() {
+				probabilities = append(probabilities, fmt.Sprintf("%d=%v", level, p))
+			}
+			if diff := cmp.Diff([]string{"0=Bad.", "1=Good."}, legend); diff != "" {
+				t.Errorf("legend (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff([]string{"0=0.25", "1=0.75"}, probabilities); diff != "" {
+				t.Errorf("score probabilities (-want +got):\n%s", diff)
+			}
+			serialized, restored := reencodeResponse(t, resp)
+			if bytes.Contains(serialized, []byte(`"debug"`)) || bytes.Contains(serialized, []byte(`"n_retries"`)) {
+				t.Errorf("the SDK's serialisation holds the Adapter's members: %s", serialized)
+			}
+			if !bytes.Contains(resp.Meta().RawBody(), []byte(`"debug"`)) {
+				t.Error("the raw body lost the debug member")
+			}
+			before, err := resp.Answers().MarshalJSON()
+			if err != nil {
+				t.Fatal(err)
+			}
+			after, err := restored.Answers().MarshalJSON()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(before, after) {
+				t.Errorf("answers read back %s, want %s", after, before)
+			}
+			if r, err := ReportOf(resp); err != nil || len(r.Debug.Attempts) != 1 {
+				t.Errorf("ReportOf = %v, %v; want one attempt", r, err)
+			}
+		})
+	}
+}
+
+// TestAnswersMatchExpectedResponses checks the answers member the Adapter
+// writes against upstream's 12 expected responses: for the questions and
+// the model output each file implies (each question's criteria from its
+// legend or labels, the output its probabilities or its single value), the
+// answers equal the file's, member order included.
+func TestAnswersMatchExpectedResponses(t *testing.T) {
+	for _, path := range expectedResponses(t) {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			b, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			doc, err := jsonx.Read(b)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want, _ := doc.Member("answers")
+			discrete := strings.Contains(path, "[discrete-")
+			var questions, output []string
+			for i := range want.Len() {
+				name, a := want.Name(i), want.Index(i)
+				kind, _ := a.Member("type")
+				probs, _ := a.Member("probabilities")
+				var labels []string
+				for j := range probs.Len() {
+					labels = append(labels, strconv.Quote(probs.Name(j)))
+				}
+				switch kind.Text() {
+				case "noul":
+					v, _ := a.Member("noul")
+					questions = append(questions, strconv.Quote(name)+`:{"type":"noul"}`)
+					if discrete {
+						output = append(output, strconv.Quote(name)+":"+strconv.FormatBool(v.Text() != "0.0" && v.Text() != "0"))
+					} else {
+						output = append(output, strconv.Quote(name)+":"+v.Text())
+					}
+				case "score":
+					legend, _ := a.Member("legend")
+					var levels []string
+					for j := range legend.Len() {
+						levels = append(levels, mustMarshalNode(t, legend.Index(j)))
+					}
+					questions = append(questions, strconv.Quote(name)+`:{"type":"score","criteria":[`+strings.Join(levels, ",")+`]}`)
+					if discrete {
+						s, _ := a.Member("score")
+						output = append(output, strconv.Quote(name)+":"+strings.TrimSuffix(s.Text(), ".0"))
+					} else {
+						output = append(output, strconv.Quote(name)+":"+mustMarshalNode(t, probs))
+					}
+				case "choice":
+					criteria := make([]string, len(labels))
+					for j, l := range labels {
+						criteria[j] = l + `:"criterion"`
+					}
+					questions = append(questions, strconv.Quote(name)+`:{"type":"choice","criteria":{`+strings.Join(criteria, ",")+`}}`)
+					if discrete {
+						c, _ := a.Member("choice")
+						output = append(output, strconv.Quote(name)+":"+strconv.Quote(c.Text()))
+					} else {
+						output = append(output, strconv.Quote(name)+":"+mustMarshalNode(t, probs))
+					}
+				}
+			}
+			mode := Probabilities
+			if discrete {
+				mode = Discrete
+			}
+			ad, err := New(mode, Structured, WithProvider("fake", fake.New(fake.Text(`{"answers":{`+strings.Join(output, ",")+`}}`))), WithDefaultModel("fake"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			status, body, err := send(t, ad, rawRequest(t.Context(), http.MethodPost, systemOnePath, `{"state":"s","model":"fake","questions":{`+strings.Join(questions, ",")+`}}`))
+			if err != nil || status != 200 {
+				t.Fatalf("RoundTrip = %d %s, %v", status, body, err)
+			}
+			got, err := jsonx.Read(body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for i, member := range []string{"model", "usage", "answers", "debug"} {
+				if got.Name(i) != member {
+					t.Errorf("body member %d is %q, want %q", i, got.Name(i), member)
+				}
+			}
+			gotAnswers, _ := got.Member("answers")
+			equal, err := jsonx.EqualOrdered([]byte(mustMarshalNode(t, want)), []byte(mustMarshalNode(t, gotAnswers)))
+			if err != nil || !equal {
+				t.Errorf("answers %s, want %s (%v)", mustMarshalNode(t, gotAnswers), mustMarshalNode(t, want), err)
+			}
+		})
+	}
+}
