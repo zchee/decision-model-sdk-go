@@ -64,10 +64,14 @@ type Usage struct {
 	// requests made after an answer that did not match the schema.
 	MalformedRetries int
 	// Latency is latency, the time from the start of the evaluation to its
-	// answer or its failure, written as seconds. MarshalJSON refuses a
-	// Latency below 0 or not below 2^22 seconds (48 days 13 hours 31
-	// minutes 44 seconds); within that range the seconds it writes read
-	// back to the same Duration.
+	// answer or its failure, written as seconds; MarshalJSON writes any
+	// Duration. While its size is below 2^22 seconds (48 days 13 hours 31
+	// minutes 44 seconds), either side of 0, UnmarshalJSON reads the
+	// seconds back to the same Duration. Beyond that a reader gets a
+	// Duration that differs by less than |Latency|*2^-51 (under 15 ns for
+	// a year), except that a Latency of 2^63-512 ns or more,
+	// the last 512 ns of a Duration's range, is written as 2^63 ns, which
+	// UnmarshalJSON refuses as no Duration.
 	Latency time.Duration
 }
 
@@ -212,19 +216,12 @@ const (
 	maxIntDigits = 4300
 )
 
-// maxLatency is the first Latency that MarshalJSON refuses: 2^22 seconds.
-// Below it, the seconds float64(d)/1e9 written by ReprFloat and read back
-// as math.Round(s*1e9) give d: s is the double nearest d/1e9, whose
-// shortest digits read back to s, and the two roundings of s and of s*1e9
-// stay below half a nanosecond together while s*1e9 is below 2^52.
-const maxLatency = (1 << 22) * time.Second
-
 // errReport is the error of a Report that cannot be read or written.
 var errReport = errors.New("adapter: report")
 
 // MarshalJSON writes {"usage": …, "debug": …} with upstream's member names
-// and order. It fails for a float that is NaN or an infinity, a Latency
-// outside its range, an Attempt.Schema that is not one JSON value, an
+// and order. It fails for a float that is NaN or an infinity, an
+// Attempt.Schema that is not one JSON value, an
 // encoding member other than "" and "text", and two questions, or two
 // labels of one question, whose names are one name once each byte that
 // is not valid UTF-8 is written as U+FFFD (a JSON object cannot hold a
@@ -241,10 +238,7 @@ func (r Report) MarshalJSON() ([]byte, error) {
 // members returns the members usage and debug, in that order, for a body
 // that holds them among others.
 func (r *Report) members() ([]jsonx.Member, error) {
-	usage, err := r.Usage.value()
-	if err != nil {
-		return nil, err
-	}
+	usage := r.Usage.value()
 	debug, err := r.Debug.value()
 	if err != nil {
 		return nil, err
@@ -253,10 +247,7 @@ func (r *Report) members() ([]jsonx.Member, error) {
 }
 
 // value returns u in FA16's member order.
-func (u *Usage) value() (jsonx.Value, error) {
-	if u.Latency < 0 || u.Latency >= maxLatency {
-		return jsonx.Value{}, fmt.Errorf("%w: latency %v is outside [0, %v)", errReport, u.Latency, maxLatency)
-	}
+func (u *Usage) value() jsonx.Value {
 	return jsonx.Object(
 		jsonx.Member{Name: "input_tokens", Value: countValue(u.InputTokens)},
 		jsonx.Member{Name: "output_tokens", Value: countValue(u.OutputTokens)},
@@ -265,7 +256,7 @@ func (u *Usage) value() (jsonx.Value, error) {
 		jsonx.Member{Name: "n_retries", Value: intValue(u.Retries)},
 		jsonx.Member{Name: "n_retries_malformed_structure", Value: intValue(u.MalformedRetries)},
 		jsonx.Member{Name: "latency", Value: jsonx.Float(float64(u.Latency)/1e9, jsonx.Repr)},
-	), nil
+	)
 }
 
 // value returns d in upstream's member order

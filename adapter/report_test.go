@@ -405,6 +405,40 @@ func TestReportMarshalJSONSuccessShape(t *testing.T) {
 	}
 }
 
+// TestReportWritesTheErrorPair checks that error and error_type are
+// written together when either is set, as upstream writes both from one
+// except, also when str(error) is "".
+func TestReportWritesTheErrorPair(t *testing.T) {
+	tests := map[string]struct {
+		text, class string
+		want        string
+	}{
+		"success: an empty text":    {class: "TypeSafeError", want: `"provider":"p","error":"","error_type":"TypeSafeError"}`},
+		"success: an empty class":   {text: "boom", want: `"provider":"p","error":"boom","error_type":""}`},
+		"success: both":             {text: "boom", class: "TypeSafeError", want: `"provider":"p","error":"boom","error_type":"TypeSafeError"}`},
+		"success: neither, no pair": {want: `"provider":"p"}`},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			r := Report{Debug: Debug{Attempts: []Attempt{{Info: AttemptInfo{ModelName: "m", Provider: "p", Error: tt.text, ErrorType: tt.class}}}}}
+			out, err := r.MarshalJSON()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Contains(out, []byte(tt.want)) {
+				t.Fatalf("debug_info does not end in %s:\n%s", tt.want, out)
+			}
+			var back Report
+			if err := back.UnmarshalJSON(out); err != nil {
+				t.Fatal(err)
+			}
+			if got := back.Debug.Attempts[0].Info; got.Error != tt.text || got.ErrorType != tt.class {
+				t.Fatalf("read back %q, %q", got.Error, got.ErrorType)
+			}
+		})
+	}
+}
+
 func TestReportMarshalJSONRefuses(t *testing.T) {
 	tests := map[string]struct {
 		change  func(*Report)
@@ -413,8 +447,6 @@ func TestReportMarshalJSONRefuses(t *testing.T) {
 		"error: max_error NaN":                {change: func(r *Report) { r.Debug.MaxError = math.NaN() }, wantErr: jsonx.ErrNonFinite},
 		"error: probability error +Inf":       {change: func(r *Report) { r.Debug.ProbabilityErrors[0].Value = math.Inf(1) }, wantErr: jsonx.ErrNonFinite},
 		"error: original probability -Inf":    {change: func(r *Report) { r.Debug.OriginalProbabilities[0].Probabilities[1].Value = math.Inf(-1) }, wantErr: jsonx.ErrNonFinite},
-		"error: latency below 0":              {change: func(r *Report) { r.Usage.Latency = -1 }, wantErr: errReport},
-		"error: latency of 2^22 seconds":      {change: func(r *Report) { r.Usage.Latency = maxLatency }, wantErr: errReport},
 		"error: a schema that is not JSON":    {change: func(r *Report) { r.Debug.Attempts[0].Schema = []byte("{") }, wantErr: errReport},
 		"error: an unknown response encoding": {change: func(r *Report) { r.Debug.Attempts[0].Info.ResponseEncoding = "base64" }, wantErr: errReport},
 		"error: an unknown request encoding":  {change: func(r *Report) { r.Debug.Attempts[0].Info.RequestEncoding = "TEXT" }, wantErr: errReport},
@@ -422,6 +454,10 @@ func TestReportMarshalJSONRefuses(t *testing.T) {
 			r.Debug.ProbabilityErrors = append(r.Debug.ProbabilityErrors, r.Debug.ProbabilityErrors[0])
 		}, wantErr: jsonx.ErrInvalid},
 		"success: latency just below 2^22 s":    {change: func(r *Report) { r.Usage.Latency = maxLatency - 1 }},
+		"success: latency below 0":              {change: func(r *Report) { r.Usage.Latency = -1 }},
+		"success: latency of 2^22 seconds":      {change: func(r *Report) { r.Usage.Latency = maxLatency }},
+		"success: the largest Duration":         {change: func(r *Report) { r.Usage.Latency = math.MaxInt64 }},
+		"success: the smallest Duration":        {change: func(r *Report) { r.Usage.Latency = math.MinInt64 }},
 		"success: a negative zero probability":  {change: func(r *Report) { r.Debug.MaxError = math.Copysign(0, -1) }},
 		"success: a response encoding of text":  {change: func(r *Report) { r.Debug.Attempts[0].Info.ResponseEncoding = encodingText }},
 		"success: a nil schema is written null": {change: func(r *Report) { r.Debug.Attempts[0].Schema = nil }},
@@ -530,11 +566,23 @@ func TestReportUnmarshalJSONRefuses(t *testing.T) {
 		}
 		return strings.Replace(string(good), from, to, 1)
 	}
+	// The usage and debug members of the good body, each valid on its own,
+	// so that a body with only one of them is refused for the other's
+	// absence alone.
+	usage, debug, ok := strings.Cut(strings.TrimPrefix(string(good), `{"usage":`), `,"debug":`)
+	debug = strings.TrimSuffix(debug, "}")
+	if !ok || `{"usage":`+usage+`,"debug":`+debug+`}` != string(good) {
+		t.Fatalf("the good body does not split into usage and debug: %s", good)
+	}
+	var whole Report
+	if err := whole.UnmarshalJSON([]byte(`{"debug":` + debug + `,"usage":` + usage + `}`)); err != nil {
+		t.Fatalf("the two members in the other order: %v", err)
+	}
 	tests := map[string]string{
 		"not JSON":                         `{"usage":`,
 		"not an object":                    `[]`,
-		"no usage":                         `{"debug":{}}`,
-		"no debug":                         `{"usage":{}}`,
+		"no usage":                         `{"debug":` + debug + `}`,
+		"no debug":                         `{"usage":` + usage + `}`,
 		"usage not an object":              replace(`"usage":{`, `"usage":[{`),
 		"a count that is negative":         replace(`"input_tokens":12`, `"input_tokens":-12`),
 		"a count that is a float":          replace(`"input_tokens":12`, `"input_tokens":12.0`),
@@ -544,6 +592,8 @@ func TestReportUnmarshalJSONRefuses(t *testing.T) {
 		"latency a string":                 replace(`"latency":1.234567891`, `"latency":"1"`),
 		"latency beyond a Duration":        replace(`"latency":1.234567891`, `"latency":1e300`),
 		"latency an overflowing literal":   replace(`"latency":1.234567891`, `"latency":1e400`),
+		"latency of 2^63 ns":               replace(`"latency":1.234567891`, `"latency":9.223372036854776e9`),
+		"latency below -2^63 ns":           replace(`"latency":1.234567891`, `"latency":-9.223372036854778e9`),
 		"max_error absent":                 replace(`"max_error":0.25,`, ``),
 		"a probability error a string":     replace(`"probability_errors":{"genre":0.25}`, `"probability_errors":{"genre":"x"}`),
 		"a distribution not an object":     replace(`{"genre":{"fiction":1.0,"nonfiction":0.25}}`, `{"genre":[1.0]}`),
@@ -599,11 +649,13 @@ func TestReportUnmarshalJSONReadsABody(t *testing.T) {
 	}
 }
 
-// TestLatencyRoundTrip pins the exact range of Usage.Latency: the seconds
-// MarshalJSON writes read back to the same Duration below 2^22 seconds,
-// checked here at both ends of the range and around every power of two (a
-// sample of 10^7 values below 3*10^15 ns found no exception), and a value
-// above the range shows why it ends there.
+// TestLatencyRoundTrip pins what a reader gets for Usage.Latency: the
+// seconds MarshalJSON writes read back to the same Duration while its size
+// is below 2^22 seconds, checked here at both ends of that range, either
+// side of 0, and around every power of two (a sample of 10^7 values below
+// 3*10^15 ns, and one of 10^7 negative values, found no exception); beyond
+// it, to a Duration within |d|*2^-51 (a sample of 10^7 values found at
+// most |d|*2.39e-16); and from 2^63-512 ns on, to nothing.
 func TestLatencyRoundTrip(t *testing.T) {
 	back := func(d time.Duration) (time.Duration, error) {
 		out, err := Report{Usage: Usage{Latency: d}}.MarshalJSON()
@@ -618,10 +670,10 @@ func TestLatencyRoundTrip(t *testing.T) {
 	}
 	var ds []time.Duration
 	for d := range time.Duration(2000) {
-		ds = append(ds, d, maxLatency-1-d)
+		ds = append(ds, d, -d, maxLatency-1-d, -(maxLatency - 1 - d))
 	}
 	for p := time.Duration(1); p < maxLatency; p *= 2 {
-		ds = append(ds, p-1, p, p+1)
+		ds = append(ds, p-1, p, p+1, 1-p, -p, -p-1)
 	}
 	for _, d := range ds {
 		got, err := back(d)
@@ -633,8 +685,29 @@ func TestLatencyRoundTrip(t *testing.T) {
 	// a sample of 10^7 found not to read back: seconds of 22 integer bits
 	// leave too few fraction bits for every nanosecond.
 	const outside = 4194304811041337 * time.Nanosecond
-	if d := float64(outside) / 1e9; time.Duration(math.Round(d*1e9)) == outside {
-		t.Fatalf("%d ns reads back; the range could be wider than documented", int64(outside))
+	for _, d := range []time.Duration{outside, -outside} {
+		if got, err := back(d); err != nil || got == d {
+			t.Fatalf("%d ns reads back as %d ns (%v); the exact range could be wider than documented", int64(d), int64(got), err)
+		}
+	}
+	var far []time.Duration
+	for p := maxLatency; p > 0 && p < firstUnreadableLatency; p *= 2 {
+		far = append(far, p-1, p+1, p+p/3, -p+1, -p-1, -p-p/3)
+	}
+	far = append(far, firstUnreadableLatency-1, math.MinInt64, math.MinInt64+1)
+	for _, d := range far {
+		got, err := back(d)
+		if err != nil || math.Abs(float64(got-d)) > math.Abs(float64(d))*0x1p-51 {
+			t.Fatalf("Latency %d ns reads back as %d ns (%v), beyond |d|*2^-51", int64(d), int64(got), err)
+		}
+	}
+	if got, err := back(math.MinInt64); err != nil || got != math.MinInt64 {
+		t.Fatalf("the smallest Duration reads back as %d ns (%v)", int64(got), err)
+	}
+	for _, d := range []time.Duration{firstUnreadableLatency, firstUnreadableLatency + 1, math.MaxInt64} {
+		if got, err := back(d); !errors.Is(err, errReport) {
+			t.Fatalf("Latency %d ns reads back as %d ns (%v), want UnmarshalJSON to refuse 2^63 ns", int64(d), int64(got), err)
+		}
 	}
 }
 
@@ -879,14 +952,17 @@ func unique(seen map[string]bool, name string) string {
 	return name
 }
 
-// inLatencyRange returns d moved into Usage.Latency's range [0, 2^22 s).
-func inLatencyRange(d int64) time.Duration {
-	d %= int64(maxLatency)
-	if d < 0 {
-		d += int64(maxLatency)
-	}
-	return time.Duration(d)
-}
+// maxLatency bounds the Latencies that come back exact: 2^22 seconds.
+// Below it, the seconds float64(d)/1e9 written by ReprFloat and read back
+// as math.Round(s*1e9) give d: s is the double nearest d/1e9, whose
+// shortest digits read back to s, and the two roundings of s and of s*1e9
+// stay below half a nanosecond together while s*1e9 is below 2^52. The
+// operations are symmetric in the sign, so the same holds above -2^22 s.
+const maxLatency = (1 << 22) * time.Second
+
+// firstUnreadableLatency is the smallest Latency that UnmarshalJSON cannot
+// read back: from it on, float64(d) rounds to 2^63, beyond a Duration.
+const firstUnreadableLatency = time.Duration(1<<63 - 512)
 
 // fuzzReport builds a Report from the fuzz input. Every float is finite:
 // a non-finite one is noted in nonFinite and replaced by 0, so that the
@@ -910,7 +986,7 @@ func fuzzReport(data []byte, latency int64) (r Report, nonFinite bool) {
 	r.Usage = Usage{
 		InputTokens: count(), OutputTokens: count(), InputTokensTotal: count(), OutputTokensTotal: count(),
 		Retries: int(in.octet()) - 128, MalformedRetries: int(in.octet()),
-		Latency: inLatencyRange(latency),
+		Latency: time.Duration(latency),
 	}
 	r.Debug.MaxError = finite(in.number())
 	r.Debug.InvalidProbs = int(in.octet())
@@ -1029,9 +1105,12 @@ func seedChunks(pieces ...[]byte) []byte {
 
 // FuzzReportJSON checks the Report's JSON on Reports built from the fuzz
 // input (mode 1) and read from a body (mode 0): MarshalJSON succeeds and
-// writes one JSON text jsonx.Read reads; UnmarshalJSON reads it, and a
-// second MarshalJSON writes the same bytes; a canonical Report comes back
-// equal; a NaN or an infinity in a float member makes MarshalJSON fail.
+// writes one JSON text jsonx.Read reads; UnmarshalJSON reads it (and
+// refuses it for a Latency of 2^63-512 ns or more), with the Latency exact
+// below 2^22 s either side of 0 and within |d|*2^-51 beyond, and a second
+// MarshalJSON of what it read, with the Latency put back, writes the same
+// bytes; a canonical Report comes back equal; a NaN or an infinity in a
+// float member makes MarshalJSON fail.
 func FuzzReportJSON(f *testing.F) {
 	for _, file := range expectedResponses(f) {
 		// The usage and debug members of each expected response.
@@ -1061,6 +1140,14 @@ func FuzzReportJSON(f *testing.F) {
 			b(`{"type":"object"}`), []byte{1}, b("m"), b("p"))
 		f.Add(byte(1), seed, int64(i)*1_000_000_007)
 	}
+	// A body of 1500 levels, which rule 2 writes as text. It is longer than
+	// a chunk of the built Reports can be, so it enters as a read body.
+	deepBody := b(strings.Repeat("[", 1500) + strings.Repeat("]", 1500))
+	deep, err := Report{Debug: Debug{Attempts: []Attempt{{Response: deepBody, Request: deepBody, Info: AttemptInfo{ModelName: "m", Provider: "p"}}}}}.MarshalJSON()
+	if err != nil || !bytes.Contains(deep, b(`"llm_response_encoding":"text","request_encoding":"text"`)) {
+		f.Fatalf("the deep seed: %v\n%.300s", err, deep)
+	}
+	f.Add(byte(0), deep, int64(0))
 	f.Add(byte(1), []byte{}, int64(-1))
 	f.Add(byte(1), seedChunks(nil, nil, nil, nil, nil, nil, b("\x00\x00\x00\x00\x00\x00\xf8\x7f")), int64(0)) // a NaN max_error
 	// Two question names that differ only in invalid UTF-8 bytes, one
@@ -1072,9 +1159,8 @@ func FuzzReportJSON(f *testing.F) {
 			if r.UnmarshalJSON(data) != nil {
 				return
 			}
-			// A body may hold what MarshalJSON refuses: a latency outside
-			// its range, or a schema it does not embed.
-			r.Usage.Latency = inLatencyRange(int64(r.Usage.Latency))
+			// A body may hold what MarshalJSON refuses: a schema it does
+			// not embed.
 			for i := range r.Debug.Attempts {
 				if a := &r.Debug.Attempts[i]; a.Schema != nil && !embeddable(a.Schema) {
 					a.Schema = nil
@@ -1099,9 +1185,27 @@ func FuzzReportJSON(f *testing.F) {
 			t.Fatalf("jsonx.Read of the Report: %v\n%.500s", err, out)
 		}
 		var back Report
-		if err := back.UnmarshalJSON(out); err != nil {
+		err = back.UnmarshalJSON(out)
+		if d := r.Usage.Latency; d >= firstUnreadableLatency {
+			if err == nil {
+				t.Fatalf("UnmarshalJSON read a latency written for %d ns as %d ns, want a refusal", int64(d), int64(back.Usage.Latency))
+			}
+			return
+		}
+		if err != nil {
 			t.Fatalf("UnmarshalJSON: %v\n%.500s", err, out)
 		}
+		// The latency comes back exact within 2^22 s, and within |d|*2^-51
+		// beyond; the rest of the body is a fixed point.
+		switch d, got := r.Usage.Latency, back.Usage.Latency; {
+		case d > -maxLatency && d < maxLatency:
+			if got != d {
+				t.Fatalf("latency %d ns reads back as %d ns", int64(d), int64(got))
+			}
+		case math.Abs(float64(got-d)) > math.Abs(float64(d))*0x1p-51:
+			t.Fatalf("latency %d ns reads back as %d ns, beyond |d|*2^-51", int64(d), int64(got))
+		}
+		back.Usage.Latency = r.Usage.Latency
 		again, err := back.MarshalJSON()
 		if err != nil {
 			t.Fatalf("second MarshalJSON: %v", err)
