@@ -37,12 +37,13 @@ import (
 // logStep is what a logProvider's request returns: a result with text, or
 // err, or neither when both are empty. With cancel set the request first
 // cancels the call's context; with wait set it first waits for the
-// context to end and returns its error.
+// context to end and returns its error; with panic set it panics with it.
 type logStep struct {
 	text   string
 	err    error
 	cancel bool
 	wait   bool
+	panic  any
 }
 
 // logProvider is a provider of TestLogRecords. Each request records a
@@ -54,6 +55,8 @@ type logProvider struct {
 	n      int
 	// cancel cancels the call's context.
 	cancel context.CancelFunc
+	// onDo, when not nil, is called at the start of each request.
+	onDo func()
 }
 
 func (p *logProvider) Model() string { return "log-model" }
@@ -61,9 +64,14 @@ func (p *logProvider) Model() string { return "log-model" }
 func (p *logProvider) Do(ctx context.Context, req *llm.Request) (*llm.Result, error) {
 	req.Trace.RecordRequest("log-api", []byte(`{"request":"`+p.canary+`-request-body"}`))
 	req.Trace.RecordResponse([]byte(`{"response":"`+p.canary+`-response-body"}`), nil)
+	if p.onDo != nil {
+		p.onDo()
+	}
 	s := p.steps[p.n]
 	p.n++
 	switch {
+	case s.panic != nil:
+		panic(s.panic)
 	case s.cancel:
 		p.cancel()
 	case s.wait:
@@ -298,6 +306,69 @@ func TestLogRecords(t *testing.T) {
 		if n := strings.Count(fmt.Sprint(records), canary); n != 0 {
 			t.Errorf("the records hold the key's canary %d times: %v", n, records)
 		}
+	})
+	t.Run("provider panics in a retry", func(t *testing.T) {
+		const value = "the provider panicked in a retry"
+		h := &recordHandler{level: slog.LevelDebug}
+		p := &logProvider{canary: "c", steps: []logStep{{err: &llm.StatusError{StatusCode: 503}}, {panic: value}, {text: noulAnswer}}}
+		var beforeRetry []loggedRecord
+		p.onDo = func() {
+			if p.n == 1 {
+				beforeRetry = h.all()
+			}
+		}
+		ad := newAdapter(t, WithLogger(slog.New(h)), WithFactory("logfake", factoryOf(p)), fast)
+		c := sdkClient(t, ad, true, decision.WithModel("logfake:m1"))
+		var got any
+		func() {
+			defer func() { got = recover() }()
+			_, _ = c.SystemOne(t.Context(), "state", noulQuestions(t))
+		}()
+		if got != value {
+			t.Fatalf("the caller recovered %v, want the provider's panic %q", got, value)
+		}
+		if len(beforeRetry) != 1 {
+			t.Errorf("%d records when the retry started, want the first attempt's: %v", len(beforeRetry), beforeRetry)
+		}
+		records := h.all()
+		if len(records) != 1 {
+			t.Fatalf("%d records, want the first attempt's alone and no call record: %v", len(records), records)
+		}
+		checkRecord(t, records[0], slog.LevelDebug, "attempt", map[string]string{
+			"request_id": records[0].Attrs["request_id"], "provider": "logfake", "model": "m1", "api": "log-api",
+			"attempt": "1", "outcome": "status", "status": "503", "duration": "<duration>", "retry": "provider_error",
+		}, "duration")
+		assertUnlocked(t, ad)
+		if _, err := c.SystemOne(t.Context(), "state", noulQuestions(t)); err != nil {
+			t.Fatalf("a call after the panic: %v", err)
+		}
+		if n := len(h.all()); n != 3 {
+			t.Errorf("%d records after a call that answered, want 3", n)
+		}
+	})
+	t.Run("the retry predicate panics", func(t *testing.T) {
+		const value = "the predicate panicked"
+		h := &recordHandler{level: slog.LevelDebug}
+		p := &logProvider{canary: "c", steps: []logStep{{err: &llm.StatusError{StatusCode: http.StatusTeapot}}}}
+		policy := DefaultRetry().MaxRetries(1).Backoff(time.Millisecond, time.Millisecond, 0).Predicate(func(error) bool { panic(value) })
+		ad := newAdapter(t, WithLogger(slog.New(h)), WithFactory("logfake", factoryOf(p)), WithRetry(policy))
+		var got any
+		func() {
+			defer func() { got = recover() }()
+			_, _, _ = send(t, ad, rawRequest(t.Context(), http.MethodPost, systemOnePath, `{"state":"s","model":"logfake:m1","questions":{"answer":{"type":"noul"}}}`))
+		}()
+		if got != value {
+			t.Fatalf("the caller recovered %v, want the predicate's panic %q", got, value)
+		}
+		records := h.all()
+		if len(records) != 1 {
+			t.Fatalf("%d records, want the finished attempt's alone and no call record: %v", len(records), records)
+		}
+		checkRecord(t, records[0], slog.LevelDebug, "attempt", map[string]string{
+			"request_id": records[0].Attrs["request_id"], "provider": "logfake", "model": "m1", "api": "log-api",
+			"attempt": "1", "outcome": "status", "status": "418", "duration": "<duration>",
+		}, "duration")
+		assertUnlocked(t, ad)
 	})
 	t.Run("through NewClient, with the placeholder key", func(t *testing.T) {
 		h := &recordHandler{level: slog.LevelDebug}

@@ -136,6 +136,9 @@ func (ad *Adapter) serve(ctx context.Context, id, method, path, retryCount strin
 	}
 	if ad.logger != nil {
 		cfg.observe = &attemptLog{logger: ad.logger, ctx: ctx, requestID: id, provider: t.name, model: t.model}
+		// A provider's panic is not recovered; this writes the record of
+		// an attempt that finished before it while the panic unwinds.
+		defer cfg.observe.flush()
 	}
 	result, report, err := evaluate(ctx, cfg, p, req.state, questions)
 	if report == nil {
@@ -541,7 +544,9 @@ type attemptEvent struct {
 // attemptLog writes one call's records to the Adapter's logger: a record
 // per provider attempt at DEBUG, and the call's record at INFO. An
 // attempt's record is written when the next attempt starts or the call's
-// record is, as only then is it known whether a retry follows it. The
+// record is, as only then is it known whether a retry follows it, or, when
+// a panic ends the call, while the panic unwinds, and then no call record
+// is written. The
 // records hold integers, durations and fixed words, and the provider's
 // name, the model and the api; never a message, a body, a header or an
 // error's text. Its methods do nothing on a nil *attemptLog.
@@ -559,22 +564,23 @@ type attemptLog struct {
 	pending attemptEvent
 }
 
-// start notes that an attempt starts now.
+// start writes the record of the attempt before, whose retry has now
+// started, and notes that an attempt starts now.
 func (l *attemptLog) start() {
-	if l != nil {
-		l.started = time.Now()
+	if l == nil {
+		return
 	}
+	l.flush()
+	l.started = time.Now()
 }
 
 // finish notes the end of attempt number n, whose provider recorded api
-// and returned err, and no result when noResult is set; it writes the
-// record of the attempt before it.
+// and returned err, and no result when noResult is set.
 func (l *attemptLog) finish(ctx context.Context, n int, api string, err error, noResult bool) {
 	if l == nil {
 		return
 	}
 	d := time.Since(l.started)
-	l.flush()
 	o, status := attemptOutcome(ctx, err, noResult)
 	l.pending = attemptEvent{attempt: n, api: api, outcome: o, status: status, duration: d}
 }
@@ -594,16 +600,19 @@ func (l *attemptLog) retried() {
 	}
 }
 
-// flush writes the pending attempt's record: request_id, provider, model,
-// api, attempt, outcome, status for a status outcome, duration, and retry
-// when a retry follows, whose word is the RetryReason category of that
-// retry.
+// flush writes the pending attempt's record, if any: request_id,
+// provider, model, api, attempt, outcome, status for a status outcome,
+// duration, and retry when a retry follows, whose word is the RetryReason
+// category of that retry. It builds no record the logger does not take.
 func (l *attemptLog) flush() {
-	e := l.pending
-	if e.attempt == 0 {
+	if l == nil || l.pending.attempt == 0 {
 		return
 	}
+	e := l.pending
 	l.pending = attemptEvent{}
+	if !l.logger.Enabled(l.ctx, slog.LevelDebug) {
+		return
+	}
 	attrs := make([]slog.Attr, 0, 9)
 	attrs = append(attrs,
 		slog.String("request_id", l.requestID),
@@ -636,6 +645,9 @@ func (l *attemptLog) call(report *Report, answers int) {
 		return
 	}
 	l.flush()
+	if !l.logger.Enabled(l.ctx, slog.LevelInfo) {
+		return
+	}
 	attrs := make([]slog.Attr, 0, 7)
 	attrs = append(attrs,
 		slog.String("request_id", l.requestID),
