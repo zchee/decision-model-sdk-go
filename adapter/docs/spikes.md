@@ -330,11 +330,65 @@ map the adapter's coverage profile to paths under `adapter/`?
 **Pass.** Codecov's validator accepts `.codecov.yaml`, and the first upload
 of the adapter's profile shows paths under `adapter/`.
 
-**Verdict.** pending. The validator half is measured and passes (rows S8-1
-to S8-3); the upload half is not measured yet.
+**Verdict.** Half measured. Measured: the validator accepts `.codecov.yaml`
+and understands the three keys the configuration depends on (`project: off`,
+`name_prefix` in a component status, the negated path `"!adapter/**"`), and
+Codecov posts one status per component and kind under these six names:
+`codecov/project/default-sdk`, `codecov/project/goal-sdk`,
+`codecov/patch/sdk`, `codecov/project/default-adapter`,
+`codecov/project/goal-adapter`, `codecov/patch/adapter`. Not measured: the
+mapping of the module's files to paths under `adapter/`. At the commit this
+was run on, the module had no statement outside its test files, so its
+coverage profile was the single line `mode: atomic` and no file of it
+reached a report. The mapping is measured when the module has its first
+statements.
+
+**What was seen.** The upload step succeeded on all three runner images
+every time; it only hands the file over. Codecov refused five of the
+adapter's six uploads for the commit with the error code `REPORT_EMPTY`.
+The sixth has no error recorded and never left the state `started`; why is
+not known. The commit's report holds the SDK's 50 files and none under
+`adapter/`; the component `sdk` has a value and the component `adapter` has
+none.
+
+`.codecov.yaml` asks Codecov to wait for six uploads, and Codecov counts
+the sessions of the commit's merged report. The sessions of one commit add
+up across workflow runs. After the first CI run the report had three
+sessions, and for the 26 minutes that followed no status existed. A second
+CI run of the same commit, the one a push to `main` starts, added three
+more: its last upload was merged at 05:14:31Z, and the six statuses were
+posted from 05:14:34Z to 05:14:37Z, all `success`. So the six were reached
+by the SDK's uploads of two runs while every adapter upload was refused or
+stuck. This agrees with Codecov's documentation and with its published
+worker source, which compare the number with the report's sessions; that
+the hosted service runs that published commit cannot be read from outside.
+
+While the module has no statement, its two project statuses say `No
+coverage information found on head` and its patch status says `Coverage
+not affected when comparing` the two commits; all three are `success`,
+because the configuration sets `if_not_found: success`.
+
+**What the port does because of it.** `.codecov.yaml` stays as it is, and no
+`fixes:` entry is added on a guess. At the head of a branch that has not
+landed, one CI run gives three merged sessions and Codecov posts no status,
+so the SDK's coverage there is read from Codecov's API (the component
+`sdk`). The statuses appear with a second CI run of the same commit, the
+one a landing on `main` starts. Once the adapter's profile holds statements,
+one CI run and one adapter run of a commit are expected to give the six
+sessions between them. That is not measured yet, and one of the adapter's
+uploads here stalled in `started` without an error, so a run can also come
+out one session short.
 
 | Row | Date (UTC) | Host | Toolchain | Command | Result |
 | --- | --- | --- | --- | --- | --- |
 | S8-1 | 2026-10-02T04:35:53Z | (M) | curl | `curl -fsSL https://docs.codecov.com/docs/codecov-yaml` | the section "Validate your repository YAML" names the endpoint, `curl --data-binary @codecov.yml https://codecov.io/validate`, and says that an invalid file is answered with status 400 |
 | S8-2 | 2026-10-02T04:35:54Z | (M) | curl | `curl -sS -X POST --data-binary @.codecov.yaml https://codecov.io/validate` at the repository root | HTTP 200, `Valid!`, then the configuration as Codecov reads it: `project: off` and `patch: off` as `false`; `name_prefix` as written, `default-` and `goal-`; the component paths `"!adapter/**"` and `adapter/**` as `!(?s:adapter/.*)\Z` and `(?s:adapter/.*)\Z` |
 | S8-3 | 2026-10-02T04:36:05Z | (M) | curl | the same on three changed copies, one change each: `name_prefix` misspelt, `project: maybe`, a number in place of a path | HTTP 400 each, with the place of the error: the validator refuses an unknown key, a wrong value and a wrong type, so its `Valid!` is a result |
+| S8-4 | 2026-10-02T05:06:34Z | (M) | curl | `curl -sS -X POST --data-binary @.codecov.yaml https://api.codecov.io/validate`, the address the same documentation page links | HTTP 200, `Valid!`, the same answer as S8-2 byte for byte |
+| S8-5 | 2026-10-02T04:42:48Z | CI | codecov-action v7 | `gh run view <run> --log`, the upload step in the three test jobs of the adapter workflow's first run | each job: `Found 1 coverage files to report`, `Upload queued for processing complete`; the step succeeds |
+| S8-6 | 2026-10-02T04:43:49Z | (M) | curl | `curl -sS https://api.codecov.io/api/v2/github/zchee/repos/typesafe-sdk-go/commits/<commit>/uploads/`, and the uploads' error codes from `https://api.codecov.io/graphql/gh`, both without a token | 6 uploads for the commit so far. Of the three with the flag `adapter`, two are in state `error` with the code `REPORT_EMPTY`; the third has no error recorded and stays in `started` |
+| S8-7 | 2026-10-02T04:54:35Z | (M) | curl | `curl -sS 'https://api.codecov.io/api/v2/github/zchee/repos/typesafe-sdk-go/report/?sha=<commit>'` and the same address with `components/` | after the SDK's three uploads are merged: 50 files, none under `adapter/`, 3 sessions; component `sdk` 98.17 %, component `adapter` without a value |
+| S8-8 | 2026-10-02T04:55:44Z | (M) | gh | `gh api repos/zchee/typesafe-sdk-go/commits/<commit>/status`, 7 minutes after the three uploads of the first CI run were merged | state `pending`, 0 statuses |
+| S8-9 | 2026-10-02T05:06:33Z | (M) | curl | `curl -fsSL https://docs.codecov.com/docs/notifications.md`, and `apps/worker/tasks/notify.py` and `upload_finisher.py` of `codecov/umbrella` at commit `90fc7dc04cd3` | the page: `after_n_builds` delays notifications "until a certain number of uploads have been received and processed". The source compares `after_n_builds` with the number of sessions in the commit's report (`notify.py` lines 805 to 820, `upload_finisher.py` lines 827 to 840) and sends nothing while it is larger: here 6 against 3 |
+| S8-10 | 2026-10-02T05:22:49Z | (M) | curl | the two reads of S8-6 and the commit's totals, after a second CI run and a second adapter run of the same commit | 12 uploads. The six from the two CI runs are merged, the last at 05:14:31Z; the report has 6 sessions, 50 files, none under `adapter/`. Of the six with the flag `adapter`, five are `error` with `REPORT_EMPTY` and one is still `started` |
+| S8-11 | 2026-10-02T05:22:49Z | (M) | gh | `gh api repos/zchee/typesafe-sdk-go/commits/<commit>/status` | state `success`, 6 statuses, posted from 05:14:34Z to 05:14:37Z. `codecov/project/default-sdk`: `98.1% (target 85.0%)`. `codecov/project/goal-sdk`: `98.1% (target 90.0%)`. `codecov/patch/sdk` and `codecov/patch/adapter`: `Coverage not affected when comparing` the parent and the commit. `codecov/project/default-adapter` and `codecov/project/goal-adapter`: `No coverage information found on head` |
