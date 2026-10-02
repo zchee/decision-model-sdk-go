@@ -17,29 +17,45 @@ package adapter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"runtime"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	gocmp "github.com/google/go-cmp/cmp"
+
+	decision "github.com/zchee/decision-model-sdk-go"
+
 	"github.com/zchee/decision-model-sdk-go/adapter/llm"
 )
 
 // closingProvider is a provider of a test whose Close calls closeFn and
-// counts its calls; it answers every request with noulAnswer.
+// counts its calls; it answers every request with do, or with noulAnswer
+// when do is nil.
 type closingProvider struct {
 	model   string
 	mu      sync.Mutex
 	closes  int
 	closeFn func(n int) error
+	do      func(ctx context.Context, req *llm.Request) (*llm.Result, error)
+	// setting is what the provider read from the environment when it was
+	// built.
+	setting string
 }
 
 func (p *closingProvider) Model() string { return p.model }
 
-func (p *closingProvider) Do(context.Context, *llm.Request) (*llm.Result, error) {
+func (p *closingProvider) Do(ctx context.Context, req *llm.Request) (*llm.Result, error) {
+	if p.do != nil {
+		return p.do(ctx, req)
+	}
 	return textResult(noulAnswer), nil
 }
 
@@ -254,5 +270,822 @@ func TestClosePanicLeavesTheCleanupConsistent(t *testing.T) {
 				t.Errorf("after %s, provider %s closed %d times, want %d", step, model, got, want)
 			}
 		}
+	}
+}
+
+// row PL1 of docs/port-test-matrix.md and the rows after it port the tests
+// of tests/test_provider_lifecycle.py, whose two vendors, openai and
+// anthropic, are here two test factories registered under those names.
+
+// vendors are the provider names the lifecycle tests run with.
+var vendors = []string{"openai", "anthropic"}
+
+// lifecycle is the Adapter of one lifecycle test and the providers its two
+// factories built, in build order.
+type lifecycle struct {
+	mu    sync.Mutex
+	built []*closingProvider
+	// closed lists the models of the providers closed, in close order.
+	closed []string
+	// fail, when not nil, is the next build's error, once.
+	fail error
+	// configure, when not nil, sets up each provider built.
+	configure func(p *closingProvider)
+}
+
+// factory returns the factory of vendor: a closingProvider per model,
+// named "<vendor>/<model>", whose Close is logged.
+func (l *lifecycle) factory(vendor string) llm.Factory {
+	return func(model string) (llm.Provider, error) {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		if err := l.fail; err != nil {
+			l.fail = nil
+			return nil, err
+		}
+		p := &closingProvider{model: model}
+		name := vendor + "/" + model
+		p.closeFn = func(int) error {
+			l.mu.Lock()
+			defer l.mu.Unlock()
+			l.closed = append(l.closed, name)
+			return nil
+		}
+		if l.configure != nil {
+			l.configure(p)
+		}
+		l.built = append(l.built, p)
+		return p, nil
+	}
+}
+
+// adapter returns an Adapter with the two factories, whose default model is
+// vendor's test-model, and opts after those, and watches t's locks.
+func (l *lifecycle) adapter(t testing.TB, vendor string, opts ...Option) *Adapter {
+	t.Helper()
+	watchLocks(t)
+	return newAdapter(t, append([]Option{WithFactory("openai", l.factory("openai")), WithFactory("anthropic", l.factory("anthropic")), WithDefaultModel(vendor + ":test-model")}, opts...)...)
+}
+
+// providers returns the providers built, in build order.
+func (l *lifecycle) providers() []*closingProvider {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Clone(l.built)
+}
+
+// closeLog returns the providers closed, in close order.
+func (l *lifecycle) closeLog() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Clone(l.closed)
+}
+
+// other returns the vendor that is not vendor.
+func other(vendor string) string {
+	if vendor == "openai" {
+		return "anthropic"
+	}
+	return "openai"
+}
+
+// evaluateOn makes one call on c with opts and returns its error.
+func evaluateOn(t testing.TB, c *decision.Client, opts ...decision.CallOption) error {
+	t.Helper()
+	_, err := c.SystemOne(t.Context(), "Great book", noulQuestions(t), opts...)
+	return err
+}
+
+// TestReusesOwnedProviderAndClosesIt ports
+// test_reuses_owned_provider_and_closes_sdk_on_context_exit: three calls
+// build one provider, which stays open until the client from NewClient is
+// closed and is then closed once; calls on the closed client and on the
+// closed Adapter are refused.
+func TestReusesOwnedProviderAndClosesIt(t *testing.T) {
+	for _, vendor := range vendors {
+		t.Run(vendor, func(t *testing.T) {
+			var l lifecycle
+			ad := l.adapter(t, vendor)
+			c, err := NewClient(ad)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(l.providers()) != 0 {
+				t.Fatal("a provider was built before the first call")
+			}
+			for range 3 {
+				if err := evaluateOn(t, c); err != nil {
+					t.Fatalf("SystemOne: %v", err)
+				}
+			}
+			built := l.providers()
+			if len(built) != 1 || built[0].closeCount() != 0 {
+				t.Fatalf("providers built %d, closes %d; want 1 open", len(built), built[0].closeCount())
+			}
+			if err := c.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if err := ad.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if built[0].closeCount() != 1 {
+				t.Errorf("provider closes %d, want 1", built[0].closeCount())
+			}
+			if err := evaluateOn(t, c); !errors.Is(err, decision.ErrClientClosed) {
+				t.Errorf("a call on the closed client: %v", err)
+			}
+			if _, _, err := send(t, ad, rawRequest(t.Context(), "POST", systemOnePath, noulBody)); !isClosedError(err) {
+				t.Errorf("a call on the closed Adapter: %v", err)
+			}
+		})
+	}
+}
+
+// TestProviderCacheKey ports
+// test_cache_uses_resolved_provider_and_model_and_is_per_client: the cache
+// is keyed by the resolved provider and model and belongs to one Adapter;
+// providers stay open until their Adapter is closed.
+func TestProviderCacheKey(t *testing.T) {
+	for _, vendor := range vendors {
+		t.Run(vendor, func(t *testing.T) {
+			var l lifecycle
+			c := sdkClient(t, l.adapter(t, vendor), false)
+			for _, opts := range [][]decision.CallOption{
+				nil,
+				{decision.Model(vendor + ":test-model")},
+				{decision.Model("another-model")},
+				{decision.Model(other(vendor) + ":test-model")},
+			} {
+				if err := evaluateOn(t, c, opts...); err != nil {
+					t.Fatalf("SystemOne: %v", err)
+				}
+			}
+			if got := len(l.providers()); got != 3 {
+				t.Fatalf("providers built %d, want 3", got)
+			}
+			second, err := NewClient(l.adapter(t, vendor))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := evaluateOn(t, second); err != nil {
+				t.Fatal(err)
+			}
+			if err := second.Close(); err != nil {
+				t.Fatal(err)
+			}
+			built := l.providers()
+			if len(built) != 4 {
+				t.Fatalf("providers built %d, want 4", len(built))
+			}
+			for i, p := range built[:3] {
+				if p.closeCount() != 0 {
+					t.Errorf("provider %d of the first Adapter closed with the second", i)
+				}
+			}
+			if err := c.Close(); err != nil {
+				t.Fatal(err)
+			}
+			want := []string{vendor + "/test-model", vendor + "/test-model", vendor + "/another-model", other(vendor) + "/test-model"}
+			if diff := gocmp.Diff(want, l.closeLog()); diff != "" {
+				t.Errorf("close order (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestInjectedProviderIsBorrowed ports test_injected_provider_is_borrowed:
+// a WithProvider provider, as the default model or named by a call, is used
+// and never closed, while an owned provider of the same Adapter is closed;
+// after Close a call naming the borrowed provider is refused, and its
+// owner can still close it.
+func TestInjectedProviderIsBorrowed(t *testing.T) {
+	for _, vendor := range vendors {
+		for _, constructorDefault := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s, constructor default %v", vendor, constructorDefault), func(t *testing.T) {
+				var l lifecycle
+				injected := &closingProvider{model: "test-model"}
+				opts := []Option{WithProvider("injected", injected)}
+				var call []decision.CallOption
+				if constructorDefault {
+					opts = append(opts, WithDefaultModel("injected"))
+				} else {
+					call = []decision.CallOption{decision.Model("injected")}
+				}
+				ad := newAdapter(t, append([]Option{WithFactory("openai", l.factory("openai")), WithFactory("anthropic", l.factory("anthropic"))}, opts...)...)
+				c := sdkClient(t, ad, false)
+				for _, opts := range [][]decision.CallOption{call, {decision.Model(vendor + ":owned-model")}, call} {
+					if err := evaluateOn(t, c, opts...); err != nil {
+						t.Fatalf("SystemOne: %v", err)
+					}
+				}
+				if err := c.Close(); err != nil {
+					t.Fatal(err)
+				}
+				if injected.closeCount() != 0 {
+					t.Errorf("the borrowed provider was closed %d times", injected.closeCount())
+				}
+				if built := l.providers(); len(built) != 1 || built[0].closeCount() != 1 {
+					t.Errorf("owned providers %d; want one, closed once", len(built))
+				}
+				if _, _, err := send(t, ad, rawRequest(t.Context(), "POST", systemOnePath, `{"state":"s","model":"injected","questions":{"answer":{"type":"noul"}}}`)); !isClosedError(err) {
+					t.Errorf("a call naming the borrowed provider after Close: %v", err)
+				}
+				if err := injected.Close(); err != nil || injected.closeCount() != 1 {
+					t.Errorf("the owner's Close: %v, closes %d", err, injected.closeCount())
+				}
+			})
+		}
+	}
+}
+
+// noCloseProvider is a provider without a Close method.
+type noCloseProvider struct{ calls int }
+
+func (p *noCloseProvider) Model() string { return "no-close" }
+
+func (p *noCloseProvider) Do(context.Context, *llm.Request) (*llm.Result, error) {
+	p.calls++
+	return textResult(noulAnswer), nil
+}
+
+// TestProviderWithoutCloseIsSupported ports
+// test_custom_provider_without_close_remains_supported: a provider without
+// Close works, borrowed or owned, and Close neither fails nor builds one.
+func TestProviderWithoutCloseIsSupported(t *testing.T) {
+	tests := map[string]struct {
+		opts func(p llm.Provider) []Option
+	}{
+		"borrowed": {opts: func(p llm.Provider) []Option {
+			return []Option{WithProvider("custom", p), WithDefaultModel("custom")}
+		}},
+		"owned": {opts: func(p llm.Provider) []Option {
+			return []Option{WithFactory("custom", factoryOf(p)), WithDefaultModel("custom:m")}
+		}},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			p := &noCloseProvider{}
+			c := sdkClient(t, newAdapter(t, tt.opts(p)...), false)
+			if err := evaluateOn(t, c); err != nil {
+				t.Fatal(err)
+			}
+			if err := c.Close(); err != nil {
+				t.Errorf("Close: %v", err)
+			}
+			if p.calls != 1 {
+				t.Errorf("provider calls %d, want 1", p.calls)
+			}
+		})
+	}
+}
+
+// TestCloseAfterFailureClosesOwnedProviders ports
+// test_exceptional_exit_closes_owned_sdks: whatever ends the caller's work
+// (its own failure after a call, a provider error, refused questions after
+// the provider was built), Close closes the one owned provider. The
+// cancelled case is DV2's.
+func TestCloseAfterFailureClosesOwnedProviders(t *testing.T) {
+	for _, vendor := range vendors {
+		for _, failure := range []string{"body", "request", "validation"} {
+			t.Run(vendor+", "+failure, func(t *testing.T) {
+				var l lifecycle
+				ad := l.adapter(t, vendor)
+				c := sdkClient(t, ad, false)
+				switch failure {
+				case "validation":
+					status, _, err := send(t, ad, rawRequest(t.Context(), "POST", systemOnePath, `{"state":"document","model":"`+vendor+`:test-model","questions":{}}`))
+					if err != nil || status != 422 {
+						t.Fatalf("empty questions: %d, %v", status, err)
+					}
+				case "body", "request":
+					if err := evaluateOn(t, c); err != nil {
+						t.Fatal(err)
+					}
+					if failure == "request" {
+						l.providers()[0].do = func(context.Context, *llm.Request) (*llm.Result, error) { return nil, &customError{text: "failed"} }
+						if status, _, _, _ := apiErrorParts(evaluateOn(t, c)); status != 424 {
+							t.Fatalf("a failing request answered %d", status)
+						}
+					}
+				}
+				if err := c.Close(); err != nil {
+					t.Fatal(err)
+				}
+				built := l.providers()
+				if len(built) != 1 || built[0].closeCount() != 1 {
+					t.Errorf("providers %d, closes %v; want one closed once", len(built), l.closeLog())
+				}
+			})
+		}
+	}
+}
+
+// TestCloseContinuesAfterFailure ports test_cleanup_continues_after_failure:
+// Close tries every owned provider in build order, returns the first
+// error, keeps the providers whose Close failed and refuses calls; a later
+// Close closes those again, and a Close after that closes nothing.
+func TestCloseContinuesAfterFailure(t *testing.T) {
+	for _, vendor := range vendors {
+		t.Run(vendor, func(t *testing.T) {
+			var l lifecycle
+			ad := l.adapter(t, vendor)
+			c := sdkClient(t, ad, false)
+			for _, m := range []string{"", "another-model", "third-model"} {
+				var opts []decision.CallOption
+				if m != "" {
+					opts = append(opts, decision.Model(m))
+				}
+				if err := evaluateOn(t, c, opts...); err != nil {
+					t.Fatal(err)
+				}
+			}
+			built := l.providers()
+			firstErr, secondErr := errors.New("close failed"), errors.New("another close failed")
+			for i, err := range []error{firstErr, secondErr} {
+				failing := err
+				built[i].closeFn = func(n int) error {
+					if n == 1 {
+						return failing
+					}
+					return nil
+				}
+			}
+			if err := ad.Close(); err != firstErr { //nolint:errorlint // Close returns the first cleanup error itself.
+				t.Fatalf("Close = %v, want the first provider's error itself", err)
+			}
+			if got := []int{built[0].closeCount(), built[1].closeCount(), built[2].closeCount()}; !slices.Equal(got, []int{1, 1, 1}) {
+				t.Errorf("close counts %v, want [1 1 1]", got)
+			}
+			if diff := gocmp.Diff([]string{vendor + "/third-model"}, l.closeLog()); diff != "" {
+				t.Errorf("providers closed (-want +got):\n%s", diff)
+			}
+			if err := evaluateOn(t, c); !errors.Is(err, ErrClosed) {
+				t.Errorf("a call after Close: %v", err)
+			}
+			if err := ad.Close(); err != nil {
+				t.Fatalf("the second Close = %v", err)
+			}
+			if err := ad.Close(); err != nil {
+				t.Fatalf("the third Close = %v", err)
+			}
+			if got := []int{built[0].closeCount(), built[1].closeCount(), built[2].closeCount()}; !slices.Equal(got, []int{2, 2, 1}) {
+				t.Errorf("close counts %v, want [2 2 1]", got)
+			}
+		})
+	}
+}
+
+// TestCloseBeforeFirstUse ports
+// test_close_before_first_use_does_not_construct_providers: Close twice on
+// an Adapter that built nothing, then a call is refused and nothing is
+// built.
+func TestCloseBeforeFirstUse(t *testing.T) {
+	for _, vendor := range vendors {
+		t.Run(vendor, func(t *testing.T) {
+			var l lifecycle
+			ad := l.adapter(t, vendor)
+			for range 2 {
+				if err := ad.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, _, err := send(t, ad, rawRequest(t.Context(), "POST", systemOnePath, `{"state":"s","model":"`+vendor+`:test-model","questions":{"answer":{"type":"noul"}}}`)); !isClosedError(err) {
+				t.Errorf("a call after Close: %v", err)
+			}
+			if len(l.providers()) != 0 {
+				t.Errorf("providers built %d, want 0", len(l.providers()))
+			}
+		})
+	}
+}
+
+// TestFailedConstructionIsNotCached ports
+// test_failed_construction_is_not_cached: a factory that fails builds
+// nothing that is kept, and the next calls build one provider and reuse it.
+func TestFailedConstructionIsNotCached(t *testing.T) {
+	for _, vendor := range vendors {
+		t.Run(vendor, func(t *testing.T) {
+			var l lifecycle
+			l.fail = errors.New("constructor failed")
+			c := sdkClient(t, l.adapter(t, vendor), false)
+			if status, errorType, message, _ := apiErrorParts(evaluateOn(t, c)); status != 400 || errorType != "provider_config" || message != "constructor failed" {
+				t.Fatalf("first call: %d %q %q", status, errorType, message)
+			}
+			if len(l.providers()) != 0 {
+				t.Fatal("a provider is kept after a failed construction")
+			}
+			for range 2 {
+				if err := evaluateOn(t, c); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if len(l.providers()) != 1 {
+				t.Errorf("providers built %d, want 1", len(l.providers()))
+			}
+		})
+	}
+}
+
+// TestFactoryWithoutProviderIsNotCached checks that a factory that returns
+// neither a provider nor an error fails each call with 400 provider_config
+// and caches nothing, so a later call that gets a provider uses it.
+func TestFactoryWithoutProviderIsNotCached(t *testing.T) {
+	builds := 0
+	p := &closingProvider{model: "m"}
+	ad := newAdapter(t, WithFactory("openai", func(string) (llm.Provider, error) {
+		builds++
+		if builds <= 2 {
+			return nil, nil
+		}
+		return p, nil
+	}), WithDefaultModel("openai:m"))
+	c := sdkClient(t, ad, false)
+	for range 2 {
+		if status, errorType, _, _ := apiErrorParts(evaluateOn(t, c)); status != 400 || errorType != "provider_config" {
+			t.Fatalf("a factory without a provider: %d %q", status, errorType)
+		}
+	}
+	if err := evaluateOn(t, c); err != nil {
+		t.Fatal(err)
+	}
+	if builds != 3 {
+		t.Errorf("builds %d, want 3", builds)
+	}
+}
+
+// TestEnvironmentIsReadAtConstruction ports
+// test_environment_is_captured_on_first_use: a provider reads its settings
+// from the environment when it is built, so a change after the first use
+// reaches only a provider of a new Adapter.
+func TestEnvironmentIsReadAtConstruction(t *testing.T) {
+	for _, vendor := range vendors {
+		t.Run(vendor, func(t *testing.T) {
+			name := "ADAPTER_TEST_" + strings.ToUpper(vendor) + "_SETTING"
+			var l lifecycle
+			l.configure = func(p *closingProvider) { p.setting = os.Getenv(name) }
+			t.Setenv(name, "first")
+			c := sdkClient(t, l.adapter(t, vendor), false)
+			if err := evaluateOn(t, c); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv(name, "second")
+			if err := evaluateOn(t, c); err != nil {
+				t.Fatal(err)
+			}
+			fresh := sdkClient(t, l.adapter(t, vendor), false)
+			if err := evaluateOn(t, fresh); err != nil {
+				t.Fatal(err)
+			}
+			var settings []string
+			for _, p := range l.providers() {
+				settings = append(settings, p.setting)
+			}
+			if diff := gocmp.Diff([]string{"first", "second"}, settings); diff != "" {
+				t.Errorf("settings read per provider (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestConcurrentCloseWaitsForSameCleanup ports
+// test_concurrent_close_waits_for_same_cleanup: a Close called while
+// another Close's cleanup runs waits for it and returns its result, nil or
+// the cleanup's error; the provider is closed once. It runs outside a
+// synctest bubble, where a second Close stuck on a lock would never be
+// reported: the second Close is known to wait once its stack shows it
+// blocked on the cleanup's channel, and every wait is bounded by lockBound.
+// The cases after the first failing one are not run, as they would wait as
+// long.
+func TestConcurrentCloseWaitsForSameCleanup(t *testing.T) {
+cases:
+	for _, vendor := range vendors {
+		for _, fails := range []bool{false, true} {
+			ok := t.Run(fmt.Sprintf("%s, failure %v", vendor, fails), func(t *testing.T) {
+				var l lifecycle
+				ad := l.adapter(t, vendor)
+				if _, _, err := send(t, ad, rawRequest(t.Context(), "POST", systemOnePath, `{"state":"s","model":"`+vendor+`:test-model","questions":{"answer":{"type":"noul"}}}`)); err != nil {
+					t.Fatal(err)
+				}
+				started, release := make(chan struct{}), make(chan struct{})
+				closeErr := errors.New("close failed")
+				l.providers()[0].closeFn = func(int) error {
+					close(started)
+					<-release
+					if fails {
+						return closeErr
+					}
+					return nil
+				}
+				first, second := make(chan error, 1), make(chan error, 1)
+				go func() { first <- ad.Close() }()
+				await(t, "the first Close's cleanup", (<-chan struct{})(started))
+				go func() { second <- ad.Close() }()
+				awaitBlocked(t, "chan receive", "(*Adapter).Close", second)
+				close(release)
+				want := error(nil)
+				if fails {
+					want = closeErr
+				}
+				for i, ch := range []chan error{first, second} {
+					if err := await(t, fmt.Sprintf("Close %d", i+1), (<-chan error)(ch)); err != want { //nolint:errorlint // both callers get the cleanup's error itself.
+						t.Errorf("Close %d = %v, want %v", i+1, err, want)
+					}
+				}
+				if got := l.providers()[0].closeCount(); got != 1 {
+					t.Errorf("provider closes %d, want 1", got)
+				}
+			})
+			if !ok {
+				break cases
+			}
+		}
+	}
+}
+
+// TestConcurrentFirstUseReusesProvider ports
+// test_concurrent_first_use_reuses_pool_and_isolates_traces: eight calls
+// that start together build one provider, and each call's Report holds its
+// own attempt, its own state and the request its provider recorded.
+func TestConcurrentFirstUseReusesProvider(t *testing.T) {
+	for _, vendor := range vendors {
+		t.Run(vendor, func(t *testing.T) {
+			const n = 8
+			arrived := make(chan struct{}, n)
+			all := make(chan struct{})
+			var l lifecycle
+			l.configure = func(p *closingProvider) {
+				p.do = func(_ context.Context, req *llm.Request) (*llm.Result, error) {
+					arrived <- struct{}{}
+					<-all
+					var b strings.Builder
+					for _, m := range req.Messages {
+						b.WriteString(string(m.Role) + ":" + m.Content + "\n")
+					}
+					req.Trace.RecordRequest("offline-test", []byte(strconv.Quote(b.String())))
+					return textResult(noulAnswer), nil
+				}
+			}
+			c := sdkClient(t, l.adapter(t, vendor), false)
+			go func() {
+				for range n {
+					<-arrived
+				}
+				close(all)
+			}()
+			reports := make(chan *Report, n)
+			errs := make(chan error, n)
+			for i := range n {
+				go func() {
+					resp, err := c.SystemOne(t.Context(), fmt.Sprintf("document-%d", i), noulQuestions(t))
+					if err != nil {
+						errs <- err
+						return
+					}
+					r, err := ReportOf(resp)
+					if err != nil {
+						errs <- err
+						return
+					}
+					reports <- r
+				}()
+			}
+			seen := map[string]bool{}
+			for range n {
+				select {
+				case err := <-errs:
+					t.Fatal(err)
+				case r := <-reports:
+					if len(r.Debug.Attempts) != 1 || r.Usage.InputTokensTotal.N != 11 || r.Usage.Retries != 0 {
+						t.Fatalf("attempts %d, input_tokens_total %v, n_retries %d", len(r.Debug.Attempts), r.Usage.InputTokensTotal, r.Usage.Retries)
+					}
+					a := r.Debug.Attempts[0]
+					user := a.Messages[1].Content
+					seen[user] = true
+					var b strings.Builder
+					for _, m := range a.Messages {
+						b.WriteString(string(m.Role) + ":" + m.Content + "\n")
+					}
+					if string(a.Request) != mustQuote(b.String()) {
+						t.Errorf("the attempt's request is another call's: %.80s", a.Request)
+					}
+				}
+			}
+			if len(seen) != n {
+				t.Errorf("%d distinct states among the attempts, want %d", len(seen), n)
+			}
+			if got := len(l.providers()); got != 1 {
+				t.Errorf("providers built %d, want 1", got)
+			}
+		})
+	}
+}
+
+// mustQuote returns s as a JSON string, as strconv.Quote writes it for the
+// ASCII texts of these tests.
+func mustQuote(s string) string { return strconv.Quote(s) }
+
+// TestCloseWaitsForRunningCalls checks that Close refuses new calls at once
+// and waits for the calls already running before it closes the providers
+// (DV10). A call blocked in its provider keeps Close waiting, which its
+// stack shows blocked in the WaitGroup's Wait; a call made meanwhile is
+// refused; and the provider is closed only after the running call
+// returned. With 64 goroutines that call while Close runs, each call is
+// refused or completes, and no provider request runs after its provider
+// was closed. Both run outside a synctest bubble with every wait bounded by
+// lockBound, as a call or Close stuck on a lock is never reported inside
+// one.
+func TestCloseWaitsForRunningCalls(t *testing.T) {
+	t.Run("ordering", func(t *testing.T) {
+		var (
+			mu     sync.Mutex
+			events []string
+		)
+		event := func(e string) {
+			mu.Lock()
+			defer mu.Unlock()
+			events = append(events, e)
+		}
+		entered, release := make(chan struct{}), make(chan struct{})
+		var l lifecycle
+		l.configure = func(p *closingProvider) {
+			p.do = func(context.Context, *llm.Request) (*llm.Result, error) {
+				close(entered)
+				<-release
+				event("call returned")
+				return textResult(noulAnswer), nil
+			}
+			p.closeFn = func(int) error {
+				event("provider closed")
+				return nil
+			}
+		}
+		ad := l.adapter(t, "openai")
+		c := sdkClient(t, ad, false)
+		called := make(chan error, 1)
+		go func() { called <- evaluateOn(t, c) }()
+		await(t, "the call's provider request", (<-chan struct{})(entered))
+		closed := make(chan error, 1)
+		go func() { closed <- ad.Close() }()
+		awaitBlocked(t, "sync.WaitGroup.Wait", "(*Adapter).Close", closed)
+		refused := make(chan error, 1)
+		go func() { refused <- roundTripError(ad, rawRequest(t.Context(), "POST", systemOnePath, noulBody)) }()
+		if err := await(t, "a call while Close waits", (<-chan error)(refused)); !isClosedError(err) {
+			t.Errorf("a call while Close waits: %v, want the closed Error", err)
+		}
+		close(release)
+		if err := await(t, "the running call", (<-chan error)(called)); err != nil {
+			t.Errorf("the running call: %v", err)
+		}
+		if err := await(t, "Close", (<-chan error)(closed)); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if diff := gocmp.Diff([]string{"call returned", "provider closed"}, events); diff != "" {
+			t.Errorf("events (-want +got):\n%s", diff)
+		}
+	})
+	t.Run("stress", func(t *testing.T) {
+		const n = 64
+		var (
+			l         lifecycle
+			closedNow sync.Mutex
+			isClosed  bool
+			late      int
+		)
+		l.configure = func(p *closingProvider) {
+			p.do = func(context.Context, *llm.Request) (*llm.Result, error) {
+				closedNow.Lock()
+				if isClosed {
+					late++
+				}
+				closedNow.Unlock()
+				return textResult(noulAnswer), nil
+			}
+			p.closeFn = func(int) error {
+				closedNow.Lock()
+				defer closedNow.Unlock()
+				isClosed = true
+				return nil
+			}
+		}
+		ad := l.adapter(t, "openai")
+		start := make(chan struct{})
+		outcomes := make(chan string, n)
+		for range n {
+			go func() {
+				<-start
+				status, _, err := send(t, ad, rawRequest(t.Context(), "POST", systemOnePath, `{"state":"s","model":"openai:test-model","questions":{"answer":{"type":"noul"}}}`))
+				switch {
+				case err == nil && status == 200:
+					outcomes <- "completed"
+				case isClosedError(err):
+					outcomes <- "refused"
+				default:
+					outcomes <- fmt.Sprintf("%d %v", status, err)
+				}
+			}()
+		}
+		closeErr := make(chan error, 1)
+		go func() {
+			<-start
+			closeErr <- ad.Close()
+		}()
+		close(start)
+		if err := await(t, "Close", (<-chan error)(closeErr)); err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+		counts := map[string]int{}
+		for i := range n {
+			counts[await(t, fmt.Sprintf("call %d", i), (<-chan string)(outcomes))]++
+		}
+		if counts["completed"]+counts["refused"] != n {
+			t.Errorf("outcomes %v: every call must complete or be refused", counts)
+		}
+		closedNow.Lock()
+		defer closedNow.Unlock()
+		if late != 0 {
+			t.Errorf("%d provider requests ran after the provider was closed", late)
+		}
+		for i, p := range l.providers() {
+			if p.closeCount() != 1 {
+				t.Errorf("provider %d closed %d times, want 1", i, p.closeCount())
+			}
+		}
+	})
+}
+
+// TestCloseAfterProviderPanic checks that a panic in a provider's request
+// or in a factory propagates to the caller, as any Go panic does, and
+// leaves the Adapter usable: no lock of the Adapter is held after it, a
+// later call works, a factory that panicked cached nothing and builds
+// again, and Close returns. Each call runs in a goroutine of its own whose
+// panic is handed back, outside a synctest bubble, with every wait bounded
+// by lockBound.
+func TestCloseAfterProviderPanic(t *testing.T) {
+	tests := map[string]struct {
+		factoryPanics bool
+		wantBuilds    int
+	}{
+		"the provider's request panics": {wantBuilds: 1},
+		"the factory panics":            {factoryPanics: true, wantBuilds: 1},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			var l lifecycle
+			watchLocks(t)
+			factoryCalls, requests := 0, 0
+			build := l.factory("openai")
+			ad := newAdapter(t, WithDefaultModel("openai:m"), WithFactory("openai", func(model string) (llm.Provider, error) {
+				factoryCalls++
+				if tt.factoryPanics && factoryCalls == 1 {
+					panic("factory panicked")
+				}
+				p, err := build(model)
+				p.(*closingProvider).do = func(context.Context, *llm.Request) (*llm.Result, error) {
+					requests++
+					if !tt.factoryPanics && requests == 1 {
+						panic("request panicked")
+					}
+					return textResult(noulAnswer), nil
+				}
+				return p, err
+			}))
+			c := sdkClient(t, ad, false)
+			type outcome struct {
+				err      error
+				panicked any
+			}
+			call := func(what string) outcome {
+				done := make(chan outcome, 1)
+				go func() {
+					var o outcome
+					defer func() {
+						o.panicked = recover()
+						done <- o
+					}()
+					o.err = evaluateOn(t, c)
+				}()
+				return await(t, what, (<-chan outcome)(done))
+			}
+			if o := call("the call that panics"); o.panicked == nil {
+				t.Errorf("the panic did not reach the caller; the call returned %v", o.err)
+			}
+			assertUnlocked(t, ad)
+			if o := call("a call after the panic"); o.err != nil || o.panicked != nil {
+				t.Fatalf("a call after the panic: %v, panic %v", o.err, o.panicked)
+			}
+			if got := len(l.providers()); got != tt.wantBuilds {
+				t.Errorf("providers built %d, want %d", got, tt.wantBuilds)
+			}
+			closed := make(chan error, 1)
+			go func() { closed <- ad.Close() }()
+			if err := await(t, "Close", (<-chan error)(closed)); err != nil {
+				t.Fatalf("Close: %v", err)
+			}
+			if got := l.providers()[0].closeCount(); got != 1 {
+				t.Errorf("provider closes %d, want 1", got)
+			}
+		})
 	}
 }

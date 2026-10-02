@@ -62,19 +62,19 @@ collapses into one Go case (DV1), so a row has fewer Go cases than items.
 | OT2 | `tests/test_openai_transports.py::test_unfinished_responses_are_not_treated_as_answers` | 2 | `adapter/openai.TestUnfinishedResponsesAreNotAnswers` (`responses_test.go`) | 2 | ported | planned |
 | OT3 | `tests/test_openai_transports.py::test_concurrent_attempts_are_isolated_and_preserve_failed_responses` | 3 | `adapter/openai.TestConcurrentAttemptsAreIsolated` (goroutines) | 3 | ported (DV1) | planned |
 | OT4 | `tests/test_openai_transports.py::test_custom_endpoint_from_environment_defaults_to_chat` | 2 | `adapter/openai.TestEnvironmentBaseURLSelectsChat` (`t.Setenv`) | 1 | ported (DV1) | planned |
-| PL1 | `tests/test_provider_lifecycle.py::test_reuses_owned_provider_and_closes_sdk_on_context_exit` | 4 | `adapter.TestReusesOwnedProviderAndClosesIt` (`lifecycle_test.go`) | 2 | ported (DV1, DV10) | planned |
-| PL2 | `tests/test_provider_lifecycle.py::test_cache_uses_resolved_provider_and_model_and_is_per_client` | 4 | `adapter.TestProviderCacheKey` | 2 | ported (DV1) | planned |
-| PL3 | `tests/test_provider_lifecycle.py::test_injected_provider_is_borrowed` | 8 | `adapter.TestInjectedProviderIsBorrowed` | 4 | ported (DV1, DV9) | planned |
-| PL4 | `tests/test_provider_lifecycle.py::test_custom_provider_without_close_remains_supported` | 4 | `adapter.TestProviderWithoutCloseIsSupported` | 2 | ported (DV1) | planned |
-| PL5 | `tests/test_provider_lifecycle.py::test_exceptional_exit_closes_owned_sdks` | 16 | `adapter.TestCloseAfterFailureClosesOwnedProviders` (body, request, validation; `cancelled` → DV2) | 6 | ported (DV1, DV2 for the `cancelled` case) | planned |
-| PL6 | `tests/test_provider_lifecycle.py::test_cleanup_continues_after_failure` | 4 | `adapter.TestCloseContinuesAfterFailure` | 2 | ported (DV1) | planned |
-| PL7 | `tests/test_provider_lifecycle.py::test_close_before_first_use_does_not_construct_providers` | 4 | `adapter.TestCloseBeforeFirstUse` | 2 | ported (DV1) | planned |
-| PL8 | `tests/test_provider_lifecycle.py::test_failed_construction_is_not_cached` | 4 | `adapter.TestFailedConstructionIsNotCached` | 2 | ported (DV1) | planned |
-| PL9 | `tests/test_provider_lifecycle.py::test_environment_is_captured_on_first_use` | 4 | `adapter.TestEnvironmentIsReadAtConstruction` (`t.Setenv`) | 2 | ported (DV1) | planned |
-| PL10 | `tests/test_provider_lifecycle.py::test_async_cleanup_propagates_cancellation_after_remaining_cleanup` | 3 | none: `Close` takes no context; the "remaining providers are still closed after one fails" half is PL6 | 0 | deviation DV2 | planned |
-| PL11 | `tests/test_provider_lifecycle.py::test_concurrent_close_waits_for_same_cleanup` | 8 | `adapter.TestConcurrentCloseWaitsForSameCleanup` | 4 | ported (DV1) | planned |
-| PL12 | `tests/test_provider_lifecycle.py::test_cancelling_close_waiter_does_not_interrupt_cleanup` | 1 | none: a Go `Close` waiter cannot be cancelled | 0 | deviation DV2 | planned |
-| PL13 | `tests/test_provider_lifecycle.py::test_concurrent_first_use_reuses_pool_and_isolates_traces` | 4 | `adapter.TestConcurrentFirstUseReusesProvider` (8 goroutines) | 2 | ported (DV1) | planned |
+| PL1 | `tests/test_provider_lifecycle.py::test_reuses_owned_provider_and_closes_sdk_on_context_exit` | 4 | `adapter.TestReusesOwnedProviderAndClosesIt` (`lifecycle_test.go`) | 2 | ported (DV1, DV10) | ported |
+| PL2 | `tests/test_provider_lifecycle.py::test_cache_uses_resolved_provider_and_model_and_is_per_client` | 4 | `adapter.TestProviderCacheKey` | 2 | ported (DV1) | ported |
+| PL3 | `tests/test_provider_lifecycle.py::test_injected_provider_is_borrowed` | 8 | `adapter.TestInjectedProviderIsBorrowed` | 4 | ported (DV1, DV9) | ported |
+| PL4 | `tests/test_provider_lifecycle.py::test_custom_provider_without_close_remains_supported` | 4 | `adapter.TestProviderWithoutCloseIsSupported` | 2 | ported (DV1) | ported |
+| PL5 | `tests/test_provider_lifecycle.py::test_exceptional_exit_closes_owned_sdks` | 16 | `adapter.TestCloseAfterFailureClosesOwnedProviders` (body, request, validation; `cancelled` → DV2) | 6 | ported (DV1, DV2 for the `cancelled` case) | ported |
+| PL6 | `tests/test_provider_lifecycle.py::test_cleanup_continues_after_failure` | 4 | `adapter.TestCloseContinuesAfterFailure` | 2 | ported (DV1) | ported |
+| PL7 | `tests/test_provider_lifecycle.py::test_close_before_first_use_does_not_construct_providers` | 4 | `adapter.TestCloseBeforeFirstUse` | 2 | ported (DV1) | ported |
+| PL8 | `tests/test_provider_lifecycle.py::test_failed_construction_is_not_cached` | 4 | `adapter.TestFailedConstructionIsNotCached` | 2 | ported (DV1) | ported |
+| PL9 | `tests/test_provider_lifecycle.py::test_environment_is_captured_on_first_use` | 4 | `adapter.TestEnvironmentIsReadAtConstruction` (`t.Setenv`) | 2 | ported (DV1) | ported |
+| PL10 | `tests/test_provider_lifecycle.py::test_async_cleanup_propagates_cancellation_after_remaining_cleanup` | 3 | none: `Close` takes no context; the "remaining providers are still closed after one fails" half is PL6 | 0 | deviation DV2 | deviation |
+| PL11 | `tests/test_provider_lifecycle.py::test_concurrent_close_waits_for_same_cleanup` | 8 | `adapter.TestConcurrentCloseWaitsForSameCleanup` | 4 | ported (DV1) | ported |
+| PL12 | `tests/test_provider_lifecycle.py::test_cancelling_close_waiter_does_not_interrupt_cleanup` | 1 | none: a Go `Close` waiter cannot be cancelled | 0 | deviation DV2 | deviation |
+| PL13 | `tests/test_provider_lifecycle.py::test_concurrent_first_use_reuses_pool_and_isolates_traces` | 4 | `adapter.TestConcurrentFirstUseReusesProvider` (8 goroutines) | 2 | ported (DV1) | ported |
 | PN1 | `tests/test_provider_nonanswers.py::test_chat_completion_finish_reason` | 28 | `adapter/openai.TestChatFinishReason` (`nonanswer_test.go`) | 14 | ported (DV1) | planned |
 | PN2 | `tests/test_provider_nonanswers.py::test_openai_missing_usage` | 64 | `adapter/openai.TestMissingUsage` | 32 | ported (DV1) | planned |
 | PN3 | `tests/test_provider_nonanswers.py::test_anthropic_nonanswers` | 36 | `adapter/anthropic.TestNonAnswers` (`anthropic_test.go`) | 18 | ported (DV1) | planned |
