@@ -102,7 +102,7 @@ collapses into one Go case (DV1), so a row has fewer Go cases than items.
 | SC4 | `tests/test_schema.py::test_probability_labels_preserve_arbitrary_names` | 1 | `adapter/internal/schema.TestProbabilityLabelsPreserveArbitraryNames` | 1 | ported | planned |
 | SC5 | `tests/test_schema.py::test_output_validation_preserves_types_bounds_and_allowed_values` | 13 | `adapter/internal/schema.TestOutputValidationTypesBoundsAndValues` (the `nan` case is a `NaN` token, invalid JSON for `jsontext`: rejected, as upstream rejects it) | 13 | ported | planned |
 | SC6 | `tests/test_schema.py::test_output_rejects_extra_fields_and_internal_field_names` | 3 | `adapter/internal/schema.TestOutputRejectsExtraMembers` | 3 | ported | planned |
-| UC1 | `tests/utils/test_confidence_metrics.py::test_confidence_metrics` | 8 | `adapter/internal/prob.TestConfidence` (`internal/prob/confidence_test.go`) | 8 | ported | planned |
+| UC1 | `tests/utils/test_confidence_metrics.py::test_confidence_metrics` | 8 | `adapter/internal/prob.TestConfidence` (`internal/prob/confidence_test.go`) | 8 | ported | ported |
 | UE1 | `tests/utils/test_error_handling.py::test_status_errors_map_and_preserve_status_and_body` | 18 | `adapter/internal/rest.TestStatusErrorKeepsStatusAndBody` (6 statuses × 3 providers' error bodies) and `adapter.TestFailureClasses` (status → SDK kind) | 18 | ported (DV11) | planned |
 | UE2 | `tests/utils/test_error_handling.py::test_timeout_and_connection_errors_map` | 3 | `adapter/internal/rest.TestTransportErrorsClassify` | 3 | ported | planned |
 | UE3 | `tests/utils/test_error_handling.py::test_unknown_and_sdk_errors_pass_through` | 3 | none: no translation layer | 0 | deviation DV14 | planned |
@@ -110,7 +110,7 @@ collapses into one Go case (DV1), so a row has fewer Go cases than items.
 | UE5 | `tests/utils/test_error_handling.py::test_retries_succeed_after_transient_error` | 1 | `adapter.TestRetrySucceedsAfterTransientError` (`retry_test.go`, synctest) | 1 | ported | planned |
 | UE6 | `tests/utils/test_error_handling.py::test_non_retryable_error_is_not_retried` | 1 | `adapter.TestNonRetryableErrorIsNotRetried` | 1 | ported | planned |
 | UE7 | `tests/utils/test_error_handling.py::test_retries_are_exhausted_and_reasons_recorded` | 1 | `adapter.TestRetriesExhaustedRecordReasons` | 1 | ported | planned |
-| UP1 | `tests/utils/test_probability_normalization.py::test_probability_normalization_and_debug_data` | 3 | `adapter/internal/prob.TestNormalizationAndDebugData` (`internal/prob/normalize_test.go`) | 3 | ported | planned |
+| UP1 | `tests/utils/test_probability_normalization.py::test_probability_normalization_and_debug_data` | 3 | `adapter/internal/prob.TestNormalizationAndDebugData` (`internal/prob/normalize_test.go`) | 3 | ported | ported |
 
 Items per upstream file: `test_client_with_fake_model.py` 54,
 `test_client_with_live_apis.py` 25, `test_gemini_transports.py` 14,
