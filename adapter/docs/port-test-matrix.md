@@ -107,9 +107,9 @@ collapses into one Go case (DV1), so a row has fewer Go cases than items.
 | UE2 | `tests/utils/test_error_handling.py::test_timeout_and_connection_errors_map` | 3 | `adapter/internal/rest.TestTransportErrorsClassify` | 3 | ported | planned |
 | UE3 | `tests/utils/test_error_handling.py::test_unknown_and_sdk_errors_pass_through` | 3 | none: no translation layer | 0 | deviation DV14 | planned |
 | UE4 | `tests/utils/test_error_handling.py::test_translating_context_manager_reraises_translated_error` | 1 | none: no `translating` context manager | 0 | deviation DV14 | planned |
-| UE5 | `tests/utils/test_error_handling.py::test_retries_succeed_after_transient_error` | 1 | `adapter.TestRetrySucceedsAfterTransientError` (`retry_test.go`, synctest) | 1 | ported | planned |
-| UE6 | `tests/utils/test_error_handling.py::test_non_retryable_error_is_not_retried` | 1 | `adapter.TestNonRetryableErrorIsNotRetried` | 1 | ported | planned |
-| UE7 | `tests/utils/test_error_handling.py::test_retries_are_exhausted_and_reasons_recorded` | 1 | `adapter.TestRetriesExhaustedRecordReasons` | 1 | ported | planned |
+| UE5 | `tests/utils/test_error_handling.py::test_retries_succeed_after_transient_error` | 1 | `adapter.TestRetrySucceedsAfterTransientError` (`retry_test.go`, synctest) | 1 | ported | ported |
+| UE6 | `tests/utils/test_error_handling.py::test_non_retryable_error_is_not_retried` | 1 | `adapter.TestNonRetryableErrorIsNotRetried` | 1 | ported | ported |
+| UE7 | `tests/utils/test_error_handling.py::test_retries_are_exhausted_and_reasons_recorded` | 1 | `adapter.TestRetriesExhaustedRecordReasons` | 1 | ported | ported |
 | UP1 | `tests/utils/test_probability_normalization.py::test_probability_normalization_and_debug_data` | 3 | `adapter/internal/prob.TestNormalizationAndDebugData` (`internal/prob/normalize_test.go`) | 3 | ported | ported |
 
 Items per upstream file: `test_client_with_fake_model.py` 54,
