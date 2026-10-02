@@ -31,6 +31,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -49,6 +50,7 @@ import (
 
 	"github.com/zchee/decision-model-sdk-go/adapter/internal/fake"
 	"github.com/zchee/decision-model-sdk-go/adapter/internal/jsonx"
+	"github.com/zchee/decision-model-sdk-go/adapter/internal/schema"
 	"github.com/zchee/decision-model-sdk-go/adapter/llm"
 )
 
@@ -986,4 +988,161 @@ func seamContractChecks() map[string]func(t *testing.T) {
 			}
 		},
 	}
+}
+
+// installCheck makes ad check each body it answers 200 with checkBody,
+// reporting a violation to t.
+func installCheck(t testing.TB, ad *Adapter) {
+	ad.mu.Lock()
+	defer ad.mu.Unlock()
+	ad.check = func(request, response []byte) {
+		if err := checkBody(request, response); err != nil {
+			t.Errorf("the Adapter's 200 body breaks its invariant: %v\nrequest: %s\nresponse: %s", err, request, response)
+		}
+	}
+}
+
+// answerMembers are the members of each kind of answer in a success body,
+// in the order the expected responses under testdata/expected write them.
+var answerMembers = map[schema.Kind][]string{
+	schema.Noul:   {"type", "noul"},
+	schema.Score:  {"type", "score", "confidence", "legend", "probabilities"},
+	schema.Choice: {"type", "choice", "confidence", "probabilities"},
+}
+
+// checkBody checks a 200 body of the Adapter against the request it
+// answers: the models list, an object with the one member models, which is
+// an array; otherwise the members model, usage, answers and debug, where answers is null (output
+// that never matched the schema) or holds one answer per question in
+// question order, each with the members of its kind, a noul, every
+// probability and every confidence finite and in [0, 1], a choice among
+// the labels, a score in [0, n-1], and the keys of a score's legend and
+// probabilities equal to its levels and of a choice's probabilities to its
+// labels, in order.
+func checkBody(request, response []byte) error {
+	body, err := jsonx.Read(response)
+	if err != nil {
+		return fmt.Errorf("the body is not JSON: %w", err)
+	}
+	if body.Kind() == jsonx.KindObject && body.Len() == 1 && body.Name(0) == "models" {
+		if models := body.Index(0); models.Kind() != jsonx.KindArray {
+			return fmt.Errorf("models is not an array but %v", models.Kind())
+		}
+		return nil
+	}
+	if err := sameNames(body, []string{"model", "usage", "answers", "debug"}); err != nil {
+		return fmt.Errorf("top level: %w", err)
+	}
+	req, err := jsonx.Read(request)
+	if err != nil {
+		return fmt.Errorf("the request is not JSON: %w", err)
+	}
+	questionsNode, _ := req.Member("questions")
+	questions, err := schema.ParseQuestions(questionsNode)
+	if err != nil {
+		return fmt.Errorf("answered a request whose questions the parser refuses: %w", err)
+	}
+	answers, _ := body.Member("answers")
+	if answers.Kind() == jsonx.KindNull {
+		return nil
+	}
+	names := make([]string, len(questions))
+	for i := range questions {
+		names[i] = questions[i].ID()
+	}
+	if err := sameNames(answers, names); err != nil {
+		return fmt.Errorf("answers: %w", err)
+	}
+	for i := range questions {
+		q := &questions[i]
+		a := answers.Index(i)
+		if err := checkAnswer(q, a); err != nil {
+			return fmt.Errorf("answer %q: %w", q.ID(), err)
+		}
+	}
+	return nil
+}
+
+// checkAnswer checks one answer of a success body against its question.
+func checkAnswer(q *schema.Question, a jsonx.Node) error {
+	if err := sameNames(a, answerMembers[q.Kind()]); err != nil {
+		return err
+	}
+	if typ, _ := a.Member("type"); typ.Kind() != jsonx.KindString || typ.Text() != q.Kind().String() {
+		return fmt.Errorf("type %q, want %q", typ.Text(), q.Kind().String())
+	}
+	if q.Kind() == schema.Noul {
+		v, _ := a.Member("noul")
+		return unitNumber("noul", v)
+	}
+	confidence, _ := a.Member("confidence")
+	if err := unitNumber("confidence", confidence); err != nil {
+		return err
+	}
+	labels := q.Labels()
+	probabilities, _ := a.Member("probabilities")
+	if err := sameNames(probabilities, labels); err != nil {
+		return fmt.Errorf("probabilities: %w", err)
+	}
+	for i := range labels {
+		if err := unitNumber("probability of "+labels[i], probabilities.Index(i)); err != nil {
+			return err
+		}
+	}
+	if q.Kind() == schema.Choice {
+		choice, _ := a.Member("choice")
+		if choice.Kind() != jsonx.KindString || !slices.Contains(labels, choice.Text()) {
+			return fmt.Errorf("choice %q is not one of %q", choice.Text(), labels)
+		}
+		return nil
+	}
+	legend, _ := a.Member("legend")
+	if err := sameNames(legend, labels); err != nil {
+		return fmt.Errorf("legend: %w", err)
+	}
+	score, _ := a.Member("score")
+	v, err := number(score)
+	if err != nil {
+		return fmt.Errorf("score: %w", err)
+	}
+	if !(v >= 0 && v <= float64(len(labels)-1)) {
+		return fmt.Errorf("score %v is outside [0, %d]", v, len(labels)-1)
+	}
+	return nil
+}
+
+// sameNames reports whether v is an object whose member names are names,
+// in that order.
+func sameNames(v jsonx.Node, names []string) error {
+	if v.Kind() != jsonx.KindObject {
+		return fmt.Errorf("not an object but %v", v.Kind())
+	}
+	got := make([]string, v.Len())
+	for i := range got {
+		got[i] = v.Name(i)
+	}
+	if !slices.Equal(got, names) {
+		return fmt.Errorf("members %q, want %q", got, names)
+	}
+	return nil
+}
+
+// number returns v's value, which must be a JSON number.
+func number(v jsonx.Node) (float64, error) {
+	if v.Kind() != jsonx.KindNumber {
+		return 0, fmt.Errorf("not a number but %v", v.Kind())
+	}
+	return strconv.ParseFloat(v.Text(), 64)
+}
+
+// unitNumber checks that v is a finite number in [0, 1].
+func unitNumber(what string, v jsonx.Node) error {
+	f, err := number(v)
+	if err != nil {
+		return fmt.Errorf("%s: %w", what, err)
+	}
+	if math.IsNaN(f) || f < 0 || f > 1 {
+		return fmt.Errorf("%s %v is outside [0, 1]", what, f)
+	}
+	return nil
 }

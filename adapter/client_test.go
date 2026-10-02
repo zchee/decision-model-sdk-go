@@ -23,7 +23,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/rand/v2"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -75,6 +77,7 @@ func sdkClient(t testing.TB, ad *Adapter, own bool, opts ...decision.ClientOptio
 	if err != nil {
 		t.Fatalf("building the client: %v", err)
 	}
+	installCheck(t, ad)
 	t.Cleanup(func() { _ = c.Close() })
 	return c
 }
@@ -836,4 +839,244 @@ func TestSDKRetryCountRecorded(t *testing.T) {
 			}
 		})
 	}
+}
+
+// invariantPool declares every question TestResponseBodyInvariant may ask,
+// each optional, so that DecodeAs reads an answer to any subset of them.
+type invariantPool struct {
+	NoulOne     decision.NoulAnswer   `decision:"kind=noul;name=n1;optional;instructions=Is the review positive?"`
+	NoulTwo     decision.NoulAnswer   `decision:"kind=noul;name=n2;optional;instructions=Is the review long?"`
+	ChoiceTwo   decision.ChoiceAnswer `decision:"kind=choice;name=c2;optional;instructions=Which side?;options=left|right"`
+	ChoiceThree decision.ChoiceAnswer `decision:"kind=choice;name=c3;optional;instructions=Which genre?;options=fiction|nonfiction|poetry"`
+	ChoiceFive  decision.ChoiceAnswer `decision:"kind=choice;name=c5;optional;instructions=Which colour?;options=red|green|blue|black|white"`
+	ScoreTwo    decision.ScoreAnswer  `decision:"kind=score;name=s2;optional;instructions=How good?;levels=bad|good"`
+	ScoreThree  decision.ScoreAnswer  `decision:"kind=score;name=s3;optional;instructions=How long?;levels=short|medium|long"`
+	ScoreFive   decision.ScoreAnswer  `decision:"kind=score;name=s5;optional;instructions=How many stars?;levels=one|two|three|four|five"`
+}
+
+// poolQuestion is one question of invariantPool: its name, kind and
+// instructions, its options or levels, and whether DecodeAs read an answer
+// into its field.
+type poolQuestion struct {
+	name, kind, instructions string
+	labels                   []string
+	present                  func(*invariantPool) bool
+}
+
+// invariantQuestions are invariantPool's questions, as its tags declare
+// them.
+var invariantQuestions = []poolQuestion{
+	{"n1", "noul", "Is the review positive?", nil, func(p *invariantPool) bool { return p.NoulOne.Present() }},
+	{"n2", "noul", "Is the review long?", nil, func(p *invariantPool) bool { return p.NoulTwo.Present() }},
+	{"c2", "choice", "Which side?", []string{"left", "right"}, func(p *invariantPool) bool { return p.ChoiceTwo.Present() }},
+	{"c3", "choice", "Which genre?", []string{"fiction", "nonfiction", "poetry"}, func(p *invariantPool) bool { return p.ChoiceThree.Present() }},
+	{"c5", "choice", "Which colour?", []string{"red", "green", "blue", "black", "white"}, func(p *invariantPool) bool { return p.ChoiceFive.Present() }},
+	{"s2", "score", "How good?", []string{"bad", "good"}, func(p *invariantPool) bool { return p.ScoreTwo.Present() }},
+	{"s3", "score", "How long?", []string{"short", "medium", "long"}, func(p *invariantPool) bool { return p.ScoreThree.Present() }},
+	{"s5", "score", "How many stars?", []string{"one", "two", "three", "four", "five"}, func(p *invariantPool) bool { return p.ScoreFive.Present() }},
+}
+
+// scriptedText is a provider whose next request answers with text.
+type scriptedText struct{ text string }
+
+func (p *scriptedText) Model() string { return "invariant-model" }
+
+func (p *scriptedText) Do(context.Context, *llm.Request) (*llm.Result, error) {
+	return textResult(p.text), nil
+}
+
+// TestResponseBodyInvariant checks the Adapter's success bodies as a
+// property: over 10^4 calls through NewClient, each with a random subset of
+// invariantPool's questions in a random order and a random valid model
+// output, in both answer modes, with normalization on and off and both
+// output modes, every 200 body passes checkBody (which sdkClient installs)
+// and DecodeAs reads it into invariantPool with exactly the questions
+// asked present. The SDK itself checks no range (it accepts a noul of 1.5),
+// so the Adapter's own checks are the only guard on what it answers. The
+// cases come from a fixed seed, printed with a failing case.
+func TestResponseBodyInvariant(t *testing.T) {
+	const cases = 10_000
+	const seed1, seed2 = 20261003, 7
+	type config struct {
+		answer    AnswerMode
+		output    OutputMode
+		normalize bool
+	}
+	type setup struct {
+		config
+		provider *scriptedText
+		client   *decision.Client
+	}
+	var (
+		setups  []setup
+		checked atomic.Int64
+	)
+	for _, answer := range []AnswerMode{Probabilities, Discrete} {
+		for _, output := range []OutputMode{Structured, Prompted} {
+			for _, normalize := range []bool{false, true} {
+				p := &scriptedText{}
+				ad, err := New(answer, output, WithFactory("pool", factoryOf(p)), WithDefaultModel("pool:m"), WithNormalizeProbabilities(normalize), WithRetry(NoRetry()), WithMalformedRetries(0))
+				if err != nil {
+					t.Fatal(err)
+				}
+				c := sdkClient(t, ad, false)
+				ad.mu.Lock()
+				check := ad.check
+				if check == nil {
+					ad.mu.Unlock()
+					t.Fatal("sdkClient installed no body check")
+				}
+				ad.check = func(request, response []byte) {
+					checked.Add(1)
+					check(request, response)
+				}
+				ad.mu.Unlock()
+				setups = append(setups, setup{config: config{answer, output, normalize}, provider: p, client: c})
+			}
+		}
+	}
+	r := rand.New(rand.NewPCG(seed1, seed2)) //nolint:gosec // G404: a fixed seed makes a failing case reproducible; nothing here is secret.
+	for i := range cases {
+		l := setups[r.IntN(len(setups))]
+		order := r.Perm(len(invariantQuestions))[:1+r.IntN(len(invariantQuestions))]
+		qs := decision.NewQuestions()
+		var answers []string
+		for _, k := range order {
+			pq := invariantQuestions[k]
+			switch pq.kind {
+			case "noul":
+				qs = qs.Noul(pq.name, decision.Noul{Instructions: decision.Text(pq.instructions)})
+			case "choice":
+				options := make(decision.Options, len(pq.labels))
+				for j, label := range pq.labels {
+					options[j] = decision.Option{Label: label}
+				}
+				qs = qs.Choice(pq.name, decision.Choice{Instructions: decision.Text(pq.instructions), Options: options})
+			default:
+				levels := make([]decision.Content, len(pq.labels))
+				for j, level := range pq.labels {
+					levels[j] = decision.Text(level)
+				}
+				qs = qs.Score(pq.name, decision.Score{Instructions: decision.Text(pq.instructions), Levels: levels})
+			}
+			answers = append(answers, strconv.Quote(pq.name)+":"+invariantAnswer(r, l.answer, pq))
+		}
+		prepared, err := qs.Prepare()
+		if err != nil {
+			t.Fatalf("case %d (seed %d, %d): Prepare: %v", i, seed1, seed2, err)
+		}
+		l.provider.text = `{"answers":{` + strings.Join(answers, ",") + `}}`
+		if l.output == Prompted && r.IntN(2) == 0 {
+			l.provider.text = "```json\n" + l.provider.text + "\n```"
+		}
+		resp, err := l.client.SystemOne(t.Context(), "A review.", prepared)
+		if err != nil {
+			t.Fatalf("case %d (seed %d, %d) %+v, output %s: %v", i, seed1, seed2, l.config, l.provider.text, err)
+		}
+		pool, err := decision.DecodeAs[invariantPool](resp)
+		if err != nil {
+			t.Fatalf("case %d (seed %d, %d) %+v, output %s: DecodeAs: %v", i, seed1, seed2, l.config, l.provider.text, err)
+		}
+		asked := map[int]bool{}
+		for _, k := range order {
+			asked[k] = true
+		}
+		for k, pq := range invariantQuestions {
+			if got := pq.present(&pool); got != asked[k] {
+				t.Fatalf("case %d (seed %d, %d): question %s present %v, asked %v; output %s", i, seed1, seed2, pq.name, got, asked[k], l.provider.text)
+			}
+		}
+		if t.Failed() {
+			t.Fatalf("case %d (seed %d, %d) %+v, output %s: the body check failed", i, seed1, seed2, l.config, l.provider.text)
+		}
+	}
+	if n := checked.Load(); n != cases {
+		t.Errorf("the body check ran %d times, want %d", n, cases)
+	}
+}
+
+// TestCheckBodyRefuses checks that checkBody finds each kind of violation
+// in a body answering three questions, a noul, a two-level score and a
+// two-label choice, and
+// accepts the body it is derived from and the malformed form.
+func TestCheckBodyRefuses(t *testing.T) {
+	const request = `{"state":"s","questions":{"n":{"type":"noul"},"s":{"type":"score","criteria":["bad","good"]},"c":{"type":"choice","criteria":{"x":"the first","y":"the second"}}}}`
+	const noul = `"n":{"type":"noul","noul":0.25}`
+	const score = `"s":{"type":"score","score":0.5,"confidence":0.5,"legend":{"0":"bad","1":"good"},"probabilities":{"0":0.5,"1":0.5}}`
+	const choice = `"c":{"type":"choice","choice":"x","confidence":1.0,"probabilities":{"x":1.0,"y":0.0}}`
+	body := func(answers string) string {
+		return `{"model":"m","usage":{},"answers":` + answers + `,"debug":{}}`
+	}
+	valid := body("{" + noul + "," + score + "," + choice + "}")
+	if err := checkBody([]byte(request), []byte(valid)); err != nil {
+		t.Fatalf("the valid body: %v", err)
+	}
+	if err := checkBody([]byte(request), []byte(body("null"))); err != nil {
+		t.Fatalf("the malformed form: %v", err)
+	}
+	tests := map[string]string{
+		"no debug":                    `{"model":"m","usage":{},"answers":{` + noul + "," + score + "," + choice + `}}`,
+		"an answer missing":           body("{" + noul + "," + score + "}"),
+		"answers out of order":        body("{" + score + "," + noul + "," + choice + "}"),
+		"an extra answer":             body("{" + noul + "," + score + "," + choice + `,"x":{"type":"noul","noul":0}}`),
+		"a noul above 1":              body(`{"n":{"type":"noul","noul":1.5},` + score + "," + choice + "}"),
+		"a negative noul":             body(`{"n":{"type":"noul","noul":-0.1},` + score + "," + choice + "}"),
+		"a noul that is a string":     body(`{"n":{"type":"noul","noul":"0.5"},` + score + "," + choice + "}"),
+		"the wrong type":              body(`{"n":{"type":"score","noul":0.25},` + score + "," + choice + "}"),
+		"a member missing":            body(`{"n":{"type":"noul"},` + score + "," + choice + "}"),
+		"a score above n-1":           body("{" + noul + `,"s":{"type":"score","score":1.5,"confidence":0.5,"legend":{"0":"bad","1":"good"},"probabilities":{"0":0.5,"1":0.5}},` + choice + "}"),
+		"a confidence above 1":        body("{" + noul + `,"s":{"type":"score","score":0.5,"confidence":2,"legend":{"0":"bad","1":"good"},"probabilities":{"0":0.5,"1":0.5}},` + choice + "}"),
+		"a legend key not a level":    body("{" + noul + `,"s":{"type":"score","score":0.5,"confidence":0.5,"legend":{"1":"bad","2":"good"},"probabilities":{"0":0.5,"1":0.5}},` + choice + "}"),
+		"a probability above 1":       body("{" + noul + `,"s":{"type":"score","score":0.5,"confidence":0.5,"legend":{"0":"bad","1":"good"},"probabilities":{"0":0.5,"1":1.5}},` + choice + "}"),
+		"a choice not among labels":   body("{" + noul + "," + score + `,"c":{"type":"choice","choice":"z","confidence":1.0,"probabilities":{"x":1.0,"y":0.0}}}`),
+		"choice keys not the labels":  body("{" + noul + "," + score + `,"c":{"type":"choice","choice":"x","confidence":1.0,"probabilities":{"y":0.0,"x":1.0}}}`),
+		"a probability out of number": body("{" + noul + "," + score + `,"c":{"type":"choice","choice":"x","confidence":1.0,"probabilities":{"x":1e999,"y":0.0}}}`),
+	}
+	for name, b := range tests {
+		t.Run(name, func(t *testing.T) {
+			if err := checkBody([]byte(request), []byte(b)); err == nil {
+				t.Errorf("checkBody accepted %s", b)
+			}
+		})
+	}
+}
+
+// invariantAnswer returns a random valid model answer to pq in the answer
+// mode a: in Probabilities a number or a distribution of numbers in [0, 1]
+// (zeros, ones and sums far from 1 among them), in Discrete a bool, a label
+// or a level.
+func invariantAnswer(r *rand.Rand, a AnswerMode, pq poolQuestion) string {
+	if a == Discrete {
+		switch pq.kind {
+		case "noul":
+			return strconv.FormatBool(r.IntN(2) == 0)
+		case "choice":
+			return strconv.Quote(pq.labels[r.IntN(len(pq.labels))])
+		default:
+			return strconv.Itoa(r.IntN(len(pq.labels)))
+		}
+	}
+	if pq.kind == "noul" {
+		return unitFloat(r)
+	}
+	members := make([]string, len(pq.labels))
+	for j, label := range pq.labels {
+		key := label
+		if pq.kind == "score" {
+			key = strconv.Itoa(j)
+		}
+		members[j] = strconv.Quote(key) + ":" + unitFloat(r)
+	}
+	return "{" + strings.Join(members, ",") + "}"
+}
+
+// unitFloat returns a random number in [0, 1] as JSON: an edge (0, 1, the
+// smallest subnormal, the greatest number below 1) one time in four, else
+// a uniform one.
+func unitFloat(r *rand.Rand) string {
+	edges := []float64{0, 1, 5e-324, 0.9999999999999999}
+	if r.IntN(4) == 0 {
+		return strconv.FormatFloat(edges[r.IntN(len(edges))], 'g', -1, 64)
+	}
+	return strconv.FormatFloat(r.Float64(), 'g', -1, 64)
 }

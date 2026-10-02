@@ -67,6 +67,10 @@ type Adapter struct {
 	// closing is the cleanup a Close runs now, which a concurrent Close
 	// waits for; nil when none runs.
 	closing *cleanup
+	// check is a test hook: nil outside the package's own tests, which set
+	// it under mu to see each request answered 200, as the body RoundTrip
+	// read, and the bytes of that answer's body as RoundTrip returns them.
+	check func(request, response []byte)
 
 	// cacheMu guards owned and order, and is held while a factory builds a
 	// provider.
@@ -176,12 +180,16 @@ func (ad *Adapter) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, &Error{Kind: KindClosed}
 	}
 	ad.running.Add(1)
+	check := ad.check
 	ad.mu.Unlock()
 	defer ad.running.Done()
 	id := newRequestID()
 	r := ad.serve(req.Context(), id, req.Method, req.URL.Path, req.Header.Get("X-TypeSafe-Retry-Count"), body, readErr)
 	if r.err != nil {
 		return nil, r.err
+	}
+	if check != nil && r.status == http.StatusOK {
+		check(body, r.body)
 	}
 	return &http.Response{
 		Status:        strconv.Itoa(r.status) + " " + http.StatusText(r.status),
