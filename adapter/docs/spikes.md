@@ -309,6 +309,8 @@ Each vector file's `# python:` line is the interpreter's whole
 | S3-12 | 2026-10-02T05:47:55Z | (L) | as S3-6 and S3-7 | the same | the same counts |
 | S3-13 | 2026-10-02T05:49:24Z | (M) | go1.27.1 darwin/arm64, default and `GOEXPERIMENT=nojsonv2`, the JSON library at `v0.0.0-20260820222146-c27c302e5fc3` | in the module of S3-4, 35 documents around 10 000 nested containers, read by the JSON library alone (every token, duplicate names allowed) and by the re-encoder | the library refuses the token that opens the 10 001st container, arrays and objects alike, and reads a scalar inside 10 000; the re-encoder refuses for depth at exactly the same documents |
 | S3-14 | 2026-10-02T05:49:27Z | (L) | go1.27.1 linux/amd64, default and `GOEXPERIMENT=nojsonv2`, the same library | the same | the same |
+| S3-15 | 2026-10-02T14:17:47Z | (M) | CPython 3.14.3, pydantic 2.13.4, pydantic-core 2.46.4, system-one-adapter 0.2.1, uv 0.12.19 | `testdata/python/gen_repr_json_vectors.py`, which runs through the script's first line, `uv run --script`, and its inline list of 14 pinned packages | writes `testdata/python/repr_json_vectors.jsonl`: 191 score criteria, 184 with the legend entry upstream's response body holds for them, 7 refused (1 by `json.loads`, 5 by the question validation, 1 by the answer conversion); 37 557 bytes, sha256 `56014cc0e19a2caf1c09ccd0a95861a9eafa191c7b695f4ed18885e9bf49e5cc`, the committed file; a second run gives the same bytes |
+| S3-16 | 2026-10-02T14:17:49Z | (M) | the same | `testdata/python/gen_repr_json_vectors.py --check` | `repr_json_vectors.jsonl: equal to a fresh table` |
 
 ## S4: the seam with the Adapter's own error and report types
 
