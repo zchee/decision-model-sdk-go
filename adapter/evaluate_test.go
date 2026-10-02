@@ -778,6 +778,79 @@ func TestUsageSeparatesLastAttemptFromTotals(t *testing.T) {
 	})
 }
 
+// TestRetriesAcrossCorrections runs transient retries and a correction
+// in one call, as upstream's run_sync does: a 503, a fenced answer that does
+// not match the schema, a 503, then an answer. Upstream (system-one-adapter
+// v0.2.1, run with this script) gives n_retries 2, the sum over the two
+// correction rounds (_client.py:256); retry reasons in the order they
+// happened, provider_error, malformed_structure, provider_error
+// (_utils/error_handling.py:80, _client.py:227); and the correction round's assistant
+// message is the provider's text as returned, fences included, not the
+// extracted JSON (_client.py:229).
+func TestRetriesAcrossCorrections(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		fenced := "```json\n{\"answers\": \"not-an-object\"}\n```"
+		p := fake.New(
+			fake.Error(providerError503()),
+			fake.Text(fenced),
+			fake.Error(providerError503()),
+			fake.Text(`{"answers":{"answer":0.75}}`),
+		)
+		cfg := probabilitiesConfig(Structured, 1)
+		cfg.retry = NoRetry().MaxRetries(1).Backoff(time.Millisecond, 5*time.Second, 0)
+		_, report, err := evaluateFor(t, cfg, p, stringNode(t, "state"), answerQuestion)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if report.Usage.Retries != 2 || report.Usage.MalformedRetries != 1 {
+			t.Fatalf("n_retries %d, n_retries_malformed_structure %d; want 2 and 1", report.Usage.Retries, report.Usage.MalformedRetries)
+		}
+		if diff := cmp.Diff([]string{categoryProviderError, categoryMalformed, categoryProviderError}, reasonCategories(report)); diff != "" {
+			t.Fatalf("retry reasons (-want +got):\n%s", diff)
+		}
+		reqs := p.Requests()
+		if len(reqs) != 4 {
+			t.Fatalf("%d requests, want 4", len(reqs))
+		}
+		if diff := cmp.Diff([]int{2, 2, 4, 4}, []int{len(reqs[0].Messages), len(reqs[1].Messages), len(reqs[2].Messages), len(reqs[3].Messages)}); diff != "" {
+			t.Fatalf("messages per request (-want +got):\n%s", diff)
+		}
+		if got := reqs[2].Messages[2]; got != (llm.Message{Role: "assistant", Content: fenced}) {
+			t.Fatalf("the correction's assistant message is %+v, want the provider's text as returned", got)
+		}
+		if diff := cmp.Diff(reqs[2].Messages, reqs[3].Messages); diff != "" {
+			t.Fatalf("the retried correction's messages differ (-third +fourth):\n%s", diff)
+		}
+	})
+}
+
+// TestDeepestCriterionHasALegend checks that the deepest criterion
+// ParseQuestions accepts converts to its legend with Node.Value, so a
+// question that reaches the run always has one.
+func TestDeepestCriterionHasALegend(t *testing.T) {
+	question := func(levels int) string {
+		return `{"q":{"type":"score","instructions":"i","criteria":[` + strings.Repeat("[", levels) + "1" + strings.Repeat("]", levels) + `,"x"]}}`
+	}
+	// One level at least: a criterion is text, an object or an array.
+	deepest := -1
+	for levels := 1; levels < 300; levels++ {
+		if _, err := schema.ParseQuestions(readNode(t, question(levels))); err != nil {
+			break
+		}
+		deepest = levels
+	}
+	if deepest < 1 || deepest == 299 {
+		t.Fatalf("ParseQuestions accepts up to %d levels; want a limit inside the loop", deepest)
+	}
+	qs, err := schema.ParseQuestions(readNode(t, question(deepest)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := qs[0].Criteria().Index(0).Value(jsonx.Repr); err != nil {
+		t.Fatalf("a criterion of %d levels, the deepest ParseQuestions accepts: Value: %v", deepest, err)
+	}
+}
+
 // TestAttemptsAreIndependentAndReplayable ports
 // test_attempts_are_independent_and_replayable
 // (tests/test_client_with_fake_model.py:388-404): each call has its own
@@ -986,19 +1059,20 @@ func TestClassifyAttemptError(t *testing.T) {
 		"deadline passed: a timeout":                  {ctx: ctxExpired, err: &llm.TimeoutError{}, wantText: timeoutText, wantClass: "TypeSafeAPITimeoutError"},
 		"deadline passed: the context's own error":    {ctx: ctxExpired, err: context.DeadlineExceeded, wantText: timeoutText, wantClass: "TypeSafeAPITimeoutError"},
 		"deadline passed: another error is a timeout": {ctx: ctxExpired, err: otherError{}, wantText: timeoutText, wantClass: "TypeSafeAPITimeoutError"},
-		"timeout":             {err: &llm.TimeoutError{}, wantText: "Request timed out (timeout=Timeout(timeout=None)).", wantClass: "TypeSafeAPITimeoutError"},
-		"timeout, wrapped":    {err: fmt.Errorf("p: %w", &llm.TimeoutError{Err: otherError{}}), wantText: "Request timed out (timeout=Timeout(timeout=None)).", wantClass: "TypeSafeAPITimeoutError"},
-		"connection failure":  {err: &llm.ConnectionError{Err: otherError{}}, wantText: "Connection error.", wantClass: "TypeSafeAPIConnectionError"},
-		"status 400":          {err: status(400, `{"error":{"message":"bad"}}`), wantText: "400 bad (request_id=req_1)", wantClass: "TypeSafeBadRequestError"},
-		"status 401":          {err: status(401, `{"message":"no key"}`), wantText: "401 no key (request_id=req_1)", wantClass: "TypeSafeAuthenticationError"},
-		"status 403":          {err: status(403, ``), wantText: "403 (request_id=req_1)", wantClass: "TypeSafePermissionDeniedError"},
-		"status 404":          {err: status(404, `not found`), wantText: "404 not found (request_id=req_1)", wantClass: "TypeSafeNotFoundError"},
-		"status 422":          {err: status(422, `{"message":"x"}`), wantText: "422 x (request_id=req_1)", wantClass: "TypeSafeUnprocessableEntityError"},
-		"status 429":          {err: status(429, `{"message":"slow down"}`), wantText: "429 slow down (request_id=req_1)", wantClass: "TypeSafeRateLimitError"},
-		"status 500":          {err: status(500, `{"message":"x"}`), wantText: "500 x (request_id=req_1)", wantClass: "TypeSafeInternalServerError"},
-		"status 599, wrapped": {err: fmt.Errorf("p: %w", status(599, `{"message":"x"}`)), wantText: "599 x (request_id=req_1)", wantClass: "TypeSafeInternalServerError"},
-		"status 408":          {err: status(408, `{"message":"x"}`), wantText: "408 x (request_id=req_1)", wantClass: "TypeSafeAPIError"},
-		"status 302":          {err: status(302, `{"message":"x"}`), wantText: "302 x (request_id=req_1)", wantClass: "TypeSafeAPIError"},
+		"timeout":                    {err: &llm.TimeoutError{}, wantText: "Request timed out (timeout=Timeout(timeout=None)).", wantClass: "TypeSafeAPITimeoutError"},
+		"timeout, wrapped":           {err: fmt.Errorf("p: %w", &llm.TimeoutError{Err: otherError{}}), wantText: "Request timed out (timeout=Timeout(timeout=None)).", wantClass: "TypeSafeAPITimeoutError"},
+		"connection failure":         {err: &llm.ConnectionError{Err: otherError{}}, wantText: "Connection error.", wantClass: "TypeSafeAPIConnectionError"},
+		"status 400":                 {err: status(400, `{"error":{"message":"bad"}}`), wantText: "400 bad (request_id=req_1)", wantClass: "TypeSafeBadRequestError"},
+		"status 401":                 {err: status(401, `{"message":"no key"}`), wantText: "401 no key (request_id=req_1)", wantClass: "TypeSafeAuthenticationError"},
+		"status 403":                 {err: status(403, ``), wantText: "403 (request_id=req_1)", wantClass: "TypeSafePermissionDeniedError"},
+		"status 404":                 {err: status(404, `not found`), wantText: "404 not found (request_id=req_1)", wantClass: "TypeSafeNotFoundError"},
+		"status 422":                 {err: status(422, `{"message":"x"}`), wantText: "422 x (request_id=req_1)", wantClass: "TypeSafeUnprocessableEntityError"},
+		"status 429":                 {err: status(429, `{"message":"slow down"}`), wantText: "429 slow down (request_id=req_1)", wantClass: "TypeSafeRateLimitError"},
+		"status 500":                 {err: status(500, `{"message":"x"}`), wantText: "500 x (request_id=req_1)", wantClass: "TypeSafeInternalServerError"},
+		"status 600, no upper bound": {err: status(600, `{"message":"x"}`), wantText: "600 x (request_id=req_1)", wantClass: "TypeSafeInternalServerError"},
+		"status 599, wrapped":        {err: fmt.Errorf("p: %w", status(599, `{"message":"x"}`)), wantText: "599 x (request_id=req_1)", wantClass: "TypeSafeInternalServerError"},
+		"status 408":                 {err: status(408, `{"message":"x"}`), wantText: "408 x (request_id=req_1)", wantClass: "TypeSafeAPIError"},
+		"status 302":                 {err: status(302, `{"message":"x"}`), wantText: "302 x (request_id=req_1)", wantClass: "TypeSafeAPIError"},
 		"a status's text is its reason, not Error()": {err: status(503, `{"error":"from the error member","message":"unavailable"}`), wantText: "503 from the error member (request_id=req_1)", wantClass: "TypeSafeInternalServerError"},
 		"non-answer":          {err: &llm.NonAnswerError{Message: "Gemini response omitted usage."}, wantText: "Gemini response omitted usage.", wantClass: "TypeSafeError"},
 		"non-answer, wrapped": {err: fmt.Errorf("p: %w", &llm.NonAnswerError{Message: "m"}), wantText: "m", wantClass: "TypeSafeError"},
@@ -1074,12 +1148,37 @@ func TestProviderName(t *testing.T) {
 // in both answer modes, with normalization on and off.
 func TestEvaluateConvertsAnswers(t *testing.T) {
 	questions := `{"positive":` + positiveJSON + `,"stars":{"type":"score","instructions":"Rating.","criteria":["Bad.",{"text":"Good.","weight":1.50},["x",1e-5]]},"genre":` + genreJSON + `}`
+	// A two-level score, for the rows on the score's confidence.
+	twoLevels := `{"stars":{"type":"score","instructions":"Rating.","criteria":["Bad.","Good."]}}`
 	tests := map[string]struct {
-		cfg     evalConfig
-		output  string
-		want    string
-		wantDbg Debug
+		cfg       evalConfig
+		questions string
+		output    string
+		want      string
+		wantDbg   Debug
 	}{
+		// Upstream computes a score's confidence over the reported
+		// probabilities, not the rescaled ones (_client.py:145): with
+		// normalisation off, [0.1, 0.3] gives 0.5, where the rescaled
+		// distribution would give 0.4999999999999999.
+		"score confidence over the reported probabilities, normalization off": {
+			cfg:       evalConfig{answer: Probabilities, output: Structured},
+			questions: twoLevels,
+			output:    `{"answers":{"stars":{"0":0.1,"1":0.3}}}`,
+			want:      `{"stars":{"score":0.7499999999999999,"confidence":0.5,"probabilities":[0.1,0.3],"legend":["Bad.","Good."]}}`,
+			wantDbg:   Debug{MaxError: 0.6, InvalidProbs: 1, ProbabilityErrors: []QuestionValue{{Question: "stars", Value: 0.6}}},
+		},
+		// A total within the tolerance is left as reported, also with
+		// normalisation on, and the confidence is computed over it: upstream
+		// gives 4.999997500476638e-07 for [0.5000005, 0.5], where the
+		// rescaled distribution would give 4.999997499366415e-07.
+		"score confidence over the reported probabilities, total within the tolerance": {
+			cfg:       evalConfig{answer: Probabilities, output: Structured, normalize: true},
+			questions: twoLevels,
+			output:    `{"answers":{"stars":{"0":0.5000005,"1":0.5}}}`,
+			want:      `{"stars":{"score":0.499999750000125,"confidence":4.999997500476638e-07,"probabilities":[0.5000005,0.5],"legend":["Bad.","Good."]}}`,
+			wantDbg:   Debug{MaxError: 5.00000000069889e-07},
+		},
 		"probabilities, normalization off": {
 			cfg:    evalConfig{answer: Probabilities, output: Structured},
 			output: `{"answers":{"positive":0.8,"stars":{"0":0.25,"1":0.25,"2":1.0},"genre":{"fiction":0.5,"nonfiction":0.5}}}`,
@@ -1113,7 +1212,11 @@ func TestEvaluateConvertsAnswers(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			res, report, err := evaluateFor(t, tt.cfg, fake.New(fake.Text(tt.output)), stringNode(t, "state"), questions)
+			qs := questions
+			if tt.questions != "" {
+				qs = tt.questions
+			}
+			res, report, err := evaluateFor(t, tt.cfg, fake.New(fake.Text(tt.output)), stringNode(t, "state"), qs)
 			if err != nil {
 				t.Fatal(err)
 			}
