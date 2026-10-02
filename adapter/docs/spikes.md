@@ -180,10 +180,128 @@ pydantic-core's `to_json`, the two spellings upstream writes?
 same bytes as `to_json(json.loads(document))` on 10 000 generated JSON
 documents, on both hosts; or each differing class is listed with a count.
 
-**Verdict.** pending
+**Verdict.** Pass with deviations. The floats are equal: `ReprFloat` and
+`PydanticFloat` give Python's bytes for 100 000 of 100 000 doubles and for
+the 6 000 committed ones, on both hosts and on both JSON code paths. The
+documents differ in three classes. Of 10 000 generated documents, 9 979
+agree (9 784 with equal bytes, 195 refused by both) and 21 differ; of the
+1 500 committed ones, 1 482 agree (1 302 equal, 180 refused by both) and 18
+differ. Every differing document is one that Python accepts and the port
+refuses, and each is explained by its class.
+
+The reference for a document is
+`pydantic_core.to_json(json.loads(document.decode("utf-8")))`, followed by
+upstream's replacement of every `<` and `>` with its escape. The bytes are
+decoded as UTF-8 first because the state arrives inside the request body,
+which is JSON in UTF-8 and is parsed whole before the state is written
+again; a document that is not UTF-8 is refused by both sides.
+
+**What the port does because of it.** `internal/jsonx` has two float
+writers over Go's shortest digits (`strconv`), which equalled Python's on
+every vector. `PydanticFloat` writes positional notation for
+1e-5 <= |x| < 1e16, `.0` after an integral value, and otherwise an exponent
+with its sign and no padding (`1e+16`, `1e-7`), as pydantic-core's writer
+does. `ReprFloat` writes positional notation for 1e-4 <= |x| < 1e16 and
+otherwise an exponent of at least two digits (`1e-05`), as `repr` does; its
+spelling of NaN and the infinities is `repr`'s and is not JSON.
+
+The state is written again as Python does it: a repeated member name keeps
+its first position and its last value, strings use pydantic-core's escapes
+with lowercase hex, and the output is compact. Two limits of the Python
+side are needed for equality:
+
+- pydantic-core refuses, when it writes, a value nested deeper than 255
+  levels, a scalar counted as a level, so a too-deep value that a later
+  member of the same name replaces is not refused;
+- `json.loads` refuses, when it reads, an integer of more than 4300 digits,
+  the sign not counted, also inside a value that is replaced.
+
+Three nesting limits appear in this ledger and are different things: 255
+is pydantic-core's when it writes the state; 10 000 is the Go JSON
+library's when it reads; 200 (S7) is the limit of the JSON parser pydantic
+uses on the model's output.
+
+The three classes where Python accepts and the port refuses:
+
+- `nan-token` (10 of the 10 000; 10 committed): the tokens `NaN`,
+  `Infinity` and `-Infinity`, which `json.loads` reads and JSON does not
+  have. Through the TypeSafe SDK such a state reaches the wire only as a
+  `RawJSON` value that is not JSON; the SDK's own encoders refuse a NaN
+  before sending. The Adapter's parse of the body refuses it before the
+  state is looked at.
+  The port refuses it, a deviation from upstream that belongs in
+  [`deviations.md`](deviations.md).
+- `replaced-lone-surrogate` (10; 7 committed): an escaped surrogate
+  without its partner inside a value that a later member of the same name
+  replaces. Python's dict drops that value before `to_json` would refuse
+  it; a JSON reader refuses it while reading. It reaches the wire as
+  `RawJSON`, as `typesafe.JSON` content or from a caller's `Marshaler`,
+  always with a duplicate name the caller wrote. Upstream itself cannot be
+  given such a document, because a Python dict has no duplicate names.
+  Reading the body with invalid UTF-8 allowed would bring the class to 0,
+  and that option must stay off.
+  The port refuses it, a deviation from upstream that belongs in
+  [`deviations.md`](deviations.md).
+- `read-depth` (2; 2 committed): a replaced value nested past the JSON
+  library's own limit: more than 10 000 arrays and objects open inside one
+  another, the root among them, a scalar not counted. The number is
+  `maxNestingDepth` in `jsontext/state.go` (line 53) of
+  `github.com/go-json-experiment/json v0.0.0-20260820222146-c27c302e5fc3`
+  and of go1.27.1's `encoding/json/jsontext`; Python's limit is the
+  interpreter's stack. Measured by a review of this result against the SDK
+  v0.1.1: a `RawJSON` or `typesafe.JSON` state that opens 10 001
+  containers is sent as written and is one container deeper in the body,
+  so through the seam a state opens at most 9 999; a Go value of nested
+  slices is refused before sending at 9 999.
+  The port refuses it, a deviation from upstream that belongs in
+  [`deviations.md`](deviations.md).
+
+One document is in the first two classes, so the 21 are 9 + 9 + 1 + 2.
+
+The boundary of `read-depth` is in the committed file: 10 000 containers
+give equal bytes and 10 001 are refused, once with arrays alone and once
+with objects around a number. An earlier count saw a difference of one
+between arrays and objects; it came from shapes that ended differently
+(`[]` against `1`) and from a reader that counted a scalar as a level and
+so was one level stricter than its library. The port checks the limit when
+a container is opened. The 10 000 is read from the library, so a library
+version with another constant changes a constant here, and those boundary
+rows show it, without a broken test.
+
+The class `two-defects` (14 committed documents) marks a document that both
+sides refuse while the kind of error may differ, because a JSON reader
+refuses three things while reading that Python refuses later or not at all:
+a lone surrogate escape, a NaN token, and nesting past the reader's limit,
+each together with another defect. Only the refusal is the same for these,
+not its kind.
+
+Not in the vectors: a surviving value past the reader's limit (both refuse;
+a row would cost about 27 KB, and a review's document sets hold it); an
+oversized integer directly followed by a malformed fraction or exponent,
+which both refuse while the generator gives no class; floats other than
+IEEE 754 doubles; `to_json` with any argument upstream does not pass;
+nesting deep enough for `json.loads` to exhaust its stack. None of these
+changes the port's verdict.
+
+Each vector file's `# python:` line is the interpreter's whole
+`sys.version`, as in S2 and S7.
 
 | Row | Date (UTC) | Host | Toolchain | Command | Result |
 | --- | --- | --- | --- | --- | --- |
+| S3-1 | 2026-10-02T06:18:21Z | (M) | CPython 3.14.3, pydantic 2.13.4, pydantic-core 2.46.4, uv 0.12.19 | `uv run --python 3.14.3 --with pydantic==2.13.4 --with pydantic-core==2.46.4 testdata/python/gen_float_vectors.py` | writes `testdata/python/float_vectors.tsv`: 6 000 doubles, 312 104 bytes, sha256 `d8eca3d9cb1cbc48bb636f1e12fceeea3444c0ef63a448fffcd5659382e1b370`, the committed file; a second run gives the same bytes |
+| S3-2 | 2026-10-02T06:18:21Z | (M) | the same | `uv run --python 3.14.3 --with pydantic==2.13.4 --with pydantic-core==2.46.4 testdata/python/gen_state_vectors.py` | writes `testdata/python/state_vectors.tsv`: 1 500 documents, 574 254 bytes, sha256 `61f14d954917aa65b84228e30085bc794a7c598519ac47ddcc7363250f8fe90e`, the committed file; a second run gives the same bytes |
+| S3-3 | 2026-10-02T05:47:12Z | (M) | the same | the two commands of S3-1 and S3-2 with `--count 100000` and `--count 10000` and `--output <file>` | files not committed: floats sha256 `c7c8f478dc5d0aba31d9a75d710119453368c9969f8579a91bc8f633d487f62a`, documents sha256 `85559c3563766d3a7623cd107390e39cdf521e8d324afef189af272b80dbdc05`; a second run of each gives the same bytes |
+| S3-4 | 2026-10-02T05:47:46Z | (M) | go1.27.1 darwin/arm64 | a test in a module outside this one, holding the two float writers and the state re-encoder, run on the files of S3-3 | floats: 100 000 of 100 000 for each writer. Documents: 9 979 of 10 000 agree (9 784 equal bytes, 195 refused by both), 21 differ (`nan-token` 10, `replaced-lone-surrogate` 10, `read-depth` 2, one document in two), 0 unexplained |
+| S3-5 | 2026-10-02T05:47:46Z | (M) | go1.27.1 darwin/arm64, `GOEXPERIMENT=nojsonv2` | the same test | the same counts |
+| S3-6 | 2026-10-02T05:47:55Z | (L) | go1.27.1 linux/amd64 | the same test, the same files | the same counts |
+| S3-7 | 2026-10-02T05:47:55Z | (L) | go1.27.1 linux/amd64, `GOEXPERIMENT=nojsonv2` | the same test | the same counts |
+| S3-8 | 2026-10-02T05:47:44Z | (M) | go1.27.1 darwin/arm64, default and `GOEXPERIMENT=nojsonv2` | the same test on the committed files | floats 6 000 of 6 000 for each writer; documents 1 482 of 1 500 agree (1 302 equal bytes, 180 refused by both), 18 differ (`nan-token` 10, `replaced-lone-surrogate` 7, `read-depth` 2, one document in two), 0 unexplained |
+| S3-9 | 2026-10-02T05:47:48Z | (L) | go1.27.1 linux/amd64, default and `GOEXPERIMENT=nojsonv2` | the same test on the committed files | the same counts |
+| S3-10 | 2026-10-02T05:48:58Z | (M) | go1.27.1 darwin/arm64 | the test of S3-8 on thirteen copies of the committed files, each with one planted difference: an input bit, a byte of an expected float, a version in each header, a byte of an expected document, a refusal's kind, a refusal relabelled as accepted, a class removed (three ways), a class added (two ways), an unknown class name | every copy fails the test; the unchanged files pass |
+| S3-11 | 2026-10-02T05:47:46Z | (M) | as S3-4 and S3-5 | the test of S3-4 with the re-encoder reading invalid UTF-8, so that a lone surrogate is refused only where it is written | 9 988 of 10 000 agree (9 793 equal bytes, 195 refused by both), 12 differ (`nan-token` 10, `replaced-lone-surrogate` 0, `read-depth` 2), 0 unexplained |
+| S3-12 | 2026-10-02T05:47:55Z | (L) | as S3-6 and S3-7 | the same | the same counts |
+| S3-13 | 2026-10-02T05:49:24Z | (M) | go1.27.1 darwin/arm64, default and `GOEXPERIMENT=nojsonv2`, the JSON library at `v0.0.0-20260820222146-c27c302e5fc3` | in the module of S3-4, 35 documents around 10 000 nested containers, read by the JSON library alone (every token, duplicate names allowed) and by the re-encoder | the library refuses the token that opens the 10 001st container, arrays and objects alike, and reads a scalar inside 10 000; the re-encoder refuses for depth at exactly the same documents |
+| S3-14 | 2026-10-02T05:49:27Z | (L) | go1.27.1 linux/amd64, default and `GOEXPERIMENT=nojsonv2`, the same library | the same | the same |
 
 ## S4: the seam with the Adapter's own error and report types
 
