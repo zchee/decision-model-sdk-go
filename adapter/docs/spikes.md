@@ -368,6 +368,8 @@ and the two hosts' observations are equal byte for byte.
 | S4-2 | 2026-10-02T04:41:20Z | (L) | go1.27.1 linux/amd64, the same SDK version | the same test, the same files | ok; 0 failed; the 80 observation lines equal (M)'s byte for byte |
 | S4-3 | 2026-10-02T04:41:01Z | (M) | as S4-1 | the same test twice with one expectation or one stand-in changed: the expected attempts of the non-answer class set to 3; the Adapter's error text made to hold the SDK's key | fails both times: 2 subtests for the wrong count; 16 subtests for the key, because the SDK then replaces the cause and `errors.As` no longer reaches the Adapter's error |
 | S4-4 | 2026-10-02T04:41:38Z | (L) | as S4-2 | the same two changed runs | fails both times, the same 2 and 16 subtests |
+| S4-5 | 2026-10-02T14:34:40Z | (M) | CPython 3.14.3, pydantic 2.13.4, pydantic-core 2.46.4, system-one-adapter 0.2.1, uv 0.12.19 | `testdata/python/gen_report_cases.py`, which runs through the script's first line, `uv run --script`, and its inline list of 14 pinned packages | writes `testdata/python/report_cases.jsonl`: upstream's usage and debug data for 17 fake-provider calls (FM6 4, FM7 7, FM8 1, FM9 1, FM11 4), 13 answered and 4 failed, each with the scenario that produced it; message contents and schemas as their sha256 and length; 34 240 bytes, sha256 `5f306b9ab3a2ad24fdef0994ecd5f243531d6a26a50ee5ef8c05d8d024fed5b2`, the committed file; a second run gives the same bytes |
+| S4-6 | 2026-10-02T14:34:41Z | (M) | the same | `testdata/python/gen_report_cases.py --check` | `report_cases.jsonl: equal to a fresh table` |
 
 ## S5: license detection by pkg.go.dev
 

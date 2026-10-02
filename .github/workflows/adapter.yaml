@@ -192,6 +192,7 @@ jobs:
             "./internal/jsonx FuzzStateEncode" # the state re-encoding
             "./internal/schema FuzzSchemaWriter" # the answer schema's text
             "./internal/schema FuzzValidate" # the strict check of a model's answer
+            ". FuzzReportJSON" # the Report as JSON, written and read back
           )
           # git ls-files runs in adapter/, so it lists this module's files only.
           declared="$({ git ls-files -z -- '*_test.go' | xargs -0 grep -H -o '^func Fuzz[A-Za-z0-9_]*' || true; } |
