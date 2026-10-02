@@ -1,0 +1,214 @@
+# Spikes
+
+A spike here is a measurement made before the code it informs was written:
+a question about Python, a provider, a tool or a service that reading could
+not settle. Each section below gives one question, the result that counts as
+a pass, the verdict, what the port does because of it, and one table row per
+measurement, so that a reader can run the measurement again.
+
+The answers are about
+[system-one-adapter-python](https://github.com/typesafe-ai/system-one-adapter-python)
+0.2.1 at commit `e1d4cc938204b22fc5a3c3aca7044072fe3f712d`, the release this
+module ports (`UpstreamVersion` and `UpstreamCommit` in
+[`../version.go`](../version.go)).
+
+## Hosts
+
+| Host | Description | `go version` |
+| --- | --- | --- |
+| (M) | darwin/arm64 | `go version go1.27.1 darwin/arm64` |
+| (L) | linux/amd64 | `go version go1.27.1 linux/amd64` |
+
+A comparison of floating-point results runs on both hosts against the same
+vector files, because the Go compiler may fuse `x*y + z` into one
+instruction on arm64 and does not on amd64.
+
+## The Python reference
+
+Every vector file under `testdata/python/` is written by a script in that
+directory, run on **CPython 3.14.3** with **pydantic 2.13.4** and
+**pydantic-core 2.46.4**:
+
+```sh
+uv run --python 3.14.3 --with pydantic==2.13.4 --with pydantic-core==2.46.4 testdata/python/<script>
+```
+
+Those are the versions behind upstream's expected responses: the 16
+recorded exchanges under [`../testdata/cassettes`](../testdata/cassettes)
+that carry an `x-stainless-runtime-version` header all say `3.14.3`, and
+upstream's `uv.lock` pins the two pydantic versions. Each vector file names
+the three versions in its header.
+
+The patch release matters because the result of `sum()` over floats depends
+on the CPython release, and upstream normalises probabilities with `sum()`.
+Measured on (M) at 2026-10-02T04:38:38Z: `sum([0.7, 0.2, 0.1])` is
+`0.9999999999999999` on CPython 3.11.15 and `1.0` on CPython 3.14.3.
+
+## Row format
+
+| Column | Content |
+| --- | --- |
+| Row | the spike and a number |
+| Date (UTC) | when the command started, from `date` |
+| Host | (M) or (L); `CI` for a GitHub-hosted runner |
+| Toolchain | the Go release, or the Python and package versions, and the tool's version |
+| Command | what was run; a `go` command runs in `adapter/`, a script path is relative to `adapter/` |
+| Result | what the command printed, reduced to the numbers the verdict rests on |
+
+## S1: the schema writer and the request bodies
+
+**Question.** Does a Go schema writer reproduce upstream's schema and
+request bodies?
+
+**Pass.** For each of the 24 recorded provider exchanges: the native schema
+equals the recorded one as a JSON value, the schema text of a prompted
+request equals the recorded text byte for byte, and the whole request body
+equals the recorded body as a JSON value.
+
+**Verdict.** pending
+
+| Row | Date (UTC) | Host | Toolchain | Command | Result |
+| --- | --- | --- | --- | --- | --- |
+
+## S2: Python's `sum()` of floats
+
+**Question.** Can Go reproduce the reference CPython's `sum()` of floats bit
+for bit?
+
+**Pass.** A Go port of CPython 3.14.3's float summation gives the same bits
+as `sum()` on 100 000 generated vectors, and the score and confidence
+formulas built on it give the same bits as upstream's, on both hosts.
+
+**Verdict.** pending
+
+| Row | Date (UTC) | Host | Toolchain | Command | Result |
+| --- | --- | --- | --- | --- | --- |
+
+## S3: `repr(float)` and `pydantic_core.to_json`
+
+**Question.** Can Go reproduce Python's `repr` of a float and
+pydantic-core's `to_json`, the two spellings upstream writes?
+
+**Pass.** Two Go float writers give the same bytes as `repr` and as
+`to_json` on 100 000 floats, and the Go re-encoding of a state gives the
+same bytes as `to_json(json.loads(document))` on 10 000 generated JSON
+documents, on both hosts; or each differing class is listed with a count.
+
+**Verdict.** pending
+
+| Row | Date (UTC) | Host | Toolchain | Command | Result |
+| --- | --- | --- | --- | --- | --- |
+
+## S4: the seam with the Adapter's own error and report types
+
+**Question.** Through the released TypeSafe SDK, does each failure class
+reach the caller as intended: can `errors.As` find the Adapter's error
+behind the SDK's timeout and connection errors, can the Report be read back
+from the SDK's error bodies, and how many attempts does the SDK's default
+retry policy make for each class?
+
+**Pass.** Each case behaves as the design of the seam says, or the design is
+corrected.
+
+**Verdict.** pending
+
+| Row | Date (UTC) | Host | Toolchain | Command | Result |
+| --- | --- | --- | --- | --- | --- |
+
+## S5: license detection by pkg.go.dev
+
+**Question.** Does pkg.go.dev detect the module's license?
+
+**Pass.** The library pkg.go.dev uses detects Apache-2.0 in
+[`../LICENSE`](../LICENSE) and MIT in
+[`../LICENSE-UPSTREAM`](../LICENSE-UPSTREAM), each over at least 90 % of the
+file.
+
+**Verdict.** Pass: Apache-2.0 over 100 % of `LICENSE`, MIT over 98.82 % of
+`LICENSE-UPSTREAM`.
+
+**What the port does because of it.** Nothing changes. pkg.go.dev's license
+policy page names `github.com/google/licensecheck` as its detector and lists
+the file names it reads; pkgsite's source sets the threshold, 75 % of the
+file. `LICENSE` is one of the names, so pkg.go.dev shows Apache-2.0 for the
+module and with it the documentation: pkgsite's own detector, run over this
+module's files, finds that one license at 99.25 % by its scanner, which
+knows more license texts than the library's built-in set. `LICENSE-UPSTREAM`
+is not one of the names, so pkg.go.dev does not read it and its license tab
+does not list the MIT text. The notice still ships: a module zip holds every
+file of the module, `LICENSE-UPSTREAM` among them, which is what the MIT
+license asks of a copy.
+
+| Row | Date (UTC) | Host | Toolchain | Command | Result |
+| --- | --- | --- | --- | --- | --- |
+| S5-1 | 2026-10-02T04:33:39Z | (M) | curl | `curl -fsSL https://pkg.go.dev/license-policy` | HTTP 200. The page names `github.com/google/licensecheck`, lists 44 license file names matched without regard to case (`LICENSE` is one; `LICENSE-UPSTREAM` is not), and names no threshold |
+| S5-2 | 2026-10-02T04:33:48Z | (M) | curl | `curl -fsSL https://raw.githubusercontent.com/golang/pkgsite/b0feb34c6d91fdea7d471ec6026383042ba8aa12/internal/licenses/licenses.go` | `coverageThreshold = 75`; a file whose name is not in the list is not read. The `go.mod` of the same commit requires licensecheck v0.3.1 |
+| S5-3 | 2026-10-02T04:34:19Z | (M) | go1.27.1 darwin/arm64, licensecheck v0.3.1 | `go run . LICENSE LICENSE-UPSTREAM`, where `.` is a program outside this module that prints the result of `licensecheck.Scan` for each file | `LICENSE`: Apache-2.0, 100.00 %, bytes 0 to 11357 of 11357. `LICENSE-UPSTREAM`: MIT, 98.82 %, bytes 13 to 1068 of 1068; the 13 bytes before the match are the title line |
+| S5-4 | 2026-10-02T04:36:19Z | (L) | go1.27.1 linux/amd64, licensecheck v0.3.1 | the same program on the same two files | the same |
+| S5-5 | 2026-10-02T04:34:19Z | (M) | go1.27.1 darwin/arm64, licensecheck v0.3.1 | the same program on two files that are not a license: the first 5000 bytes of `LICENSE` followed by 9000 bytes of prose, and 1068 bytes of prose | 0.00 % and no match for both, so the scan can fail the pass line |
+| S5-6 | 2026-10-02T04:36:19Z | (L) | go1.27.1 linux/amd64, licensecheck v0.3.1 | the same program on the same two files that are not a license | the same |
+| S5-7 | 2026-10-02T04:52:55Z | (M) | go1.27.1 darwin/arm64, pkgsite at commit `b0feb34c6d91` | `go test -run TestAdapterTree ./internal/licenses/` in a clone of `golang/pkgsite`, with a test added there that runs pkgsite's own detector (`NewDetectorFS`) over this module's files | the module is redistributable; the detector lists one license file, `LICENSE`, Apache-2.0, 99.25 % by pkgsite's scanner, and does not list `LICENSE-UPSTREAM` |
+
+## S6: the reach of the repository's `golangci-lint run`
+
+**Question.** Does `golangci-lint run` at the repository root reach
+`adapter/`, and does the adapter pass the repository's lint configuration?
+
+**Pass.** The reach is recorded, whichever it is.
+
+**Verdict.** Recorded: the root run does not reach `adapter/`, and the
+adapter passes the root's configuration with 0 issues. The result is the
+same with golangci-lint v2.13.2 and with v2.14.0, the release the
+repository's workflows installed when this was measured.
+
+**What the port does because of it.** The module is linted by its own
+workflow, `.github/workflows/adapter.yaml`, which runs
+`golangci-lint run --config ../.golangci.yaml ./...` in `adapter/`: one rule
+set for the repository, two runs. The root's run is given the packages of
+`./...` in the root module, and `go list ./...` there stops at
+`adapter/go.mod`. The root's
+`golangci-lint fmt --diff` is different: it walks every tracked Go file, so
+it checks the adapter's formatting as well.
+
+| Row | Date (UTC) | Host | Toolchain | Command | Result |
+| --- | --- | --- | --- | --- | --- |
+| S6-1 | 2026-10-02T04:34:50Z | (M) | go1.27.1 darwin/arm64, golangci-lint v2.13.2 | `golangci-lint run --verbose` at the repository root | exit 0, `0 issues.`; no output line names `adapter`; `go list ./...` at the root gives 17 packages, none under `adapter/` |
+| S6-2 | 2026-10-02T04:35:15Z | (M) | the same | `golangci-lint run --config ../.golangci.yaml ./...` | exit 0, `0 issues.` |
+| S6-3 | 2026-10-02T04:35:26Z | (M) | the same | `golangci-lint run` at the repository root of a copy with an unchecked `os.Chdir` error planted in a new file `adapter/planted.go` | exit 0, `0 issues.`: the root run does not see the file |
+| S6-4 | 2026-10-02T04:35:26Z | (M) | the same | `golangci-lint run --config ../.golangci.yaml ./...` in `adapter/` of that copy | exit 1, `adapter/planted.go:9:26: Error return value of os.Chdir is not checked (errcheck)` |
+| S6-5 | 2026-10-02T04:35:29Z | (M) | the same | `golangci-lint run` at the repository root of a copy with the same file planted in the root package | exit 1, `planted.go:9:26: Error return value of os.Chdir is not checked (errcheck)`: the root run reports in its own module what it does not report under `adapter/` |
+| S6-6 | 2026-10-02T04:51:55Z | (M) | go1.27.1 darwin/arm64, golangci-lint v2.14.0 | the five commands of S6-1 to S6-5 (the first without `--verbose`), on the same copies | the same exit codes and the same two `errcheck` lines: 0, 0, 0, 1, 1 |
+| S6-7 | 2026-10-02T04:51:59Z | CI | go1.27.1 linux/amd64, golangci-lint v2.14.0 | `gh run view <run> --log` for the two lint jobs at the commit the measurements above were made on | both jobs print `Requested golangci-lint 'latest', using 'v2.14.0'` and `0 issues.`: the root's job runs `golangci-lint run` at the repository root, the adapter's runs `golangci-lint run --path-mode=abs --config ../.golangci.yaml` in `adapter/` |
+
+## S7: pydantic's strict-mode verdicts
+
+**Question.** Which answers does pydantic accept, and which does it refuse,
+when upstream's generated models validate an edge input: duplicate member
+names, `-0`, `1e0`, `1.0` for an integer, `1` for a number, `true` for a
+number, huge integers, a `NaN` token, a byte order mark, trailing data?
+
+**Pass.** A table of verdicts, complete for those inputs and for every
+model each applies to, that the Go validator must match.
+
+**Verdict.** pending
+
+| Row | Date (UTC) | Host | Toolchain | Command | Result |
+| --- | --- | --- | --- | --- | --- |
+
+## S8: Codecov with two modules
+
+**Question.** Does Codecov accept a configuration that measures the SDK and
+the adapter apart, as two components with their own statuses, and does it
+map the adapter's coverage profile to paths under `adapter/`?
+
+**Pass.** Codecov's validator accepts `.codecov.yaml`, and the first upload
+of the adapter's profile shows paths under `adapter/`.
+
+**Verdict.** pending. The validator half is measured and passes (rows S8-1
+to S8-3); the upload half is not measured yet.
+
+| Row | Date (UTC) | Host | Toolchain | Command | Result |
+| --- | --- | --- | --- | --- | --- |
+| S8-1 | 2026-10-02T04:35:53Z | (M) | curl | `curl -fsSL https://docs.codecov.com/docs/codecov-yaml` | the section "Validate your repository YAML" names the endpoint, `curl --data-binary @codecov.yml https://codecov.io/validate`, and says that an invalid file is answered with status 400 |
+| S8-2 | 2026-10-02T04:35:54Z | (M) | curl | `curl -sS -X POST --data-binary @.codecov.yaml https://codecov.io/validate` at the repository root | HTTP 200, `Valid!`, then the configuration as Codecov reads it: `project: off` and `patch: off` as `false`; `name_prefix` as written, `default-` and `goal-`; the component paths `"!adapter/**"` and `adapter/**` as `!(?s:adapter/.*)\Z` and `(?s:adapter/.*)\Z` |
+| S8-3 | 2026-10-02T04:36:05Z | (M) | curl | the same on three changed copies, one change each: `name_prefix` misspelt, `project: maybe`, a number in place of a path | HTTP 400 each, with the place of the error: the validator refuses an unknown key, a wrong value and a wrong type, so its `Valid!` is a result |
