@@ -178,7 +178,8 @@ func (ad *Adapter) RoundTrip(req *http.Request) (*http.Response, error) {
 	ad.running.Add(1)
 	ad.mu.Unlock()
 	defer ad.running.Done()
-	r := ad.serve(req.Context(), req.Method, req.URL.Path, req.Header.Get("X-TypeSafe-Retry-Count"), body, readErr)
+	id := newRequestID()
+	r := ad.serve(req.Context(), id, req.Method, req.URL.Path, req.Header.Get("X-TypeSafe-Retry-Count"), body, readErr)
 	if r.err != nil {
 		return nil, r.err
 	}
@@ -188,7 +189,7 @@ func (ad *Adapter) RoundTrip(req *http.Request) (*http.Response, error) {
 		Proto:         "HTTP/1.1",
 		ProtoMajor:    1,
 		ProtoMinor:    1,
-		Header:        responseHeader(len(r.body), newRequestID()),
+		Header:        responseHeader(len(r.body), id),
 		Body:          io.NopCloser(bytes.NewReader(r.body)),
 		ContentLength: int64(len(r.body)),
 		Request:       req,

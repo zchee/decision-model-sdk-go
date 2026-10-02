@@ -184,6 +184,9 @@ type evalConfig struct {
 	// random is the jitter source of the retry waits, a math/rand/v2
 	// Float64; nil means rand.Float64.
 	random func() float64
+	// observe is told of each provider attempt, for the Adapter's log
+	// records; nil observes nothing.
+	observe *attemptLog
 }
 
 // answer is one question's converted answer (_client.py:118-165), ready
@@ -310,6 +313,7 @@ type run struct {
 func (r *run) decode(messages []llm.Message) ([]schema.Answer, error) {
 	record := func(reason RetryReason) {
 		r.report.Debug.RetryReasons = append(r.report.Debug.RetryReasons, reason)
+		r.cfg.observe.retried()
 	}
 	for corrective := 0; ; corrective++ {
 		res, retries, err := runWithRetries(r.ctx, r.cfg.retry, r.cfg.random, func() (*llm.Result, error) { return r.request(messages) }, record)
@@ -326,6 +330,7 @@ func (r *run) decode(messages []llm.Message) ([]schema.Answer, error) {
 		if !ok {
 			return nil, err
 		}
+		r.cfg.observe.malformed()
 		text := validationText(verr)
 		if corrective >= r.cfg.malformedRetries {
 			return nil, &malformedError{validation: text}
@@ -349,7 +354,9 @@ const categoryMalformed = "malformed_structure"
 func (r *run) request(messages []llm.Message) (*llm.Result, error) {
 	trace := new(llm.Trace)
 	structured := r.cfg.output == Structured
+	r.cfg.observe.start()
 	res, err := r.provider.Do(r.ctx, &llm.Request{Messages: slices.Clone(messages), Schema: bytes.Clone(r.schema), Structured: structured, Trace: trace})
+	r.cfg.observe.finish(r.ctx, len(r.report.Debug.Attempts)+1, trace.API(), err, res == nil)
 	a := Attempt{
 		Messages:   slices.Clone(messages),
 		Schema:     bytes.Clone(r.schema),

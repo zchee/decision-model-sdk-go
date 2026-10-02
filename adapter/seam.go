@@ -21,12 +21,14 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/zchee/decision-model-sdk-go/adapter/internal/jsonx"
 	"github.com/zchee/decision-model-sdk-go/adapter/internal/schema"
@@ -92,8 +94,9 @@ type request struct {
 // http.Request RoundTrip read: the method and the path, which route it;
 // the context; the X-TypeSafe-Retry-Count value, which it records and
 // refuses nothing for; and the body, read to its end, with the error of
-// that read.
-func (ad *Adapter) serve(ctx context.Context, method, path, retryCount string, body []byte, readErr error) reply {
+// that read. id is the response's request id, which the log records of
+// the call carry.
+func (ad *Adapter) serve(ctx context.Context, id, method, path, retryCount string, body []byte, readErr error) reply {
 	switch {
 	case method == http.MethodGet && strings.HasSuffix(path, modelsPath):
 		return ad.modelsReply()
@@ -131,6 +134,9 @@ func (ad *Adapter) serve(ctx context.Context, method, path, retryCount string, b
 	if err := cfg.retry.check(); err != nil {
 		return refusalReply(&refusal{status: 400, errorType: "invalid_retry", message: err.Error()})
 	}
+	if ad.logger != nil {
+		cfg.observe = &attemptLog{logger: ad.logger, ctx: ctx, requestID: id, provider: t.name, model: t.model}
+	}
 	result, report, err := evaluate(ctx, cfg, p, req.state, questions)
 	if report == nil {
 		if errors.Is(err, jsonx.ErrDepth) {
@@ -140,6 +146,11 @@ func (ad *Adapter) serve(ctx context.Context, method, path, retryCount string, b
 		return refusalReply(&refusal{status: encodingFailedStatus, errorType: "adapter_internal", message: internalFailureText})
 	}
 	report.Debug.SDKRetryCount = sdkRetries
+	answers := 0
+	if result != nil {
+		answers = len(result.answers)
+	}
+	cfg.observe.call(report, answers)
 	if err != nil {
 		return failureReply(ctx, t, p, report, err)
 	}
@@ -449,4 +460,193 @@ func responseHeader(n int, id string) http.Header {
 	h.Set("Content-Length", strconv.Itoa(n))
 	h.Set(requestIDHeader, id)
 	return h
+}
+
+// outcome is how a provider attempt ended, as its log record names it.
+type outcome uint8
+
+const (
+	outcomeOK outcome = iota + 1
+	outcomeStatus
+	outcomeTimeout
+	outcomeConnection
+	outcomeNonAnswer
+	outcomeMalformed
+	// outcomeError is an attempt whose error is none of llm's typed errors:
+	// a custom provider's own error, a provider that returned neither a
+	// result nor an error, or a cancelled call.
+	outcomeError
+)
+
+// outcomeWords are the outcomes' words in the log records.
+var outcomeWords = [...]string{
+	outcomeOK:         "ok",
+	outcomeStatus:     "status",
+	outcomeTimeout:    "timeout",
+	outcomeConnection: "connection",
+	outcomeNonAnswer:  "non_answer",
+	outcomeMalformed:  "malformed",
+	outcomeError:      "error",
+}
+
+func (o outcome) String() string { return outcomeWords[o] }
+
+// attemptOutcome returns the outcome of a provider attempt that returned
+// err, and the provider's status for a status error, by the error's type
+// alone, in the order classifyError gives the attempt its class: a
+// cancelled call first, then llm's typed errors, then a passed deadline.
+// noResult reports that the provider returned no result.
+func attemptOutcome(ctx context.Context, err error, noResult bool) (outcome, int) {
+	switch {
+	case err == nil && noResult:
+		return outcomeError, 0
+	case err == nil:
+		return outcomeOK, 0
+	case errors.Is(ctx.Err(), context.Canceled):
+		return outcomeError, 0
+	}
+	if _, ok := errors.AsType[*llm.TimeoutError](err); ok {
+		return outcomeTimeout, 0
+	}
+	if _, ok := errors.AsType[*llm.ConnectionError](err); ok {
+		return outcomeConnection, 0
+	}
+	if e, ok := errors.AsType[*llm.StatusError](err); ok {
+		return outcomeStatus, e.StatusCode
+	}
+	if _, ok := errors.AsType[*llm.NonAnswerError](err); ok {
+		return outcomeNonAnswer, 0
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return outcomeTimeout, 0
+	}
+	return outcomeError, 0
+}
+
+// attemptEvent is one provider attempt as its log record shows it. It
+// holds no text a provider wrote: the api is the name the provider's own
+// code recorded in its trace.
+type attemptEvent struct {
+	// attempt is the attempt's number from 1, in the order of the Report's
+	// attempts.
+	attempt  int
+	api      string
+	outcome  outcome
+	status   int
+	duration time.Duration
+	// retry reports that a retry follows the attempt.
+	retry bool
+}
+
+// attemptLog writes one call's records to the Adapter's logger: a record
+// per provider attempt at DEBUG, and the call's record at INFO. An
+// attempt's record is written when the next attempt starts or the call's
+// record is, as only then is it known whether a retry follows it. The
+// records hold integers, durations and fixed words, and the provider's
+// name, the model and the api; never a message, a body, a header or an
+// error's text. Its methods do nothing on a nil *attemptLog.
+type attemptLog struct {
+	logger    *slog.Logger
+	ctx       context.Context
+	requestID string
+	// provider is the provider's name, not its Go type.
+	provider string
+	model    string
+	// started is when the running attempt started.
+	started time.Time
+	// pending is the attempt not yet written; attempt is 0 when there is
+	// none.
+	pending attemptEvent
+}
+
+// start notes that an attempt starts now.
+func (l *attemptLog) start() {
+	if l != nil {
+		l.started = time.Now()
+	}
+}
+
+// finish notes the end of attempt number n, whose provider recorded api
+// and returned err, and no result when noResult is set; it writes the
+// record of the attempt before it.
+func (l *attemptLog) finish(ctx context.Context, n int, api string, err error, noResult bool) {
+	if l == nil {
+		return
+	}
+	d := time.Since(l.started)
+	l.flush()
+	o, status := attemptOutcome(ctx, err, noResult)
+	l.pending = attemptEvent{attempt: n, api: api, outcome: o, status: status, duration: d}
+}
+
+// malformed notes that the last attempt's output does not match the
+// schema.
+func (l *attemptLog) malformed() {
+	if l != nil {
+		l.pending.outcome = outcomeMalformed
+	}
+}
+
+// retried notes that a retry follows the last attempt.
+func (l *attemptLog) retried() {
+	if l != nil {
+		l.pending.retry = true
+	}
+}
+
+// flush writes the pending attempt's record: request_id, provider, model,
+// api, attempt, outcome, status for a status outcome, duration, and retry
+// when a retry follows, whose word is the RetryReason category of that
+// retry.
+func (l *attemptLog) flush() {
+	e := l.pending
+	if e.attempt == 0 {
+		return
+	}
+	l.pending = attemptEvent{}
+	attrs := make([]slog.Attr, 0, 9)
+	attrs = append(attrs,
+		slog.String("request_id", l.requestID),
+		slog.String("provider", l.provider),
+		slog.String("model", l.model),
+		slog.String("api", e.api),
+		slog.Int("attempt", e.attempt),
+		slog.String("outcome", e.outcome.String()),
+	)
+	if e.outcome == outcomeStatus {
+		attrs = append(attrs, slog.Int("status", e.status))
+	}
+	attrs = append(attrs, slog.Duration("duration", e.duration))
+	if e.retry {
+		category := categoryProviderError
+		if e.outcome == outcomeMalformed {
+			category = categoryMalformed
+		}
+		attrs = append(attrs, slog.String("retry", category))
+	}
+	l.logger.LogAttrs(l.ctx, slog.LevelDebug, "attempt", attrs...)
+}
+
+// call writes the record of the last attempt and then the call's record:
+// request_id, model, answers (the number of answers written, 0 when
+// none), n_retries, n_retries_malformed_structure, latency, and
+// sdk_retry_count when the request carried a valid X-TypeSafe-Retry-Count.
+func (l *attemptLog) call(report *Report, answers int) {
+	if l == nil {
+		return
+	}
+	l.flush()
+	attrs := make([]slog.Attr, 0, 7)
+	attrs = append(attrs,
+		slog.String("request_id", l.requestID),
+		slog.String("model", l.model),
+		slog.Int("answers", answers),
+		slog.Int("n_retries", report.Usage.Retries),
+		slog.Int("n_retries_malformed_structure", report.Usage.MalformedRetries),
+		slog.Duration("latency", report.Usage.Latency),
+	)
+	if report.Debug.SDKRetryCount > 0 {
+		attrs = append(attrs, slog.Int("sdk_retry_count", report.Debug.SDKRetryCount))
+	}
+	l.logger.LogAttrs(l.ctx, slog.LevelInfo, "call", attrs...)
 }

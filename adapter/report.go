@@ -449,7 +449,10 @@ func intValue(n int) jsonx.Value { return jsonx.Number(strconv.Itoa(n)) }
 // upstream does not always write (original_probabilities, sdk_retry_count,
 // api, finish_reason, error, error_type, the encodings, request) may be
 // absent. It fails when b is not one JSON text, when usage or debug is
-// absent, or when a member it reads has the wrong kind.
+// absent, or when a member it reads has the wrong kind. The error may
+// quote a member's text from b, which can be a provider's text, such as
+// its error message or its response body; treat it as such before logging
+// it.
 func (r *Report) UnmarshalJSON(b []byte) error {
 	root, err := jsonx.Read(b)
 	if err != nil {
@@ -759,7 +762,9 @@ type reportCarrier interface {
 
 // ReportOf returns the Report in resp's body (ResponseMeta.RawBody): the
 // usage and debug of an answer the Adapter gave. It fails when the body
-// holds no Report, as a body from another server does not.
+// holds no Report, as a body from another server does not. The error may
+// quote a member's text from the body, which can be a provider's text, as
+// UnmarshalJSON's can.
 func ReportOf(resp *decision.SystemOneResponse) (*Report, error) {
 	if resp == nil {
 		return nil, fmt.Errorf("%w: no response", errReport)

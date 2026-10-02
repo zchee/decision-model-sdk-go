@@ -128,8 +128,21 @@ func WithFactory(name string, f llm.Factory) Option {
 	}
 }
 
-// WithLogger sets the logger of the Adapter's attempt and call records
-// (default: none). A nil l logs nothing.
+// WithLogger sets the logger of the Adapter's records (default: none). A
+// nil l logs nothing.
+//
+// Each provider attempt gets a record at slog.LevelDebug with request_id
+// (the response's X-Typesafe-Request-Id), provider (the name it was given
+// or registered under), model, api, attempt (from 1), outcome (ok, status,
+// timeout, connection, non_answer, malformed, or error for an error of
+// none of those kinds), status for a status outcome, duration, and retry
+// (provider_error or malformed_structure) when a retry follows. Each call
+// whose evaluation started gets one record at slog.LevelInfo with
+// request_id, model, answers (0 when none were written), n_retries,
+// n_retries_malformed_structure, latency, and sdk_retry_count when the
+// request was a retry of the SDK. No record holds a message, the state, a
+// schema, a body, a header, a key or an error's text, and a request
+// refused before its evaluation logs nothing.
 func WithLogger(l *slog.Logger) Option {
 	return func(o *options) { o.logger = l }
 }
