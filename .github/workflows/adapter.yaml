@@ -8,6 +8,7 @@ on:
   push:
     branches:
       - main
+      - "wave/a*" # a wave branch's push runs this workflow: a workflow not on the default branch cannot be dispatched
     tags:
       - "v*" # a root tag: root-head then shows whether the tagged root still serves the adapter
   pull_request:
