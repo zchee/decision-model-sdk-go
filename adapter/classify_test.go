@@ -909,3 +909,205 @@ func TestUnencodableBodyAnswers424(t *testing.T) {
 		})
 	}
 }
+
+// TestErrorChainSurvivesTheSDK checks the route of the Report for a
+// provider timeout and connection failure: the SDK wraps the Adapter's
+// Error in a *decision.TimeoutError or *decision.ConnectionError and
+// errors.As reaches it, also when the client's key, the provider's messages,
+// a provider URL's query and a transport error's text all hold one canary,
+// because no link of the chain prints any of them under Error, %+v or %#v.
+// Under the SDK's DefaultRetry the caller's error is the third attempt's,
+// whose Report records two earlier SDK attempts. An error type that prints
+// the key and has no Format method is replaced by the SDK, so errors.As no
+// longer reaches it.
+func TestErrorChainSurvivesTheSDK(t *testing.T) {
+	tests := map[string]struct {
+		err      func(canary string) error
+		wantType string
+		wantKind ErrorKind
+	}{
+		"timeout": {
+			err: func(canary string) error {
+				return &llm.TimeoutError{Err: fmt.Errorf("Post %q: %w", "https://provider.invalid/v1?key="+canary, context.DeadlineExceeded)}
+			},
+			wantType: "*decision.TimeoutError",
+			wantKind: KindTimeout,
+		},
+		"connection failure": {
+			err: func(canary string) error {
+				return &llm.ConnectionError{Err: fmt.Errorf("dial https://provider.invalid/v1?key=%s: %w", canary, syscall.ECONNREFUSED)}
+			},
+			wantType: "*decision.ConnectionError",
+			wantKind: KindConnection,
+		},
+	}
+	for name, tt := range tests {
+		for _, retried := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s, SDK retries %v", name, retried), func(t *testing.T) {
+				synctest.Test(t, func(t *testing.T) {
+					canary := canaryKey(t)
+					p := &funcProvider{do: func(_ context.Context, req *llm.Request) (*llm.Result, error) {
+						req.Trace.RecordRequest("responses", []byte(`{"url":"https://provider.invalid/v1?key=`+canary+`"}`))
+						return nil, tt.err(canary)
+					}}
+					policy := decision.NoRetry()
+					if retried {
+						policy = decision.DefaultRetry()
+					}
+					c := sdkClient(t, fakeAdapter(t, p), true, decision.WithAPIKey(canary), decision.WithRetry(policy), decision.WithNoTimeout())
+					_, err := c.SystemOne(t.Context(), "state "+canary, noulQuestions(t))
+					if got := fmt.Sprintf("%T", err); got != tt.wantType {
+						t.Fatalf("SystemOne error %s %v, want %s", got, err, tt.wantType)
+					}
+					ae, ok := errors.AsType[*Error](err)
+					if !ok || ae.Kind != tt.wantKind || ae.Report == nil {
+						t.Fatalf("errors.As did not reach the Adapter's Error in %v", err)
+					}
+					for e := err; e != nil; e = errors.Unwrap(e) {
+						for _, verb := range []string{"%v", "%+v", "%#v", "%s"} {
+							if s := fmt.Sprintf(verb, e); strings.Contains(s, canary) {
+								t.Errorf("%s of a link %T prints the canary: %s", verb, e, s)
+							}
+						}
+					}
+					r, ok := ReportFromError(err)
+					want := 0
+					if retried {
+						want = 2
+					}
+					if !ok || r.Debug.SDKRetryCount != want {
+						t.Errorf("ReportFromError = %v, %v; want SDKRetryCount %d", r, ok, want)
+					}
+				})
+			})
+		}
+	}
+	t.Run("an error printing the key without Format is replaced", func(t *testing.T) {
+		key := canaryKey(t)
+		rt := rtFunc(func(*http.Request) (*http.Response, error) { return nil, &noKeyFormatError{key: key} })
+		c, err := decision.NewClient(decision.WithAPIKey(key), decision.WithRoundTripper(rt), decision.WithBaseURL(ownClientBaseURL), decision.WithRetry(decision.NoRetry()), decision.WithModel("fake"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer c.Close()
+		_, err = c.SystemOne(t.Context(), "state", noulQuestions(t))
+		if _, ok := errors.AsType[*noKeyFormatError](err); ok {
+			t.Errorf("errors.As reached an error that prints the key: %v", err)
+		}
+		e := &Error{Kind: KindTimeout, Provider: "p", Model: key}
+		if s := fmt.Sprintf("%#v", e); !strings.Contains(s, key) {
+			t.Errorf("the Error's own %%#v hides its fields: %s", s)
+		}
+	})
+}
+
+// TestReportFromErrorEveryClass checks that ReportFromError returns the
+// Report for every failure class whose evaluation started, and none for a
+// refusal before it, on a client whose key is a canary that the providers'
+// messages and bodies also hold: the Report travels in the error body,
+// which the SDK keeps whatever its text, or in the Adapter's Error.
+func TestReportFromErrorEveryClass(t *testing.T) {
+	for name, tt := range classCases() {
+		t.Run(name, func(t *testing.T) {
+			canary := canaryKey(t)
+			build := tt.build
+			if build == nil {
+				outcome := tt.outcome
+				switch name {
+				case "non_answer":
+					outcome = fake.Error(&llm.NonAnswerError{Message: "refused " + canary})
+				case "provider status 400", "provider status 503":
+					outcome = fake.Error(&llm.StatusError{StatusCode: 400, Body: []byte(`{"error":{"message":"` + canary + `"}}`)})
+				}
+				build = func(t testing.TB) (*Adapter, func() int) {
+					p := fake.New(outcome)
+					return fakeAdapter(t, p), p.Calls
+				}
+			}
+			ad, _ := build(t)
+			if tt.closed {
+				_ = ad.Close()
+			}
+			c := sdkClient(t, ad, true, decision.WithAPIKey(canary), decision.WithRetry(decision.NoRetry()), decision.WithNoTimeout())
+			questions := noulQuestions(t)
+			if tt.questions != nil {
+				questions = tt.questions(t)
+			}
+			state := tt.state
+			if state == nil {
+				state = "state"
+			}
+			_, err := c.SystemOne(t.Context(), state, questions, tt.call...)
+			r, ok := ReportFromError(err)
+			if ok != tt.want.report {
+				t.Fatalf("ReportFromError ok = %v, want %v (%v)", ok, tt.want.report, err)
+			}
+			if ok && len(r.Debug.Attempts) == 0 {
+				t.Error("the Report has no attempt")
+			}
+		})
+	}
+}
+
+// TestCancelledCallReturnsContextError checks that a call whose context is
+// cancelled while the provider works returns the context's error itself,
+// without a Report and without another attempt, on a client from NewClient
+// and on one with the SDK's DefaultRetry (DV2).
+func TestCancelledCallReturnsContextError(t *testing.T) {
+	for _, own := range []bool{false, true} {
+		t.Run(fmt.Sprintf("own client %v", own), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				p := &funcProvider{do: func(pctx context.Context, _ *llm.Request) (*llm.Result, error) {
+					cancel()
+					<-pctx.Done()
+					return nil, &llm.TimeoutError{Err: pctx.Err()}
+				}}
+				var opts []decision.ClientOption
+				if own {
+					opts = []decision.ClientOption{decision.WithRetry(decision.DefaultRetry())}
+				}
+				c := sdkClient(t, fakeAdapter(t, p), own, opts...)
+				_, err := c.SystemOne(ctx, "state", noulQuestions(t))
+				if err != context.Canceled { //nolint:errorlint // the call returns the context's error itself.
+					t.Fatalf("SystemOne error = %T %v, want context.Canceled itself", err, err)
+				}
+				if _, ok := ReportFromError(err); ok {
+					t.Error("a cancelled call carries a Report")
+				}
+				if c.Stats().Attempts != 1 {
+					t.Errorf("attempts %d, want 1", c.Stats().Attempts)
+				}
+			})
+		})
+	}
+}
+
+// TestProviderConfigFailure checks that a provider that cannot be built
+// fails the call with 400 provider_config and the factory's text instead
+// of raising (DV12), without a Report, and that the failure is not cached:
+// the next call builds again and is answered once the factory succeeds.
+func TestProviderConfigFailure(t *testing.T) {
+	var log factoryLog
+	log.steps = []fake.Outcome{fake.Text(noulAnswer)}
+	log.fail = errors.New("OPENAI_API_KEY is not set")
+	ad := newAdapter(t, WithFactory("openai", log.factory("openai")), WithFactory("nil", func(string) (llm.Provider, error) { return nil, nil }), WithDefaultModel("openai:gpt-x"))
+	c := sdkClient(t, ad, false)
+	_, err := c.SystemOne(t.Context(), "state", noulQuestions(t))
+	status, errorType, message, report := apiErrorParts(err)
+	if status != 400 || errorType != "provider_config" || message != "OPENAI_API_KEY is not set" || report {
+		t.Fatalf("first call: %d %q %q report %v", status, errorType, message, report)
+	}
+	if _, err := c.SystemOne(t.Context(), "state", noulQuestions(t)); err != nil {
+		t.Fatalf("second call: %v", err)
+	}
+	if got := log.snapshot()["openai"]; len(got) != 2 {
+		t.Errorf("builds %q, want two", got)
+	}
+	_, err = c.SystemOne(t.Context(), "state", noulQuestions(t), decision.Model("nil:m"))
+	status, errorType, message, _ = apiErrorParts(err)
+	if status != 400 || errorType != "provider_config" || message != `adapter: the factory "nil" returned no provider for model "m"` {
+		t.Errorf("a factory returning no provider: %d %q %q", status, errorType, message)
+	}
+}

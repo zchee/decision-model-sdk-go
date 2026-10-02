@@ -21,8 +21,12 @@ package adapter
 // their tests are added after them.
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -30,12 +34,16 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"testing/synctest"
+	"time"
 
 	decision "github.com/zchee/decision-model-sdk-go"
 
@@ -524,4 +532,458 @@ func reencodeResponse(t testing.TB, resp *decision.SystemOneResponse) ([]byte, *
 		t.Fatalf("UnmarshalJSON: %v", err)
 	}
 	return b, restored
+}
+
+// canaryKey returns an API key for a test that no text of the test
+// contains: a fixed prefix and 16 random hex digits.
+func canaryKey(t testing.TB) string {
+	t.Helper()
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		t.Fatal(err)
+	}
+	return "ts-canary-" + hex.EncodeToString(b[:])
+}
+
+// scripted is an http.RoundTripper of a test for the SDK's side of the
+// seam: it reads and closes the request body as the Adapter does, records
+// each request's body, header map and retry count, and answers with the
+// script's response or error for the attempt.
+type scripted struct {
+	mu       sync.Mutex
+	bodies   [][]byte
+	nilBody  []bool
+	getBody  []bool
+	headers  []http.Header
+	counts   []string
+	ctxs     []context.Context
+	closes   int
+	idles    int
+	script   func(req *http.Request, attempt int) (*http.Response, error)
+	requests int
+}
+
+func (s *scripted) RoundTrip(req *http.Request) (*http.Response, error) {
+	var body []byte
+	if req.Body != nil {
+		body, _ = io.ReadAll(req.Body)
+		_ = req.Body.Close()
+	}
+	s.mu.Lock()
+	attempt := s.requests
+	s.requests++
+	s.bodies = append(s.bodies, body)
+	s.nilBody = append(s.nilBody, req.Body == nil)
+	s.getBody = append(s.getBody, req.GetBody != nil)
+	s.headers = append(s.headers, req.Header)
+	s.counts = append(s.counts, req.Header.Get("X-TypeSafe-Retry-Count"))
+	s.ctxs = append(s.ctxs, req.Context())
+	s.mu.Unlock()
+	return s.script(req, attempt)
+}
+
+func (s *scripted) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closes++
+	return nil
+}
+
+func (s *scripted) CloseIdleConnections() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.idles++
+}
+
+// respondWith returns the response the Adapter gives with status and body.
+func respondWith(req *http.Request, status int, body []byte) *http.Response {
+	return &http.Response{
+		Status: strconv.Itoa(status) + " " + http.StatusText(status), StatusCode: status,
+		Proto: "HTTP/1.1", ProtoMajor: 1, ProtoMinor: 1,
+		Header:        responseHeader(len(body), newRequestID()),
+		Body:          io.NopCloser(bytes.NewReader(body)),
+		ContentLength: int64(len(body)),
+		Request:       req,
+	}
+}
+
+// seamClient returns a client of the SDK with key whose transport is rt,
+// with policy and opts.
+func seamClient(t testing.TB, rt http.RoundTripper, key string, policy decision.RetryPolicy, opts ...decision.ClientOption) *decision.Client {
+	t.Helper()
+	c, err := decision.NewClient(append([]decision.ClientOption{decision.WithAPIKey(key), decision.WithRoundTripper(rt), decision.WithBaseURL(ownClientBaseURL), decision.WithModel("fake"), decision.WithRetry(policy)}, opts...)...)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	return c
+}
+
+// sampleReport returns a Report of one attempt that failed with class.
+func sampleReport(class string) *Report {
+	return &Report{
+		Usage: Usage{InputTokensTotal: llm.Count{N: 3, Known: true}, OutputTokensTotal: llm.Count{N: 4, Known: true}, Latency: 1500 * time.Millisecond},
+		Debug: Debug{
+			Attempts:     []Attempt{{Messages: []llm.Message{{Role: "user", Content: "state"}}, Schema: []byte(`{"type":"object"}`), Info: AttemptInfo{ModelName: "m", Provider: "p", Error: "failed", ErrorType: class}}},
+			RetryReasons: []RetryReason{},
+		},
+	}
+}
+
+// bodyOf writes w, failing the test when it cannot.
+func bodyOf(t testing.TB, w writer) []byte {
+	t.Helper()
+	v, err := w()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := jsonx.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// noKeyFormatError is an error type of a test with no Format method whose
+// field holds a key: %+v and %#v print the field.
+type noKeyFormatError struct{ key string }
+
+func (e *noKeyFormatError) Error() string   { return "adapter: timeout" }
+func (e *noKeyFormatError) Timeout() bool   { return true }
+func (e *noKeyFormatError) Temporary() bool { return false }
+
+// seamContractChecks returns the checks of TestSeamContract, by the SDK
+// behaviour each asserts.
+func seamContractChecks() map[string]func(t *testing.T) {
+	return map[string]func(t *testing.T){
+		"a POST carries its body with GetBody, a GET carries none": func(t *testing.T) {
+			rt := &scripted{script: func(req *http.Request, _ int) (*http.Response, error) {
+				if req.Method == http.MethodGet {
+					return respondWith(req, http.StatusOK, []byte(`{"models":[]}`)), nil
+				}
+				return respondWith(req, http.StatusOK, []byte(`{"model":"m","usage":{"input_tokens":1,"output_tokens":1},"answers":{"answer":{"type":"noul","noul":0.5}},"debug":{}}`)), nil
+			}}
+			c := seamClient(t, rt, ownClientKey, decision.NoRetry())
+			resp, err := c.SystemOne(t.Context(), "state", noulQuestions(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := c.Models().List(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if err := c.WarmUp(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if rt.nilBody[0] || !rt.getBody[0] || !bytes.HasPrefix(rt.bodies[0], []byte(`{"state":"state","model":"fake","questions":{"answer":`)) {
+				t.Errorf("POST body nil %v, GetBody %v, body %s", rt.nilBody[0], rt.getBody[0], rt.bodies[0])
+			}
+			for i := 1; i < 3; i++ {
+				if !rt.nilBody[i] || rt.getBody[i] {
+					t.Errorf("GET %d: body nil %v, GetBody %v", i, rt.nilBody[i], rt.getBody[i])
+				}
+			}
+			if !bytes.HasPrefix(resp.Meta().RawBody(), []byte(`{"model":"m"`)) {
+				t.Errorf("RawBody %s", resp.Meta().RawBody())
+			}
+		},
+		"the raw body is the response's bytes, and a request id is read": func(t *testing.T) {
+			ad := fakeAdapter(t, fakeAnswering(noulAnswer))
+			var sent []byte
+			rt := rtFunc(func(req *http.Request) (*http.Response, error) {
+				resp, err := ad.RoundTrip(req)
+				if err == nil {
+					sent, _ = io.ReadAll(resp.Body)
+					resp.Body = io.NopCloser(bytes.NewReader(sent))
+				}
+				return resp, err
+			})
+			resp, err := seamClient(t, rt, ownClientKey, decision.NoRetry()).SystemOne(t.Context(), "state", noulQuestions(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(resp.Meta().RawBody(), sent) {
+				t.Error("RawBody differs from the bytes RoundTrip returned")
+			}
+			if id, ok := resp.Meta().RequestID(); !ok || !strings.HasPrefix(id, "adp_") {
+				t.Errorf("RequestID = %q, %v", id, ok)
+			}
+		},
+		"an error body is kept byte for byte, its detail read": func(t *testing.T) {
+			body := bodyOf(t, errorBody("the provider failed", "provider_status", nil, sampleReport("TypeSafeInternalServerError")))
+			rt := &scripted{script: func(req *http.Request, _ int) (*http.Response, error) {
+				return respondWith(req, http.StatusBadGateway, body), nil
+			}}
+			_, err := seamClient(t, rt, ownClientKey, decision.NoRetry()).SystemOne(t.Context(), "state", noulQuestions(t))
+			apiErr, ok := errors.AsType[*decision.APIError](err)
+			if !ok || !bytes.Equal(apiErr.Body, body) || apiErr.Message != "the provider failed" || apiErr.ErrorType != "provider_status" {
+				t.Fatalf("SystemOne error = %v", err)
+			}
+			if r, ok := ReportFromError(err); !ok || r.Debug.Attempts[0].Info.ErrorType != "TypeSafeInternalServerError" {
+				t.Errorf("ReportFromError = %v, %v", r, ok)
+			}
+		},
+		"answers null is a validation error of answers with the body kept": func(t *testing.T) {
+			body := bodyOf(t, malformedBody("m", sampleReport("")))
+			rt := &scripted{script: func(req *http.Request, _ int) (*http.Response, error) {
+				return respondWith(req, http.StatusOK, body), nil
+			}}
+			c := seamClient(t, rt, ownClientKey, decision.DefaultRetry())
+			_, err := c.SystemOne(t.Context(), "state", noulQuestions(t))
+			invalid, ok := errors.AsType[*decision.ResponseValidationError](err)
+			if !ok || invalid.StatusCode != http.StatusOK || invalid.FieldPath != "answers" || !bytes.Equal(invalid.Body, body) || c.Stats().Attempts != 1 {
+				t.Fatalf("SystemOne error = %v, attempts %d", err, c.Stats().Attempts)
+			}
+			if _, ok := ReportFromError(err); !ok {
+				t.Error("ReportFromError found no Report")
+			}
+		},
+		"a status's kind and the attempts of DefaultRetry": func(t *testing.T) {
+			kinds := map[int]decision.APIErrorKind{
+				400: decision.APIErrorBadRequest, 401: decision.APIErrorAuthentication, 403: decision.APIErrorPermissionDenied,
+				404: decision.APIErrorNotFound, 408: decision.APIErrorOther, 418: decision.APIErrorOther, 422: decision.APIErrorUnprocessableEntity,
+				424: decision.APIErrorOther, 429: decision.APIErrorRateLimit, 500: decision.APIErrorInternalServer, 503: decision.APIErrorInternalServer,
+			}
+			for status, kind := range kinds {
+				synctest.Test(t, func(t *testing.T) {
+					rt := &scripted{script: func(req *http.Request, _ int) (*http.Response, error) {
+						return respondWith(req, status, []byte(`{"detail":{"message":"m","error_type":"t"}}`)), nil
+					}}
+					c := seamClient(t, rt, ownClientKey, decision.DefaultRetry())
+					_, err := c.SystemOne(t.Context(), "state", noulQuestions(t))
+					apiErr, ok := errors.AsType[*decision.APIError](err)
+					want := uint64(1)
+					if status == 408 || status == 429 || status >= 500 {
+						want = 3
+					}
+					if !ok || apiErr.Kind != kind || c.Stats().Attempts != want {
+						t.Errorf("status %d: error %v, kind %v, attempts %d; want kind %v, attempts %d", status, err, apiErr.Kind, c.Stats().Attempts, kind, want)
+					}
+					if status == 401 && !apiErr.IsAuthentication() {
+						t.Error("a 401 is not IsAuthentication")
+					}
+				})
+			}
+		},
+		"the retry count is sent on retries only, with the earlier attempts": func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				rt := &scripted{script: func(req *http.Request, _ int) (*http.Response, error) {
+					return respondWith(req, http.StatusServiceUnavailable, []byte(`{"detail":{"message":"m","error_type":"t"}}`)), nil
+				}}
+				_, _ = seamClient(t, rt, ownClientKey, decision.DefaultRetry()).SystemOne(t.Context(), "state", noulQuestions(t))
+				if !slices.Equal(rt.counts, []string{"", "1", "2"}) {
+					t.Errorf("X-TypeSafe-Retry-Count per attempt = %q, want [\"\" 1 2]", rt.counts)
+				}
+				for i, h := range rt.headers {
+					_, canonical := h["X-Typesafe-Retry-Count"]
+					if canonical != (i > 0) {
+						t.Errorf("attempt %d: the canonical key present %v", i, canonical)
+					}
+				}
+			})
+		},
+		"the first attempts share the client's header map": func(t *testing.T) {
+			rt := &scripted{script: func(req *http.Request, _ int) (*http.Response, error) {
+				return respondWith(req, http.StatusNotFound, notFoundBody), nil
+			}}
+			c := seamClient(t, rt, ownClientKey, decision.NoRetry())
+			for range 2 {
+				_, _ = c.SystemOne(t.Context(), "state", noulQuestions(t))
+			}
+			if reflect.ValueOf(rt.headers[0]).UnsafePointer() != reflect.ValueOf(rt.headers[1]).UnsafePointer() {
+				t.Error("two first attempts got two header maps; RoundTrip's no-write rule would protect nothing shared")
+			}
+		},
+		"the deadline comes only through the context": func(t *testing.T) {
+			for name, tt := range map[string]struct {
+				opt  decision.ClientOption
+				want bool
+			}{"WithNoTimeout": {opt: decision.WithNoTimeout()}, "WithTimeout": {opt: decision.WithTimeout(5 * time.Second), want: true}} {
+				rt := &scripted{script: func(req *http.Request, _ int) (*http.Response, error) {
+					return respondWith(req, http.StatusNotFound, notFoundBody), nil
+				}}
+				_, _ = seamClient(t, rt, ownClientKey, decision.NoRetry(), tt.opt).SystemOne(t.Context(), "state", noulQuestions(t))
+				if _, has := rt.ctxs[0].Deadline(); has != tt.want {
+					t.Errorf("%s: the request's context has a deadline %v, want %v", name, has, tt.want)
+				}
+			}
+		},
+		"errors.As reaches the Error through both transport wrappers": func(t *testing.T) {
+			for _, policy := range []string{"NoRetry", "DefaultRetry"} {
+				for _, kind := range []ErrorKind{KindTimeout, KindConnection, KindClosed} {
+					synctest.Test(t, func(t *testing.T) {
+						key := canaryKey(t)
+						rt := &scripted{script: func(*http.Request, int) (*http.Response, error) {
+							e := &Error{Kind: kind}
+							if kind != KindClosed {
+								e.Provider, e.Model, e.Report = "openai", "gpt-x", sampleReport("TypeSafeAPITimeoutError")
+							}
+							if kind == KindConnection {
+								e.cause = syscall.ECONNREFUSED
+							}
+							return nil, e
+						}}
+						p := decision.NoRetry()
+						if policy == "DefaultRetry" {
+							p = decision.DefaultRetry()
+						}
+						c := seamClient(t, rt, key, p)
+						_, err := c.SystemOne(t.Context(), "state", noulQuestions(t))
+						ae, ok := errors.AsType[*Error](err)
+						wantType := "*decision.ConnectionError"
+						if kind == KindTimeout {
+							wantType = "*decision.TimeoutError"
+						}
+						if !ok || ae.Kind != kind || fmt.Sprintf("%T", err) != wantType {
+							t.Fatalf("%s %v: error %T %v; errors.As %v", policy, kind, err, err, ok)
+						}
+						if _, ok := ReportFromError(err); ok != (kind != KindClosed) {
+							t.Errorf("%s %v: ReportFromError %v", policy, kind, ok)
+						}
+						want := uint64(1)
+						if policy == "DefaultRetry" {
+							want = 3
+						}
+						if c.Stats().Attempts != want {
+							t.Errorf("%s %v: attempts %d, want %d", policy, kind, c.Stats().Attempts, want)
+						}
+					})
+				}
+			}
+		},
+		"an error that prints the key is replaced, so errors.As fails": func(t *testing.T) {
+			key := canaryKey(t)
+			rt := &scripted{script: func(*http.Request, int) (*http.Response, error) {
+				return nil, &noKeyFormatError{key: key}
+			}}
+			_, err := seamClient(t, rt, key, decision.NoRetry()).SystemOne(t.Context(), "state", noulQuestions(t))
+			if _, ok := errors.AsType[*noKeyFormatError](err); ok {
+				t.Errorf("errors.As reached an error whose %%#v prints the key: %v", err)
+			}
+			if _, ok := errors.AsType[*decision.TimeoutError](err); !ok {
+				t.Errorf("SystemOne error = %T %v, want a *decision.TimeoutError", err, err)
+			}
+		},
+		"a passed deadline wraps the Error, a cancellation drops it": func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+				defer cancel()
+				rt := &scripted{script: func(req *http.Request, _ int) (*http.Response, error) {
+					<-req.Context().Done()
+					return nil, &Error{Kind: KindTimeout, Provider: "openai", Model: "gpt-x", Report: sampleReport("TypeSafeAPITimeoutError")}
+				}}
+				_, err := seamClient(t, rt, ownClientKey, decision.DefaultRetry(), decision.WithNoTimeout()).SystemOne(ctx, "state", noulQuestions(t))
+				if te, ok := errors.AsType[*decision.TimeoutError](err); !ok || te.Timeout != 0 {
+					t.Fatalf("deadline: %v", err)
+				}
+				if _, ok := ReportFromError(err); !ok {
+					t.Error("deadline: no Report")
+				}
+			})
+			ctx, cancel := context.WithCancel(t.Context())
+			rt := &scripted{script: func(*http.Request, int) (*http.Response, error) {
+				cancel()
+				return nil, &Error{Kind: KindTimeout, Provider: "openai", Model: "gpt-x", Report: sampleReport("TypeSafeAPITimeoutError")}
+			}}
+			_, err := seamClient(t, rt, ownClientKey, decision.DefaultRetry()).SystemOne(ctx, "state", noulQuestions(t))
+			if err != context.Canceled { //nolint:errorlint // the SDK returns the context's error itself.
+				t.Errorf("cancellation: %T %v, want context.Canceled itself", err, err)
+			}
+			if _, ok := ReportFromError(err); ok {
+				t.Error("cancellation: a Report")
+			}
+		},
+		"the response size limit": func(t *testing.T) {
+			big := bytes.Repeat([]byte("x"), 17<<20)
+			success := append(append([]byte(`{"model":"m","usage":{"input_tokens":1,"output_tokens":1},"answers":{"answer":{"type":"noul","noul":0.5}},"debug":"`), big...), `"}`...)
+			failure := append(append([]byte(`{"detail":{"message":"m","error_type":"t"},"debug":"`), big...), `"}`...)
+			for name, tt := range map[string]struct {
+				status int
+				body   []byte
+				limit  int64
+				check  func(error) bool
+			}{
+				"a success over the default limit": {status: 200, body: success, check: func(err error) bool {
+					_, ok := errors.AsType[*decision.ResponseTooLargeError](err)
+					return ok
+				}},
+				"an error body over the default limit": {status: 424, body: failure, check: func(err error) bool {
+					apiErr, ok := errors.AsType[*decision.APIError](err)
+					return ok && len(apiErr.Body) == 0
+				}},
+				"a success under a limit of 1 GiB": {status: 200, body: success, limit: 1 << 30, check: func(err error) bool { return err == nil }},
+			} {
+				rt := &scripted{script: func(req *http.Request, _ int) (*http.Response, error) {
+					return respondWith(req, tt.status, tt.body), nil
+				}}
+				var opts []decision.ClientOption
+				if tt.limit > 0 {
+					opts = append(opts, decision.WithMaxResponseBytes(tt.limit))
+				}
+				_, err := seamClient(t, rt, ownClientKey, decision.NoRetry(), opts...).SystemOne(t.Context(), "state", noulQuestions(t))
+				if !tt.check(err) {
+					t.Errorf("%s: %T %v", name, err, err)
+				}
+			}
+		},
+		"Prepare refuses an empty set and a score without levels only": func(t *testing.T) {
+			if _, err := decision.NewQuestions().Prepare(); err == nil {
+				t.Error("an empty set is prepared")
+			}
+			for _, id := range []string{"empty-score-criteria"} {
+				if _, err := fm10Questions(id); err == nil {
+					t.Errorf("%s is prepared", id)
+				}
+			}
+			for _, id := range []string{"single-score-criterion", "empty-choice-criteria", "single-choice-criterion"} {
+				if _, err := fm10Questions(id); err != nil {
+					t.Errorf("%s is refused: %v", id, err)
+				}
+			}
+		},
+		"a 404 is an APIError of kind not found": func(t *testing.T) {
+			rt := &scripted{script: func(req *http.Request, _ int) (*http.Response, error) {
+				return respondWith(req, http.StatusNotFound, notFoundBody), nil
+			}}
+			_, err := seamClient(t, rt, ownClientKey, decision.NoRetry()).SystemOne(t.Context(), "state", noulQuestions(t))
+			if apiErr, ok := errors.AsType[*decision.APIError](err); !ok || apiErr.Kind != decision.APIErrorNotFound || apiErr.Message != "Not Found" {
+				t.Errorf("404: %v", err)
+			}
+		},
+		"Close closes the round tripper once and refuses later calls": func(t *testing.T) {
+			rt := &scripted{script: func(req *http.Request, _ int) (*http.Response, error) {
+				return respondWith(req, http.StatusNotFound, notFoundBody), nil
+			}}
+			c, err := decision.NewClient(decision.WithAPIKey(ownClientKey), decision.WithRoundTripper(rt), decision.WithBaseURL(ownClientBaseURL), decision.WithModel("fake"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := c.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if err := c.Close(); err != nil {
+				t.Errorf("a second Close = %v", err)
+			}
+			if _, err := c.SystemOne(t.Context(), "state", noulQuestions(t)); !errors.Is(err, decision.ErrClientClosed) || rt.requests != 0 {
+				t.Errorf("after Close: %v, requests %d", err, rt.requests)
+			}
+			if rt.closes != 1 || rt.idles != 1 {
+				t.Errorf("Close calls %d, CloseIdleConnections calls %d; want 1 and 1", rt.closes, rt.idles)
+			}
+		},
+		"two round trippers: the SDK keeps the last": func(t *testing.T) {
+			first := &scripted{script: func(req *http.Request, _ int) (*http.Response, error) {
+				return respondWith(req, http.StatusNotFound, notFoundBody), nil
+			}}
+			last := &scripted{script: first.script}
+			c, err := decision.NewClient(decision.WithAPIKey(ownClientKey), decision.WithRoundTripper(first), decision.WithRoundTripper(last), decision.WithBaseURL(ownClientBaseURL), decision.WithModel("fake"))
+			if err != nil {
+				t.Fatalf("the SDK refuses two round trippers (%v); NewClient's order of options rests on it accepting them", err)
+			}
+			_, _ = c.SystemOne(t.Context(), "state", noulQuestions(t))
+			_ = c.Close()
+			if first.requests != 0 || last.requests != 1 || first.closes != 0 {
+				t.Errorf("first: %d requests, %d closes; last: %d requests", first.requests, first.closes, last.requests)
+			}
+		},
+	}
 }

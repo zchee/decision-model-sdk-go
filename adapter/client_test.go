@@ -15,10 +15,13 @@
 package adapter
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -33,6 +36,7 @@ import (
 	decision "github.com/zchee/decision-model-sdk-go"
 
 	"github.com/zchee/decision-model-sdk-go/adapter/internal/fake"
+	"github.com/zchee/decision-model-sdk-go/adapter/internal/jsonx"
 	"github.com/zchee/decision-model-sdk-go/adapter/llm"
 )
 
@@ -538,6 +542,297 @@ func TestNewClientTransportIsTheAdapter(t *testing.T) {
 			c = sdkClient(t, ad, false)
 			if _, err := c.SystemOne(t.Context(), "state", noulQuestions(t)); err != nil || p.Calls() != 1 {
 				t.Errorf("after the refused option: SystemOne %v; provider calls %d", err, p.Calls())
+			}
+		})
+	}
+}
+
+// TestPlaceholderKeyNeverForwarded checks that the SDK's key never reaches
+// a provider, the Report or an error: neither NewClient's placeholder nor a
+// canary key of a client of the caller's own appears in any provider
+// request, response body or error text, on success and on failure. The
+// provider sees no header at all; its request holds only the messages and
+// the schema.
+func TestPlaceholderKeyNeverForwarded(t *testing.T) {
+	canary := canaryKey(t)
+	for name, outcome := range map[string]fake.Outcome{
+		"an answer":        fake.Text(noulAnswer),
+		"a status":         fake.Error(&llm.StatusError{StatusCode: http.StatusBadRequest, Body: []byte(`{"error":{"message":"bad"}}`)}),
+		"a timeout":        fake.Error(&llm.TimeoutError{}),
+		"malformed output": fake.Text("not JSON"),
+	} {
+		for _, own := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s, own client %v", name, own), func(t *testing.T) {
+				p := fake.New(outcome)
+				var opts []decision.ClientOption
+				if own {
+					opts = []decision.ClientOption{decision.WithAPIKey(canary), decision.WithRetry(decision.NoRetry())}
+				}
+				c := sdkClient(t, fakeAdapter(t, p), own, opts...)
+				resp, err := c.SystemOne(t.Context(), "state", noulQuestions(t))
+				texts := []string{}
+				if err != nil {
+					texts = append(texts, err.Error(), fmt.Sprintf("%+v", err), fmt.Sprintf("%#v", err), string(apiErrorBody(err)))
+				}
+				if resp != nil {
+					texts = append(texts, string(resp.Meta().RawBody()))
+				}
+				if r, ok := ReportFromError(err); ok {
+					b, merr := r.MarshalJSON()
+					if merr != nil {
+						t.Fatal(merr)
+					}
+					texts = append(texts, string(b))
+				}
+				for _, req := range p.Requests() {
+					texts = append(texts, string(req.Schema))
+					for _, m := range req.Messages {
+						texts = append(texts, m.Content)
+					}
+				}
+				for _, s := range texts {
+					for _, key := range []string{PlaceholderAPIKey, canary} {
+						if strings.Contains(s, key) {
+							t.Errorf("a text holds the key %q: %.200s", key, s)
+						}
+					}
+				}
+			})
+		}
+	}
+}
+
+// bigTrace returns a provider whose every request records a response body
+// of n bytes (valid JSON) and then answers with text, or fails with err
+// when err is not nil.
+func bigTrace(n int, text string, err error) *funcProvider {
+	body := []byte(`{"x":"` + strings.Repeat("a", n) + `"}`)
+	return &funcProvider{do: func(_ context.Context, req *llm.Request) (*llm.Result, error) {
+		req.Trace.RecordResponse(body, nil)
+		if err != nil {
+			return nil, err
+		}
+		return textResult(text), nil
+	}}
+}
+
+// TestReportLostOverTheLimit checks the size limit of a caller's own client
+// with the SDK's default of 16 MiB: an error body over it arrives empty and
+// a success body over it gives a *decision.ResponseTooLargeError, and in
+// both cases ReportFromError returns false; a client from NewClient, whose
+// limit is 1 GiB, keeps both.
+func TestReportLostOverTheLimit(t *testing.T) {
+	const n = 17 << 20
+	tests := map[string]struct {
+		err error
+	}{
+		"an error body":  {err: &llm.StatusError{StatusCode: http.StatusBadRequest}},
+		"a success body": {},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			own := sdkClient(t, fakeAdapter(t, bigTrace(n, noulAnswer, tt.err)), true, decision.WithRetry(decision.NoRetry()))
+			_, err := own.SystemOne(t.Context(), "state", noulQuestions(t))
+			if _, ok := ReportFromError(err); ok || err == nil {
+				t.Errorf("own client: error %v, ReportFromError %v; want an error without a Report", err, ok)
+			}
+			if tt.err == nil {
+				if _, ok := errors.AsType[*decision.ResponseTooLargeError](err); !ok {
+					t.Errorf("own client: %T, want *decision.ResponseTooLargeError", err)
+				}
+			} else if body := apiErrorBody(err); len(body) != 0 {
+				t.Errorf("own client: the error body has %d bytes, want none", len(body))
+			}
+			c := sdkClient(t, fakeAdapter(t, bigTrace(n, noulAnswer, tt.err)), false)
+			resp, err := c.SystemOne(t.Context(), "state", noulQuestions(t))
+			var r *Report
+			if tt.err == nil {
+				if err != nil {
+					t.Fatalf("NewClient: %v", err)
+				}
+				r, err = ReportOf(resp)
+			} else {
+				var ok bool
+				if r, ok = ReportFromError(err); !ok {
+					err = errors.New("no Report")
+				} else {
+					err = nil
+				}
+			}
+			if err != nil || len(r.Debug.Attempts) != 1 || len(r.Debug.Attempts[0].Response) < n {
+				t.Errorf("NewClient: Report %v, error %v", r != nil, err)
+			}
+		})
+	}
+}
+
+// TestLargeReportThroughSDK checks that a body of more than 20 MiB, a large
+// state written into three attempts, decodes through a client from
+// NewClient and that ReportOf returns all three attempts.
+func TestLargeReportThroughSDK(t *testing.T) {
+	state := strings.Repeat("s", 4<<20)
+	p := &funcProvider{do: func(_ context.Context, req *llm.Request) (*llm.Result, error) {
+		var b strings.Builder
+		for _, m := range req.Messages {
+			b.WriteString(m.Content)
+		}
+		body, err := jsonx.Marshal(jsonx.Object(jsonx.Member{Name: "input", Value: jsonx.String(b.String())}))
+		if err != nil {
+			return nil, err
+		}
+		req.Trace.RecordRequest("responses", body)
+		if len(req.Messages) < 6 {
+			return textResult("not JSON"), nil
+		}
+		return textResult(noulAnswer), nil
+	}}
+	c := sdkClient(t, fakeAdapter(t, p, WithMalformedRetries(2)), false)
+	resp, err := c.SystemOne(t.Context(), state, noulQuestions(t))
+	if err != nil {
+		t.Fatalf("SystemOne: %v", err)
+	}
+	if n := len(resp.Meta().RawBody()); n < 20<<20 {
+		t.Errorf("the body has %d bytes, want at least 20 MiB", n)
+	}
+	r, err := ReportOf(resp)
+	if err != nil || len(r.Debug.Attempts) != 3 {
+		t.Fatalf("ReportOf = %v attempts, %v; want 3", r, err)
+	}
+}
+
+// TestHostileContentInDebug checks that a provider body or an LLM output
+// holding text a JSON body cannot hold as it is (a raw control character,
+// a byte that is not UTF-8, a NaN token, 5000 levels of nesting, a lone
+// surrogate escape) or can (U+2028) never makes the answer undecodable:
+// the call succeeds, and ReportOf returns the body as a JSON value or as a
+// string of its text with the encoding member "text".
+func TestHostileContentInDebug(t *testing.T) {
+	tests := map[string]struct {
+		body     string
+		wantText bool
+		// want is the body ReportOf gives back; empty means body itself.
+		want string
+	}{
+		"a raw control character":  {body: "{\"a\":\"\x01\"}", wantText: true},
+		"a byte that is not UTF-8": {body: "{\"a\":\"\xff\"}", wantText: true, want: "{\"a\":\"\ufffd\"}"},
+		"a NaN token":              {body: `{"a":NaN}`, wantText: true},
+		"5000 levels":              {body: strings.Repeat("[", 5000) + strings.Repeat("]", 5000), wantText: true},
+		"a lone surrogate escape":  {body: `{"a":"\ud800"}`, wantText: true},
+		"U+2028":                   {body: "{\"a\":\"\u2028\"}"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			calls := 0
+			p := &funcProvider{do: func(_ context.Context, req *llm.Request) (*llm.Result, error) {
+				calls++
+				req.Trace.RecordResponse([]byte(tt.body), nil)
+				if calls == 1 {
+					return textResult(tt.body), nil
+				}
+				return textResult(noulAnswer), nil
+			}}
+			c := sdkClient(t, fakeAdapter(t, p, WithMalformedRetries(1)), false)
+			resp, err := c.SystemOne(t.Context(), "state", noulQuestions(t))
+			if err != nil {
+				t.Fatalf("SystemOne: %v", err)
+			}
+			r, err := ReportOf(resp)
+			if err != nil || len(r.Debug.Attempts) != 2 {
+				t.Fatalf("ReportOf = %v, %v", r, err)
+			}
+			a := r.Debug.Attempts[0]
+			want := tt.want
+			if want == "" {
+				want = tt.body
+			}
+			if tt.wantText {
+				if a.Info.ResponseEncoding != "text" || string(a.Response) != want {
+					t.Errorf("response %q encoding %q; want %q as text", a.Response, a.Info.ResponseEncoding, want)
+				}
+			} else if equal, err := jsonx.Equal(a.Response, []byte(want)); err != nil || !equal || a.Info.ResponseEncoding != "" {
+				t.Errorf("response %q encoding %q; want the JSON value %q", a.Response, a.Info.ResponseEncoding, want)
+			}
+			if got := r.Debug.Attempts[1].Messages[2].Content; got != strings.ToValidUTF8(tt.body, "\ufffd") {
+				t.Errorf("the corrective round's assistant message %q, want the output %q", got, tt.body)
+			}
+		})
+	}
+}
+
+// TestSDKRetryCountRecorded checks that the SDK's retries are recorded and
+// never refused: on a client of the caller's own with the SDK's
+// DefaultRetry and a provider that answers 503 every time, the SDK makes
+// three requests, whose bodies record no sdk_retry_count, then 1, then 2,
+// and the caller's 503 carries a Report with SDKRetryCount 2. Through
+// NewClient no body carries the member. A value of X-TypeSafe-Retry-Count
+// is recorded only when it is one to nine ASCII digits without a sign or a
+// leading zero.
+func TestSDKRetryCountRecorded(t *testing.T) {
+	t.Run("through the SDK", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			ad := fakeAdapter(t, fake.New(fake.Error(&llm.StatusError{StatusCode: http.StatusServiceUnavailable})))
+			var bodies [][]byte
+			recording := rtFunc(func(req *http.Request) (*http.Response, error) {
+				resp, err := ad.RoundTrip(req)
+				if err == nil {
+					b, _ := io.ReadAll(resp.Body)
+					bodies = append(bodies, b)
+					resp.Body = io.NopCloser(bytes.NewReader(b))
+				}
+				return resp, err
+			})
+			c := sdkClient(t, ad, true, decision.WithRetry(decision.DefaultRetry()), decision.WithRoundTripper(recording))
+			_, err := c.SystemOne(t.Context(), "state", noulQuestions(t))
+			apiErr, ok := errors.AsType[*decision.APIError](err)
+			if !ok || apiErr.StatusCode != http.StatusServiceUnavailable || apiErr.Kind != decision.APIErrorInternalServer {
+				t.Fatalf("SystemOne error = %v", err)
+			}
+			var counts []int
+			for _, b := range bodies {
+				var r Report
+				if err := r.UnmarshalJSON(b); err != nil {
+					t.Fatal(err)
+				}
+				counts = append(counts, r.Debug.SDKRetryCount)
+			}
+			if diff := gocmp.Diff([]int{0, 1, 2}, counts); diff != "" {
+				t.Errorf("sdk_retry_count per body (-want +got):\n%s", diff)
+			}
+			if len(bodies) > 0 && bytes.Contains(bodies[0], []byte("sdk_retry_count")) {
+				t.Error("the first body has the member")
+			}
+			if r, ok := ReportFromError(err); !ok || r.Debug.SDKRetryCount != 2 {
+				t.Errorf("ReportFromError = %v, %v; want SDKRetryCount 2", r, ok)
+			}
+		})
+	})
+	t.Run("through NewClient", func(t *testing.T) {
+		resp, err := sdkClient(t, fakeAdapter(t, fake.New(fake.Text(noulAnswer))), false).SystemOne(t.Context(), "state", noulQuestions(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(resp.Meta().RawBody(), []byte("sdk_retry_count")) {
+			t.Error("a body through NewClient has sdk_retry_count")
+		}
+	})
+	values := map[string]int{
+		"": 0, "1": 1, "2": 2, "9": 9, "10": 10, "123456789": 123456789, "1234567890": 0,
+		"+1": 0, "01": 0, "1.0": 0, " 1": 0, "1 ": 0, "0": 0, "-1": 0, "a": 0, "1e3": 0, "\u0663": 0,
+	}
+	for value, want := range values {
+		t.Run(fmt.Sprintf("value %q", value), func(t *testing.T) {
+			ad := fakeAdapter(t, fake.New(fake.Text(noulAnswer)))
+			req := requestWith(t.Context(), http.MethodPost, systemOnePath, io.NopCloser(strings.NewReader(noulBody)), retryCountHeader(value))
+			_, body, err := send(t, ad, req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var r Report
+			if err := r.UnmarshalJSON(body); err != nil {
+				t.Fatal(err)
+			}
+			if r.Debug.SDKRetryCount != want {
+				t.Errorf("SDKRetryCount = %d, want %d", r.Debug.SDKRetryCount, want)
 			}
 		})
 	}

@@ -650,3 +650,17 @@ func TestInvalidQuestionsHoldNoContent(t *testing.T) {
 		t.Errorf("detail.errors = %q, want %q", got, want)
 	}
 }
+
+// TestSeamContract asserts, through the root SDK this module is built
+// against, every behaviour of the SDK the Adapter relies on: what a request
+// carries, how the SDK keeps and reads a response or an error body, the
+// class and the retries of every status, the retry count it sends, its
+// header map, its deadlines, the size limit, the replacement of an error
+// that prints the key, Prepare's own refusals, Close, and that it keeps the
+// last of two round trippers. A later SDK that changes one of them fails
+// here before the Adapter misbehaves.
+func TestSeamContract(t *testing.T) {
+	for name, check := range seamContractChecks() {
+		t.Run(name, check)
+	}
+}

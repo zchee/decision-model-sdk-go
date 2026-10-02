@@ -1731,3 +1731,76 @@ func TestAnswersMatchExpectedResponses(t *testing.T) {
 		})
 	}
 }
+
+// fm4Policy is upstream's RetryPolicy(max_retries=n, backoff_initial=0.001,
+// backoff_jitter=0) of the retry tests, its other settings the defaults.
+func fm4Policy(n int) RetryPolicy {
+	return DefaultRetry().MaxRetries(n).Backoff(time.Millisecond, defaultBackoffMax, 0)
+}
+
+// TestTransientErrorsAreRetried ports
+// tests/test_client_with_fake_model.py::test_transient_errors_are_retried:
+// a provider 503 followed by an answer is retried once under the Adapter's
+// policy, or under the call's policy given with ContextWithRetry while the
+// Adapter's is NoRetry (DV3), through the SDK, which makes one attempt.
+func TestTransientErrorsAreRetried(t *testing.T) {
+	tests := map[string]struct {
+		retryOnCall bool
+	}{
+		"retry on the Adapter": {},
+		"retry on the call":    {retryOnCall: true},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				p := fake.New(fake.Error(&llm.StatusError{StatusCode: http.StatusServiceUnavailable, Body: []byte(`{"message":"unavailable"}`)}), fake.Text(`{"answers":{"answer":0.75}}`))
+				var opts []Option
+				ctx := t.Context()
+				if tt.retryOnCall {
+					ctx = ContextWithRetry(ctx, fm4Policy(1))
+				} else {
+					opts = append(opts, WithRetry(fm4Policy(1)))
+				}
+				c := sdkClient(t, fakeAdapter(t, p, opts...), false)
+				resp, err := c.SystemOne(ctx, "state", noulQuestions(t))
+				if err != nil {
+					t.Fatalf("SystemOne: %v", err)
+				}
+				r, err := ReportOf(resp)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if p.Calls() != 2 || r.Usage.Retries != 1 || r.Usage.MalformedRetries != 0 || c.Stats().Attempts != 1 {
+					t.Errorf("provider calls %d, n_retries %d, n_retries_malformed_structure %d, SDK attempts %d; want 2, 1, 0, 1", p.Calls(), r.Usage.Retries, r.Usage.MalformedRetries, c.Stats().Attempts)
+				}
+				if diff := cmp.Diff([]string{"provider_error"}, reasonCategories(r)); diff != "" {
+					t.Errorf("retry reasons (-want +got):\n%s", diff)
+				}
+			})
+		})
+	}
+}
+
+// TestRetriesAreExhausted ports
+// tests/test_client_with_fake_model.py::test_retries_are_exhausted: a
+// provider that answers 503 every time is requested three times under a
+// policy of two retries, and the caller gets the 503 with a Report whose
+// retry reasons are two provider errors.
+func TestRetriesAreExhausted(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		p := fake.New(fake.Error(&llm.StatusError{StatusCode: http.StatusServiceUnavailable, Body: []byte(`{"message":"unavailable"}`)}))
+		c := sdkClient(t, fakeAdapter(t, p, WithRetry(fm4Policy(2))), false)
+		_, err := c.SystemOne(t.Context(), "state", noulQuestions(t))
+		status, errorType, message, report := apiErrorParts(err)
+		if status != http.StatusServiceUnavailable || errorType != "provider_status" || message != "503 unavailable" || !report {
+			t.Fatalf("SystemOne error: %d %q %q report %v", status, errorType, message, report)
+		}
+		if p.Calls() != 3 {
+			t.Errorf("provider calls %d, want 3", p.Calls())
+		}
+		r, _ := ReportFromError(err)
+		if diff := cmp.Diff([]string{"provider_error", "provider_error"}, reasonCategories(r)); diff != "" {
+			t.Errorf("retry reasons (-want +got):\n%s", diff)
+		}
+	})
+}
