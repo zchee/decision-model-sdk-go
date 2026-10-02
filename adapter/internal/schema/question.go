@@ -16,7 +16,9 @@
 // Package schema ports system-one-adapter-python v0.2.1's
 // src/system_one_adapter/_schema.py: it reads the questions of a System One
 // request as they arrive on the wire, and refuses what upstream's question
-// models refuse (ParseQuestions).
+// models refuse (ParseQuestions); and it builds from them the answer schema
+// of the request in an answer mode (Build), whose text is byte for byte the
+// one upstream gives a provider (Spec.Schema).
 package schema
 
 import (
