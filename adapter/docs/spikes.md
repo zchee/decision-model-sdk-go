@@ -79,10 +79,58 @@ for bit?
 as `sum()` on 100 000 generated vectors, and the score and confidence
 formulas built on it give the same bits as upstream's, on both hosts.
 
-**Verdict.** pending
+**Verdict.** Pass: on both hosts 0 of 100 000 sums and 0 of 1 100 000
+formula results differ from CPython's, and no vector had to be skipped. On
+(L) the same holds when the compiler targets `GOAMD64=v3`.
+
+**What the port does because of it.** `internal/prob` ports CPython's
+summation instead of writing `s += x`: that plain loop gives other bits than
+`sum()` on 19 941 of the 100 000 vectors, and on 3 964 of the 18 174 that
+look like probabilities. The port follows four rules, each read from
+`Python/bltinmodule.c` at the tag `v3.14.3` and each needed for equality:
+
+1. The first element enters as `0.0 + x`, because `sum()` starts from the
+   integer 0. A leading `-0.0` therefore becomes `+0.0`.
+2. The sum is compensated (Neumaier's form), and the compensation is added
+   to the result only when it is nonzero and finite. Otherwise a sum that is
+   infinite or has overflowed would turn into NaN.
+3. Every product that feeds a sum is written `float64(a * b)`. The Go
+   specification lets a compiler fuse `x*y + z` into one instruction that
+   rounds once, and an explicit conversion forbids it. Python rounds the
+   product and then the addition. Without the conversion the expected score
+   differs on 9 564 of the 100 000 vectors on (M), on none on (L) with the
+   default `GOAMD64=v1`, and on 4 526 on (L) with `GOAMD64=v3`. So the
+   conversion must stay although removing it changes no test on a default
+   amd64 build.
+4. Python's `max` keeps its first candidate unless a later one is strictly
+   greater, so `max(0.0, y)` is `+0.0` when `y` is NaN or `-0.0`. Go's
+   builtin `max`, `math.Max` and `slices.Max` return NaN when they meet
+   one. The port uses a loop with `>`.
+
+The summation code of `bltinmodule.c` is the same at CPython 3.14.3 and
+3.14.6 apart from comments, and the 100 000 rows come out equal on both.
+
+`testdata/python/sum_vectors.tsv` holds the first 1 136 rows of that run:
+every vector class at every length from 1 to 20. Each float in it is the 16
+hexadecimal digits of its bit pattern. Its header line `# python:` is the
+interpreter's whole `sys.version`, build date and compiler included, so the
+file's bytes reproduce with the build of CPython 3.14.3 named there; another
+build of 3.14.3 writes the same rows under a different header line.
 
 | Row | Date (UTC) | Host | Toolchain | Command | Result |
 | --- | --- | --- | --- | --- | --- |
+| S2-1 | 2026-10-02T04:59:28Z | (M) | CPython 3.14.3, pydantic 2.13.4, pydantic-core 2.46.4 | `uv run --python 3.14.3 --with pydantic==2.13.4 --with pydantic-core==2.46.4 testdata/python/gen_sum_vectors.py` | writes `testdata/python/sum_vectors.tsv`: 1 136 vectors, 569 992 bytes, sha256 `9afc76be5a48efc41fe42f8dcbd32b5355ccc5143b4b6227a3cd75901c1056fb`, the committed file; a second run gives the same bytes |
+| S2-2 | 2026-10-02T04:59:29Z | (M) | the same | the same with `--output <file> --upstream-src <upstream>/src/system_one_adapter/_utils`, which computes every row with upstream's own functions as well | the same bytes: the script's formulas are upstream's |
+| S2-3 | 2026-10-02T04:42:25Z | (M) | the same | the same as S2-1 with `--count 100000 --output <file>` | 100 000 vectors, 51 168 405 bytes, sha256 `acab33827049ed38cab485062ad7d295d64728b89e6e9d942994df9203f890ff`; a second run gives the same bytes |
+| S2-4 | 2026-10-02T04:42:25Z | (M) | CPython 3.14.6, pydantic 2.13.4, pydantic-core 2.46.4 | the same as S2-3 with `--python 3.14.6` | the 100 000 rows equal those of S2-3; only the header line differs |
+| S2-5 | 2026-10-02T04:40:21Z | (M) | go1.27.1 darwin/arm64 | a Go port of the summation and of the formulas, in a module outside this one, tested against the file of S2-3 | sums: 0 of 100 000 differ. Formula results: 0 of 1 100 000 differ. Skipped: 0 |
+| S2-6 | 2026-10-02T04:41:31Z | (L) | go1.27.1 linux/amd64 | the same test, the same file | the same |
+| S2-7 | 2026-10-02T04:41:56Z | (L) | go1.27.1 linux/amd64, `GOAMD64=v3` | the same test, the same file | the same |
+| S2-8 | 2026-10-02T04:40:21Z | (M) | go1.27.1 darwin/arm64 | in that test, a plain `s += x` loop against the file of S2-3 | differs on 19 941 of 100 000 vectors |
+| S2-9 | 2026-10-02T04:41:31Z | (L) | go1.27.1 linux/amd64 | the same | differs on 19 941 of 100 000 vectors |
+| S2-10 | 2026-10-02T04:40:21Z | (M) | go1.27.1 darwin/arm64 | in that test, the expected score with its products not written as `float64(a * b)` | differs on 9 564 of 100 000 vectors |
+| S2-11 | 2026-10-02T04:41:31Z | (L) | go1.27.1 linux/amd64 | the same | differs on 0 of 100 000 vectors; on 4 526 at `GOAMD64=v3` (2026-10-02T04:41:56Z) |
+| S2-12 | 2026-10-02T04:41:55Z | (M) | go1.27.1 darwin/arm64 | the test of S2-5 against a copy of `sum_vectors.tsv` with one bit of one expected sum changed | fails and names the row: 1 of 1 136 differs |
 
 ## S3: `repr(float)` and `pydantic_core.to_json`
 
