@@ -234,3 +234,21 @@ func TestReportFromErrorFindsTheAdapterError(t *testing.T) {
 		})
 	}
 }
+
+// TestErrorKindValues pins the values of the ErrorKind constants, which a
+// caller may store or compare, the text of the zero ErrorKind, and the text
+// of ErrClosed.
+func TestErrorKindValues(t *testing.T) {
+	kinds := map[ErrorKind]int{KindTimeout: 1, KindConnection: 2, KindClosed: 3}
+	for k, want := range kinds {
+		if int(k) != want {
+			t.Errorf("%v = %d, want %d", k, int(k), want)
+		}
+	}
+	if got, want := ErrorKind(0).String(), "ErrorKind(0)"; got != want {
+		t.Errorf("ErrorKind(0).String() = %q, want %q", got, want)
+	}
+	if got, want := ErrClosed.Error(), "adapter: the adapter is closed"; got != want {
+		t.Errorf("ErrClosed.Error() = %q, want %q", got, want)
+	}
+}

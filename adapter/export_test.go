@@ -432,7 +432,7 @@ func detailErrors(t testing.TB, body []byte) []string {
 	if detail.Len() != 3 || detail.Name(0) != "message" || detail.Name(1) != "error_type" || detail.Name(2) != "errors" {
 		t.Errorf("detail members are not message, error_type, errors: %s", body)
 	}
-	var out []string
+	out := []string{}
 	for i := range list.Len() {
 		entry := list.Index(i)
 		loc, _ := entry.Member("loc")
@@ -444,6 +444,21 @@ func detailErrors(t testing.TB, body []byte) []string {
 		out = append(out, string(locJSON)+": "+msg.Text())
 	}
 	return out
+}
+
+// detailNames returns the member names of an error body's detail object.
+func detailNames(t testing.TB, body []byte) []string {
+	t.Helper()
+	root, err := jsonx.Read(body)
+	if err != nil {
+		t.Fatalf("the body is not JSON: %v", err)
+	}
+	detail, _ := root.Member("detail")
+	names := make([]string, detail.Len())
+	for i := range names {
+		names[i] = detail.Name(i)
+	}
+	return names
 }
 
 // isClosedError reports whether err is the Error of a closed Adapter.

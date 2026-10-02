@@ -467,6 +467,9 @@ func TestInvalidQuestionsListTheirDefects(t *testing.T) {
 	if got := detailErrors(t, body); got != nil {
 		t.Errorf("the empty set lists %q, want no member errors", got)
 	}
+	if got, want := detailNames(t, body), []string{"message", "error_type"}; !slices.Equal(got, want) {
+		t.Errorf("the empty set's detail members %q, want %q", got, want)
+	}
 }
 
 // TestUnknownPath checks that a request to any other method or path is

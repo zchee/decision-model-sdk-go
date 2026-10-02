@@ -84,8 +84,8 @@ func ownedProviders(t testing.TB, closers map[string]*closingProvider, models ..
 	t.Helper()
 	ad := newAdapter(t, WithFactory("openai", func(model string) (llm.Provider, error) { return closers[model], nil }))
 	for _, m := range models {
-		if _, _, err := send(t, ad, rawRequest(t.Context(), "POST", systemOnePath, `{"state":"s","model":"openai:`+m+`","questions":{"answer":{"type":"noul"}}}`)); err != nil {
-			t.Fatalf("building %s: %v", m, err)
+		if status, err := sendWithin(t, ad, rawRequest(t.Context(), "POST", systemOnePath, `{"state":"s","model":"openai:`+m+`","questions":{"answer":{"type":"noul"}}}`)); err != nil || status != http.StatusOK {
+			t.Fatalf("building %s: %d %v", m, status, err)
 		}
 	}
 	return ad
@@ -130,9 +130,11 @@ func await[T any](t testing.TB, what string, ch <-chan T) T {
 // awaitBlocked waits until a goroutine is blocked with the wait reason
 // reason, as runtime.Stack prints it ("chan receive",
 // "sync.WaitGroup.Wait"), and the first function of this package on its
-// stack is fn. It reads every goroutine's stack each millisecond, fails t
-// at once when returned delivers (the call returned instead of blocking),
-// and fails t with the stacks once lockBound has passed.
+// stack is fn. It reads every goroutine's stack each millisecond and fails
+// t with the stacks at once when a goroutine whose first function of this
+// package is a method of *Adapter waits on another lock or channel (the
+// call is stuck where it should not wait), at once when returned delivers
+// (the call returned instead of blocking), and once lockBound has passed.
 func awaitBlocked(t testing.TB, reason, fn string, returned <-chan error) {
 	t.Helper()
 	const pkg = "github.com/zchee/decision-model-sdk-go/adapter."
@@ -141,16 +143,24 @@ func awaitBlocked(t testing.TB, reason, fn string, returned <-chan error) {
 		stacks := goroutineStacks()
 		for g := range strings.SplitSeq(stacks, "\n\n") {
 			header, frames, _ := strings.Cut(g, "\n")
-			if !strings.Contains(header, "["+reason) {
-				continue
-			}
+			first := ""
 			for line := range strings.SplitSeq(frames, "\n") {
 				if strings.HasPrefix(line, pkg) {
-					if strings.HasPrefix(line, pkg+fn+"(") {
-						return
-					}
+					first = line
 					break
 				}
+			}
+			if !strings.HasPrefix(first, pkg+"(*Adapter).") {
+				continue
+			}
+			_, state, _ := strings.Cut(header, "[")
+			state, _, _ = strings.Cut(state, "]")
+			state, _, _ = strings.Cut(state, ",")
+			switch {
+			case state == reason && strings.HasPrefix(first, pkg+fn+"("):
+				return
+			case state != reason && isLockOrChannelWait(state):
+				t.Fatalf("%s is blocked (%s) where %s should wait (%s); goroutines:\n%s", strings.TrimPrefix(first, pkg), state, fn, reason, stacks)
 			}
 		}
 		select {
@@ -163,6 +173,17 @@ func awaitBlocked(t testing.TB, reason, fn string, returned <-chan error) {
 		}
 		time.Sleep(time.Millisecond)
 	}
+}
+
+// isLockOrChannelWait reports whether a goroutine's wait reason is a wait
+// on a lock, a WaitGroup, a channel or a select.
+func isLockOrChannelWait(state string) bool {
+	for _, prefix := range []string{"sync.", "semacquire", "chan ", "select"} {
+		if strings.HasPrefix(state, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // assertUnlocked fails t when a lock of ad is held while no call and no
@@ -188,25 +209,56 @@ func assertUnlocked(t testing.TB, ad *Adapter) {
 }
 
 // watchLocks ends the test binary with every goroutine's stack when t has
-// not ended within lockBound: a call or Close stuck on a lock blocks the
-// test's own goroutine, which then cannot fail itself. It is for tests
-// outside a synctest bubble, whose clock it uses.
+// not ended within three times lockBound: a call or Close stuck on a lock
+// outside await blocks the test's own goroutine, which then cannot fail
+// itself. Its bound is longer than lockBound so that a wait stuck inside
+// await fails its test through await first, and the later tests still run.
+// It is for tests outside a synctest bubble, whose clock it uses.
 func watchLocks(t testing.TB) {
 	name := t.Name()
-	timer := time.AfterFunc(lockBound, func() {
-		panic(fmt.Sprintf("%s did not end within %v; goroutines:\n%s", name, lockBound, goroutineStacks()))
+	bound := 3 * lockBound
+	timer := time.AfterFunc(bound, func() {
+		panic(fmt.Sprintf("%s did not end within %v; goroutines:\n%s", name, bound, goroutineStacks()))
 	})
 	t.Cleanup(func() { timer.Stop() })
 }
 
 // roundTripError sends req to ad and returns RoundTrip's error, closing the
-// body of a response.
+// body of a response. It calls no method of a testing.TB, so a goroutine
+// other than the test's may run it.
 func roundTripError(ad *Adapter, req *http.Request) error {
-	resp, err := ad.RoundTrip(req)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
+	_, err := roundTripStatus(ad, req)
 	return err
+}
+
+// roundTripStatus sends req to ad and returns the response's status, 0 when
+// RoundTrip returns an error, and that error, closing the body of a
+// response. It calls no method of a testing.TB.
+func roundTripStatus(ad *Adapter, req *http.Request) (int, error) {
+	resp, err := ad.RoundTrip(req)
+	if resp == nil {
+		return 0, err
+	}
+	_ = resp.Body.Close()
+	return resp.StatusCode, err
+}
+
+// sendWithin sends req to ad from another goroutine and returns the status
+// and the error, failing t with every goroutine's stack once lockBound has
+// passed.
+func sendWithin(t testing.TB, ad *Adapter, req *http.Request) (int, error) {
+	t.Helper()
+	type result struct {
+		status int
+		err    error
+	}
+	done := make(chan result, 1)
+	go func() {
+		status, err := roundTripStatus(ad, req)
+		done <- result{status, err}
+	}()
+	r := await(t, "a call to the Adapter", (<-chan result)(done))
+	return r.status, r.err
 }
 
 // TestClosePanicLeavesTheCleanupConsistent checks a provider whose Close
@@ -763,8 +815,8 @@ cases:
 			ok := t.Run(fmt.Sprintf("%s, failure %v", vendor, fails), func(t *testing.T) {
 				var l lifecycle
 				ad := l.adapter(t, vendor)
-				if _, _, err := send(t, ad, rawRequest(t.Context(), "POST", systemOnePath, `{"state":"s","model":"`+vendor+`:test-model","questions":{"answer":{"type":"noul"}}}`)); err != nil {
-					t.Fatal(err)
+				if status, err := sendWithin(t, ad, rawRequest(t.Context(), "POST", systemOnePath, `{"state":"s","model":"`+vendor+`:test-model","questions":{"answer":{"type":"noul"}}}`)); err != nil || status != http.StatusOK {
+					t.Fatalf("the first call: %d %v", status, err)
 				}
 				started, release := make(chan struct{}), make(chan struct{})
 				closeErr := errors.New("close failed")
@@ -834,9 +886,10 @@ func TestConcurrentFirstUseReusesProvider(t *testing.T) {
 			}()
 			reports := make(chan *Report, n)
 			errs := make(chan error, n)
+			questions := noulQuestions(t)
 			for i := range n {
 				go func() {
-					resp, err := c.SystemOne(t.Context(), fmt.Sprintf("document-%d", i), noulQuestions(t))
+					resp, err := c.SystemOne(t.Context(), fmt.Sprintf("document-%d", i), questions)
 					if err != nil {
 						errs <- err
 						return
@@ -850,8 +903,12 @@ func TestConcurrentFirstUseReusesProvider(t *testing.T) {
 				}()
 			}
 			seen := map[string]bool{}
+			timer := time.NewTimer(lockBound)
+			defer timer.Stop()
 			for range n {
 				select {
+				case <-timer.C:
+					t.Fatalf("the calls did not return within %v; goroutines:\n%s", lockBound, goroutineStacks())
 				case err := <-errs:
 					t.Fatal(err)
 				case r := <-reports:
@@ -921,8 +978,12 @@ func TestCloseWaitsForRunningCalls(t *testing.T) {
 		}
 		ad := l.adapter(t, "openai")
 		c := sdkClient(t, ad, false)
+		questions := noulQuestions(t)
 		called := make(chan error, 1)
-		go func() { called <- evaluateOn(t, c) }()
+		go func() {
+			_, err := c.SystemOne(t.Context(), "Great book", questions)
+			called <- err
+		}()
 		await(t, "the call's provider request", (<-chan struct{})(entered))
 		closed := make(chan error, 1)
 		go func() { closed <- ad.Close() }()
@@ -975,7 +1036,7 @@ func TestCloseWaitsForRunningCalls(t *testing.T) {
 		for range n {
 			go func() {
 				<-start
-				status, _, err := send(t, ad, rawRequest(t.Context(), "POST", systemOnePath, `{"state":"s","model":"openai:test-model","questions":{"answer":{"type":"noul"}}}`))
+				status, err := roundTripStatus(ad, rawRequest(t.Context(), "POST", systemOnePath, `{"state":"s","model":"openai:test-model","questions":{"answer":{"type":"noul"}}}`))
 				switch {
 				case err == nil && status == 200:
 					outcomes <- "completed"
@@ -1056,6 +1117,7 @@ func TestCloseAfterProviderPanic(t *testing.T) {
 				err      error
 				panicked any
 			}
+			questions := noulQuestions(t)
 			call := func(what string) outcome {
 				done := make(chan outcome, 1)
 				go func() {
@@ -1064,7 +1126,7 @@ func TestCloseAfterProviderPanic(t *testing.T) {
 						o.panicked = recover()
 						done <- o
 					}()
-					o.err = evaluateOn(t, c)
+					_, o.err = c.SystemOne(t.Context(), "Great book", questions)
 				}()
 				return await(t, what, (<-chan outcome)(done))
 			}

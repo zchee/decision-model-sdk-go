@@ -19,9 +19,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
 	"log/slog"
 	"maps"
 	"net/http"
+	"os"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -475,5 +482,122 @@ func checkRecord(t *testing.T, rec loggedRecord, level slog.Level, message strin
 	}
 	if diff := gocmp.Diff(want, got); diff != "" {
 		t.Errorf("%s record's attributes (-want +got):\n%s", message, diff)
+	}
+}
+
+// unwatchedCalls are the calls that write to a logger or a stream no
+// WithLogger logger stands for: slog's package-level logger, the log
+// package's and the standard output.
+var unwatchedCalls = map[string][]string{
+	"log/slog": {"Debug", "DebugContext", "Default", "Error", "ErrorContext", "Info", "InfoContext", "Log", "LogAttrs", "SetDefault", "SetLogLoggerLevel", "Warn", "WarnContext"},
+	"log":      {"Fatal", "Fatalf", "Fatalln", "Panic", "Panicf", "Panicln", "Print", "Printf", "Println", "Default", "Output"},
+	"fmt":      {"Print", "Printf", "Println"},
+}
+
+// unwatchedLogging parses the Go file src, named name, and returns each call
+// of unwatchedCalls in it as "<file>:<line>: <path>.<name>", resolving the
+// name each import has in the file.
+func unwatchedLogging(name, src string) ([]string, error) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, name, src, parser.SkipObjectResolution)
+	if err != nil {
+		return nil, err
+	}
+	local := map[string]string{}
+	for _, imp := range file.Imports {
+		path := strings.Trim(imp.Path.Value, `"`)
+		if _, ok := unwatchedCalls[path]; !ok {
+			continue
+		}
+		n := filepath.Base(path)
+		if imp.Name != nil {
+			n = imp.Name.Name
+		}
+		local[n] = path
+	}
+	var found []string
+	ast.Inspect(file, func(n ast.Node) bool {
+		sel, ok := n.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		x, ok := sel.X.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		if path, ok := local[x.Name]; ok && slices.Contains(unwatchedCalls[path], sel.Sel.Name) {
+			found = append(found, fmt.Sprintf("%s: %s.%s", fset.Position(sel.Pos()), path, sel.Sel.Name))
+		}
+		return true
+	})
+	return found, nil
+}
+
+// TestNoUnwatchedLogging checks that no non-test Go file of the module
+// writes to slog's package-level logger, the log package or the standard
+// output, so that every record the Adapter writes goes to the WithLogger
+// logger, whose records TestLogRecords checks, and no body or text can
+// reach a logger the tests do not watch. A planted file shows that each
+// form is found, an import renamed included.
+func TestNoUnwatchedLogging(t *testing.T) {
+	const planted = `package p
+
+import (
+	"fmt"
+	stdlog "log"
+	"log/slog"
+)
+
+func f() {
+	slog.Info("x")
+	slog.Default().Info("x")
+	stdlog.Printf("x")
+	fmt.Println("x")
+	_ = fmt.Sprint("x")
+}
+`
+	got, err := unwatchedLogging("planted.go", planted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"planted.go:10:2: log/slog.Info", "planted.go:11:2: log/slog.Default", "planted.go:12:2: log.Printf", "planted.go:13:2: fmt.Println"}
+	if diff := gocmp.Diff(want, got); diff != "" {
+		t.Fatalf("the planted file's calls (-want +got):\n%s", diff)
+	}
+	root, err := os.OpenRoot(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	fsys := root.FS()
+	var files int
+	err = fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, err error) error {
+		switch {
+		case err != nil:
+			return err
+		case d.IsDir() && (d.Name() == "testdata" || strings.HasPrefix(d.Name(), ".")) && path != ".":
+			return filepath.SkipDir
+		case d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go"):
+			return nil
+		}
+		src, err := fs.ReadFile(fsys, path)
+		if err != nil {
+			return err
+		}
+		files++
+		found, err := unwatchedLogging(path, string(src))
+		if err != nil {
+			return err
+		}
+		for _, f := range found {
+			t.Errorf("a call that logs where WithLogger's logger does not: %s", f)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if files < 10 {
+		t.Fatalf("read %d non-test files, want the module's", files)
 	}
 }

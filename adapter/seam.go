@@ -62,6 +62,7 @@ var (
 const (
 	unreadableBodyText   = "The request body could not be read."
 	notAnObjectText      = "The request body is not a JSON object."
+	bodyTooDeepText      = "The request body is not one JSON object of at most 10000 levels."
 	modelNotStringText   = "The request body's model is not a string."
 	questionsNotObjText  = "The request body's questions is not a JSON object."
 	stateNoneText        = "State must not be None." // upstream's text (_client.py:431-432)
@@ -166,6 +167,9 @@ func (ad *Adapter) serve(ctx context.Context, id, method, path, retryCount strin
 // state opening 10000 is refused here.
 func parseRequest(body []byte) (request, error) {
 	root, err := jsonx.Read(body)
+	if errors.Is(err, jsonx.ErrReadDepth) {
+		return request{}, &refusal{status: 400, errorType: "invalid_body", message: bodyTooDeepText}
+	}
 	if err != nil || root.Kind() != jsonx.KindObject {
 		return request{}, &refusal{status: 400, errorType: "invalid_body", message: notAnObjectText}
 	}

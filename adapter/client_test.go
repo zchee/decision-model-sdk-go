@@ -78,7 +78,11 @@ func sdkClient(t testing.TB, ad *Adapter, own bool, opts ...decision.ClientOptio
 		t.Fatalf("building the client: %v", err)
 	}
 	installCheck(t, ad)
-	t.Cleanup(func() { _ = c.Close() })
+	t.Cleanup(func() {
+		closed := make(chan error, 1)
+		go func() { closed <- c.Close() }()
+		_ = await(t, "the client's Close", (<-chan error)(closed))
+	})
 	return c
 }
 
@@ -619,13 +623,15 @@ func bigTrace(n int, text string, err error) *funcProvider {
 	}}
 }
 
-// TestReportLostOverTheLimit checks the size limit of a caller's own client
-// with the SDK's default of 16 MiB: an error body over it arrives empty and
-// a success body over it gives a *decision.ResponseTooLargeError, and in
-// both cases ReportFromError returns false; a client from NewClient, whose
-// limit is 1 GiB, keeps both.
+// TestReportLostOverTheLimit checks the size limit of a caller's own client,
+// here 1 MiB set with WithMaxResponseBytes: an error body over it arrives
+// empty and a success body over it gives a *decision.ResponseTooLargeError,
+// and in both cases ReportFromError returns false; a client from NewClient,
+// whose limit is 1 GiB, keeps both at 17 MiB, over the SDK's default limit
+// of 16 MiB.
 func TestReportLostOverTheLimit(t *testing.T) {
 	const n = 17 << 20
+	const ownN, ownLimit = 2 << 20, 1 << 20
 	tests := map[string]struct {
 		err error
 	}{
@@ -634,7 +640,7 @@ func TestReportLostOverTheLimit(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			own := sdkClient(t, fakeAdapter(t, bigTrace(n, noulAnswer, tt.err)), true, decision.WithRetry(decision.NoRetry()))
+			own := sdkClient(t, fakeAdapter(t, bigTrace(ownN, noulAnswer, tt.err)), true, decision.WithRetry(decision.NoRetry()), decision.WithMaxResponseBytes(ownLimit))
 			_, err := own.SystemOne(t.Context(), "state", noulQuestions(t))
 			if _, ok := ReportFromError(err); ok || err == nil {
 				t.Errorf("own client: error %v, ReportFromError %v; want an error without a Report", err, ok)

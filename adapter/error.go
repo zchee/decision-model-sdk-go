@@ -26,9 +26,11 @@ import (
 // Error is an Adapter failure that RoundTrip returns as a Go error: a
 // provider timeout or connection failure after the retries, a call whose
 // context deadline passed, or a closed Adapter. These are the exceptions
-// upstream's system_one raises without a status
-// (src/system_one_adapter/_client.py:488-495): TypeSafeAPITimeoutError,
-// TypeSafeAPIConnectionError and the RuntimeError of a closed client.
+// upstream's system_one raises without a status: TypeSafeAPITimeoutError
+// and TypeSafeAPIConnectionError, which map_provider_error makes of a
+// provider's timeout and connection failures
+// (src/system_one_adapter/_utils/error_handling.py:65-71), and the
+// RuntimeError of a closed client (src/system_one_adapter/_client.py:411-413).
 //
 // The root SDK wraps it in a *decision.TimeoutError (when Timeout is
 // true) or a *decision.ConnectionError, and errors.As reaches it because no

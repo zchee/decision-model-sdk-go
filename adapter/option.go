@@ -78,7 +78,9 @@ func WithRetry(p RetryPolicy) Option {
 // with a bare model name uses the provider it names (a WithProvider name
 // names no provider). An id that is neither a WithProvider name nor
 // "<name>:<model>" with a factory for name and a model that is not empty
-// is an error of New.
+// is an error of New. The provider's name and the model name are printed
+// in the text of the Adapter's errors and logged in its records, so an id
+// must never hold a key.
 func WithDefaultModel(id string) Option {
 	return func(o *options) { o.defaultModel = id }
 }
@@ -86,7 +88,8 @@ func WithDefaultModel(id string) Option {
 // WithProvider registers a caller-owned provider under name; a call whose
 // model is name uses p. The Adapter borrows p and never closes it. A second
 // WithProvider with the same name replaces p. An empty name or a nil p is
-// an error of New.
+// an error of New. name and p's model name are printed in the text of the
+// Adapter's errors and logged in its records, so neither may hold a key.
 func WithProvider(name string, p llm.Provider) Option {
 	return func(o *options) {
 		switch {
@@ -142,7 +145,10 @@ func WithFactory(name string, f llm.Factory) Option {
 // n_retries_malformed_structure, latency, and sdk_retry_count when the
 // request was a retry of the SDK. No record holds a message, the state, a
 // schema, a body, a header, a key or an error's text, and a request
-// refused before its evaluation logs nothing.
+// refused before its evaluation logs nothing. The provider and model in
+// every record are the names the call resolved from the model string the
+// caller wrote, so a key placed in a model name would be logged, as the
+// text of an *Error would print it.
 func WithLogger(l *slog.Logger) Option {
 	return func(o *options) { o.logger = l }
 }

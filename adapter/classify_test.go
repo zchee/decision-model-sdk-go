@@ -26,6 +26,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"testing/iotest"
 	"testing/synctest"
 	"time"
 
@@ -811,7 +812,7 @@ func TestInvalidStateIsRejected(t *testing.T) {
 		"255 arrays around a literal":       {state: nest(255, `false`), wantStatus: 422, wantType: "invalid_state", wantMessage: "State is nested too deeply to be written into the prompt."},
 		"255 arrays around a number":        {state: nest(255, `1.5`), wantStatus: 422, wantType: "invalid_state", wantMessage: "State is nested too deeply to be written into the prompt."},
 		"9999 levels":                       {state: nest(9999, ""), wantStatus: 422, wantType: "invalid_state", wantMessage: "State is nested too deeply to be written into the prompt."},
-		"10000 levels: the body is refused": {state: nest(10000, ""), wantStatus: 400, wantType: "invalid_body", wantMessage: "The request body is not a JSON object."},
+		"10000 levels: the body is refused": {state: nest(10000, ""), wantStatus: 400, wantType: "invalid_body", wantMessage: "The request body is not one JSON object of at most 10000 levels."},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -1109,5 +1110,24 @@ func TestProviderConfigFailure(t *testing.T) {
 	status, errorType, message, _ = apiErrorParts(err)
 	if status != 400 || errorType != "provider_config" || message != `adapter: the factory "nil" returned no provider for model "m"` {
 		t.Errorf("a factory returning no provider: %d %q %q", status, errorType, message)
+	}
+}
+
+// TestUnreadableBodyIsRefused checks that a request whose body fails while
+// it is read is answered 400 invalid_body with its fixed text, before the
+// body is parsed.
+func TestUnreadableBodyIsRefused(t *testing.T) {
+	p := fake.New(fake.Text(noulAnswer))
+	ad := fakeAdapter(t, p)
+	body := io.NopCloser(iotest.ErrReader(errors.New("the connection dropped")))
+	status, got, err := send(t, ad, requestWith(t.Context(), http.MethodPost, systemOnePath, body, http.Header{}))
+	if err != nil {
+		t.Fatalf("RoundTrip: %v", err)
+	}
+	if status != http.StatusBadRequest {
+		t.Fatalf("status %d, want 400: %s", status, got)
+	}
+	if message, errorType := detailOf(t, got); message != "The request body could not be read." || errorType != "invalid_body" {
+		t.Errorf("detail = %q, %q; want the unreadable-body text, invalid_body", message, errorType)
 	}
 }
