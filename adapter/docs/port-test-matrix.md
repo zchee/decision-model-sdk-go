@@ -77,7 +77,7 @@ collapses into one Go case (DV1), so a row has fewer Go cases than items.
 | PL13 | `tests/test_provider_lifecycle.py::test_concurrent_first_use_reuses_pool_and_isolates_traces` | 4 | `adapter.TestConcurrentFirstUseReusesProvider` (8 goroutines) | 2 | ported (DV1) | ported |
 | PN1 | `tests/test_provider_nonanswers.py::test_chat_completion_finish_reason` | 28 | `adapter/openai.TestChatFinishReason` (`nonanswer_test.go`) | 14 | ported (DV1) | ported |
 | PN2 | `tests/test_provider_nonanswers.py::test_openai_missing_usage` | 64 | `adapter/openai.TestMissingUsage` | 32 | ported (DV1) | ported |
-| PN3 | `tests/test_provider_nonanswers.py::test_anthropic_nonanswers` | 36 | `adapter/anthropic.TestNonAnswers` (`anthropic_test.go`) | 18 | ported (DV1) | planned |
+| PN3 | `tests/test_provider_nonanswers.py::test_anthropic_nonanswers` | 36 | `adapter/anthropic.TestNonAnswers` (`anthropic_test.go`) | 18 | ported (DV1) | ported |
 | PN4 | `tests/test_provider_nonanswers.py::test_openai_responses_refusal` | 8 | `adapter/openai.TestResponsesRefusal` | 4 | ported (DV1) | ported |
 | PR1 | `tests/test_provider_requests.py::test_openai_native_response_format_wraps_schema` | 1 | `adapter/openai.TestChatResponseFormatWrapsSchema` (`chat_test.go`) | 1 | ported | ported |
 | PR2 | `tests/test_provider_requests.py::test_openai_prompted_sends_no_response_format` | 1 | `adapter/openai.TestChatPromptedSendsNullResponseFormat` | 1 | ported | ported |
@@ -91,7 +91,7 @@ collapses into one Go case (DV1), so a row has fewer Go cases than items.
 | PR10 | `tests/test_provider_requests.py::test_gemini_incomplete_status_is_not_treated_as_an_answer` | 4 | `adapter/gemini.TestIncompleteStatusIsNotAnAnswer` | 4 | ported | planned |
 | PR11 | `tests/test_provider_requests.py::test_gemini_omitted_usage_is_not_treated_as_an_answer` | 1 | `adapter/gemini.TestOmittedUsageIsNotAnAnswer` | 1 | ported | planned |
 | PR12 | `tests/test_provider_requests.py::test_anthropic_result_joins_text_blocks_and_reads_usage` | 1 | `adapter/anthropic.TestResultJoinsTextBlocks` | 1 | ported | ported |
-| PR13 | `tests/test_provider_requests.py::test_anthropic_output_limit` | 8 | `adapter/anthropic.TestOutputLimit` | 4 | ported (DV1) | planned |
+| PR13 | `tests/test_provider_requests.py::test_anthropic_output_limit` | 8 | `adapter/anthropic.TestOutputLimit` | 4 | ported (DV1) | ported |
 | PR14 | `tests/test_provider_requests.py::test_anthropic_rejects_nonpositive_output_limit` | 4 | `adapter/anthropic.TestNewRejectsNonpositiveMaxTokens` | 2 | ported (DV1) | ported |
 | PR15 | `tests/test_provider_requests.py::test_build_providers_select_gemini` | 1 | `adapter.TestResolveModel` case `gemini prefix builds a gemini provider` (`model_test.go`) | 1 | ported (DV9) | planned |
 | PR16 | `tests/test_provider_requests.py::test_unknown_provider_is_rejected` | 1 | `adapter.TestResolveModel` case `default model naming a provider without a factory` | 1 | ported (DV9) | ported |
