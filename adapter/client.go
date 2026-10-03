@@ -52,6 +52,12 @@ const placeholderBaseURL = "http://adapter.invalid"
 // WithTLSConfig, WithProxy, WithConnectTimeout and WithCompression), make
 // NewClient fail with the SDK's *decision.ConfigError.
 //
+// The placeholder base URL is http://adapter.invalid. Nothing is dialled
+// there, but the endpoints a NewClient client reports are the placeholder's:
+// its error texts name them (POST http://adapter.invalid/v1/systemone for
+// a call), and so do its log records unless WithLogEndpointHost(false) is
+// among opts.
+//
 // Closing the client closes ad. An Adapter belongs to one client: NewClient
 // fails when ad was already given to one. NewClient reserves ad with a
 // compare-and-swap before it calls decision.NewClient and releases it when

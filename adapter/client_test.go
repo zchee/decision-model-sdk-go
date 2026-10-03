@@ -1031,6 +1031,8 @@ func TestCheckBodyRefuses(t *testing.T) {
 		"the wrong type":              body(`{"n":{"type":"score","noul":0.25},` + score + "," + choice + "}"),
 		"a member missing":            body(`{"n":{"type":"noul"},` + score + "," + choice + "}"),
 		"a score above n-1":           body("{" + noul + `,"s":{"type":"score","score":1.5,"confidence":0.5,"legend":{"0":"bad","1":"good"},"probabilities":{"0":0.5,"1":0.5}},` + choice + "}"),
+		"a negative score":            body("{" + noul + `,"s":{"type":"score","score":-0.5,"confidence":0.5,"legend":{"0":"bad","1":"good"},"probabilities":{"0":0.5,"1":0.5}},` + choice + "}"),
+		"score keys not the levels":   body("{" + noul + `,"s":{"type":"score","score":0.5,"confidence":0.5,"legend":{"0":"bad","1":"good"},"probabilities":{"0":0.5,"2":0.5}},` + choice + "}"),
 		"a confidence above 1":        body("{" + noul + `,"s":{"type":"score","score":0.5,"confidence":2,"legend":{"0":"bad","1":"good"},"probabilities":{"0":0.5,"1":0.5}},` + choice + "}"),
 		"a legend key not a level":    body("{" + noul + `,"s":{"type":"score","score":0.5,"confidence":0.5,"legend":{"1":"bad","2":"good"},"probabilities":{"0":0.5,"1":0.5}},` + choice + "}"),
 		"a probability above 1":       body("{" + noul + `,"s":{"type":"score","score":0.5,"confidence":0.5,"legend":{"0":"bad","1":"good"},"probabilities":{"0":0.5,"1":1.5}},` + choice + "}"),
@@ -1085,4 +1087,49 @@ func unitFloat(r *rand.Rand) string {
 		return strconv.FormatFloat(edges[r.IntN(len(edges))], 'g', -1, 64)
 	}
 	return strconv.FormatFloat(r.Float64(), 'g', -1, 64)
+}
+
+// TestResponseBodyAllZero sends through the body check, as a fixed case
+// beside TestResponseBodyInvariant, model outputs whose distributions are
+// all zero for a three-label choice and a five-level score, with
+// normalization off and on. Only the Probabilities answer mode carries a
+// distribution in the model's output; a Discrete answer is a label or a
+// level.
+func TestResponseBodyAllZero(t *testing.T) {
+	const output = `{"answers":{"c3":{"fiction":0,"nonfiction":0,"poetry":0},"s5":{"0":0,"1":0,"2":0,"3":0,"4":0}}}`
+	for _, normalize := range []bool{false, true} {
+		t.Run("normalization "+strconv.FormatBool(normalize), func(t *testing.T) {
+			ad := newAdapter(t, WithFactory("pool", factoryOf(&scriptedText{text: output})), WithDefaultModel("pool:m"), WithNormalizeProbabilities(normalize))
+			c := sdkClient(t, ad, false)
+			var checked atomic.Int64
+			ad.mu.Lock()
+			check := ad.check
+			ad.check = func(request, response []byte) {
+				checked.Add(1)
+				check(request, response)
+			}
+			ad.mu.Unlock()
+			qs, err := decision.NewQuestions().
+				Choice("c3", decision.Choice{Instructions: decision.Text("Which genre?"), Options: decision.Options{{Label: "fiction"}, {Label: "nonfiction"}, {Label: "poetry"}}}).
+				Score("s5", decision.Score{Instructions: decision.Text("How many stars?"), Levels: []decision.Content{decision.Text("one"), decision.Text("two"), decision.Text("three"), decision.Text("four"), decision.Text("five")}}).
+				Prepare()
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, err := c.SystemOne(t.Context(), "A review.", qs)
+			if err != nil {
+				t.Fatalf("SystemOne: %v", err)
+			}
+			pool, err := decision.DecodeAs[invariantPool](resp)
+			if err != nil {
+				t.Fatalf("DecodeAs: %v", err)
+			}
+			if !pool.ChoiceThree.Present() || !pool.ScoreFive.Present() {
+				t.Errorf("the answers to c3 and s5 are not both present")
+			}
+			if n := checked.Load(); n != 1 {
+				t.Errorf("the body check ran %d times, want 1", n)
+			}
+		})
+	}
 }

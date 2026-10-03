@@ -35,11 +35,10 @@ const (
 	unknownProviderAfter  = ". Use 'openai', 'anthropic', or 'gemini', or pass a provider instance as the model."
 )
 
-// noModel is the model the Adapter's client names when the Adapter has no
-// default model, so that a call naming none still reaches the Adapter,
-// which refuses it with upstream's model_required text, and no model of the
-// environment is chosen instead. resolve reads it as an empty model before
-// it reads anything else. Its provider name before the colon is empty, so
+// noModel is a model string that names no model: resolve reads it as an
+// empty model before it reads anything else, so a call that sends it uses
+// the default model, or is refused with upstream's model_required text
+// when there is none. Its provider name before the colon is empty, so
 // the model-string rules never read it as a model: New refuses it as a
 // default model, and no factory has an empty name.
 const noModel = ":no-model"

@@ -550,10 +550,9 @@ type attemptEvent struct {
 // attempt's record is written when the next attempt starts or the call's
 // record is, as only then is it known whether a retry follows it, or, when
 // a panic ends the call, while the panic unwinds, and then no call record
-// is written. The
-// records hold integers, durations and fixed words, and the provider's
-// name, the model and the api; never a message, a body, a header or an
-// error's text. Its methods do nothing on a nil *attemptLog.
+// is written. The records hold integers, durations and fixed words, and
+// the provider's name, the model and the api; never a message, a body, a
+// header or an error's text. Its methods do nothing on a nil *attemptLog.
 type attemptLog struct {
 	logger    *slog.Logger
 	ctx       context.Context
