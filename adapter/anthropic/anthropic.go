@@ -150,17 +150,19 @@ func WithMaxTokens(n int) Option {
 
 // WithAPIKey sets the API key, sent as the x-api-key header. A key given
 // here makes New read neither ANTHROPIC_API_KEY nor ANTHROPIC_AUTH_TOKEN
-// (see New). An empty key counts as not given.
+// (see New). The key is trimmed of surrounding white space, and a key that
+// is empty after that counts as not given.
 func WithAPIKey(key string) Option {
-	return func(o *options) { o.apiKey = key }
+	return func(o *options) { o.apiKey = strings.TrimSpace(key) }
 }
 
 // WithAuthToken sets an auth token, sent as Authorization: Bearer, beside
 // x-api-key when the Provider also has an API key. A token given here makes
-// New read neither ANTHROPIC_API_KEY nor ANTHROPIC_AUTH_TOKEN (see New). An
-// empty token counts as not given.
+// New read neither ANTHROPIC_API_KEY nor ANTHROPIC_AUTH_TOKEN (see New). The
+// token is trimmed of surrounding white space, and a token that is empty
+// after that counts as not given.
 func WithAuthToken(token string) Option {
-	return func(o *options) { o.authToken = token }
+	return func(o *options) { o.authToken = strings.TrimSpace(token) }
 }
 
 // WithBaseURL sets the base URL, to whose path /v1/messages is appended with
@@ -218,9 +220,11 @@ func WithTimeout(d time.Duration) Option {
 // ANTHROPIC_AUTH_TOKEN are read only when neither WithAPIKey nor
 // WithAuthToken was given: an explicit credential makes New read neither
 // variable, as the vendor's Python SDK reads none once it is given one. A
-// variable that is set to the empty string counts as not set. Each
-// credential found is sent: x-api-key for the key, Authorization: Bearer
-// for the token, both when both are found.
+// key or token, given or read, is trimmed of surrounding white space, and
+// one that is empty after that counts as none; ANTHROPIC_BASE_URL set to
+// the empty string counts as not set. Each credential found is sent:
+// x-api-key for the key, Authorization: Bearer for the token, both when
+// both are found.
 //
 // New fails, in this order, when the output limit is not positive (with
 // upstream's text), when an option was given an invalid value, when the
@@ -244,8 +248,7 @@ func New(model string, opts ...Option) (*Provider, error) {
 	}
 	key, token := o.apiKey, o.authToken
 	if key == "" && token == "" {
-		key, _ = rest.Env(envAPIKey)
-		token, _ = rest.Env(envAuthToken)
+		key, token = envCredential(envAPIKey), envCredential(envAuthToken)
 	}
 	if key == "" && token == "" {
 		return nil, errors.New(noCredentialText)
@@ -265,6 +268,14 @@ func New(model string, opts ...Option) (*Provider, error) {
 		header:    header,
 		client:    rest.New(rest.Config{HTTPClient: o.httpClient, Timeout: o.timeout}),
 	}, nil
+}
+
+// envCredential returns the value of the credential variable name, trimmed
+// of surrounding white space: "" when it is not set or holds only white
+// space.
+func envCredential(name string) string {
+	v, _ := rest.Env(name)
+	return strings.TrimSpace(v)
 }
 
 // endpointURL returns the URL of the Messages operation under the base URL

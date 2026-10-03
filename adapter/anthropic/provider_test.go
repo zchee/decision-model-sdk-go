@@ -227,8 +227,10 @@ func TestDoRefusesABodyItCannotWrite(t *testing.T) {
 // upstream builds its client with sends it: an API key as x-api-key, an auth
 // token as Authorization: Bearer, both headers when both are found, and New
 // failing when neither is. Without a credential option New reads both
-// variables; with either option it reads neither variable; an option given
-// as the empty string counts as not given, and so does an empty variable.
+// variables; with either option it reads neither variable. A credential,
+// given or read, is trimmed of surrounding white space, and one that is
+// empty after that counts as not given: the vendor's SDK would send a key
+// of spaces, which its HTTP library then refuses before any request.
 func TestAuthHeaders(t *testing.T) {
 	tests := map[string]struct {
 		env      map[string]string
@@ -282,6 +284,23 @@ func TestAuthHeaders(t *testing.T) {
 		},
 		"success: an empty key variable is no key": {
 			env:  map[string]string{envAPIKey: "", envAuthToken: "madeupword"},
+			want: http.Header{"Authorization": {"Bearer madeupword"}},
+		},
+		"error: a key variable of white space only is no key": {
+			env:      map[string]string{envAPIKey: "   "},
+			wantText: noCredentialText,
+		},
+		"success: the variables are trimmed": {
+			env:  map[string]string{envAPIKey: " not-a-key ", envAuthToken: "\tmadeupword\n"},
+			want: http.Header{"X-Api-Key": {"not-a-key"}, "Authorization": {"Bearer madeupword"}},
+		},
+		"success: the options are trimmed": {
+			opts: []Option{WithAPIKey("  not-a-key\t"), WithAuthToken("\nmadeupword ")},
+			want: http.Header{"X-Api-Key": {"not-a-key"}, "Authorization": {"Bearer madeupword"}},
+		},
+		"success: a key option of white space only counts as not given": {
+			env:  map[string]string{envAuthToken: "madeupword"},
+			opts: []Option{WithAPIKey("   ")},
 			want: http.Header{"Authorization": {"Bearer madeupword"}},
 		},
 	}
@@ -460,6 +479,10 @@ func TestNewRefuses(t *testing.T) {
 		},
 		"error: an empty API key option": {
 			opts: []Option{WithAPIKey("")},
+			want: noCredentialText,
+		},
+		"error: an API key option of three spaces": {
+			opts: []Option{WithAPIKey("   ")},
 			want: noCredentialText,
 		},
 		"error: a base URL option that is not a URL": {
@@ -1061,13 +1084,13 @@ func TestDoRecordsTheExchange(t *testing.T) {
 }
 
 // TestModelAndClose pins that Model is the model string New was given,
-// whatever the base URL holds, and that Close returns nil for an owned and
+// whatever the base URL holds (a userinfo and a query among it), and that Close returns nil for an owned and
 // for a borrowed client.
 func TestModelAndClose(t *testing.T) {
 	tests := map[string]struct {
 		opts []Option
 	}{
-		"success: an owned client":   {opts: []Option{WithAPIKey("not-a-key"), WithBaseURL("https://alice:madeupword@api.example.test")}},
+		"success: an owned client":   {opts: []Option{WithAPIKey("not-a-key"), WithBaseURL("https://alice:madeupword@api.example.test/p?tenant=one")}},
 		"success: a borrowed client": {opts: []Option{WithAPIKey("not-a-key"), WithHTTPClient(&http.Client{Transport: answer(200, nil, okBody)})}},
 	}
 	for name, tt := range tests {
