@@ -373,6 +373,49 @@ func TestNewClientIgnoresDefaultModelEnv(t *testing.T) {
 	}
 }
 
+// TestNewClientBaseURLPrecedence checks which base URL a NewClient client
+// names in its errors: DECISION_MODEL_BASE_URL, which the SDK reads when no
+// base URL is set, never chooses it; NewClient's placeholder holds unless
+// the caller's WithBaseURL is among opts, and then the caller's URL holds.
+// The provider answers 503, so the call fails with an *decision.APIError
+// whose text starts with the endpoint, and ad answers it without dialling.
+func TestNewClientBaseURLPrecedence(t *testing.T) {
+	const envURL = "http://canary.invalid"
+	tests := map[string]struct {
+		opts     []decision.ClientOption
+		endpoint string
+	}{
+		"the variable set and no base URL among opts": {
+			endpoint: "POST http://adapter.invalid/v1/systemone",
+		},
+		"the variable set and the caller's base URL among opts": {
+			opts:     []decision.ClientOption{decision.WithBaseURL("http://caller.invalid")},
+			endpoint: "POST http://caller.invalid/v1/systemone",
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(decision.BaseURLEnv, envURL)
+			p := fake.New(fake.Error(&llm.StatusError{StatusCode: http.StatusServiceUnavailable}))
+			c := sdkClient(t, fakeAdapter(t, p), false, tt.opts...)
+			_, err := c.SystemOne(t.Context(), "state", noulQuestions(t))
+			apiErr, ok := errors.AsType[*decision.APIError](err)
+			if !ok || apiErr.StatusCode != http.StatusServiceUnavailable {
+				t.Fatalf("SystemOne error = %v, want a 503 *decision.APIError", err)
+			}
+			if apiErr.Endpoint != tt.endpoint {
+				t.Errorf("APIError.Endpoint = %q, want %q", apiErr.Endpoint, tt.endpoint)
+			}
+			if text := err.Error(); !strings.HasPrefix(text, tt.endpoint+": ") || strings.Contains(text, "canary.invalid") {
+				t.Errorf("error text = %q, want it to start with %q and not to name %s", text, tt.endpoint+": ", envURL)
+			}
+			if got := p.Calls(); got != 1 {
+				t.Errorf("provider calls = %d, want 1", got)
+			}
+		})
+	}
+}
+
 // TestNewClientRefusesASecondClient checks that an Adapter belongs to one
 // client: a second NewClient fails, a NewClient that fails in the SDK
 // leaves the Adapter free, and of many concurrent NewClient calls on one
