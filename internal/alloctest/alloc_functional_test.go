@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,13 +24,13 @@ import (
 	"strconv"
 	"testing"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 
 	gocmp "github.com/google/go-cmp/cmp"
 
-	"github.com/zchee/typesafe-sdk-go/internal/codec"
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
-	"github.com/zchee/typesafe-sdk-go/internal/wire"
+	"github.com/zchee/decision-model-sdk-go/internal/codec"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
+	"github.com/zchee/decision-model-sdk-go/internal/wire"
 )
 
 // The functional halves of the allocation tests. Every allocation budget is
@@ -51,7 +51,7 @@ import (
 func TestAllocEncodeFunctional(t *testing.T) {
 	qs := encodeQuestions(t)
 	prefix := []byte(`{"state":`)
-	suffix := []byte(`,"model":` + strconv.Quote(typesafe.DefaultModel) + `,"questions":` + string(wireOf(qs).Questions) + `}`)
+	suffix := []byte(`,"model":` + strconv.Quote(decision.DefaultModel) + `,"questions":` + string(wireOf(qs).Questions) + `}`)
 	for _, k := range stateKinds {
 		for _, size := range allocSizes {
 			t.Run(k.name+"/"+sizeName(size), func(t *testing.T) {
@@ -120,7 +120,7 @@ func TestAllocScratchSequenceFunctional(t *testing.T) {
 			states, lens := sequenceStates(t, k, qs)
 			var want [3][]byte
 			for i, st := range states {
-				body, err := encodeBody(st, typesafe.DefaultModel, qs, nil)
+				body, err := encodeBody(st, decision.DefaultModel, qs, nil)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -210,7 +210,7 @@ func TestAllocWholeCallFunctional(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			rec := &testsupport.Recorder{Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, testsupport.Fixture(t, tt.fixture))}}
-			c := newTestClient(t, rec, typesafe.WithRetry(typesafe.DefaultRetry()))
+			c := newTestClient(t, rec, decision.WithRetry(decision.DefaultRetry()))
 			_, want, err := decodeFixture(t, tt.fixture)
 			if err != nil {
 				t.Fatal(err)
@@ -264,15 +264,15 @@ func TestMemStatsCapFunctional(t *testing.T) {
 	for name, mc := range memCases(t) {
 		t.Run(name, func(t *testing.T) {
 			c := newTestClient(t, &testsupport.Recorder{Discard: true, Replies: []testsupport.Reply{mc.reply}})
-			resp, err := c.SystemOne(t.Context(), newAllocState(), q3Questions(t), typesafe.Retry(typesafe.NoRetry()))
+			resp, err := c.SystemOne(t.Context(), newAllocState(), q3Questions(t), decision.Retry(decision.NoRetry()))
 			if got := outcomeOf(err); got != mc.outcome {
 				t.Fatalf("outcome %q, want %q", got, mc.outcome)
 			}
 			switch mc.outcome {
 			case "large":
-				tl, _ := errors.AsType[*typesafe.ResponseTooLargeError](err)
-				if tl.StatusCode != http.StatusOK || tl.Limit != typesafe.DefaultMaxResponseBytes {
-					t.Errorf("*ResponseTooLargeError status %d, limit %d; want 200 and the cap %d", tl.StatusCode, tl.Limit, typesafe.DefaultMaxResponseBytes)
+				tl, _ := errors.AsType[*decision.ResponseTooLargeError](err)
+				if tl.StatusCode != http.StatusOK || tl.Limit != decision.DefaultMaxResponseBytes {
+					t.Errorf("*ResponseTooLargeError status %d, limit %d; want 200 and the cap %d", tl.StatusCode, tl.Limit, decision.DefaultMaxResponseBytes)
 				}
 			case "ok":
 				if diff := gocmp.Diff(payloadOf(responseOf(want)), payloadOf(resp)); diff != "" {

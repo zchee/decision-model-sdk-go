@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -26,7 +26,7 @@ import (
 
 // boundChildEnv makes TestBoundFuzzInput's child run an input that never
 // returns.
-const boundChildEnv = "TYPESAFE_TESTSUPPORT_BOUND_CHILD"
+const boundChildEnv = "DECISION_MODEL_TESTSUPPORT_BOUND_CHILD"
 
 // TestBoundFuzzInput checks the per-input bound every fuzz target arms: an
 // input that runs past it ends the process with a non-zero status and a

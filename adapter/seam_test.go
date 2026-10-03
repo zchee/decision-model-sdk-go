@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,9 +24,9 @@ import (
 
 const (
 	// modulePath is this module's path.
-	modulePath = "github.com/zchee/typesafe-sdk-go/adapter"
-	// sdkPath is the TypeSafe SDK's module path and its root package.
-	sdkPath = "github.com/zchee/typesafe-sdk-go"
+	modulePath = "github.com/zchee/decision-model-sdk-go/adapter"
+	// sdkPath is the root SDK's module path and its root package.
+	sdkPath = "github.com/zchee/decision-model-sdk-go"
 	// jsonLibPath is the JSON library the module uses (go-json-experiment).
 	jsonLibPath = "github.com/go-json-experiment/json"
 	// cmpPath is the one module test files may add.

@@ -1,6 +1,6 @@
 //go:build !go1.28 && (amd64 || arm64)
 
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@
 
 package codec
 
-import "github.com/zchee/typesafe-sdk-go/internal/wire"
+import "github.com/zchee/decision-model-sdk-go/internal/wire"
 
 // structuredMark marks a legend level whose bytes the lazy pass finds. It is
 // non-nil and empty, which no level the decoder keeps can be.

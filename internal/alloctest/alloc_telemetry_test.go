@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,11 +25,11 @@ import (
 	"strings"
 	"testing"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 
-	"github.com/zchee/typesafe-sdk-go/internal/engine"
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
-	"github.com/zchee/typesafe-sdk-go/internal/wire"
+	"github.com/zchee/decision-model-sdk-go/internal/engine"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
+	"github.com/zchee/decision-model-sdk-go/internal/wire"
 )
 
 // discardHandler is a slog.Handler that keeps every record at or above min
@@ -86,9 +86,9 @@ func TestAllocLoggedCall(t *testing.T) {
 				reply.Header.Add(rp.kv[i], rp.kv[i+1])
 			}
 			rec := &testsupport.Recorder{Discard: true, Replies: []testsupport.Reply{reply}}
-			opts := []typesafe.ClientOption{typesafe.WithRetry(typesafe.DefaultRetry())}
+			opts := []decision.ClientOption{decision.WithRetry(decision.DefaultRetry())}
 			if l.logger != nil {
-				opts = append(opts, typesafe.WithLogger(l.logger))
+				opts = append(opts, decision.WithLogger(l.logger))
 			}
 			c := newTestClient(t, rec, opts...)
 			state := newAllocState()
@@ -189,7 +189,7 @@ func TestAllocSecretHeaderName(t *testing.T) {
 	}
 	h := http.Header{"Content-Type": {"application/json"}, "Date": {"Sat, 26 Sep 2026 11:00:00 GMT"}, "X-Typesafe-Request-Id": {"req_7f3c9a2e5b1d"}, "Set-Cookie": {"session=opaque"}}
 	redacted := testing.AllocsPerRun(100, func() { sinkHeader = engine.HeaderRedactor{}.Header(h) })
-	req := http.Header{"Content-Type": {"application/json"}, "Accept": {"application/json"}, "User-Agent": {"typesafe-sdk-go"}, "X-Typesafe-Sdk": {"go"}}
+	req := http.Header{"Content-Type": {"application/json"}, "Accept": {"application/json"}, "User-Agent": {"decision-model-sdk-go"}, "X-Typesafe-Sdk": {"go"}}
 	creds := testing.AllocsPerRun(100, func() { sinkCreds = engine.RequestCredentials(req) })
 	t.Logf("SECRET header copy of 4 headers %v allocations, credential scan %v", redacted, creds)
 	if redacted != 3 {

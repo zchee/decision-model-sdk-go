@@ -1,4 +1,4 @@
-# client-options.txt: NewClient and its ClientOption constructors in github.com/zchee/typesafe-sdk-go.
+# client-options.txt: NewClient and its ClientOption constructors in github.com/zchee/decision-model-sdk-go.
 # Regenerate: go test -run '^TestClientOptionsSurface$' -update .
 func NewClient(...ClientOption) (*Client, error)
 func WithAPIKey(string) ClientOption

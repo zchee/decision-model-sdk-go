@@ -1,6 +1,6 @@
 //go:build !go1.28 && (amd64 || arm64)
 
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zchee/typesafe-sdk-go/internal/wire"
+	"github.com/zchee/decision-model-sdk-go/internal/wire"
 )
 
 // wantReject maps every fixture the decoder must refuse to the field path the

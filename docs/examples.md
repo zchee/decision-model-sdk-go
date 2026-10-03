@@ -35,7 +35,7 @@ otherwise `jev-latest`; each attempt has 10 s, and a call two retries.
 
 <!-- example: quickstart/main.go -->
 ```go
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 // SPDX-License-Identifier: Apache-2.0
 
 // Command quickstart asks the TypeSafe API one question about a support
@@ -48,7 +48,7 @@ import (
 	"fmt"
 	"log"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 )
 
 func main() {
@@ -58,16 +58,16 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	client, err := typesafe.NewClient()
+	client, err := decision.NewClient()
 	if err != nil {
 		return err
 	}
 	defer client.Close()
 
-	questions, err := typesafe.NewQuestions().
-		Choice("category", typesafe.Choice{
-			Instructions: typesafe.Text("What is this ticket about?"),
-			Options:      typesafe.Options{{Label: "billing"}, {Label: "technical"}, {Label: "other"}},
+	questions, err := decision.NewQuestions().
+		Choice("category", decision.Choice{
+			Instructions: decision.Text("What is this ticket about?"),
+			Options:      decision.Options{{Label: "billing"}, {Label: "technical"}, {Label: "other"}},
 		}).
 		Prepare()
 	if err != nil {
@@ -98,7 +98,7 @@ type and returns a `*ConfigError` for a malformed one.
 
 <!-- example: typed/main.go -->
 ```go
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 // SPDX-License-Identifier: Apache-2.0
 
 // Command typed declares its questions as a struct: each tagged field is a
@@ -110,17 +110,17 @@ import (
 	"fmt"
 	"log"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 )
 
 // Ticket is the question set. The tag's name key is the question's name on
 // the wire (the field name when left out); optional marks an answer that
 // may be missing from the response, which Present then reports.
 type Ticket struct {
-	Billing typesafe.NoulAnswer   `typesafe:"kind=noul;name=billing;instructions=Is this ticket about billing?"`
-	Tone    typesafe.ChoiceAnswer `typesafe:"kind=choice;name=tone;instructions=What is the customer's tone?;options=calm|frustrated|angry"`
-	Urgency typesafe.ScoreAnswer  `typesafe:"kind=score;name=urgency;instructions=How urgent is this ticket?;levels=can wait|this week|today"`
-	Spam    typesafe.NoulAnswer   `typesafe:"kind=noul;name=spam;optional;instructions=Is this spam?"`
+	Billing decision.NoulAnswer   `typesafe:"kind=noul;name=billing;instructions=Is this ticket about billing?"`
+	Tone    decision.ChoiceAnswer `typesafe:"kind=choice;name=tone;instructions=What is the customer's tone?;options=calm|frustrated|angry"`
+	Urgency decision.ScoreAnswer  `typesafe:"kind=score;name=urgency;instructions=How urgent is this ticket?;levels=can wait|this week|today"`
+	Spam    decision.NoulAnswer   `typesafe:"kind=noul;name=spam;optional;instructions=Is this spam?"`
 }
 
 func main() {
@@ -130,7 +130,7 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	client, err := typesafe.NewClient()
+	client, err := decision.NewClient()
 	if err != nil {
 		return err
 	}
@@ -143,7 +143,7 @@ func run(ctx context.Context) error {
 
 	// One step: Ask sends the questions Ticket declares and returns the
 	// answers as a Ticket.
-	ticket, err := typesafe.Ask[Ticket](ctx, client, state)
+	ticket, err := decision.Ask[Ticket](ctx, client, state)
 	if err != nil {
 		return err
 	}
@@ -157,7 +157,7 @@ func run(ctx context.Context) error {
 	// Two steps, when the response itself is needed too (its request id,
 	// usage or raw body): the questions Ask would send, the call, and the
 	// typed decode of its answers.
-	questions, err := typesafe.PreparedFor[Ticket]()
+	questions, err := decision.PreparedFor[Ticket]()
 	if err != nil {
 		return err
 	}
@@ -165,7 +165,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	again, err := typesafe.DecodeAs[Ticket](response)
+	again, err := decision.DecodeAs[Ticket](response)
 	if err != nil {
 		return err
 	}
@@ -188,7 +188,7 @@ not know with a 400 `api_usage_error`.
 
 <!-- example: options/main.go -->
 ```go
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 // SPDX-License-Identifier: Apache-2.0
 
 // Command options shows a client's settings and a call's: the forms a
@@ -202,7 +202,7 @@ import (
 	"log"
 	"time"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 )
 
 func main() {
@@ -219,28 +219,28 @@ type Ticket struct {
 
 func run(ctx context.Context) error {
 	// The client's settings apply to every call it makes.
-	client, err := typesafe.NewClient(
-		typesafe.WithModel(typesafe.DefaultModel),
-		typesafe.WithTimeout(30*time.Second),
-		typesafe.WithRetry(typesafe.DefaultRetry().MaxRetries(1)),
-		typesafe.WithHeader("X-Team", "support"),
-		typesafe.WithUserAgentProduct("options-example/1.0"),
+	client, err := decision.NewClient(
+		decision.WithModel(decision.DefaultModel),
+		decision.WithTimeout(30*time.Second),
+		decision.WithRetry(decision.DefaultRetry().MaxRetries(1)),
+		decision.WithHeader("X-Team", "support"),
+		decision.WithUserAgentProduct("options-example/1.0"),
 	)
 	if err != nil {
 		return err
 	}
 	defer client.Close()
 
-	questions, err := typesafe.NewQuestions().
-		Choice("topic", typesafe.Choice{
-			Instructions: typesafe.Text("What is the message about?"),
-			Options:      typesafe.Options{{Label: "billing", Description: typesafe.Text("payments or invoices")}, {Label: "other"}},
+	questions, err := decision.NewQuestions().
+		Choice("topic", decision.Choice{
+			Instructions: decision.Text("What is the message about?"),
+			Options:      decision.Options{{Label: "billing", Description: decision.Text("payments or invoices")}, {Label: "other"}},
 		}).
-		Score("urgency", typesafe.Score{
-			Levels: []typesafe.Content{typesafe.Text("low"), typesafe.Text("high")},
+		Score("urgency", decision.Score{
+			Levels: []decision.Content{decision.Text("low"), decision.Text("high")},
 		}).
 		// A question given as its raw fields is sent as it is.
-		Raw("refund", typesafe.RawQuestion{Type: "noul", Fields: map[string]any{
+		Raw("refund", decision.RawQuestion{Type: "noul", Fields: map[string]any{
 			"instructions": "Does the customer ask for a refund?",
 			"criteria": map[string]any{
 				"true": map[string]any{"meaning": "a refund or a chargeback", "examples": []any{"please refund me"}},
@@ -257,13 +257,13 @@ func run(ctx context.Context) error {
 		"I was charged twice.",
 		map[string]any{"items": []any{"charged twice", nil}},
 		Ticket{Subject: "Refund", Tags: []string{"billing"}},
-		typesafe.RawJSON(`{"subject":"Refund","nullable":null}`),
+		decision.RawJSON(`{"subject":"Refund","nullable":null}`),
 	}
 	for _, state := range states {
 		response, err := client.SystemOne(ctx, state, questions,
-			typesafe.Timeout(20*time.Second),
-			typesafe.Retry(typesafe.NoRetry()),
-			typesafe.Header("X-Call", "options-example"),
+			decision.Timeout(20*time.Second),
+			decision.Retry(decision.NoRetry()),
+			decision.Header("X-Call", "options-example"),
 		)
 		if err != nil {
 			return err
@@ -274,9 +274,9 @@ func run(ctx context.Context) error {
 
 	// The models endpoint takes the call options that apply to it.
 	models, err := client.Models().List(ctx,
-		typesafe.Timeout(2*time.Second),
-		typesafe.Retry(typesafe.DefaultRetry()),
-		typesafe.Header("X-Call", "options-example"),
+		decision.Timeout(2*time.Second),
+		decision.Retry(decision.DefaultRetry()),
+		decision.Header("X-Call", "options-example"),
 	)
 	if err != nil {
 		return err
@@ -300,7 +300,7 @@ same header map.
 
 <!-- example: transport/main.go -->
 ```go
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 // SPDX-License-Identifier: Apache-2.0
 
 // Command transport gives the client a transport of its own: an
@@ -316,7 +316,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 )
 
 func main() {
@@ -344,7 +344,7 @@ func run(ctx context.Context) error {
 		Proxy:           http.ProxyFromEnvironment,
 		IdleConnTimeout: 5 * time.Minute,
 	}
-	client, err := typesafe.NewClient(typesafe.WithHTTPTransport(tuned))
+	client, err := decision.NewClient(decision.WithHTTPTransport(tuned))
 	if err != nil {
 		return err
 	}
@@ -359,13 +359,13 @@ func run(ctx context.Context) error {
 	// The client's deadline and response size limit still apply; the
 	// SDK's connection policy does not.
 	counter := &countingTransport{base: http.DefaultTransport}
-	opaque, err := typesafe.NewClient(typesafe.WithRoundTripper(counter))
+	opaque, err := decision.NewClient(decision.WithRoundTripper(counter))
 	if err != nil {
 		return err
 	}
 	defer opaque.Close()
-	questions, err := typesafe.NewQuestions().
-		Noul("question", typesafe.Noul{Instructions: typesafe.Text("Is this a question?")}).
+	questions, err := decision.NewQuestions().
+		Noul("question", decision.Noul{Instructions: decision.Text("Is this a question?")}).
 		Prepare()
 	if err != nil {
 		return err
@@ -392,7 +392,7 @@ cancelled context returns `context.Canceled` itself.
 
 <!-- example: retries/main.go -->
 ```go
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 // SPDX-License-Identifier: Apache-2.0
 
 // Command retries sets a retry policy for a client and for one call, and
@@ -406,7 +406,7 @@ import (
 	"log"
 	"time"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 )
 
 func main() {
@@ -420,18 +420,18 @@ func run(ctx context.Context) error {
 	// policy is DefaultRetry: 2 retries on 408, 429 and 5xx, on connection
 	// errors and on timeouts, with a backoff from 500 ms to 5 s and a
 	// budget of 30 s per call.
-	patient := typesafe.DefaultRetry().
+	patient := decision.DefaultRetry().
 		MaxRetries(4).
 		Backoff(time.Second, 10*time.Second, 0.25).
 		Budget(time.Minute)
-	client, err := typesafe.NewClient(typesafe.WithRetry(patient))
+	client, err := decision.NewClient(decision.WithRetry(patient))
 	if err != nil {
 		return err
 	}
 	defer client.Close()
 
-	questions, err := typesafe.NewQuestions().
-		Noul("refund", typesafe.Noul{Instructions: typesafe.Text("Does the customer ask for a refund?")}).
+	questions, err := decision.NewQuestions().
+		Noul("refund", decision.Noul{Instructions: decision.Text("Does the customer ask for a refund?")}).
 		Prepare()
 	if err != nil {
 		return err
@@ -439,38 +439,38 @@ func run(ctx context.Context) error {
 	state := "I was charged twice; please refund one of the charges."
 
 	// This call retries nothing; the client's policy applies to the others.
-	response, err := client.SystemOne(ctx, state, questions, typesafe.Retry(typesafe.NoRetry()))
+	response, err := client.SystemOne(ctx, state, questions, decision.Retry(decision.NoRetry()))
 	report("without retries", response, err)
 
 	// A successful response is billed, so one that fails validation is
 	// never retried unless a predicate asks for it.
 	validating := patient.Predicate(func(err error) bool {
-		_, ok := errors.AsType[*typesafe.ResponseValidationError](err)
+		_, ok := errors.AsType[*decision.ResponseValidationError](err)
 		return ok
 	})
-	response, err = client.SystemOne(ctx, state, questions, typesafe.Retry(validating))
+	response, err = client.SystemOne(ctx, state, questions, decision.Retry(validating))
 	report("with a predicate", response, err)
 	return nil
 }
 
 // report prints the answer, or what kind of error the call returned.
-func report(label string, response *typesafe.SystemOneResponse, err error) {
+func report(label string, response *decision.SystemOneResponse, err error) {
 	if err == nil {
 		refund, _ := response.Answers().Noul("refund")
 		fmt.Printf("%s: refund %.2f\n", label, refund.Noul())
 		return
 	}
-	if apiErr, ok := errors.AsType[*typesafe.APIError](err); ok {
+	if apiErr, ok := errors.AsType[*decision.APIError](err); ok {
 		wait, _ := apiErr.RetryAfter()
 		fmt.Printf("%s: the API answered %d (%s, authentication %t, retry after %s)\n",
 			label, apiErr.StatusCode, apiErr.Kind, apiErr.IsAuthentication(), wait)
 		return
 	}
-	if timeoutErr, ok := errors.AsType[*typesafe.TimeoutError](err); ok {
+	if timeoutErr, ok := errors.AsType[*decision.TimeoutError](err); ok {
 		fmt.Printf("%s: no response within %s\n", label, timeoutErr.Timeout)
 		return
 	}
-	if connErr, ok := errors.AsType[*typesafe.ConnectionError](err); ok {
+	if connErr, ok := errors.AsType[*decision.ConnectionError](err); ok {
 		fmt.Printf("%s: no connection (through a proxy: %t): %v\n", label, connErr.Proxy(), err)
 		return
 	}
@@ -488,7 +488,7 @@ The client writes to the `*slog.Logger` given by `WithLogger` and discards
 its records without one; it never reads `TYPESAFE_LOG_LEVEL` and never
 sets a level. INFO holds one record per attempt (method, endpoint, status,
 duration, request id); DEBUG adds the request and response headers and the
-body lengths; `typesafe.LevelTrace` adds the bodies. Header values that
+body lengths; `decision.LevelTrace` adds the bodies. Header values that
 are credentials, or hold the client's key, are shown as `***` in the
 records and in the errors; text that comes from a response body, a
 server's message or an answer's name, is shown as the server sent it, and
@@ -496,13 +496,13 @@ a `LevelTrace` body record is the body itself.
 
 <!-- example: logging/main.go -->
 ```go
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 // SPDX-License-Identifier: Apache-2.0
 
 // Command logging gives the client a log/slog logger. At INFO the client
 // writes one record per attempt; at DEBUG it adds the request and response
 // headers, with credentials shown as ***, and the body lengths; at
-// typesafe.LevelTrace it adds the bodies themselves, as sent and received.
+// decision.LevelTrace it adds the bodies themselves, as sent and received.
 package main
 
 import (
@@ -512,7 +512,7 @@ import (
 	"log/slog"
 	"os"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 )
 
 func main() {
@@ -523,14 +523,14 @@ func main() {
 
 func run(ctx context.Context) error {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	client, err := typesafe.NewClient(typesafe.WithLogger(logger))
+	client, err := decision.NewClient(decision.WithLogger(logger))
 	if err != nil {
 		return err
 	}
 	defer client.Close()
 
-	questions, err := typesafe.NewQuestions().
-		Noul("greeting", typesafe.Noul{Instructions: typesafe.Text("Is this a greeting?")}).
+	questions, err := decision.NewQuestions().
+		Noul("greeting", decision.Noul{Instructions: decision.Text("Is this a greeting?")}).
 		Prepare()
 	if err != nil {
 		return err
@@ -556,7 +556,7 @@ same connection.
 
 <!-- example: concurrency/main.go -->
 ```go
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 // SPDX-License-Identifier: Apache-2.0
 
 // Command concurrency shares one client between goroutines. Over HTTPS the
@@ -571,7 +571,7 @@ import (
 	"log"
 	"sync"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 )
 
 func main() {
@@ -581,7 +581,7 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	client, err := typesafe.NewClient()
+	client, err := decision.NewClient()
 	if err != nil {
 		return err
 	}
@@ -591,10 +591,10 @@ func run(ctx context.Context) error {
 	}
 
 	// A prepared question set is read-only: every goroutine can ask it.
-	questions, err := typesafe.NewQuestions().
-		Choice("sentiment", typesafe.Choice{
-			Instructions: typesafe.Text("What is the sentiment of the review?"),
-			Options:      typesafe.Options{{Label: "positive"}, {Label: "neutral"}, {Label: "negative"}},
+	questions, err := decision.NewQuestions().
+		Choice("sentiment", decision.Choice{
+			Instructions: decision.Text("What is the sentiment of the review?"),
+			Options:      decision.Options{{Label: "positive"}, {Label: "neutral"}, {Label: "negative"}},
 		}).
 		Prepare()
 	if err != nil {

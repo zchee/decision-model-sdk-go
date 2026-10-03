@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
 
 package engine
 
-import "github.com/zchee/typesafe-sdk-go/internal/wire"
+import "github.com/zchee/decision-model-sdk-go/internal/wire"
 
 // FalsyJSON reports whether the JSON value raw is one Python finds false:
 // null, false, "", [], {} or a number equal to zero. Invalid JSON is not

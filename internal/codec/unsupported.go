@@ -1,6 +1,6 @@
 //go:build go1.28 || !(amd64 || arm64)
 
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -26,11 +26,11 @@
 // "!go1.28 && (amd64 || arm64)"), so go build and go vet both stop at the
 // identifier below and print its name, which is the error message:
 //
-//	undefined: typesafe_sdk_go_requires_go1_17_to_go1_27_on_amd64_or_arm64
+//	undefined: decision_model_sdk_go_requires_go1_17_to_go1_27_on_amd64_or_arm64
 //
 // On the Go 1.28 release both constraints move together: see the bump
 // procedure in docs/support.md.
 
 package codec
 
-var _ = typesafe_sdk_go_requires_go1_17_to_go1_27_on_amd64_or_arm64
+var _ = decision_model_sdk_go_requires_go1_17_to_go1_27_on_amd64_or_arm64

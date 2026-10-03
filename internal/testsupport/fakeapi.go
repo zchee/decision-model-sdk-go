@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -32,7 +32,7 @@ const fakeAPIModels = `{"models":[{"name":"jev-latest","description":"a stand-in
 // questions: the live API's answer to such a request.
 const fakeAPIUsageError = `{"detail":{"error_type":"api_usage_error","message":"Invalid request."}}`
 
-// FakeAPI is an in-process stand-in for the TypeSafe API, for tests that run
+// FakeAPI is an in-process stand-in for the System One API, for tests that run
 // programs written against the real one (the examples under examples/).
 // It answers:
 //

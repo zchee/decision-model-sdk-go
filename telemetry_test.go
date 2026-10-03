@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package typesafe
+package decision
 
 import (
 	"bufio"
@@ -39,8 +39,8 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
-	"github.com/zchee/typesafe-sdk-go/internal/engine"
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
+	"github.com/zchee/decision-model-sdk-go/internal/engine"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
 )
 
 // newModelsServer starts a loopback HTTP/2 server that answers every request
@@ -446,7 +446,7 @@ func TestLogLevelsPerAttempt(t *testing.T) {
 				}
 				for _, a := range r.Attrs {
 					v := a.Value.String()
-					if r.Level > slog.LevelDebug && (strings.HasPrefix(a.Key, "headers") || strings.Contains(v, "visible") || strings.Contains(v, "application/json") || strings.Contains(v, "typesafe-sdk-go/")) {
+					if r.Level > slog.LevelDebug && (strings.HasPrefix(a.Key, "headers") || strings.Contains(v, "visible") || strings.Contains(v, "application/json") || strings.Contains(v, "decision-model-sdk-go/")) {
 						t.Errorf("%s record %q carries a header: %s=%s", r.Level, r.Message, a.Key, v)
 					}
 					if r.Level > LevelTrace && (a.Key == "body" || strings.Contains(v, `"models"`) || strings.Contains(v, `"message"`)) {

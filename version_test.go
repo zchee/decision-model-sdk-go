@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package typesafe
+package decision
 
 import (
 	"regexp"
@@ -30,7 +30,7 @@ func TestSDKIdentifier(t *testing.T) {
 	if !semver.MatchString(Version) {
 		t.Errorf("Version = %q, want a semantic version", Version)
 	}
-	if want := "typesafe-sdk-go/" + Version; sdkIdentifier != want {
+	if want := "decision-model-sdk-go/" + Version; sdkIdentifier != want {
 		t.Errorf("sdkIdentifier = %q, want %q", sdkIdentifier, want)
 	}
 	if !validFieldValue(sdkIdentifier) || productRule(sdkIdentifier) != "" {

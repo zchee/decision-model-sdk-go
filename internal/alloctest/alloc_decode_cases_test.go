@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,10 +20,10 @@ import (
 	"strings"
 	"testing"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
-	"github.com/zchee/typesafe-sdk-go/internal/wire"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
+	"github.com/zchee/decision-model-sdk-go/internal/wire"
 )
 
 // The decode cases of the per-fixture decode budget and of the floods'
@@ -80,37 +80,37 @@ func decodeFixture(t *testing.T, name string) (*wire.ResponseMeta, wire.SystemOn
 // levels from its legend, a level the legend leaves out (or an empty legend)
 // being the text "-". A response without answers answers one noul question,
 // "q", since a set cannot be empty.
-func questionsFor(t *testing.T, res *wire.SystemOneResult) *typesafe.Prepared {
+func questionsFor(t *testing.T, res *wire.SystemOneResult) *decision.Prepared {
 	t.Helper()
-	qs := typesafe.NewQuestions()
+	qs := decision.NewQuestions()
 	for _, e := range res.Answers.Entries() {
 		name := strings.Clone(e.Name)
 		switch e.Answer.Kind {
 		case wire.KindNoul:
-			qs.Noul(name, typesafe.Noul{})
+			qs.Noul(name, decision.Noul{})
 		case wire.KindChoice:
-			var opts typesafe.Options
+			var opts decision.Options
 			for _, p := range e.Answer.Choice.Probabilities {
-				opts = append(opts, typesafe.Option{Label: strings.Clone(p.Label)})
+				opts = append(opts, decision.Option{Label: strings.Clone(p.Label)})
 			}
-			qs.Choice(name, typesafe.Choice{Options: opts})
+			qs.Choice(name, decision.Choice{Options: opts})
 		case wire.KindScore:
-			levels := []typesafe.Content{typesafe.Text("-")}
+			levels := []decision.Content{decision.Text("-")}
 			for _, l := range e.Answer.Score.Legend {
 				for len(levels) <= int(l.Level) {
-					levels = append(levels, typesafe.Text("-"))
+					levels = append(levels, decision.Text("-"))
 				}
 				if l.Description.JSON != nil {
-					levels[l.Level] = typesafe.JSON(slices.Clone(l.Description.JSON))
+					levels[l.Level] = decision.JSON(slices.Clone(l.Description.JSON))
 				} else {
-					levels[l.Level] = typesafe.Text(strings.Clone(l.Description.Text))
+					levels[l.Level] = decision.Text(strings.Clone(l.Description.Text))
 				}
 			}
-			qs.Score(name, typesafe.Score{Levels: levels})
+			qs.Score(name, decision.Score{Levels: levels})
 		}
 	}
 	if res.Answers.Len() == 0 {
-		qs.Noul("q", typesafe.Noul{})
+		qs.Noul("q", decision.Noul{})
 	}
 	p, err := qs.Prepare()
 	if err != nil {

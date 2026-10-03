@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,10 +25,10 @@ import (
 	"sync/atomic"
 	"testing"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 
-	"github.com/zchee/typesafe-sdk-go/internal/engine"
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
+	"github.com/zchee/decision-model-sdk-go/internal/engine"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
 )
 
 // countingRT passes every request to rt and counts the bytes read from the
@@ -64,7 +64,7 @@ func (b *countingBody) Read(p []byte) (int, error) {
 // the first write the client's reset of the stream fails, and without a
 // Content-Length unless body sets one: the undeclared path, which every
 // live 2xx takes (gzip).
-func loopbackClient(t *testing.T, body func(w http.ResponseWriter) []byte) *typesafe.Client {
+func loopbackClient(t *testing.T, body func(w http.ResponseWriter) []byte) *decision.Client {
 	t.Helper()
 	models := testsupport.Fixture(t, "models.json")
 	srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -82,7 +82,7 @@ func loopbackClient(t *testing.T, body func(w http.ResponseWriter) []byte) *type
 		}
 	})})
 	clearEnv(t)
-	c, err := typesafe.NewClient(typesafe.WithAPIKey(testKey), typesafe.WithBaseURL(srv.URL()), typesafe.WithRootCAs(testsupport.RootCAs(t)))
+	c, err := decision.NewClient(decision.WithAPIKey(testKey), decision.WithBaseURL(srv.URL()), decision.WithRootCAs(testsupport.RootCAs(t)))
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
@@ -110,7 +110,7 @@ func loopbackClient(t *testing.T, body func(w http.ResponseWriter) []byte) *type
 // no allocation count, so it runs in every build, the race detector's
 // included.
 func TestResponseCapOverTheWire(t *testing.T) {
-	const limit = typesafe.DefaultMaxResponseBytes
+	const limit = decision.DefaultMaxResponseBytes
 	over := bytes.Repeat([]byte{' '}, limit+1)
 	tests := map[string]struct {
 		declared bool
@@ -152,7 +152,7 @@ func TestResponseCapOverTheWire(t *testing.T) {
 			}
 			t.Logf("WIRE %-10s read=%-8d mallocs=%-6d totalAlloc=%-9d (%.3f MiB; the server's write and both sides' buffers included, recorded)",
 				label, read, m1.Mallocs-m0.Mallocs, m1.TotalAlloc-m0.TotalAlloc, float64(m1.TotalAlloc-m0.TotalAlloc)/(1<<20))
-			tl, ok := errors.AsType[*typesafe.ResponseTooLargeError](err)
+			tl, ok := errors.AsType[*decision.ResponseTooLargeError](err)
 			if !ok {
 				t.Fatalf("SystemOne error = %v (%T), want a *ResponseTooLargeError", err, err)
 			}

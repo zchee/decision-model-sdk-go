@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,9 +21,9 @@ import (
 	"sync"
 	"testing"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 
-	"github.com/zchee/typesafe-sdk-go/internal/codec"
+	"github.com/zchee/decision-model-sdk-go/internal/codec"
 )
 
 // The request states of the encode budget: one value of each state kind a
@@ -86,7 +86,7 @@ type stateCase struct {
 	// pass encodes a request body around qs with the state as a caller
 	// passes it, bare or boxed; a bare state is boxed inside the call, as a
 	// caller's argument is.
-	pass func(qs *typesafe.Prepared) (codec.Body, error)
+	pass func(qs *decision.Prepared) (codec.Body, error)
 	// maps is the number of maps the state holds, the root included.
 	maps uint64
 	// json is the state's own JSON encoding, the body's "state" member.
@@ -115,46 +115,46 @@ func (k stateKind) b() uint64 {
 var stateKinds = []stateKind{
 	{name: "string", bare: true, sonic: 1, boxBytes: 16, build: func(_ testing.TB, size int) stateCase {
 		s := stateString(size)
-		return stateCase{boxed: s, pass: func(qs *typesafe.Prepared) (codec.Body, error) { return encodeBody(s, typesafe.DefaultModel, qs, nil) }, json: []byte(strconv.Quote(s))}
+		return stateCase{boxed: s, pass: func(qs *decision.Prepared) (codec.Body, error) { return encodeBody(s, decision.DefaultModel, qs, nil) }, json: []byte(strconv.Quote(s))}
 	}},
 	{name: "boxed-string", sonic: 1, build: func(_ testing.TB, size int) stateCase {
 		var s any = stateString(size)
-		return stateCase{boxed: s, pass: func(qs *typesafe.Prepared) (codec.Body, error) { return encodeBody(s, typesafe.DefaultModel, qs, nil) }, json: []byte(strconv.Quote(s.(string)))}
+		return stateCase{boxed: s, pass: func(qs *decision.Prepared) (codec.Body, error) { return encodeBody(s, decision.DefaultModel, qs, nil) }, json: []byte(strconv.Quote(s.(string)))}
 	}},
 	{name: "RawJSON", bare: true, boxBytes: 24, build: func(tb testing.TB, size int) stateCase {
-		raw := typesafe.RawJSON(nestedMapJSON(tb, size))
-		return stateCase{boxed: raw, pass: func(qs *typesafe.Prepared) (codec.Body, error) {
-			return encodeBody(raw, typesafe.DefaultModel, qs, nil)
+		raw := decision.RawJSON(nestedMapJSON(tb, size))
+		return stateCase{boxed: raw, pass: func(qs *decision.Prepared) (codec.Body, error) {
+			return encodeBody(raw, decision.DefaultModel, qs, nil)
 		}, json: raw}
 	}},
 	{name: "boxed-RawJSON", build: func(tb testing.TB, size int) stateCase {
 		raw := nestedMapJSON(tb, size)
-		var boxed any = typesafe.RawJSON(raw)
-		return stateCase{boxed: boxed, pass: func(qs *typesafe.Prepared) (codec.Body, error) {
-			return encodeBody(boxed, typesafe.DefaultModel, qs, nil)
+		var boxed any = decision.RawJSON(raw)
+		return stateCase{boxed: boxed, pass: func(qs *decision.Prepared) (codec.Body, error) {
+			return encodeBody(boxed, decision.DefaultModel, qs, nil)
 		}, json: raw}
 	}},
 	{name: "json.RawMessage", sonic: 1, build: func(tb testing.TB, size int) stateCase {
 		raw := nestedMapJSON(tb, size)
 		var boxed any = json.RawMessage(raw)
-		return stateCase{boxed: boxed, pass: func(qs *typesafe.Prepared) (codec.Body, error) {
-			return encodeBody(boxed, typesafe.DefaultModel, qs, nil)
+		return stateCase{boxed: boxed, pass: func(qs *decision.Prepared) (codec.Body, error) {
+			return encodeBody(boxed, decision.DefaultModel, qs, nil)
 		}, json: raw}
 	}},
 	{name: "pointer-to-struct", sonic: 1, build: func(tb testing.TB, size int) stateCase {
 		st := calibrate(tb, size, makeStruct)
 		var boxed any = st
-		return stateCase{boxed: boxed, pass: func(qs *typesafe.Prepared) (codec.Body, error) { return encodeBody(st, typesafe.DefaultModel, qs, nil) }, json: sonicJSON(tb, boxed)}
+		return stateCase{boxed: boxed, pass: func(qs *decision.Prepared) (codec.Body, error) { return encodeBody(st, decision.DefaultModel, qs, nil) }, json: sonicJSON(tb, boxed)}
 	}},
 	{name: "flat-map", sonic: 1, build: func(tb testing.TB, size int) stateCase {
 		m := calibrate(tb, size, func(n int) map[string]any { return makeMap(n, true) })
 		var boxed any = m
-		return stateCase{boxed: boxed, pass: func(qs *typesafe.Prepared) (codec.Body, error) { return encodeBody(m, typesafe.DefaultModel, qs, nil) }, maps: countMaps(m), json: sonicJSON(tb, boxed)}
+		return stateCase{boxed: boxed, pass: func(qs *decision.Prepared) (codec.Body, error) { return encodeBody(m, decision.DefaultModel, qs, nil) }, maps: countMaps(m), json: sonicJSON(tb, boxed)}
 	}},
 	{name: "nested-map", sonic: 1, build: func(tb testing.TB, size int) stateCase {
 		m := nestedMap(tb, size)
 		var boxed any = m
-		return stateCase{boxed: boxed, pass: func(qs *typesafe.Prepared) (codec.Body, error) { return encodeBody(m, typesafe.DefaultModel, qs, nil) }, maps: countMaps(m), json: sonicJSON(tb, boxed)}
+		return stateCase{boxed: boxed, pass: func(qs *decision.Prepared) (codec.Body, error) { return encodeBody(m, decision.DefaultModel, qs, nil) }, maps: countMaps(m), json: sonicJSON(tb, boxed)}
 	}},
 }
 
@@ -317,12 +317,12 @@ func sonicJSON(tb testing.TB, v any) []byte {
 
 // encodeQuestions is the question set of the body encode tests: three
 // questions, one of each kind.
-func encodeQuestions(tb testing.TB) *typesafe.Prepared {
+func encodeQuestions(tb testing.TB) *decision.Prepared {
 	tb.Helper()
-	return mustPrepared(tb, typesafe.NewQuestions().
-		Noul("billing", typesafe.Noul{Instructions: typesafe.Text("Is this about billing?"), Yes: typesafe.Text("payments or invoices")}).
-		Choice("tone", typesafe.Choice{Instructions: typesafe.Text("What is the tone?"), Options: typesafe.Options{{Label: "calm", Description: typesafe.Text("neutral or polite")}, {Label: "angry"}}}).
-		Score("urgency", typesafe.Score{Levels: []typesafe.Content{typesafe.Text("can wait"), typesafe.Text("this week"), typesafe.Text("today")}}))
+	return mustPrepared(tb, decision.NewQuestions().
+		Noul("billing", decision.Noul{Instructions: decision.Text("Is this about billing?"), Yes: decision.Text("payments or invoices")}).
+		Choice("tone", decision.Choice{Instructions: decision.Text("What is the tone?"), Options: decision.Options{{Label: "calm", Description: decision.Text("neutral or polite")}, {Label: "angry"}}}).
+		Score("urgency", decision.Score{Levels: []decision.Content{decision.Text("can wait"), decision.Text("this week"), decision.Text("today")}}))
 }
 
 // The encode budget's mixed-size sequence: 32 calls on one client, a 1 KiB
@@ -373,11 +373,11 @@ var sequenceKinds = []sequenceKind{
 
 // sequenceStates returns the kind's three states, boxed, and the lengths of
 // the request bodies they make with qs.
-func sequenceStates(t *testing.T, k stateKind, qs *typesafe.Prepared) (states [3]any, lens [3]int) {
+func sequenceStates(t *testing.T, k stateKind, qs *decision.Prepared) (states [3]any, lens [3]int) {
 	t.Helper()
 	for i, size := range sequenceSizes {
 		states[i] = stateFor(t, k, size).boxed
-		body, err := encodeBody(states[i], typesafe.DefaultModel, qs, nil)
+		body, err := encodeBody(states[i], decision.DefaultModel, qs, nil)
 		if err != nil {
 			t.Fatalf("encodeBody: %v", err)
 		}
@@ -393,7 +393,7 @@ func sequenceStates(t *testing.T, k stateKind, qs *typesafe.Prepared) (states [3
 // when the pool dropped it or never got it back. The probe's own fresh
 // scratch then serves the next call, so a probed sequence is not a measured
 // one.
-func sequenceProbe(t *testing.T, c *typesafe.Client, qs *typesafe.Prepared, states [3]any) [sequenceCalls]int {
+func sequenceProbe(t *testing.T, c *decision.Client, qs *decision.Prepared, states [3]any) [sequenceCalls]int {
 	t.Helper()
 	var caps [sequenceCalls]int
 	for i := range caps {

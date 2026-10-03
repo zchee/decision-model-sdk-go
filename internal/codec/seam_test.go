@@ -1,6 +1,6 @@
 //go:build !go1.28 && (amd64 || arm64)
 
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -87,7 +87,7 @@ import (
 )
 
 const (
-	modulePath      = "github.com/zchee/typesafe-sdk-go"
+	modulePath      = "github.com/zchee/decision-model-sdk-go"
 	codecPath       = modulePath + "/internal/codec"
 	sonicPath       = "github.com/bytedance/sonic"
 	h2gatePath      = modulePath + "/internal/h2gate"
@@ -117,7 +117,7 @@ var (
 	supportedLine = "//go:build !" + d1Cutoff + " && (amd64 || arm64)"
 	// d1Identifier is the undefined identifier that unsupported.go uses; its
 	// name is the compile error a consumer sees off the support matrix.
-	d1Identifier = "typesafe_sdk_go_requires_go1_17_to_go1_" + strconv.Itoa(goMinor(d1Cutoff)-1) + "_on_amd64_or_arm64"
+	d1Identifier = "decision_model_sdk_go_requires_go1_17_to_go1_" + strconv.Itoa(goMinor(d1Cutoff)-1) + "_on_amd64_or_arm64"
 )
 
 // goMinor returns N for a go1.N release tag, or -1.
@@ -521,7 +521,7 @@ func checkNoDirectJSON(t *testing.T, mod module, dir string) {
 // the old release. Moving d1Cutoff makes every stale site fail here.
 func TestSeamD1IdentifierSites(t *testing.T) {
 	mod := findModule(t)
-	token := regexp.MustCompile(`typesafe_sdk_go_requires\w*`)
+	token := regexp.MustCompile(`decision_model_sdk_go_requires\w*`)
 	release := regexp.MustCompile(`(?i)\bgo ?1\.(\d+)`)
 	cutoff := goMinor(d1Cutoff)
 	cutoffVersion := strings.TrimPrefix(d1Cutoff, "go")               // "1.28"

@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 // SPDX-License-Identifier: Apache-2.0
 
 // Command options shows a client's settings and a call's: the forms a
@@ -12,7 +12,7 @@ import (
 	"log"
 	"time"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 )
 
 func main() {
@@ -29,28 +29,28 @@ type Ticket struct {
 
 func run(ctx context.Context) error {
 	// The client's settings apply to every call it makes.
-	client, err := typesafe.NewClient(
-		typesafe.WithModel(typesafe.DefaultModel),
-		typesafe.WithTimeout(30*time.Second),
-		typesafe.WithRetry(typesafe.DefaultRetry().MaxRetries(1)),
-		typesafe.WithHeader("X-Team", "support"),
-		typesafe.WithUserAgentProduct("options-example/1.0"),
+	client, err := decision.NewClient(
+		decision.WithModel(decision.DefaultModel),
+		decision.WithTimeout(30*time.Second),
+		decision.WithRetry(decision.DefaultRetry().MaxRetries(1)),
+		decision.WithHeader("X-Team", "support"),
+		decision.WithUserAgentProduct("options-example/1.0"),
 	)
 	if err != nil {
 		return err
 	}
 	defer client.Close()
 
-	questions, err := typesafe.NewQuestions().
-		Choice("topic", typesafe.Choice{
-			Instructions: typesafe.Text("What is the message about?"),
-			Options:      typesafe.Options{{Label: "billing", Description: typesafe.Text("payments or invoices")}, {Label: "other"}},
+	questions, err := decision.NewQuestions().
+		Choice("topic", decision.Choice{
+			Instructions: decision.Text("What is the message about?"),
+			Options:      decision.Options{{Label: "billing", Description: decision.Text("payments or invoices")}, {Label: "other"}},
 		}).
-		Score("urgency", typesafe.Score{
-			Levels: []typesafe.Content{typesafe.Text("low"), typesafe.Text("high")},
+		Score("urgency", decision.Score{
+			Levels: []decision.Content{decision.Text("low"), decision.Text("high")},
 		}).
 		// A question given as its raw fields is sent as it is.
-		Raw("refund", typesafe.RawQuestion{Type: "noul", Fields: map[string]any{
+		Raw("refund", decision.RawQuestion{Type: "noul", Fields: map[string]any{
 			"instructions": "Does the customer ask for a refund?",
 			"criteria": map[string]any{
 				"true": map[string]any{"meaning": "a refund or a chargeback", "examples": []any{"please refund me"}},
@@ -67,13 +67,13 @@ func run(ctx context.Context) error {
 		"I was charged twice.",
 		map[string]any{"items": []any{"charged twice", nil}},
 		Ticket{Subject: "Refund", Tags: []string{"billing"}},
-		typesafe.RawJSON(`{"subject":"Refund","nullable":null}`),
+		decision.RawJSON(`{"subject":"Refund","nullable":null}`),
 	}
 	for _, state := range states {
 		response, err := client.SystemOne(ctx, state, questions,
-			typesafe.Timeout(20*time.Second),
-			typesafe.Retry(typesafe.NoRetry()),
-			typesafe.Header("X-Call", "options-example"),
+			decision.Timeout(20*time.Second),
+			decision.Retry(decision.NoRetry()),
+			decision.Header("X-Call", "options-example"),
 		)
 		if err != nil {
 			return err
@@ -84,9 +84,9 @@ func run(ctx context.Context) error {
 
 	// The models endpoint takes the call options that apply to it.
 	models, err := client.Models().List(ctx,
-		typesafe.Timeout(2*time.Second),
-		typesafe.Retry(typesafe.DefaultRetry()),
-		typesafe.Header("X-Call", "options-example"),
+		decision.Timeout(2*time.Second),
+		decision.Retry(decision.DefaultRetry()),
+		decision.Header("X-Call", "options-example"),
 	)
 	if err != nil {
 		return err

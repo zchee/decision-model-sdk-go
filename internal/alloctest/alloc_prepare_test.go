@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,12 +22,12 @@ import (
 	"strings"
 	"testing"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 
 	gocmp "github.com/google/go-cmp/cmp"
 
-	"github.com/zchee/typesafe-sdk-go/internal/engine"
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
+	"github.com/zchee/decision-model-sdk-go/internal/engine"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
 )
 
 // TestAllocPrepare counts the heap allocations of Questions.Prepare on every
@@ -61,7 +61,7 @@ func TestAllocPrepare(t *testing.T) {
 	for _, name := range slices.Sorted(maps.Keys(tests)) {
 		tt := tests[name]
 		t.Run(name, func(t *testing.T) {
-			got := testsupport.MeasureMin(t, name, prepareCases[name], func(qs *typesafe.Questions) {
+			got := testsupport.MeasureMin(t, name, prepareCases[name], func(qs *decision.Questions) {
 				p, err := qs.Prepare()
 				if err != nil {
 					t.Fatal(err)

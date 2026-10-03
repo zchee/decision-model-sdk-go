@@ -41,13 +41,13 @@ Each reason starts with its class:
 | `client.go` | `(*Client).attempt` | `return wire.ResponseMeta{}, engine.HeaderRedactor{}, newConnectionError(err.Error(), err, false)` | 1 | Defensive: `Body.Open` fails only after the body's last reference is dropped, and the call holds one until it returns. |
 | `config.go` | `resolveEndpoints` | `return nil, nil, newConfigError(source + " is not a valid URL.")` | 2 | Defensive: `baseURLRule` has parsed the base, and a valid base followed by a fixed path always parses. |
 | `config.go` | `dropDefaultPort` | `return raw` | 2 | Defensive: `baseURLRule` admits only http and https URLs with a host, so the text always holds `://` and one of the two schemes. |
-| `errors.go` | `(*ConfigError).typesafeError` | `{}` | 1 | Defensive: the unexported marker method that seals the `Error` interface; nothing calls it. |
-| `errors.go` | `(*InvalidRequestError).typesafeError` | `{}` | 1 | Defensive: the unexported marker method that seals the `Error` interface; nothing calls it. |
-| `errors.go` | `(*APIError).typesafeError` | `{}` | 1 | Defensive: the unexported marker method that seals the `Error` interface; nothing calls it. |
-| `errors.go` | `(*ResponseValidationError).typesafeError` | `{}` | 1 | Defensive: the unexported marker method that seals the `Error` interface; nothing calls it. |
-| `errors.go` | `(*ResponseTooLargeError).typesafeError` | `{}` | 1 | Defensive: the unexported marker method that seals the `Error` interface; nothing calls it. |
-| `errors.go` | `(*ConnectionError).typesafeError` | `{}` | 1 | Defensive: the unexported marker method that seals the `Error` interface; nothing calls it. |
-| `errors.go` | `(*TimeoutError).typesafeError` | `{}` | 1 | Defensive: the unexported marker method that seals the `Error` interface; nothing calls it. |
+| `errors.go` | `(*ConfigError).decisionError` | `{}` | 1 | Defensive: the unexported marker method that seals the `Error` interface; nothing calls it. |
+| `errors.go` | `(*InvalidRequestError).decisionError` | `{}` | 1 | Defensive: the unexported marker method that seals the `Error` interface; nothing calls it. |
+| `errors.go` | `(*APIError).decisionError` | `{}` | 1 | Defensive: the unexported marker method that seals the `Error` interface; nothing calls it. |
+| `errors.go` | `(*ResponseValidationError).decisionError` | `{}` | 1 | Defensive: the unexported marker method that seals the `Error` interface; nothing calls it. |
+| `errors.go` | `(*ResponseTooLargeError).decisionError` | `{}` | 1 | Defensive: the unexported marker method that seals the `Error` interface; nothing calls it. |
+| `errors.go` | `(*ConnectionError).decisionError` | `{}` | 1 | Defensive: the unexported marker method that seals the `Error` interface; nothing calls it. |
+| `errors.go` | `(*TimeoutError).decisionError` | `{}` | 1 | Defensive: the unexported marker method that seals the `Error` interface; nothing calls it. |
 | `errors.go` | `parsePythonFloat` | `return 0, false` | 1 | Defensive: the scan above admits only text that `strconv.ParseFloat` parses, and `ErrRange` is accepted. |
 | `retry.go` | `(*retryState).wait` | `return waitError(ctx)` | 0-1 | Race: a context that ends at the instant the backoff timer fires. |
 | `text.go` | `(*pathText).fixed` | `return` | 1 | Gap: a field path that is already cut when more of the SDK's own text follows. |

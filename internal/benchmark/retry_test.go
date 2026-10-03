@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -34,8 +34,8 @@ import (
 	"testing"
 	"time"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
+	decision "github.com/zchee/decision-model-sdk-go"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
 )
 
 // Sinks keep BenchmarkRetryAfter's results alive.
@@ -46,13 +46,13 @@ var (
 
 // rateLimited returns the *APIError of one call that the server answers
 // 429 with the header name: value, as a caller receives it.
-func rateLimited(tb testing.TB, name, value string) *typesafe.APIError {
+func rateLimited(tb testing.TB, name, value string) *decision.APIError {
 	tb.Helper()
 	reply := testsupport.JSON(http.StatusTooManyRequests, []byte(`{"error":"slow down"}`))
 	reply.Header.Set(name, value)
 	c := newBenchClient(tb, &testsupport.Recorder{Discard: true, Replies: []testsupport.Reply{reply}})
-	_, err := c.SystemOne(tb.Context(), newCallState(), q3Questions(tb), typesafe.Retry(typesafe.NoRetry()))
-	apiErr, ok := errors.AsType[*typesafe.APIError](err)
+	_, err := c.SystemOne(tb.Context(), newCallState(), q3Questions(tb), decision.Retry(decision.NoRetry()))
+	apiErr, ok := errors.AsType[*decision.APIError](err)
 	if !ok {
 		tb.Fatalf("a 429 gave %T %v, want an *APIError", err, err)
 	}

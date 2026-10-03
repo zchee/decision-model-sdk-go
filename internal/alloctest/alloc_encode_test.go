@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,11 +20,11 @@ import (
 	"runtime"
 	"testing"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 
-	"github.com/zchee/typesafe-sdk-go/internal/codec"
-	"github.com/zchee/typesafe-sdk-go/internal/engine"
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
+	"github.com/zchee/decision-model-sdk-go/internal/codec"
+	"github.com/zchee/decision-model-sdk-go/internal/engine"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
 )
 
 // encodeExceptions are the single-size cases of the encode budget outside
@@ -129,7 +129,7 @@ func TestAllocEncode(t *testing.T) {
 				buf := make([]byte, 0, 2*len(sc.json)+64<<10)
 				esonic := testsupport.MeasureMin(t, name+" E_sonic", noInput, func(struct{}) {
 					buf = buf[:0]
-					err = engine.AppendState[typesafe.RawJSON, typesafe.Content](&buf, sc.boxed)
+					err = engine.AppendState[decision.RawJSON, decision.Content](&buf, sc.boxed)
 				})
 				if err != nil {
 					t.Fatalf("AppendState: %v", err)

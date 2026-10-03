@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -32,10 +32,10 @@ import (
 	"strconv"
 	"testing"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
-	"github.com/zchee/typesafe-sdk-go/internal/codec"
-	"github.com/zchee/typesafe-sdk-go/internal/engine"
-	"github.com/zchee/typesafe-sdk-go/internal/wire"
+	decision "github.com/zchee/decision-model-sdk-go"
+	"github.com/zchee/decision-model-sdk-go/internal/codec"
+	"github.com/zchee/decision-model-sdk-go/internal/engine"
+	"github.com/zchee/decision-model-sdk-go/internal/wire"
 )
 
 // The bridge from the root package's public types to the state and the
@@ -49,17 +49,17 @@ import (
 // answers.
 
 // engOf returns c's state (the root package's Client.eng).
-func engOf(c *typesafe.Client) *engine.Client[typesafe.RetryPolicy] {
-	return (*engine.Client[typesafe.RetryPolicy])(c)
+func engOf(c *decision.Client) *engine.Client[decision.RetryPolicy] {
+	return (*engine.Client[decision.RetryPolicy])(c)
 }
 
 // cfgOf returns c's configuration (the root package's Client.cfg).
-func cfgOf(c *typesafe.Client) *engine.Config[typesafe.RetryPolicy] { return engOf(c).Config() }
+func cfgOf(c *decision.Client) *engine.Config[decision.RetryPolicy] { return engOf(c).Config() }
 
 // wireOf returns qs's bytes and tables (the root package's
 // Prepared.wirePrepared), or nil for a nil set, as the root package's
 // encodeBody and decodeSystemOneInto pass it.
-func wireOf(qs *typesafe.Prepared) *wire.Prepared {
+func wireOf(qs *decision.Prepared) *wire.Prepared {
 	if qs == nil {
 		return nil
 	}
@@ -67,8 +67,8 @@ func wireOf(qs *typesafe.Prepared) *wire.Prepared {
 }
 
 // responseOf returns a response holding res and no HTTP metadata.
-func responseOf(res wire.SystemOneResult) *typesafe.SystemOneResponse {
-	r := new(typesafe.SystemOneResponse)
+func responseOf(res wire.SystemOneResult) *decision.SystemOneResponse {
+	r := new(decision.SystemOneResponse)
 	*(*engine.Response)(r).Result() = res
 	return r
 }
@@ -78,8 +78,8 @@ func responseOf(res wire.SystemOneResult) *typesafe.SystemOneResponse {
 // encodes costs what the root package's does; a failure, which no budget
 // measures, is reported as an error naming the failure's kind and member
 // rather than the root package's *ConfigError or *InvalidRequestError.
-func encodeBody(state any, model string, qs *typesafe.Prepared, extra []engine.BodyMember) (codec.Body, error) {
-	body, f := engine.EncodeBody[typesafe.RawJSON, typesafe.Content](state, model, wireOf(qs), extra)
+func encodeBody(state any, model string, qs *decision.Prepared, extra []engine.BodyMember) (codec.Body, error) {
+	body, f := engine.EncodeBody[decision.RawJSON, decision.Content](state, model, wireOf(qs), extra)
 	if f.Kind != engine.FailNone {
 		return codec.Body{}, errors.Join(errors.New("encode failure kind "+strconv.Itoa(int(f.Kind))+" at member "+strconv.Quote(f.Key)), f.Err)
 	}
@@ -88,7 +88,7 @@ func encodeBody(state any, model string, qs *typesafe.Prepared, extra []engine.B
 
 // decodeSystemOne is decodeSystemOneInto with no logger and no room for the
 // answers.
-func decodeSystemOne(ctx context.Context, meta *wire.ResponseMeta, qs *typesafe.Prepared, model string, dst *wire.SystemOneResult) error {
+func decodeSystemOne(ctx context.Context, meta *wire.ResponseMeta, qs *decision.Prepared, model string, dst *wire.SystemOneResult) error {
 	return decodeSystemOneInto(ctx, nil, meta, "", engine.HeaderRedactor{}, qs, model, dst, nil)
 }
 
@@ -99,7 +99,7 @@ func decodeSystemOne(ctx context.Context, meta *wire.ResponseMeta, qs *typesafe.
 // error is the decoder's own, which no budget measures. They stay in the
 // signature because the whole-call budget evaluates them inside its
 // measured decode, as the root package's call does.
-func decodeSystemOneInto(ctx context.Context, logger *slog.Logger, meta *wire.ResponseMeta, _ string, _ engine.HeaderRedactor, qs *typesafe.Prepared, model string, dst *wire.SystemOneResult, spare []wire.AnswerEntry) error {
+func decodeSystemOneInto(ctx context.Context, logger *slog.Logger, meta *wire.ResponseMeta, _ string, _ engine.HeaderRedactor, qs *decision.Prepared, model string, dst *wire.SystemOneResult, spare []wire.AnswerEntry) error {
 	return engine.DecodeSystemOneInto(ctx, logger, meta.Body, wireOf(qs), model, dst, spare)
 }
 
@@ -114,7 +114,7 @@ func decodeSystemOneInto(ctx context.Context, logger *slog.Logger, meta *wire.Re
 // still fails a root test.
 func requireStoreLayout[T any](t *testing.T) {
 	t.Helper()
-	if _, err := typesafe.PreparedFor[T](); err != nil {
+	if _, err := decision.PreparedFor[T](); err != nil {
 		t.Fatalf("PreparedFor[%T]: %v", *new(T), err)
 	}
 }

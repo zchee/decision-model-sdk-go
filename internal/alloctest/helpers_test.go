@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -26,7 +26,7 @@ import (
 	"os"
 	"testing"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 )
 
 // testKey is the API key of the clients these tests build, the root tests'
@@ -42,7 +42,7 @@ const testKey = "test-key"
 // Copied from the root package's helpers_test.go.
 func clearEnv(t *testing.T) {
 	t.Helper()
-	for _, name := range []string{typesafe.APIKeyEnv, typesafe.BaseURLEnv, typesafe.DefaultModelEnv} {
+	for _, name := range []string{decision.APIKeyEnv, decision.BaseURLEnv, decision.DefaultModelEnv} {
 		t.Setenv(name, "")
 		if err := os.Unsetenv(name); err != nil {
 			t.Fatalf("unset %s: %v", name, err)
@@ -63,10 +63,10 @@ func clearEnv(t *testing.T) {
 // which comes later and wins.
 //
 // Copied from the root package's client_test.go.
-func newTestClient(t *testing.T, rt http.RoundTripper, opts ...typesafe.ClientOption) *typesafe.Client {
+func newTestClient(t *testing.T, rt http.RoundTripper, opts ...decision.ClientOption) *decision.Client {
 	t.Helper()
 	clearEnv(t)
-	c, err := typesafe.NewClient(append([]typesafe.ClientOption{typesafe.WithAPIKey(testKey), typesafe.WithRoundTripper(rt), typesafe.WithRetry(typesafe.NoRetry())}, opts...)...)
+	c, err := decision.NewClient(append([]decision.ClientOption{decision.WithAPIKey(testKey), decision.WithRoundTripper(rt), decision.WithRetry(decision.NoRetry())}, opts...)...)
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
@@ -77,7 +77,7 @@ func newTestClient(t *testing.T, rt http.RoundTripper, opts ...typesafe.ClientOp
 // mustPrepared prepares qs, failing the test when Prepare fails.
 //
 // Copied from the root package's client_test.go.
-func mustPrepared(t testing.TB, qs *typesafe.Questions) *typesafe.Prepared {
+func mustPrepared(t testing.TB, qs *decision.Questions) *decision.Prepared {
 	t.Helper()
 	p, err := qs.Prepare()
 	if err != nil {
@@ -91,12 +91,12 @@ func mustPrepared(t testing.TB, qs *typesafe.Questions) *typesafe.Prepared {
 // answers.
 //
 // Copied from the root package's client_test.go.
-func q3Questions(t testing.TB) *typesafe.Prepared {
+func q3Questions(t testing.TB) *decision.Prepared {
 	t.Helper()
-	return mustPrepared(t, typesafe.NewQuestions().
-		Noul("spam", typesafe.Noul{Instructions: typesafe.Text("Spam?")}).
-		Choice("tone", typesafe.Choice{Instructions: typesafe.Text("Tone?"), Options: typesafe.Options{{Label: "friendly"}, {Label: "hostile"}}}).
-		Score("quality", typesafe.Score{Instructions: typesafe.Text("Quality?"), Levels: []typesafe.Content{typesafe.Text("bad"), typesafe.Text("ok"), typesafe.Text("great")}}))
+	return mustPrepared(t, decision.NewQuestions().
+		Noul("spam", decision.Noul{Instructions: decision.Text("Spam?")}).
+		Choice("tone", decision.Choice{Instructions: decision.Text("Tone?"), Options: decision.Options{{Label: "friendly"}, {Label: "hostile"}}}).
+		Score("quality", decision.Score{Instructions: decision.Text("Quality?"), Levels: []decision.Content{decision.Text("bad"), decision.Text("ok"), decision.Text("great")}}))
 }
 
 // answerView is what a test compares of an answer: its kind and every value
@@ -104,7 +104,7 @@ func q3Questions(t testing.TB) *typesafe.Prepared {
 //
 // Copied from the root package's client_test.go.
 type answerView struct {
-	Kind          typesafe.AnswerKind
+	Kind          decision.AnswerKind
 	Noul          float64
 	Choice        string
 	Confidence    float64
@@ -117,7 +117,7 @@ type answerView struct {
 // viewOf returns the view of a.
 //
 // Copied from the root package's client_test.go.
-func viewOf(a typesafe.Answer) answerView {
+func viewOf(a decision.Answer) answerView {
 	v := answerView{Kind: a.Kind()}
 	if n, ok := a.Noul(); ok {
 		v.Noul = n.Noul()
@@ -170,7 +170,7 @@ type payloadView struct {
 // payloadOf returns the view of r's payload.
 //
 // Copied from the root package's response_json_test.go.
-func payloadOf(r *typesafe.SystemOneResponse) payloadView {
+func payloadOf(r *decision.SystemOneResponse) payloadView {
 	v := payloadView{Model: r.Model()}
 	v.Usage.In, v.Usage.HasIn = r.Usage().InputTokens()
 	v.Usage.Out, v.Usage.HasOut = r.Usage().OutputTokens()
@@ -185,7 +185,7 @@ func payloadOf(r *typesafe.SystemOneResponse) payloadView {
 //
 // Copied from the root package's decodeas_test.go.
 type reviewAnswers struct {
-	Spam    typesafe.NoulAnswer   `typesafe:"kind=noul;name=spam;instructions=Spam?"`
-	Tone    typesafe.ChoiceAnswer `typesafe:"kind=choice;name=tone;instructions=Tone?;options=friendly|hostile"`
-	Quality typesafe.ScoreAnswer  `typesafe:"kind=score;name=quality;instructions=Quality?;levels=bad|ok|great"`
+	Spam    decision.NoulAnswer   `typesafe:"kind=noul;name=spam;instructions=Spam?"`
+	Tone    decision.ChoiceAnswer `typesafe:"kind=choice;name=tone;instructions=Tone?;options=friendly|hostile"`
+	Quality decision.ScoreAnswer  `typesafe:"kind=score;name=quality;instructions=Quality?;levels=bad|ok|great"`
 }

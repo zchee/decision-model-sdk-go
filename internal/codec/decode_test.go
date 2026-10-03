@@ -1,6 +1,6 @@
 //go:build !go1.28 && (amd64 || arm64)
 
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,8 +25,8 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
-	"github.com/zchee/typesafe-sdk-go/internal/wire"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
+	"github.com/zchee/decision-model-sdk-go/internal/wire"
 )
 
 // TestDecodeFixtures checks the verdict on every fixture under testdata: each

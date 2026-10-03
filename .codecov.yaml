@@ -1,4 +1,4 @@
-# Codecov configuration for typesafe-sdk-go.
+# Codecov configuration for decision-model-sdk-go.
 # Reference: https://docs.codecov.com/docs/codecovyml-reference
 #
 # Coverage is uploaded by the test jobs of .github/workflows/ci.yaml (the

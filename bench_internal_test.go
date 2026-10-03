@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package typesafe
+package decision
 
 // The benchmarks that stay in the root package (the others are in
 // internal/benchmark; docs/perf/benchmarks.md lists both). Each times, or
@@ -49,11 +49,11 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
-	"github.com/zchee/typesafe-sdk-go/internal/codec"
-	"github.com/zchee/typesafe-sdk-go/internal/engine"
-	"github.com/zchee/typesafe-sdk-go/internal/h2gate"
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport/naive"
+	"github.com/zchee/decision-model-sdk-go/internal/codec"
+	"github.com/zchee/decision-model-sdk-go/internal/engine"
+	"github.com/zchee/decision-model-sdk-go/internal/h2gate"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport/naive"
 )
 
 // naiveCodecs are the naive comparator's two codecs, by row name.

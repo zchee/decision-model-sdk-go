@@ -6,7 +6,7 @@ decoder against real responses. The live tests write them when run with
 (`livetest/env_test.go`, `writeFixture`):
 
 ```sh
-TYPESAFE_LIVE_TESTS=1 go test -tags live -count=1 -v ./livetest/ -args -record
+DECISION_MODEL_LIVE_TESTS=1 go test -tags live -count=1 -v ./livetest/ -args -record
 ```
 
 The API key is not on that command line: the SDK reads `TYPESAFE_API_KEY`

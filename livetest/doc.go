@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,9 +16,9 @@
 // the port of the Python SDK's tests/test_integration.py. The API is billed
 // per call, so the tests are opt-in twice over: they compile only with the
 // build tag live, and each of them fails at once, before it calls the API,
-// unless the environment sets TYPESAFE_LIVE_TESTS=1 and TYPESAFE_API_KEY:
+// unless the environment sets DECISION_MODEL_LIVE_TESTS=1 and TYPESAFE_API_KEY:
 //
-//	TYPESAFE_LIVE_TESTS=1 TYPESAFE_API_KEY=... go test -tags live -count=1 -v ./livetest/
+//	DECISION_MODEL_LIVE_TESTS=1 TYPESAFE_API_KEY=... go test -tags live -count=1 -v ./livetest/
 //
 // TYPESAFE_BASE_URL, when set, selects another API host, as it does for any
 // client. The key is read from the environment by the SDK itself; no test

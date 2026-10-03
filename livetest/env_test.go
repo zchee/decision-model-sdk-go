@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,12 +24,12 @@ import (
 	"regexp"
 	"strings"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 )
 
 // liveTestsEnv is the switch that allows the tests of this package to call
 // the billed API.
-const liveTestsEnv = "TYPESAFE_LIVE_TESTS"
+const liveTestsEnv = "DECISION_MODEL_LIVE_TESTS"
 
 // wrongLiveKey is the key TestLiveUnauthenticated sends: printable ASCII,
 // so the SDK accepts it, and no key the API issues. The recorder scrubs it
@@ -45,7 +45,7 @@ type liveEnv struct {
 }
 
 // liveEnvFrom reads the live-test variables through getenv. It fails, naming
-// every variable that is missing, unless TYPESAFE_LIVE_TESTS is 1 and
+// every variable that is missing, unless DECISION_MODEL_LIVE_TESTS is 1 and
 // TYPESAFE_API_KEY is not blank; no message repeats a variable's value. The
 // base URL comes from TYPESAFE_BASE_URL or the SDK's default, as for any
 // client; a value the SDK would refuse (no scheme, userinfo, a query) fails
@@ -55,17 +55,17 @@ func liveEnvFrom(getenv func(string) string) (liveEnv, error) {
 	if strings.TrimSpace(getenv(liveTestsEnv)) != "1" {
 		errs = append(errs, errors.New(liveTestsEnv+" is not 1: set it to 1 to allow the tests to call the billed API"))
 	}
-	key := strings.TrimSpace(getenv(typesafe.APIKeyEnv))
+	key := strings.TrimSpace(getenv(decision.APIKeyEnv))
 	if key == "" {
-		errs = append(errs, errors.New(typesafe.APIKeyEnv+" is unset or blank: set it to the API key the tests call with"))
+		errs = append(errs, errors.New(decision.APIKeyEnv+" is unset or blank: set it to the API key the tests call with"))
 	}
-	base := strings.TrimSpace(getenv(typesafe.BaseURLEnv))
+	base := strings.TrimSpace(getenv(decision.BaseURLEnv))
 	if base == "" {
-		base = typesafe.DefaultBaseURL
+		base = decision.DefaultBaseURL
 	}
 	u, err := url.Parse(base)
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		errs = append(errs, errors.New(typesafe.BaseURLEnv+" is not an http or https URL with a host and no userinfo, query or fragment"))
+		errs = append(errs, errors.New(decision.BaseURLEnv+" is not an http or https URL with a host and no userinfo, query or fragment"))
 	}
 	if len(errs) > 0 {
 		return liveEnv{}, fmt.Errorf("live tests: %w", errors.Join(errs...))

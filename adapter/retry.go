@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 // Portions ported from system-one-adapter-python (MIT, see LICENSE-UPSTREAM).
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,9 +25,9 @@ import (
 	"strconv"
 	"time"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 
-	"github.com/zchee/typesafe-sdk-go/adapter/llm"
+	"github.com/zchee/decision-model-sdk-go/adapter/llm"
 )
 
 // The settings of [DefaultRetry]: typesafe-sdk-python 0.7.0's RetryPolicy()
@@ -50,8 +50,8 @@ const categoryProviderError = "provider_error"
 //
 // A policy has the settings of typesafe-sdk-python 0.7.0's RetryPolicy, whose
 // retry loop upstream runs every provider request in
-// (_utils/error_handling.py:85-95), and the builder names of the TypeSafe Go
-// SDK's own policy; it is the Adapter's own type. Each builder returns a
+// (_utils/error_handling.py:85-95), and the builder names of the root SDK's
+// own policy; it is the Adapter's own type. Each builder returns a
 // copy with one setting changed, so a policy can be shared by goroutines
 // and derived from freely. A setting the builders have not changed has
 // DefaultRetry's value, except the number of retries, which is 0 in the
@@ -71,7 +71,7 @@ const categoryProviderError = "provider_error"
 //
 // The wait is the provider's when the policy respects it and the failed
 // response carries a retry-after-ms (milliseconds) or Retry-After (seconds,
-// or an HTTP date) that parses, as typesafe.APIError.RetryAfter reads it;
+// or an HTTP date) that parses, as decision.APIError.RetryAfter reads it;
 // however long it is, only the budget refuses it. Otherwise it is the
 // backoff. A cancelled or expired context ends the retries with ctx.Err().
 //
@@ -277,12 +277,12 @@ func (p *RetryPolicy) retryable(err error) bool {
 
 // delay returns the wait before retry (from 1) after a request that failed
 // with err: the provider's retry-after-ms or Retry-After when p respects it
-// and it parses, read by typesafe.APIError.RetryAfter (typesafe-sdk-python's
+// and it parses, read by decision.APIError.RetryAfter (typesafe-sdk-python's
 // _retry_after and _wait, _core/retry.py:18-24,111-116), else the backoff.
 func (p *RetryPolicy) delay(retry int, err error, random func() float64) time.Duration {
 	if !p.ignoreRetryAfter {
 		if status, ok := errors.AsType[*llm.StatusError](err); ok {
-			if d, ok := (&typesafe.APIError{Header: status.Header}).RetryAfter(); ok {
+			if d, ok := (&decision.APIError{Header: status.Header}).RetryAfter(); ok {
 				return d
 			}
 		}
@@ -407,7 +407,7 @@ func runWithRetries(ctx context.Context, p RetryPolicy, random func() float64, a
 // later than the end of the wait ends it at the deadline, because the
 // context's own timer may not have run yet at that instant; the context is
 // checked again when the wait ends, so no retry starts on a context that
-// has ended. The TypeSafe Go SDK's retry wait does the same.
+// has ended. The root SDK's retry wait does the same.
 func waitRetry(ctx context.Context, d time.Duration) error {
 	if dl, ok := ctx.Deadline(); ok && !dl.After(time.Now().Add(d)) {
 		<-ctx.Done()

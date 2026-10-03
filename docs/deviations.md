@@ -1,6 +1,6 @@
 # Deviations from typesafe-sdk-python 0.7.1
 
-typesafe-sdk-go ports [typesafe-sdk-python](https://github.com/typesafe-ai/typesafe-sdk-python)
+decision-model-sdk-go ports [typesafe-sdk-python](https://github.com/typesafe-ai/typesafe-sdk-python)
 0.7.1 (commit `0ffd094`) and behaves as it does, except in the rows below.
 
 The key of each row is the text a row of
@@ -20,7 +20,7 @@ upstream test reaches the behaviour.
 | HTTP/2 only on https | httpx lets ALPN choose HTTP/1.1 or HTTP/2 | on an https base URL, `HTTP2Only` by default: one connection, a cold-start gate, strict stream accounting, and an API handshake that does not negotiate h2 fails with `ErrHTTP2NotNegotiated` before any byte is sent; `WithHTTPVersion(HTTPAuto)` lets ALPN choose; an http base URL defaults to `HTTPAuto` | one connection from a cold start, and a loud failure instead of a silent HTTP/1.1 fallback | — |
 | the ALPN check applies to the API hop | httpx honours the proxy environment variables | `http.ProxyFromEnvironment` by default, `WithProxy` to change it; the h2 check applies to the API's handshake, never to the proxy's; a proxy failure is a `*ConnectionError` whose `Proxy()` is true; a proxy that negotiates h2 on its own hop is not supported | the proxy support of Go's transport | — |
 | configuration checked at build | the base URL is checked at the first request; an empty explicit default model is sent | `NewClient` refuses, with a `*ConfigError` that does not repeat the value, a base URL with userinfo, a query, a fragment, no host or a scheme other than http and https, a blank model, and a response limit over 1 GiB | fail fast | — |
-| SDK headers | `User-Agent` and `X-TypeSafe-SDK` name the Python SDK; the runtime header names Python | `typesafe-sdk-go/<version>` and `X-TypeSafe-Runtime: go/<version> (<GOOS>; <GOARCH>)`; `WithUserAgentProduct` adds a product, `WithRuntimeHeader(false)` leaves the runtime header out | this is not the official SDK | — |
+| SDK headers | `User-Agent` and `X-TypeSafe-SDK` name the Python SDK; the runtime header names Python | `decision-model-sdk-go/<version>` and `X-TypeSafe-Runtime: go/<version> (<GOOS>; <GOARCH>)`; `WithUserAgentProduct` adds a product, `WithRuntimeHeader(false)` leaves the runtime header out | this is not the official SDK | — |
 | caller headers | a caller's framing headers are sent; the defaults mapping sends both spellings of a header | framing headers are dropped; `WithHeader` replaces a header whatever its case; a header name that holds the key is refused | the transport frames requests; one value per header | — |
 | supported platforms | any platform Python runs on | the Go releases, on amd64 and arm64, that [support.md](support.md) lists; elsewhere the build fails on purpose with a compile error that names the requirement | sonic, the SDK's only JSON codec, supports those alone | — |
 

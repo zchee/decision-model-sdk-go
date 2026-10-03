@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -26,12 +26,12 @@ import (
 	"strconv"
 	"testing"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 
-	"github.com/zchee/typesafe-sdk-go/internal/codec"
-	"github.com/zchee/typesafe-sdk-go/internal/engine"
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
-	"github.com/zchee/typesafe-sdk-go/internal/wire"
+	"github.com/zchee/decision-model-sdk-go/internal/codec"
+	"github.com/zchee/decision-model-sdk-go/internal/engine"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
+	"github.com/zchee/decision-model-sdk-go/internal/wire"
 )
 
 // The whole call's pins (TestAllocWholeCall): its floor, the Recorder's
@@ -44,7 +44,7 @@ var (
 
 // Sinks keep measured results reachable, as a caller's would be.
 var (
-	sinkResponse *typesafe.SystemOneResponse
+	sinkResponse *decision.SystemOneResponse
 	sinkRequest  *http.Request
 )
 
@@ -88,7 +88,7 @@ func TestAllocWholeCall(t *testing.T) {
 	// The production policy, not newTestClient's single attempt: the budget
 	// is measured with DefaultRetry in force, whose first attempt that
 	// succeeds must allocate nothing more.
-	c := newTestClient(t, rec, typesafe.WithRetry(typesafe.DefaultRetry()))
+	c := newTestClient(t, rec, decision.WithRetry(decision.DefaultRetry()))
 	state := newAllocState()
 	for range 2 { // warm the pools, the encoder and the decoder
 		if _, err := c.SystemOne(ctx, state, qs); err != nil {
@@ -145,7 +145,7 @@ func TestAllocWholeCall(t *testing.T) {
 	check("result-20.json")
 	qs20 := questionsFor(t, &first20)
 	rec20 := &testsupport.Recorder{Discard: true, Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, testsupport.Fixture(t, "result-20.json"))}}
-	c20 := newTestClient(t, rec20, typesafe.WithRetry(typesafe.DefaultRetry()))
+	c20 := newTestClient(t, rec20, decision.WithRetry(decision.DefaultRetry()))
 	for range 2 {
 		_, err = c20.SystemOne(ctx, state, qs20)
 		check("q20 warm call")
@@ -177,7 +177,7 @@ func (it callItems) String() string {
 
 // measureCallItems measures the allocations a call makes, one at a time, in
 // the order SystemOne makes them; prefix starts the label of every series.
-func measureCallItems(t *testing.T, c *typesafe.Client, state any, qs *typesafe.Prepared, prefix string) callItems {
+func measureCallItems(t *testing.T, c *decision.Client, state any, qs *decision.Prepared, prefix string) callItems {
 	t.Helper()
 	ctx := t.Context()
 	var hdr, ca, to, rq, open, gb, rd, dec [testsupport.AllocRuns]testsupport.Allocs
@@ -196,7 +196,7 @@ func measureCallItems(t *testing.T, c *typesafe.Client, state any, qs *typesafe.
 			reader  *codec.BodyReader
 			getBody func() (io.ReadCloser, error)
 			req     *http.Request
-			resp    *typesafe.SystemOneResponse
+			resp    *decision.SystemOneResponse
 			raw     []byte
 			spare   []wire.AnswerEntry
 		)
@@ -224,7 +224,7 @@ func measureCallItems(t *testing.T, c *typesafe.Client, state any, qs *typesafe.
 			t.Fatal(err)
 		}
 		_ = hresp.Body.Close()
-		resp = (*typesafe.SystemOneResponse)(&call.Resp)
+		resp = (*decision.SystemOneResponse)(&call.Resp)
 		*(*engine.Response)(resp).Meta() = wire.ResponseMeta{Status: hresp.StatusCode, Header: hresp.Header, Body: raw}
 		dec[i] = testsupport.Measure(func() {
 			err = decodeSystemOneInto(ctx, cfgOf(c).Logger, (*engine.Response)(resp).Meta(), engOf(c).SystemOneEndpoint(), cfgOf(c).Redactor(), qs, cfgOf(c).Model, (*engine.Response)(resp).Result(), spare)
@@ -259,14 +259,14 @@ func TestAllocAnswersInlineBound(t *testing.T) {
 	testsupport.QuietRuntime(t)
 	ctx := t.Context()
 	body := testsupport.Fixture(t, "result.json")
-	c := newTestClient(t, &testsupport.Recorder{Discard: true, Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, body)}}, typesafe.WithRetry(typesafe.DefaultRetry()))
+	c := newTestClient(t, &testsupport.Recorder{Discard: true, Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, body)}}, decision.WithRetry(decision.DefaultRetry()))
 	state := newAllocState()
 	var err error
 	calls := map[int]testsupport.Allocs{}
 	for _, n := range []int{engine.MaxInlineAnswers - 1, engine.MaxInlineAnswers, engine.MaxInlineAnswers + 1} {
-		qs := typesafe.NewQuestions()
+		qs := decision.NewQuestions()
 		for i := range n {
-			qs = qs.Noul("q"+strconv.Itoa(i), typesafe.Noul{Instructions: typesafe.Text("Is it?")})
+			qs = qs.Noul("q"+strconv.Itoa(i), decision.Noul{Instructions: decision.Text("Is it?")})
 		}
 		p := mustPrepared(t, qs)
 		for range 2 { // warm the pools, the encoder and the decoder
@@ -341,7 +341,7 @@ func TestMemStatsCap(t *testing.T) {
 			}
 			ran = true
 		}
-		runs := measureRuns(func() { checkOutcome(); rewarm() }, func() { sinkResponse, err = c.SystemOne(ctx, state, qs, typesafe.Retry(typesafe.NoRetry())) })
+		runs := measureRuns(func() { checkOutcome(); rewarm() }, func() { sinkResponse, err = c.SystemOne(ctx, state, qs, decision.Retry(decision.NoRetry())) })
 		checkOutcome()
 		sinkResponse = nil
 		call, most := testsupport.Spread(t, name, runs)

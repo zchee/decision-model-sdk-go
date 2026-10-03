@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,7 +24,7 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
 )
 
 // questionsJSON is the q3 question set (tests/test_clients.py:60-80 of the
@@ -40,8 +40,8 @@ func testHeader() http.Header {
 		"Authorization":      {"Bearer test-key"},
 		"Accept":             {"application/json"},
 		"Content-Type":       {"application/json"},
-		"User-Agent":         {"typesafe-sdk-go/test"},
-		"X-Typesafe-Sdk":     {"typesafe-sdk-go/test"},
+		"User-Agent":         {"decision-model-sdk-go/test"},
+		"X-Typesafe-Sdk":     {"decision-model-sdk-go/test"},
 		"X-Typesafe-Runtime": {"go/test"},
 	}
 }

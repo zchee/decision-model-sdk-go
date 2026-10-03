@@ -55,4 +55,4 @@ formatters:
         balance-calls: true
     goimports:
       local-prefixes:
-        - github.com/zchee/typesafe-sdk-go
+        - github.com/zchee/decision-model-sdk-go

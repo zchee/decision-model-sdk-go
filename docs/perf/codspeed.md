@@ -55,11 +55,11 @@ every commit it measures, on `main` and on dispatched branches. The check's
 details link opens the report:
 
 ```sh
-gh api repos/zchee/typesafe-sdk-go/commits/<sha>/check-runs \
+gh api repos/zchee/decision-model-sdk-go/commits/<sha>/check-runs \
   --jq '.check_runs[] | select(.app.slug == "codspeed") | .details_url'
 ```
 
-A run's report is at `https://app.codspeed.io/zchee/typesafe-sdk-go/runs/<id>`.
+A run's report is at `https://app.codspeed.io/zchee/decision-model-sdk-go/runs/<id>`.
 A comparison between two runs is at `…/runs/compare/<base id>..<head id>`.
 The GitHub job log does not print the run id.
 

@@ -687,10 +687,10 @@ class TestCheckRows:
         [
             ("`TestRoot`", []),
             (
-                "`typesafe.TestRoot`",
+                "`decision.TestRoot`",
                 [
                     (
-                        "row A2 (tests/test_a.py::test_two): typesafe.TestRoot is not "
+                        "row A2 (tests/test_a.py::test_two): decision.TestRoot is not "
                         "listed by go test -list '.*' -tags live ./..."
                     )
                 ],
@@ -701,10 +701,10 @@ class TestCheckRows:
     def test_root_package_tests_are_written_unqualified(
         self, cell: str, want: list[str]
     ) -> None:
-        # The root package is named typesafe, but its import path ends in
-        # /typesafe-sdk-go, so only the unqualified name can match it.
+        # The root package is named decision, but its import path ends in
+        # /decision-model-sdk-go, so only the unqualified name can match it.
         listed = {
-            "github.com/zchee/typesafe-sdk-go": {"TestRoot", "TestOne", "TestThree"}
+            "github.com/zchee/decision-model-sdk-go": {"TestRoot", "TestOne", "TestThree"}
         }
         text = _full((PORTED_A[0], f"| A2 | `test_two` | {cell} | ported |"), PORTED_B)
         assert ptm.check_rows(_rows(text), UPSTREAM, listed) == want

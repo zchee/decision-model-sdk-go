@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,9 +21,9 @@ import (
 	"slices"
 	"testing"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
 )
 
 // sinkPayload keeps a measured payload reachable, as a caller's would be.
@@ -52,9 +52,9 @@ func TestAllocResponseJSON(t *testing.T) {
 		pin := jsonAllocs[name]
 		t.Run(name, func(t *testing.T) {
 			data := testsupport.Fixture(t, name)
-			measure := measureJSON[typesafe.SystemOneResponse]
+			measure := measureJSON[decision.SystemOneResponse]
 			if name == "models.json" {
-				measure = measureJSON[typesafe.ModelsResponse]
+				measure = measureJSON[decision.ModelsResponse]
 			}
 			marshal, unmarshal, payload := measure(t, name, data)
 			t.Logf("JSON %-32s payload=%-7d marshal allocs=%d bytes=%-7d unmarshal allocs=%d bytes=%d",

@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 // Portions ported from system-one-adapter-python (MIT, see LICENSE-UPSTREAM).
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -33,10 +33,10 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
-	"github.com/zchee/typesafe-sdk-go/adapter/internal/fake"
-	"github.com/zchee/typesafe-sdk-go/adapter/internal/jsonx"
-	"github.com/zchee/typesafe-sdk-go/adapter/internal/schema"
-	"github.com/zchee/typesafe-sdk-go/adapter/llm"
+	"github.com/zchee/decision-model-sdk-go/adapter/internal/fake"
+	"github.com/zchee/decision-model-sdk-go/adapter/internal/jsonx"
+	"github.com/zchee/decision-model-sdk-go/adapter/internal/schema"
+	"github.com/zchee/decision-model-sdk-go/adapter/llm"
 )
 
 // The files of generated cases this file reads, as committed.
@@ -983,22 +983,22 @@ func TestUnrecordedResponseIsResult(t *testing.T) {
 	}{
 		"success: counts known": {
 			provider: plainProvider{text: `{"answers":{"answer":0.75}}`, in: llm.Count{N: 3, Known: true}, out: llm.Count{N: 4, Known: true}},
-			want:     Attempt{Response: []byte(`{"text":"{\"answers\":{\"answer\":0.75}}","input_tokens":3,"output_tokens":4}`), Info: AttemptInfo{ModelName: "plain-model", Provider: "github.com/zchee/typesafe-sdk-go/adapter.plainProvider"}},
+			want:     Attempt{Response: []byte(`{"text":"{\"answers\":{\"answer\":0.75}}","input_tokens":3,"output_tokens":4}`), Info: AttemptInfo{ModelName: "plain-model", Provider: "github.com/zchee/decision-model-sdk-go/adapter.plainProvider"}},
 		},
 		"success: counts unknown": {
 			provider: plainProvider{text: `{"answers":{"answer":0.75}}`, out: llm.Count{N: 4, Known: true}},
-			want:     Attempt{Response: []byte(`{"text":"{\"answers\":{\"answer\":0.75}}","input_tokens":null,"output_tokens":4}`), Info: AttemptInfo{ModelName: "plain-model", Provider: "github.com/zchee/typesafe-sdk-go/adapter.plainProvider"}},
+			want:     Attempt{Response: []byte(`{"text":"{\"answers\":{\"answer\":0.75}}","input_tokens":null,"output_tokens":4}`), Info: AttemptInfo{ModelName: "plain-model", Provider: "github.com/zchee/decision-model-sdk-go/adapter.plainProvider"}},
 		},
 		"success: a recorded exchange": {
 			provider: &recordingProvider{finish: &stop},
 			want: Attempt{Response: []byte(`{"id":"r","n":1.50}`), Request: []byte(`{"model":"recording-model"}`), Info: AttemptInfo{
-				ModelName: "recording-model", Provider: "github.com/zchee/typesafe-sdk-go/adapter.recordingProvider", API: "chat_completions", Responded: true, FinishReason: &stop,
+				ModelName: "recording-model", Provider: "github.com/zchee/decision-model-sdk-go/adapter.recordingProvider", API: "chat_completions", Responded: true, FinishReason: &stop,
 			}},
 		},
 		"error: a recorded exchange that is not an answer": {
 			provider: &recordingProvider{err: &llm.NonAnswerError{Message: "OpenAI chat completion did not finish normally: length"}},
 			want: Attempt{Response: []byte(`{"id":"r","n":1.50}`), Request: []byte(`{"model":"recording-model"}`), Info: AttemptInfo{
-				ModelName: "recording-model", Provider: "github.com/zchee/typesafe-sdk-go/adapter.recordingProvider", API: "chat_completions", Responded: true,
+				ModelName: "recording-model", Provider: "github.com/zchee/decision-model-sdk-go/adapter.recordingProvider", API: "chat_completions", Responded: true,
 				Error: "OpenAI chat completion did not finish normally: length", ErrorType: "TypeSafeError",
 			}},
 			wantErr: true,
@@ -1125,8 +1125,8 @@ func TestProviderName(t *testing.T) {
 		provider llm.Provider
 		want     string
 	}{
-		"a pointer to a named type": {provider: fake.New(), want: "github.com/zchee/typesafe-sdk-go/adapter/internal/fake.Provider"},
-		"a named value type":        {provider: plainProvider{}, want: "github.com/zchee/typesafe-sdk-go/adapter.plainProvider"},
+		"a pointer to a named type": {provider: fake.New(), want: "github.com/zchee/decision-model-sdk-go/adapter/internal/fake.Provider"},
+		"a named value type":        {provider: plainProvider{}, want: "github.com/zchee/decision-model-sdk-go/adapter.plainProvider"},
 		"an unnamed type":           {provider: unnamedProvider(), want: "struct { llm.Provider }"},
 		"a pointer to an unnamed":   {provider: &struct{ llm.Provider }{fake.New()}, want: "*struct { llm.Provider }"},
 	}

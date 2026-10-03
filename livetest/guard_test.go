@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -29,7 +29,7 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 )
 
 // syntheticKey stands for the API key in the tests below; it has the real
@@ -37,7 +37,7 @@ import (
 const syntheticKey = "ts_synthetic_live_key_0123456789"
 
 // TestLiveEnvGuard checks the guard every live test calls first: without
-// TYPESAFE_LIVE_TESTS=1 and a non-blank TYPESAFE_API_KEY it fails naming each
+// DECISION_MODEL_LIVE_TESTS=1 and a non-blank TYPESAFE_API_KEY it fails naming each
 // missing variable, and no message repeats a value. It runs on every go test,
 // without the live tag.
 func TestLiveEnvGuard(t *testing.T) {
@@ -48,42 +48,42 @@ func TestLiveEnvGuard(t *testing.T) {
 	}{
 		"error: nothing set": {
 			env:     map[string]string{},
-			wantErr: []string{liveTestsEnv + " is not 1", typesafe.APIKeyEnv + " is unset or blank"},
+			wantErr: []string{liveTestsEnv + " is not 1", decision.APIKeyEnv + " is unset or blank"},
 		},
 		"error: the key without the switch": {
-			env:     map[string]string{typesafe.APIKeyEnv: syntheticKey},
+			env:     map[string]string{decision.APIKeyEnv: syntheticKey},
 			wantErr: []string{liveTestsEnv + " is not 1"},
 		},
 		"error: the switch set to something other than 1": {
-			env:     map[string]string{liveTestsEnv: "true", typesafe.APIKeyEnv: syntheticKey},
+			env:     map[string]string{liveTestsEnv: "true", decision.APIKeyEnv: syntheticKey},
 			wantErr: []string{liveTestsEnv + " is not 1"},
 		},
 		"error: the switch without the key": {
 			env:     map[string]string{liveTestsEnv: "1"},
-			wantErr: []string{typesafe.APIKeyEnv + " is unset or blank"},
+			wantErr: []string{decision.APIKeyEnv + " is unset or blank"},
 		},
 		"error: a blank key": {
-			env:     map[string]string{liveTestsEnv: "1", typesafe.APIKeyEnv: " \t "},
-			wantErr: []string{typesafe.APIKeyEnv + " is unset or blank"},
+			env:     map[string]string{liveTestsEnv: "1", decision.APIKeyEnv: " \t "},
+			wantErr: []string{decision.APIKeyEnv + " is unset or blank"},
 		},
 		"error: a base URL with userinfo is refused without echo": {
-			env:     map[string]string{liveTestsEnv: "1", typesafe.APIKeyEnv: syntheticKey, typesafe.BaseURLEnv: "https://user:" + syntheticKey + "@api.example.com"},
-			wantErr: []string{typesafe.BaseURLEnv + " is not an http or https URL"},
+			env:     map[string]string{liveTestsEnv: "1", decision.APIKeyEnv: syntheticKey, decision.BaseURLEnv: "https://user:" + syntheticKey + "@api.example.com"},
+			wantErr: []string{decision.BaseURLEnv + " is not an http or https URL"},
 		},
 		"error: a base URL without a scheme": {
-			env:     map[string]string{liveTestsEnv: "1", typesafe.APIKeyEnv: syntheticKey, typesafe.BaseURLEnv: "api.example.com"},
-			wantErr: []string{typesafe.BaseURLEnv + " is not an http or https URL"},
+			env:     map[string]string{liveTestsEnv: "1", decision.APIKeyEnv: syntheticKey, decision.BaseURLEnv: "api.example.com"},
+			wantErr: []string{decision.BaseURLEnv + " is not an http or https URL"},
 		},
 		"success: the switch and the key, the default host": {
-			env:      map[string]string{liveTestsEnv: "1", typesafe.APIKeyEnv: syntheticKey},
+			env:      map[string]string{liveTestsEnv: "1", decision.APIKeyEnv: syntheticKey},
 			wantHost: "api.typesafe.ai",
 		},
 		"success: blanks around the values are ignored": {
-			env:      map[string]string{liveTestsEnv: " 1 ", typesafe.APIKeyEnv: " " + syntheticKey + "\n"},
+			env:      map[string]string{liveTestsEnv: " 1 ", decision.APIKeyEnv: " " + syntheticKey + "\n"},
 			wantHost: "api.typesafe.ai",
 		},
 		"success: TYPESAFE_BASE_URL selects the host": {
-			env:      map[string]string{liveTestsEnv: "1", typesafe.APIKeyEnv: syntheticKey, typesafe.BaseURLEnv: "https://staging.example.com/prefix"},
+			env:      map[string]string{liveTestsEnv: "1", decision.APIKeyEnv: syntheticKey, decision.BaseURLEnv: "https://staging.example.com/prefix"},
 			wantHost: "staging.example.com",
 		},
 	}
@@ -322,12 +322,12 @@ func TestRecorderOnSyntheticResponses(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	c, err := typesafe.NewClient(typesafe.WithAPIKey(syntheticKey), typesafe.WithBaseURL(srv.URL), typesafe.WithRetry(typesafe.NoRetry()))
+	c, err := decision.NewClient(decision.WithAPIKey(syntheticKey), decision.WithBaseURL(srv.URL), decision.WithRetry(decision.NoRetry()))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = c.Close() })
-	qs, err := typesafe.NewQuestions().Noul("spam", typesafe.Noul{Instructions: typesafe.Text("Spam?")}).Prepare()
+	qs, err := decision.NewQuestions().Noul("spam", decision.Noul{Instructions: decision.Text("Spam?")}).Prepare()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -336,7 +336,7 @@ func TestRecorderOnSyntheticResponses(t *testing.T) {
 		t.Fatalf("SystemOne() error = %v", err)
 	}
 	_, err = c.Models().List(t.Context())
-	apiErr, ok := errors.AsType[*typesafe.APIError](err)
+	apiErr, ok := errors.AsType[*decision.APIError](err)
 	if !ok {
 		t.Fatalf("Models().List() error = %v, want an *APIError", err)
 	}
@@ -403,7 +403,7 @@ func TestRecordedBodiesHoldNoCredentials(t *testing.T) {
 	if diff := gocmp.Diff(recordedBodies, onDisk); diff != "" {
 		t.Fatalf("testdata/live/*.json (-want +got):\n%s", diff)
 	}
-	key := strings.TrimSpace(os.Getenv(typesafe.APIKeyEnv))
+	key := strings.TrimSpace(os.Getenv(decision.APIKeyEnv))
 	for _, name := range onDisk {
 		data, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {

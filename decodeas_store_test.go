@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package typesafe
+package decision
 
 import (
 	"fmt"
@@ -28,8 +28,8 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
-	"github.com/zchee/typesafe-sdk-go/internal/engine"
-	"github.com/zchee/typesafe-sdk-go/internal/wire"
+	"github.com/zchee/decision-model-sdk-go/internal/engine"
+	"github.com/zchee/decision-model-sdk-go/internal/wire"
 )
 
 // The typed store's tests (decodeas_store.go). Mutation
@@ -305,7 +305,7 @@ func TestStoreRefusesOutsideField(t *testing.T) {
 					t.Logf("panic: %s", msg)
 					for _, want := range []string{
 						"refused to write field Spam ",
-						" of typesafe.storeKinds ",
+						" of decision.storeKinds ",
 						" at offset " + strconv.FormatUint(uint64(tt.wantOffset), 10) + ":",
 						" a " + strconv.FormatUint(uint64(tt.wantBytes), 10) + "-byte write ",
 						" of the struct's " + strconv.FormatUint(uint64(size), 10) + ",",
@@ -348,7 +348,7 @@ func TestPlanLayoutRefusesCorruptPlans(t *testing.T) {
 			plant: func(fs []typedField) {
 				fs[byName["Spam"]].offset, fs[byName["Spam"]].end = embedded.offset, embedded.end
 			},
-			want: []string{"field Spam ", "as a NoulAnswer at bytes [" + strconv.FormatUint(uint64(embedded.offset), 10) + ", ", "reflect gives a typesafe.NoulAnswer at bytes [" + strconv.FormatUint(uint64(spam.offset), 10) + ", "},
+			want: []string{"field Spam ", "as a NoulAnswer at bytes [" + strconv.FormatUint(uint64(embedded.offset), 10) + ", ", "reflect gives a decision.NoulAnswer at bytes [" + strconv.FormatUint(uint64(spam.offset), 10) + ", "},
 		},
 		"error: the two NoulAnswer fields' records swapped": {
 			plant: func(fs []typedField) {
@@ -371,7 +371,7 @@ func TestPlanLayoutRefusesCorruptPlans(t *testing.T) {
 		},
 		"error: the ChoiceAnswer field recorded as a NoulAnswer of its size": {
 			plant: func(fs []typedField) { fs[byName["Tone"]].kind = wire.KindNoul },
-			want:  []string{"field Tone ", "as a NoulAnswer at bytes [", "reflect gives a typesafe.ChoiceAnswer at bytes ["},
+			want:  []string{"field Tone ", "as a NoulAnswer at bytes [", "reflect gives a decision.ChoiceAnswer at bytes ["},
 		},
 		"error: the index of a field that is not an answer": {
 			plant: func(fs []typedField) { fs[byName["Spam"]].index = 0 },
@@ -389,8 +389,8 @@ func TestPlanLayoutRefusesCorruptPlans(t *testing.T) {
 			defer func() {
 				msg, _ := recover().(string)
 				t.Logf("panic: %s", msg)
-				if !strings.HasPrefix(msg, "typesafe: the typed plan of typesafe.storeKinds ") {
-					t.Fatalf("recover() = %q, want checkPlanLayout's panic naming typesafe.storeKinds", msg)
+				if !strings.HasPrefix(msg, "decision: the typed plan of decision.storeKinds ") {
+					t.Fatalf("recover() = %q, want checkPlanLayout's panic naming decision.storeKinds", msg)
 				}
 				for _, want := range tt.want {
 					if !strings.Contains(msg, want) {
@@ -412,7 +412,7 @@ func TestDecodeTypedPlanMismatch(t *testing.T) {
 	defer func() {
 		r := recover()
 		msg, _ := r.(string)
-		if !strings.Contains(msg, "decodeTyped[typesafe.reviewAnswers] given the plan of typesafe.storeKinds") {
+		if !strings.Contains(msg, "decodeTyped[decision.reviewAnswers] given the plan of decision.storeKinds") {
 			t.Errorf("recover() = %v, want the plan mismatch panic", r)
 		}
 	}()

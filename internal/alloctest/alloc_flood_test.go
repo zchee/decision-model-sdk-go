@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -26,9 +26,9 @@ import (
 	"testing"
 	"time"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
-	"github.com/zchee/typesafe-sdk-go/internal/codec"
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
+	decision "github.com/zchee/decision-model-sdk-go"
+	"github.com/zchee/decision-model-sdk-go/internal/codec"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
 )
 
 // TestMemStatsFlood is the structured-flood case of the response-memory
@@ -150,7 +150,7 @@ func TestMemStatsFlood(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the flood call: %v (%T), want success: every answer is of an unknown type, skipped", err, err)
 	}
-	live := int64(2*typesafe.DefaultMaxResponseBytes) + int64(answers)*(9*entryBytes/4+indexBytes)
+	live := int64(2*decision.DefaultMaxResponseBytes) + int64(answers)*(9*entryBytes/4+indexBytes)
 	peakBound := int64(2.2 * float64(base+live))
 	grew := peak.Load() - base
 	t.Logf("FLOOD peak: body %d bytes, %d answers, %v; heap base %d, peak %+d bytes (%.1f× the body), bound %+d (2.2 × (base + %d)); %d samples (%.0f a second)",

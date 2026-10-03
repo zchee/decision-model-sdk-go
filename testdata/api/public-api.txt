@@ -1,4 +1,4 @@
-# public-api.txt: exported API of github.com/zchee/typesafe-sdk-go.
+# public-api.txt: exported API of github.com/zchee/decision-model-sdk-go.
 # Regenerate: go test -run '^TestPublicAPISurface$' -update .
 type APIError struct, incomparable
 type APIError struct, Kind APIErrorKind
@@ -211,7 +211,7 @@ type Usage struct, comparable
 method (Usage) InputTokens() (uint64, bool)
 method (Usage) MarshalJSON() ([]byte, error)
 method (Usage) OutputTokens() (uint64, bool)
-const Version untyped string = "0.1.1"
+const Version untyped string = "0.1.0"
 func WithAPIKey(string) ClientOption
 func WithBaseURL(string) ClientOption
 func WithClientTrace(*net/http/httptrace.ClientTrace) ClientOption

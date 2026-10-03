@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 // Portions ported from system-one-adapter-python (MIT, see LICENSE-UPSTREAM).
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,8 +21,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/zchee/typesafe-sdk-go/adapter/internal/jsonx"
-	"github.com/zchee/typesafe-sdk-go/adapter/llm"
+	"github.com/zchee/decision-model-sdk-go/adapter/internal/jsonx"
+	"github.com/zchee/decision-model-sdk-go/adapter/llm"
 )
 
 // maxErrorBodyChars is how many characters of a re-written error body a

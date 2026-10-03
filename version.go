@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package typesafe
+package decision
 
 import (
 	"runtime"
@@ -20,15 +20,15 @@ import (
 )
 
 // Version is the version of this SDK. Every request names it in the
-// User-Agent and X-TypeSafe-SDK headers as typesafe-sdk-go/<Version>.
-const Version = "0.1.1"
+// User-Agent and X-TypeSafe-SDK headers as decision-model-sdk-go/<Version>.
+const Version = "0.1.0"
 
 // sdkIdentifier is what the SDK calls itself in User-Agent and
 // X-TypeSafe-SDK, the same string in both, as typesafe-sdk-python sends
 // typesafe-sdk/<version> in both (py:_core/transport.py:123-124). This port
 // names itself instead, so the API never mistakes it for the SDK it is a
 // port of.
-const sdkIdentifier = "typesafe-sdk-go/" + Version
+const sdkIdentifier = "decision-model-sdk-go/" + Version
 
 // runtimeIdentifier is the value of X-TypeSafe-Runtime: the Go release, the
 // operating system and the architecture the program was built for, as

@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package typesafe
+package decision
 
 import (
 	"context"
@@ -32,9 +32,9 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
-	"github.com/zchee/typesafe-sdk-go/internal/engine"
-	"github.com/zchee/typesafe-sdk-go/internal/h2gate"
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
+	"github.com/zchee/decision-model-sdk-go/internal/engine"
+	"github.com/zchee/decision-model-sdk-go/internal/h2gate"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
 )
 
 // getWithin is getVia under a deadline of d.
@@ -557,7 +557,7 @@ func assertMapped(t *testing.T, got, err error, kind, text string, proxy, unwrap
 		t.Errorf("the cause is a *engine.scrubbedError stand-in: %t, want %t", standIn, !unwrapsErr)
 	}
 	if _, ok := got.(Error); !ok { //nolint:errorlint // the mapped value itself must be an SDK error
-		t.Errorf("transportError = %T, not a typesafe.Error", got)
+		t.Errorf("transportError = %T, not a decision.Error", got)
 	}
 }
 

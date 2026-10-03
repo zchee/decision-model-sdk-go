@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package typesafe
+package decision
 
 import (
 	"crypto/tls"
@@ -25,8 +25,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/zchee/typesafe-sdk-go/internal/engine"
-	"github.com/zchee/typesafe-sdk-go/internal/h2gate"
+	"github.com/zchee/decision-model-sdk-go/internal/engine"
+	"github.com/zchee/decision-model-sdk-go/internal/h2gate"
 )
 
 // HTTPVersion is the HTTP version policy of a client's transport
@@ -65,12 +65,12 @@ func (v HTTPVersion) String() string {
 // response came back over HTTP/1.1. The SDK returns it wrapped in a
 // [*ConfigError], which retrying cannot fix: errors.Is(err,
 // ErrHTTP2NotNegotiated) tells it apart. [HTTPAuto] allows HTTP/1.1.
-var ErrHTTP2NotNegotiated = errors.New("typesafe: the API host did not negotiate HTTP/2")
+var ErrHTTP2NotNegotiated = errors.New("decision: the API host did not negotiate HTTP/2")
 
 // ErrClientClosed reports a call on a client that was closed. The SDK
 // returns it wrapped in a [*ConfigError]: errors.Is(err, ErrClientClosed)
 // tells it apart.
-var ErrClientClosed = errors.New("typesafe: the client is closed")
+var ErrClientClosed = errors.New("decision: the client is closed")
 
 // newClientClosedError returns the error a call on a closed client gets: a
 // fresh *ConfigError wrapping [ErrClientClosed].

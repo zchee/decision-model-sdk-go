@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,12 +22,12 @@ import (
 	"strconv"
 	"strings"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 )
 
 // prepareSink keeps every prepared set reachable, so that the compiler cannot
 // drop or stack-allocate what Prepare builds.
-var prepareSink *typesafe.Prepared
+var prepareSink *decision.Prepared
 
 // prepareCases are the question sets whose Prepare cost the performance
 // ledger records (docs/perf/ledger.md), keyed by the name of their
@@ -39,37 +39,37 @@ var prepareSink *typesafe.Prepared
 // criteria (engine.FalsyJSON): each is paired with a control that differs
 // only in the type string, "Score" instead of "score", so that the check
 // does not run while the writer does the same work.
-var prepareCases = map[string]func() *typesafe.Questions{
+var prepareCases = map[string]func() *decision.Questions{
 	// The sketch set: one question of each kind.
-	"c1-sketch": func() *typesafe.Questions {
+	"c1-sketch": func() *decision.Questions {
 		return sketchQuestions("")
 	},
-	"c2-noul-short": func() *typesafe.Questions {
-		return typesafe.NewQuestions().Noul("spam", typesafe.Noul{Instructions: typesafe.Text("Spam?")})
+	"c2-noul-short": func() *decision.Questions {
+		return decision.NewQuestions().Noul("spam", decision.Noul{Instructions: decision.Text("Spam?")})
 	},
-	"c3-choice-20x10": func() *typesafe.Questions {
-		qs := typesafe.NewQuestions()
+	"c3-choice-20x10": func() *decision.Questions {
+		qs := decision.NewQuestions()
 		for i := range 20 {
-			opts := make(typesafe.Options, 10)
+			opts := make(decision.Options, 10)
 			for j := range opts {
-				opts[j] = typesafe.Option{Label: "option-" + strconv.Itoa(j), Description: typesafe.Text("what option " + strconv.Itoa(j) + " means")}
+				opts[j] = decision.Option{Label: "option-" + strconv.Itoa(j), Description: decision.Text("what option " + strconv.Itoa(j) + " means")}
 			}
-			qs.Choice("choice-"+strconv.Itoa(i), typesafe.Choice{Instructions: typesafe.Text("Which option fits the message?"), Options: opts})
+			qs.Choice("choice-"+strconv.Itoa(i), decision.Choice{Instructions: decision.Text("Which option fits the message?"), Options: opts})
 		}
 		return qs
 	},
-	"c4a-score-20x8-text": func() *typesafe.Questions {
-		return scoreQuestions(func(level int) typesafe.Content {
-			return typesafe.Text("level " + strconv.Itoa(level) + ": how urgent the message is")
+	"c4a-score-20x8-text": func() *decision.Questions {
+		return scoreQuestions(func(level int) decision.Content {
+			return decision.Text("level " + strconv.Itoa(level) + ": how urgent the message is")
 		})
 	},
-	"c4b-score-20x8-json": func() *typesafe.Questions {
-		return scoreQuestions(func(level int) typesafe.Content { return typesafe.JSON([]byte(prettyLevel(level))) })
+	"c4b-score-20x8-json": func() *decision.Questions {
+		return scoreQuestions(func(level int) decision.Content { return decision.JSON([]byte(prettyLevel(level))) })
 	},
-	"c5-raw-100x3": func() *typesafe.Questions {
-		qs := typesafe.NewQuestions()
+	"c5-raw-100x3": func() *decision.Questions {
+		qs := decision.NewQuestions()
 		for i := range 100 {
-			qs.Raw("raw-"+strconv.Itoa(i), typesafe.RawQuestion{Type: "noul", Fields: map[string]any{
+			qs.Raw("raw-"+strconv.Itoa(i), decision.RawQuestion{Type: "noul", Fields: map[string]any{
 				"instructions": "Is message " + strconv.Itoa(i) + " spam?",
 				"weight":       0.5,
 				"meta": map[string]any{
@@ -84,7 +84,7 @@ var prepareCases = map[string]func() *typesafe.Questions{
 	// The sketch with every control character, U+2028, U+2029 and an emoji
 	// appended to each name and text, so that every string takes the
 	// escaper's slow path.
-	"c6-escapes": func() *typesafe.Questions {
+	"c6-escapes": func() *decision.Questions {
 		var odd strings.Builder
 		for c := range 0x20 {
 			odd.WriteByte(byte(c))
@@ -92,51 +92,51 @@ var prepareCases = map[string]func() *typesafe.Questions{
 		odd.WriteString("  \U0001F600")
 		return sketchQuestions(odd.String())
 	},
-	"n8a-array-score": func() *typesafe.Questions {
-		return rawScoreQuestions("score", 20, func() any { return typesafe.RawJSON(prettyLevels()) })
+	"n8a-array-score": func() *decision.Questions {
+		return rawScoreQuestions("score", 20, func() any { return decision.RawJSON(prettyLevels()) })
 	},
-	"n8a-array-control": func() *typesafe.Questions {
-		return rawScoreQuestions("Score", 20, func() any { return typesafe.RawJSON(prettyLevels()) })
+	"n8a-array-control": func() *decision.Questions {
+		return rawScoreQuestions("Score", 20, func() any { return decision.RawJSON(prettyLevels()) })
 	},
-	"n8b-map-score": func() *typesafe.Questions {
-		return rawScoreQuestions("score", 100, func() any { return typesafe.JSON([]byte(prettyScale)) })
+	"n8b-map-score": func() *decision.Questions {
+		return rawScoreQuestions("score", 100, func() any { return decision.JSON([]byte(prettyScale)) })
 	},
-	"n8b-map-control": func() *typesafe.Questions {
-		return rawScoreQuestions("Score", 100, func() any { return typesafe.JSON([]byte(prettyScale)) })
+	"n8b-map-control": func() *decision.Questions {
+		return rawScoreQuestions("Score", 100, func() any { return decision.JSON([]byte(prettyScale)) })
 	},
 }
 
 // sketchQuestions returns the sketch set, one question of each kind (a
 // noul, a choice, a score and a raw question), with suffix appended to
 // every name and text.
-func sketchQuestions(suffix string) *typesafe.Questions {
-	return typesafe.NewQuestions().
-		Noul("billing"+suffix, typesafe.Noul{Instructions: typesafe.Text("Is this about billing?" + suffix), Yes: typesafe.Text("payments or invoices" + suffix)}).
-		Choice("tone"+suffix, typesafe.Choice{Instructions: typesafe.Text("What is the tone?" + suffix), Options: typesafe.Options{{Label: "calm" + suffix, Description: typesafe.Text("neutral or polite" + suffix)}, {Label: "angry" + suffix}}}).
-		Score("urgency"+suffix, typesafe.Score{Levels: []typesafe.Content{typesafe.Text("can wait" + suffix), typesafe.Text("this week" + suffix), typesafe.Text("today" + suffix)}}).
-		Raw("spam"+suffix, typesafe.RawQuestion{Type: "noul", Fields: map[string]any{"instructions": "Spam?" + suffix}})
+func sketchQuestions(suffix string) *decision.Questions {
+	return decision.NewQuestions().
+		Noul("billing"+suffix, decision.Noul{Instructions: decision.Text("Is this about billing?" + suffix), Yes: decision.Text("payments or invoices" + suffix)}).
+		Choice("tone"+suffix, decision.Choice{Instructions: decision.Text("What is the tone?" + suffix), Options: decision.Options{{Label: "calm" + suffix, Description: decision.Text("neutral or polite" + suffix)}, {Label: "angry" + suffix}}}).
+		Score("urgency"+suffix, decision.Score{Levels: []decision.Content{decision.Text("can wait" + suffix), decision.Text("this week" + suffix), decision.Text("today" + suffix)}}).
+		Raw("spam"+suffix, decision.RawQuestion{Type: "noul", Fields: map[string]any{"instructions": "Spam?" + suffix}})
 }
 
 // scoreQuestions returns 20 score questions of 8 levels each, level i being
 // level(i).
-func scoreQuestions(level func(i int) typesafe.Content) *typesafe.Questions {
-	qs := typesafe.NewQuestions()
+func scoreQuestions(level func(i int) decision.Content) *decision.Questions {
+	qs := decision.NewQuestions()
 	for i := range 20 {
-		levels := make([]typesafe.Content, 8)
+		levels := make([]decision.Content, 8)
 		for j := range levels {
 			levels[j] = level(j)
 		}
-		qs.Score("score-"+strconv.Itoa(i), typesafe.Score{Instructions: typesafe.Text("How urgent is the message?"), Levels: levels})
+		qs.Score("score-"+strconv.Itoa(i), decision.Score{Instructions: decision.Text("How urgent is the message?"), Levels: levels})
 	}
 	return qs
 }
 
 // rawScoreQuestions returns n raw questions of type typ with three fields: an
 // instructions string, a weight and the criteria criteria() returns.
-func rawScoreQuestions(typ string, n int, criteria func() any) *typesafe.Questions {
-	qs := typesafe.NewQuestions()
+func rawScoreQuestions(typ string, n int, criteria func() any) *decision.Questions {
+	qs := decision.NewQuestions()
 	for i := range n {
-		qs.Raw("raw-"+strconv.Itoa(i), typesafe.RawQuestion{Type: typ, Fields: map[string]any{
+		qs.Raw("raw-"+strconv.Itoa(i), decision.RawQuestion{Type: typ, Fields: map[string]any{
 			"instructions": "How urgent is message " + strconv.Itoa(i) + "?",
 			"weight":       0.5,
 			"criteria":     criteria(),

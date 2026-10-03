@@ -1,11 +1,11 @@
-module github.com/zchee/typesafe-sdk-go/adapter
+module github.com/zchee/decision-model-sdk-go/adapter
 
 go 1.27
 
 require (
 	github.com/go-json-experiment/json v0.0.0-20260820222146-c27c302e5fc3
 	github.com/google/go-cmp v0.7.0
-	github.com/zchee/typesafe-sdk-go v0.1.1
+	github.com/zchee/decision-model-sdk-go v0.1.0
 )
 
 require (
@@ -19,3 +19,8 @@ require (
 	golang.org/x/arch v0.31.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 )
+
+// The module proxy has no github.com/zchee/decision-model-sdk-go until the
+// renamed repository is tagged v0.1.0, so the root module is taken from
+// this checkout. Remove this replace once that tag exists.
+replace github.com/zchee/decision-model-sdk-go => ../

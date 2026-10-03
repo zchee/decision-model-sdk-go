@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package typesafe
+package decision
 
 import (
 	"context"
@@ -26,7 +26,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/zchee/typesafe-sdk-go/internal/engine"
+	"github.com/zchee/decision-model-sdk-go/internal/engine"
 )
 
 // ClientOption configures a client.
@@ -174,8 +174,8 @@ func WithHeader(name, value string) ClientOption {
 // WithUserAgentProduct names the application in the User-Agent header, in
 // front of the SDK's own product, the more significant product first (RFC
 // 9110, section 10.1.5): "my-app/1.2.0" sends
-// User-Agent: my-app/1.2.0 typesafe-sdk-go/<Version>. Unset, User-Agent is
-// typesafe-sdk-go/<Version> alone, the form typesafe-sdk-python sends its own
+// User-Agent: my-app/1.2.0 decision-model-sdk-go/<Version>. Unset, User-Agent is
+// decision-model-sdk-go/<Version> alone, the form typesafe-sdk-python sends its own
 // name in. X-TypeSafe-SDK always names the SDK alone.
 //
 // The product must be name/version, both parts tokens (RFC 9110, section

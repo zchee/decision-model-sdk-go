@@ -1,4 +1,4 @@
-module github.com/zchee/typesafe-sdk-go
+module github.com/zchee/decision-model-sdk-go
 
 go 1.27
 

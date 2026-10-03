@@ -76,7 +76,7 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         timeout-minutes: 10
         env:
-          D1_IDENTIFIER: typesafe_sdk_go_requires_go1_17_to_go1_27_on_amd64_or_arm64
+          D1_IDENTIFIER: decision_model_sdk_go_requires_go1_17_to_go1_27_on_amd64_or_arm64
         run: |
           # The refusal is the expected output. Drop setup-go's Go problem
           # matcher (owner "go") so that it is not reported as an error

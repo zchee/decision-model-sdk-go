@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 // SPDX-License-Identifier: Apache-2.0
 
 // Command quickstart asks the TypeSafe API one question about a support
@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"log"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 )
 
 func main() {
@@ -21,16 +21,16 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	client, err := typesafe.NewClient()
+	client, err := decision.NewClient()
 	if err != nil {
 		return err
 	}
 	defer client.Close()
 
-	questions, err := typesafe.NewQuestions().
-		Choice("category", typesafe.Choice{
-			Instructions: typesafe.Text("What is this ticket about?"),
-			Options:      typesafe.Options{{Label: "billing"}, {Label: "technical"}, {Label: "other"}},
+	questions, err := decision.NewQuestions().
+		Choice("category", decision.Choice{
+			Instructions: decision.Text("What is this ticket about?"),
+			Options:      decision.Options{{Label: "billing"}, {Label: "technical"}, {Label: "other"}},
 		}).
 		Prepare()
 	if err != nil {

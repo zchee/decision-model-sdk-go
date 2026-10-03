@@ -1,6 +1,6 @@
 name: adapter
 
-# CI for the nested module github.com/zchee/typesafe-sdk-go/adapter. The
+# CI for the nested module github.com/zchee/decision-model-sdk-go/adapter. The
 # root's workflows run ./... of the root module, which stops at
 # adapter/go.mod, so this module is linted and tested here.
 

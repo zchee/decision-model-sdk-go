@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -23,12 +23,12 @@ import (
 	"strconv"
 	"testing"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 
 	gocmp "github.com/google/go-cmp/cmp"
 
-	"github.com/zchee/typesafe-sdk-go/internal/codec"
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
+	"github.com/zchee/decision-model-sdk-go/internal/codec"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
 )
 
 // TestAllocScratchSequence checks the encode budget's mixed-size sequence
@@ -76,7 +76,7 @@ func TestAllocScratchSequence(t *testing.T) {
 	testsupport.QuietRuntime(t)
 	qs := q3Questions(t)
 	reply := testsupport.JSON(http.StatusOK, testsupport.Fixture(t, "result.json"))
-	newClient := func() *typesafe.Client {
+	newClient := func() *decision.Client {
 		return newTestClient(t, &testsupport.Recorder{Discard: true, Replies: []testsupport.Reply{reply}})
 	}
 	for _, sk := range sequenceKinds {

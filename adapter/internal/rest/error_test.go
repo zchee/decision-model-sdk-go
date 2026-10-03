@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 // Portions ported from system-one-adapter-python (MIT, see LICENSE-UPSTREAM).
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -36,7 +36,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
-	"github.com/zchee/typesafe-sdk-go/adapter/llm"
+	"github.com/zchee/decision-model-sdk-go/adapter/llm"
 )
 
 // No test of this file opens a socket: each gives the Client an

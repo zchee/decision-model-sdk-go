@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,8 +28,8 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
+	decision "github.com/zchee/decision-model-sdk-go"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
 )
 
 // exampleOutputs holds, for each program under examples/, the pattern its
@@ -133,7 +133,7 @@ func TestExamplesOffline(t *testing.T) {
 	api := &testsupport.FakeAPI{}
 	srv := httptest.NewServer(api)
 	t.Cleanup(srv.Close)
-	env := environWithout("TYPESAFE_", typesafe.APIKeyEnv+"="+fakeExampleKey, typesafe.BaseURLEnv+"="+srv.URL)
+	env := environWithout("TYPESAFE_", decision.APIKeyEnv+"="+fakeExampleKey, decision.BaseURLEnv+"="+srv.URL)
 	checkExamples(t, env, []string{fakeExampleKey})
 	if api.Requests() == 0 {
 		t.Error("the fake API served no request")

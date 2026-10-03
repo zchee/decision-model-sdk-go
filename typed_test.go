@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package typesafe
+package decision
 
 import (
 	"errors"
@@ -26,7 +26,7 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
-	"github.com/zchee/typesafe-sdk-go/internal/wire"
+	"github.com/zchee/decision-model-sdk-go/internal/wire"
 )
 
 // Ticket is a typed question set: billing, tone, urgency and an optional
@@ -617,123 +617,123 @@ func TestPreparedForRejections(t *testing.T) {
 	}{
 		"error: (1) duplicate wire name": {
 			prepare: PreparedFor[rejDupName],
-			wantMsg: `PreparedFor[typesafe.rejDupName]: field Other: Question "Spam" is added more than once; question names must be unique. Field Spam asks it first.`,
+			wantMsg: `PreparedFor[decision.rejDupName]: field Other: Question "Spam" is added more than once; question names must be unique. Field Spam asks it first.`,
 		},
 		"error: (2) duplicate option label": {
 			prepare: PreparedFor[rejDupOption],
-			wantMsg: `PreparedFor[typesafe.rejDupOption]: field Tone: Choice question "Tone" has option "calm" more than once; option labels must be unique.`,
+			wantMsg: `PreparedFor[decision.rejDupOption]: field Tone: Choice question "Tone" has option "calm" more than once; option labels must be unique.`,
 		},
 		"error: (3) duplicate level text": {
 			prepare: PreparedFor[rejDupLevel],
-			wantMsg: `PreparedFor[typesafe.rejDupLevel]: field Urgency: Score question "Urgency" has level "low" more than once; levels must be unique.`,
+			wantMsg: `PreparedFor[decision.rejDupLevel]: field Urgency: Score question "Urgency" has level "low" more than once; levels must be unique.`,
 		},
 		"error: (4) score without levels": {
 			prepare: PreparedFor[rejNoLevels],
-			wantMsg: `PreparedFor[typesafe.rejNoLevels]: field Urgency: Score question "Urgency" has no criteria; at least one score is required. List the levels, lowest first, as levels=low|high.`,
+			wantMsg: `PreparedFor[decision.rejNoLevels]: field Urgency: Score question "Urgency" has no criteria; at least one score is required. List the levels, lowest first, as levels=low|high.`,
 		},
 		"error: (4) choice without options": {
 			prepare: PreparedFor[rejNoOptions],
-			wantMsg: `PreparedFor[typesafe.rejNoOptions]: field Tone: Choice question "Tone" has no options; list them, each optionally described, as options=calm=polite|angry.`,
+			wantMsg: `PreparedFor[decision.rejNoOptions]: field Tone: Choice question "Tone" has no options; list them, each optionally described, as options=calm=polite|angry.`,
 		},
 		"error: (5) missing kind": {
 			prepare: PreparedFor[rejNoKind],
-			wantMsg: `PreparedFor[typesafe.rejNoKind]: field Spam: the typesafe tag has no kind; add kind=noul.`,
+			wantMsg: `PreparedFor[decision.rejNoKind]: field Spam: the typesafe tag has no kind; add kind=noul.`,
 		},
 		"error: (5) missing kind: answer field without a tag": {
 			prepare: PreparedFor[rejUntagged],
-			wantMsg: `PreparedFor[typesafe.rejUntagged]: field Spam: the NoulAnswer field has no typesafe tag, so no kind; every answer field asks a question: add a tag such as typesafe:"kind=noul".`,
+			wantMsg: `PreparedFor[decision.rejUntagged]: field Spam: the NoulAnswer field has no typesafe tag, so no kind; every answer field asks a question: add a tag such as typesafe:"kind=noul".`,
 		},
 		"error: (6) unknown kind": {
 			prepare: PreparedFor[rejUnknownKind],
-			wantMsg: `PreparedFor[typesafe.rejUnknownKind]: field Spam: unknown kind "yesno"; the kinds are noul, choice and score.`,
+			wantMsg: `PreparedFor[decision.rejUnknownKind]: field Spam: unknown kind "yesno"; the kinds are noul, choice and score.`,
 		},
 		"error: (7) kind/field-type mismatch": {
 			prepare: PreparedFor[rejKindMismatch],
-			wantMsg: `PreparedFor[typesafe.rejKindMismatch]: field Tone: kind=choice needs a ChoiceAnswer field, and the field is a NoulAnswer; make the kind and the field's type agree.`,
+			wantMsg: `PreparedFor[decision.rejKindMismatch]: field Tone: kind=choice needs a ChoiceAnswer field, and the field is a NoulAnswer; make the kind and the field's type agree.`,
 		},
 		"error: (7) kind/field-type mismatch: tag on a string field": {
 			prepare: PreparedFor[rejTaggedString],
-			wantMsg: `PreparedFor[typesafe.rejTaggedString]: field Note: a typesafe tag needs a NoulAnswer, ChoiceAnswer or ScoreAnswer field, and the field is a string.`,
+			wantMsg: `PreparedFor[decision.rejTaggedString]: field Note: a typesafe tag needs a NoulAnswer, ChoiceAnswer or ScoreAnswer field, and the field is a string.`,
 		},
 		"error: (7) kind/field-type mismatch: tag on a field of an unnamed struct type": {
 			prepare: PreparedFor[rejTaggedUnnamedStruct],
-			wantMsg: `PreparedFor[typesafe.rejTaggedUnnamedStruct]: field Meta: a typesafe tag needs a NoulAnswer, ChoiceAnswer or ScoreAnswer field, and the field is a struct {...}.`,
+			wantMsg: `PreparedFor[decision.rejTaggedUnnamedStruct]: field Meta: a typesafe tag needs a NoulAnswer, ChoiceAnswer or ScoreAnswer field, and the field is a struct {...}.`,
 		},
 		"error: (7) kind/field-type mismatch: self-referential pointer": {
 			prepare: PreparedFor[rejSelfPointer],
-			wantMsg: `PreparedFor[typesafe.rejSelfPointer]: field Spam: a typesafe tag needs a NoulAnswer, ChoiceAnswer or ScoreAnswer field, and the field is a typesafe.selfPointer.`,
+			wantMsg: `PreparedFor[decision.rejSelfPointer]: field Spam: a typesafe tag needs a NoulAnswer, ChoiceAnswer or ScoreAnswer field, and the field is a decision.selfPointer.`,
 		},
 		"error: (8) pointer field": {
 			prepare: PreparedFor[rejPointer],
-			wantMsg: `PreparedFor[typesafe.rejPointer]: field Spam: the field is a pointer, *typesafe.NoulAnswer; answer fields are values: make it a NoulAnswer, with optional in its tag if the answer may be absent.`,
+			wantMsg: `PreparedFor[decision.rejPointer]: field Spam: the field is a pointer, *decision.NoulAnswer; answer fields are values: make it a NoulAnswer, with optional in its tag if the answer may be absent.`,
 		},
 		"error: (8) pointer field: untagged": {
 			prepare: PreparedFor[rejUntaggedPointer],
-			wantMsg: `PreparedFor[typesafe.rejUntaggedPointer]: field Spam: the field is a pointer, **typesafe.NoulAnswer; answer fields are values: make it a NoulAnswer, with optional in its tag if the answer may be absent.`,
+			wantMsg: `PreparedFor[decision.rejUntaggedPointer]: field Spam: the field is a pointer, **decision.NoulAnswer; answer fields are values: make it a NoulAnswer, with optional in its tag if the answer may be absent.`,
 		},
 		"error: (9) tagged field inside an embedded struct": {
 			prepare: PreparedFor[rejEmbeddedTagged],
-			wantMsg: `PreparedFor[typesafe.rejEmbeddedTagged]: field TaggedBase: fields of an embedded struct are not promoted, and TaggedBase.Spam has a typesafe tag; declare Spam in typesafe.rejEmbeddedTagged itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejEmbeddedTagged]: field TaggedBase: fields of an embedded struct are not promoted, and TaggedBase.Spam has a typesafe tag; declare Spam in decision.rejEmbeddedTagged itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) tagged field inside an embedded pointer to a struct": {
 			prepare: PreparedFor[rejEmbeddedPointer],
-			wantMsg: `PreparedFor[typesafe.rejEmbeddedPointer]: field TaggedBase: fields of an embedded struct are not promoted, and TaggedBase.Spam has a typesafe tag; declare Spam in typesafe.rejEmbeddedPointer itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejEmbeddedPointer]: field TaggedBase: fields of an embedded struct are not promoted, and TaggedBase.Spam has a typesafe tag; declare Spam in decision.rejEmbeddedPointer itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) tagged field two embeddings deep": {
 			prepare: PreparedFor[rejEmbeddedDeep],
-			wantMsg: `PreparedFor[typesafe.rejEmbeddedDeep]: field OuterBase: fields of an embedded struct are not promoted, and OuterBase.TaggedBase.Spam has a typesafe tag; declare Spam in typesafe.rejEmbeddedDeep itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejEmbeddedDeep]: field OuterBase: fields of an embedded struct are not promoted, and OuterBase.TaggedBase.Spam has a typesafe tag; declare Spam in decision.rejEmbeddedDeep itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) tagged field inside an unexported embedded struct": {
 			prepare: PreparedFor[rejEmbeddedUnexported],
-			wantMsg: `PreparedFor[typesafe.rejEmbeddedUnexported]: field taggedBase: fields of an embedded struct are not promoted, and taggedBase.Spam has a typesafe tag; declare Spam in typesafe.rejEmbeddedUnexported itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejEmbeddedUnexported]: field taggedBase: fields of an embedded struct are not promoted, and taggedBase.Spam has a typesafe tag; declare Spam in decision.rejEmbeddedUnexported itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) tagged field inside a self-embedding struct": {
 			prepare: PreparedFor[rejEmbeddedCyclic],
-			wantMsg: `PreparedFor[typesafe.rejEmbeddedCyclic]: field CyclicTagged: fields of an embedded struct are not promoted, and CyclicTagged.Spam has a typesafe tag; declare Spam in typesafe.rejEmbeddedCyclic itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejEmbeddedCyclic]: field CyclicTagged: fields of an embedded struct are not promoted, and CyclicTagged.Spam has a typesafe tag; declare Spam in decision.rejEmbeddedCyclic itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) unexported tagged field inside an embedded struct": {
 			prepare: PreparedFor[rejEmbeddedHiddenTag],
-			wantMsg: `PreparedFor[typesafe.rejEmbeddedHiddenTag]: field hiddenTaggedBase: fields of an embedded struct are not promoted, and hiddenTaggedBase.spam has a typesafe tag; declare spam in typesafe.rejEmbeddedHiddenTag itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejEmbeddedHiddenTag]: field hiddenTaggedBase: fields of an embedded struct are not promoted, and hiddenTaggedBase.spam has a typesafe tag; declare spam in decision.rejEmbeddedHiddenTag itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) unexported tagged field inside a named struct field": {
 			prepare: PreparedFor[rejNamedHiddenTag],
-			wantMsg: `PreparedFor[typesafe.rejNamedHiddenTag]: field Inner: fields of a nested struct are not read, and Inner.spam has a typesafe tag; declare spam in typesafe.rejNamedHiddenTag itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejNamedHiddenTag]: field Inner: fields of a nested struct are not read, and Inner.spam has a typesafe tag; declare spam in decision.rejNamedHiddenTag itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) tagged field inside a named struct field": {
 			prepare: PreparedFor[rejNamedStruct],
-			wantMsg: `PreparedFor[typesafe.rejNamedStruct]: field Inner: fields of a nested struct are not read, and Inner.Spam has a typesafe tag; declare Spam in typesafe.rejNamedStruct itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejNamedStruct]: field Inner: fields of a nested struct are not read, and Inner.Spam has a typesafe tag; declare Spam in decision.rejNamedStruct itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) tagged field inside a named pointer-to-struct field": {
 			prepare: PreparedFor[rejNamedPointer],
-			wantMsg: `PreparedFor[typesafe.rejNamedPointer]: field Inner: fields of a nested struct are not read, and Inner.Spam has a typesafe tag; declare Spam in typesafe.rejNamedPointer itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejNamedPointer]: field Inner: fields of a nested struct are not read, and Inner.Spam has a typesafe tag; declare Spam in decision.rejNamedPointer itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) tagged field deep inside a named field": {
 			prepare: PreparedFor[rejNamedDeep],
-			wantMsg: `PreparedFor[typesafe.rejNamedDeep]: field Wrap: fields of a nested struct are not read, and Wrap.TaggedBase.Spam has a typesafe tag; declare Spam in typesafe.rejNamedDeep itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejNamedDeep]: field Wrap: fields of a nested struct are not read, and Wrap.TaggedBase.Spam has a typesafe tag; declare Spam in decision.rejNamedDeep itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) tagged field behind two named fields": {
 			prepare: PreparedFor[rejNamedTwoLevels],
-			wantMsg: `PreparedFor[typesafe.rejNamedTwoLevels]: field Outer: fields of a nested struct are not read, and Outer.Inner.Spam has a typesafe tag; declare Spam in typesafe.rejNamedTwoLevels itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejNamedTwoLevels]: field Outer: fields of a nested struct are not read, and Outer.Inner.Spam has a typesafe tag; declare Spam in decision.rejNamedTwoLevels itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) tagged field behind a named field of an embedded struct": {
 			prepare: PreparedFor[rejEmbeddedNamedInner],
-			wantMsg: `PreparedFor[typesafe.rejEmbeddedNamedInner]: field NamedOuter: fields of an embedded struct are not promoted, and NamedOuter.Inner.Spam has a typesafe tag; declare Spam in typesafe.rejEmbeddedNamedInner itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejEmbeddedNamedInner]: field NamedOuter: fields of an embedded struct are not promoted, and NamedOuter.Inner.Spam has a typesafe tag; declare Spam in decision.rejEmbeddedNamedInner itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) named field of a typed question set type": {
 			prepare: PreparedFor[rejNamedTicket],
-			wantMsg: `PreparedFor[typesafe.rejNamedTicket]: field Prev: fields of a nested struct are not read, and Prev.Billing has a typesafe tag; declare Billing in typesafe.rejNamedTicket itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejNamedTicket]: field Prev: fields of a nested struct are not read, and Prev.Billing has a typesafe tag; declare Billing in decision.rejNamedTicket itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) tagged field inside an unexported named field": {
 			prepare: PreparedFor[rejNamedUnexported],
-			wantMsg: `PreparedFor[typesafe.rejNamedUnexported]: field inner: fields of a nested struct are not read, and inner.Spam has a typesafe tag; declare Spam in typesafe.rejNamedUnexported itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejNamedUnexported]: field inner: fields of a nested struct are not read, and inner.Spam has a typesafe tag; declare Spam in decision.rejNamedUnexported itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) tagged field inside a field of an unnamed struct type": {
 			prepare: PreparedFor[rejNamedAnonymousType],
-			wantMsg: `PreparedFor[typesafe.rejNamedAnonymousType]: field Meta: fields of a nested struct are not read, and Meta.Spam has a typesafe tag; declare Spam in typesafe.rejNamedAnonymousType itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejNamedAnonymousType]: field Meta: fields of a nested struct are not read, and Meta.Spam has a typesafe tag; declare Spam in decision.rejNamedAnonymousType itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) unexported field with a tag": {
 			prepare: PreparedFor[rejUnexported],
-			wantMsg: `PreparedFor[typesafe.rejUnexported]: field spam: the field is unexported and has a typesafe tag; only exported fields are answered: export the field or remove the tag.`,
+			wantMsg: `PreparedFor[decision.rejUnexported]: field spam: the field is unexported and has a typesafe tag; only exported fields are answered: export the field or remove the tag.`,
 		},
 		"error: (10) non-struct T": {
 			prepare: PreparedFor[int],
@@ -741,7 +741,7 @@ func TestPreparedForRejections(t *testing.T) {
 		},
 		"error: (10) non-struct T: pointer to a struct": {
 			prepare: PreparedFor[*Ticket],
-			wantMsg: `PreparedFor[*typesafe.Ticket]: *typesafe.Ticket is a pointer; pass the struct type itself: PreparedFor[typesafe.Ticket].`,
+			wantMsg: `PreparedFor[*decision.Ticket]: *decision.Ticket is a pointer; pass the struct type itself: PreparedFor[decision.Ticket].`,
 		},
 		"error: (10) non-struct T: interface": {
 			prepare: PreparedFor[any],
@@ -749,31 +749,31 @@ func TestPreparedForRejections(t *testing.T) {
 		},
 		"error: (11) reserved name": {
 			prepare: PreparedFor[rejReserved],
-			wantMsg: `PreparedFor[typesafe.rejReserved]: field Model: the question name "model" is reserved (type, model, usage and answers are); give the field another name with name=.`,
+			wantMsg: `PreparedFor[decision.rejReserved]: field Model: the question name "model" is reserved (type, model, usage and answers are); give the field another name with name=.`,
 		},
 		"error: (11) reserved name after an ignored field": {
 			prepare: PreparedFor[rejReservedAfterIgnored],
-			wantMsg: `PreparedFor[typesafe.rejReservedAfterIgnored]: field Usage: the question name "usage" is reserved (type, model, usage and answers are); give the field another name with name=.`,
+			wantMsg: `PreparedFor[decision.rejReservedAfterIgnored]: field Usage: the question name "usage" is reserved (type, model, usage and answers are); give the field another name with name=.`,
 		},
 		"error: (12) optional on a non-answer field": {
 			prepare: PreparedFor[rejOptionalString],
-			wantMsg: `PreparedFor[typesafe.rejOptionalString]: field Note: optional applies only to NoulAnswer, ChoiceAnswer and ScoreAnswer fields, and the field is a string.`,
+			wantMsg: `PreparedFor[decision.rejOptionalString]: field Note: optional applies only to NoulAnswer, ChoiceAnswer and ScoreAnswer fields, and the field is a string.`,
 		},
 		"error: (13) tag syntax: unknown key": {
 			prepare: PreparedFor[rejUnknownKey],
-			wantMsg: `PreparedFor[typesafe.rejUnknownKey]: field Spam: typesafe tag: unknown key "weight"; the keys are kind, name, instructions, yes, no, options, levels and optional.`,
+			wantMsg: `PreparedFor[decision.rejUnknownKey]: field Spam: typesafe tag: unknown key "weight"; the keys are kind, name, instructions, yes, no, options, levels and optional.`,
 		},
 		"error: (13) tag syntax: unterminated escape": {
 			prepare: PreparedFor[rejUnterminated],
-			wantMsg: `PreparedFor[typesafe.rejUnterminated]: field Spam: typesafe tag: unterminated escape: a "\" at the end of the tag; write "\\" for a backslash.`,
+			wantMsg: `PreparedFor[decision.rejUnterminated]: field Spam: typesafe tag: unterminated escape: a "\" at the end of the tag; write "\\" for a backslash.`,
 		},
 		"error: (13) tag syntax: key the kind does not take": {
 			prepare: PreparedFor[rejKeyOutsideKind],
-			wantMsg: `PreparedFor[typesafe.rejKeyOutsideKind]: field Spam: typesafe tag: options does not apply to kind=noul; a noul takes kind, name, instructions, yes, no and optional.`,
+			wantMsg: `PreparedFor[decision.rejKeyOutsideKind]: field Spam: typesafe tag: options does not apply to kind=noul; a noul takes kind, name, instructions, yes, no and optional.`,
 		},
 		"error: (14) no answer fields": {
 			prepare: PreparedFor[rejEmpty],
-			wantMsg: `PreparedFor[typesafe.rejEmpty]: At least one question is required. typesafe.rejEmpty has no answer fields: give it one NoulAnswer, ChoiceAnswer or ScoreAnswer field per question, each with a typesafe tag.`,
+			wantMsg: `PreparedFor[decision.rejEmpty]: At least one question is required. decision.rejEmpty has no answer fields: give it one NoulAnswer, ChoiceAnswer or ScoreAnswer field per question, each with a typesafe tag.`,
 		},
 	}
 	for name, tt := range tests {
@@ -876,7 +876,7 @@ func TestPreparedForMalformedTag(t *testing.T) {
 	// reflect.StructOf cannot make an unexported field; planField reads one
 	// as reflection describes it, with a package path.
 	t.Run("error: (9) malformed tag on an unexported field", func(t *testing.T) {
-		field := reflect.StructField{Name: "spam", PkgPath: "github.com/zchee/typesafe-sdk-go", Type: answer, Tag: `typesafe: "kind=noul"`}
+		field := reflect.StructField{Name: "spam", PkgPath: "github.com/zchee/decision-model-sdk-go", Type: answer, Tag: `typesafe: "kind=noul"`}
 		_, asks, err := planField("T", &field)
 		want := `PreparedFor[T]: field spam: the field is unexported and has a typesafe tag; only exported fields are answered: export the field or remove the tag.`
 		if asks || err == nil || err.Error() != want {
@@ -1074,7 +1074,7 @@ func TestPreparedForIgnoredFields(t *testing.T) {
 	}
 
 	_, err := PreparedFor[ignoredFields]()
-	want5 := `PreparedFor[typesafe.ignoredFields]: field Second: the ScoreAnswer field has no typesafe tag, so no kind; every answer field asks a question: add a tag such as typesafe:"kind=score".`
+	want5 := `PreparedFor[decision.ignoredFields]: field Second: the ScoreAnswer field has no typesafe tag, so no kind; every answer field asks a question: add a tag such as typesafe:"kind=score".`
 	if err == nil || err.Error() != want5 {
 		t.Errorf("PreparedFor[ignoredFields] error = %v, want %q", err, want5)
 	}
@@ -1316,7 +1316,7 @@ func TestPreparedForTypeIdentity(t *testing.T) {
 		},
 		"error: (7) a type defined from an answer type is not one": {
 			prepare: PreparedFor[definedTagged],
-			wantMsg: `PreparedFor[typesafe.definedTagged]: field Spam: a typesafe tag needs a NoulAnswer, ChoiceAnswer or ScoreAnswer field, and the field is a typesafe.definedNoul.`,
+			wantMsg: `PreparedFor[decision.definedTagged]: field Spam: a typesafe tag needs a NoulAnswer, ChoiceAnswer or ScoreAnswer field, and the field is a decision.definedNoul.`,
 		},
 		"success: an untagged field of a defined type is ignored": {
 			prepare:   PreparedFor[definedUntagged],
@@ -1328,7 +1328,7 @@ func TestPreparedForTypeIdentity(t *testing.T) {
 		},
 		"error: (5) a generic struct whose type argument makes an untagged answer field": {
 			prepare: PreparedFor[genericSet[NoulAnswer]],
-			wantMsg: `PreparedFor[typesafe.genericSet[github.com/zchee/typesafe-sdk-go.NoulAnswer]]: field Extra: the NoulAnswer field has no typesafe tag, so no kind; every answer field asks a question: add a tag such as typesafe:"kind=noul".`,
+			wantMsg: `PreparedFor[decision.genericSet[github.com/zchee/decision-model-sdk-go.NoulAnswer]]: field Extra: the NoulAnswer field has no typesafe tag, so no kind; every answer field asks a question: add a tag such as typesafe:"kind=noul".`,
 		},
 		"success: an embedded answer type asks under its type's name": {
 			prepare:   PreparedFor[embeddedAnswer],

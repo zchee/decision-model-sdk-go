@@ -72,8 +72,8 @@ status is 0 only when every check passes.
      repository root. A qualified identifier ``pkg.TestName`` must be listed
      by a package whose import path ends in ``/pkg``; an unqualified one may
      come from any package. Tests of the root package are always written
-     unqualified (``TestX``, never ``typesafe.TestX``): the root import path
-     ends in ``/typesafe-sdk-go``, not ``/typesafe``, so a qualified name
+     unqualified (``TestX``, never ``decision.TestX``): the root import path
+     ends in ``/decision-model-sdk-go``, not ``/decision``, so a qualified name
      could never match it.
    - ``deviation``: the Go cell must cite a row of the deviation table
      (``docs/deviations.md``) as the word ``deviation`` followed by a

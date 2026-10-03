@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 // SPDX-License-Identifier: Apache-2.0
 
 // Command typed declares its questions as a struct: each tagged field is a
@@ -10,17 +10,17 @@ import (
 	"fmt"
 	"log"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 )
 
 // Ticket is the question set. The tag's name key is the question's name on
 // the wire (the field name when left out); optional marks an answer that
 // may be missing from the response, which Present then reports.
 type Ticket struct {
-	Billing typesafe.NoulAnswer   `typesafe:"kind=noul;name=billing;instructions=Is this ticket about billing?"`
-	Tone    typesafe.ChoiceAnswer `typesafe:"kind=choice;name=tone;instructions=What is the customer's tone?;options=calm|frustrated|angry"`
-	Urgency typesafe.ScoreAnswer  `typesafe:"kind=score;name=urgency;instructions=How urgent is this ticket?;levels=can wait|this week|today"`
-	Spam    typesafe.NoulAnswer   `typesafe:"kind=noul;name=spam;optional;instructions=Is this spam?"`
+	Billing decision.NoulAnswer   `typesafe:"kind=noul;name=billing;instructions=Is this ticket about billing?"`
+	Tone    decision.ChoiceAnswer `typesafe:"kind=choice;name=tone;instructions=What is the customer's tone?;options=calm|frustrated|angry"`
+	Urgency decision.ScoreAnswer  `typesafe:"kind=score;name=urgency;instructions=How urgent is this ticket?;levels=can wait|this week|today"`
+	Spam    decision.NoulAnswer   `typesafe:"kind=noul;name=spam;optional;instructions=Is this spam?"`
 }
 
 func main() {
@@ -30,7 +30,7 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	client, err := typesafe.NewClient()
+	client, err := decision.NewClient()
 	if err != nil {
 		return err
 	}
@@ -43,7 +43,7 @@ func run(ctx context.Context) error {
 
 	// One step: Ask sends the questions Ticket declares and returns the
 	// answers as a Ticket.
-	ticket, err := typesafe.Ask[Ticket](ctx, client, state)
+	ticket, err := decision.Ask[Ticket](ctx, client, state)
 	if err != nil {
 		return err
 	}
@@ -57,7 +57,7 @@ func run(ctx context.Context) error {
 	// Two steps, when the response itself is needed too (its request id,
 	// usage or raw body): the questions Ask would send, the call, and the
 	// typed decode of its answers.
-	questions, err := typesafe.PreparedFor[Ticket]()
+	questions, err := decision.PreparedFor[Ticket]()
 	if err != nil {
 		return err
 	}
@@ -65,7 +65,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	again, err := typesafe.DecodeAs[Ticket](response)
+	again, err := decision.DecodeAs[Ticket](response)
 	if err != nil {
 		return err
 	}

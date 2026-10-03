@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -57,16 +57,16 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
-	"github.com/zchee/typesafe-sdk-go/internal/codec"
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport/naive"
-	"github.com/zchee/typesafe-sdk-go/internal/wire"
+	decision "github.com/zchee/decision-model-sdk-go"
+	"github.com/zchee/decision-model-sdk-go/internal/codec"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport/naive"
+	"github.com/zchee/decision-model-sdk-go/internal/wire"
 )
 
 // Sinks keep the benchmarks' results alive.
 var (
-	sinkCall  *typesafe.SystemOneResponse
+	sinkCall  *decision.SystemOneResponse
 	sinkNaive map[string]any
 )
 
@@ -76,7 +76,7 @@ type callScenario struct {
 	suffix    string // appended to each row's name: "" for q3
 	fixture   string // the response body
 	answers   int    // how many answers the fixture holds
-	questions func(tb testing.TB) *typesafe.Prepared
+	questions func(tb testing.TB) *decision.Prepared
 }
 
 // callScenarios are B5's shapes, in report order.
@@ -98,33 +98,33 @@ var naiveCodecs = []struct {
 // testdata/README.md describes it: each question named after its answer, a
 // choice's options the keys of its probabilities in wire order, a score's
 // levels its legend's texts in level order.
-func q20Questions(tb testing.TB) *typesafe.Prepared {
+func q20Questions(tb testing.TB) *decision.Prepared {
 	tb.Helper()
 	var res wire.SystemOneResult
 	if _, err := codec.DecodeSystemOne(testsupport.Fixture(tb, "result-20.json"), nil, "", &res); err != nil {
 		tb.Fatal(err)
 	}
-	qs := typesafe.NewQuestions()
+	qs := decision.NewQuestions()
 	for _, e := range res.Answers.Entries() {
 		name := strings.Clone(e.Name)
-		instructions := typesafe.Text("Question about " + name + "?")
+		instructions := decision.Text("Question about " + name + "?")
 		switch e.Answer.Kind {
 		case wire.KindNoul:
-			qs.Noul(name, typesafe.Noul{Instructions: instructions})
+			qs.Noul(name, decision.Noul{Instructions: instructions})
 		case wire.KindChoice:
-			var opts typesafe.Options
+			var opts decision.Options
 			for _, p := range e.Answer.Choice.Probabilities {
-				opts = append(opts, typesafe.Option{Label: strings.Clone(p.Label)})
+				opts = append(opts, decision.Option{Label: strings.Clone(p.Label)})
 			}
-			qs.Choice(name, typesafe.Choice{Instructions: instructions, Options: opts})
+			qs.Choice(name, decision.Choice{Instructions: instructions, Options: opts})
 		case wire.KindScore:
 			legend := slices.Clone(e.Answer.Score.Legend)
 			slices.SortFunc(legend, func(a, b wire.LegendEntry) int { return int(a.Level) - int(b.Level) })
-			levels := make([]typesafe.Content, 0, len(legend))
+			levels := make([]decision.Content, 0, len(legend))
 			for _, l := range legend {
-				levels = append(levels, typesafe.Text(strings.Clone(l.Description.Text)))
+				levels = append(levels, decision.Text(strings.Clone(l.Description.Text)))
 			}
-			qs.Score(name, typesafe.Score{Instructions: instructions, Levels: levels})
+			qs.Score(name, decision.Score{Instructions: instructions, Levels: levels})
 		default:
 			tb.Fatalf("result-20.json: answer %q of kind %v", e.Name, e.Answer.Kind)
 		}
@@ -138,7 +138,7 @@ func q20Questions(tb testing.TB) *typesafe.Prepared {
 
 // sentRequest returns the request a client's call asking qs with
 // newCallState's state sends, as a Recorder answering fixture records it.
-func sentRequest(tb testing.TB, qs *typesafe.Prepared, fixture string) testsupport.RecordedRequest {
+func sentRequest(tb testing.TB, qs *decision.Prepared, fixture string) testsupport.RecordedRequest {
 	tb.Helper()
 	rec := &testsupport.Recorder{Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, testsupport.Fixture(tb, fixture))}}
 	c := newBenchClient(tb, rec)
@@ -178,9 +178,9 @@ func newNaiveClient(tb testing.TB, sent testsupport.RecordedRequest, rt http.Rou
 		Transport: rt,
 		URL:       sent.URL,
 		Header:    sent.Header,
-		Model:     typesafe.DefaultModel,
+		Model:     decision.DefaultModel,
 		Questions: sentQuestions(tb, sent.Body),
-		Timeout:   typesafe.DefaultTimeout,
+		Timeout:   decision.DefaultTimeout,
 		Codec:     cd,
 	}
 }
@@ -300,9 +300,9 @@ func TestNaiveRequestMatchesSDK(t *testing.T) {
 				for i, d := range remaining {
 					switch {
 					case d < 0:
-						t.Errorf("request %d (0 SDK, 1 naive) has no deadline, want one %v away", i, typesafe.DefaultTimeout)
-					case d <= typesafe.DefaultTimeout-time.Second || d > typesafe.DefaultTimeout:
-						t.Errorf("request %d (0 SDK, 1 naive): deadline %v away, want within a second of %v", i, d, typesafe.DefaultTimeout)
+						t.Errorf("request %d (0 SDK, 1 naive) has no deadline, want one %v away", i, decision.DefaultTimeout)
+					case d <= decision.DefaultTimeout-time.Second || d > decision.DefaultTimeout:
+						t.Errorf("request %d (0 SDK, 1 naive): deadline %v away, want within a second of %v", i, d, decision.DefaultTimeout)
 					}
 				}
 				if got, want := naiveAnswers(out), resp.Answers().Len(); got != want || got != sc.answers {

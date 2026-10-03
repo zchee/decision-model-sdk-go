@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package typesafe
+package decision
 
 import (
 	"errors"
@@ -23,16 +23,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zchee/typesafe-sdk-go/internal/codec"
-	"github.com/zchee/typesafe-sdk-go/internal/engine"
-	"github.com/zchee/typesafe-sdk-go/internal/wire"
+	"github.com/zchee/decision-model-sdk-go/internal/codec"
+	"github.com/zchee/decision-model-sdk-go/internal/engine"
+	"github.com/zchee/decision-model-sdk-go/internal/wire"
 )
 
 // Error is implemented by every error the SDK returns, and only by them:
 // [*APIError], [*ConnectionError], [*TimeoutError],
 // [*ResponseValidationError], [*ResponseTooLargeError], [*ConfigError] and
 // [*InvalidRequestError]. Each is a distinct type that [errors.As] matches,
-// and errors.As with a *typesafe.Error target matches any of them, as the
+// and errors.As with a *decision.Error target matches any of them, as the
 // Python SDK's TypeSafeError base class does. The one exception is a
 // cancellation: a call whose context is cancelled returns ctx.Err()
 // ([context.Canceled]) itself, as the Python SDK lets
@@ -56,8 +56,8 @@ import (
 // 320).
 type Error interface {
 	error
-	// typesafeError keeps the interface to the SDK's own types.
-	typesafeError()
+	// decisionError keeps the interface to the SDK's own types.
+	decisionError()
 }
 
 // ConfigError reports something the caller configured that the SDK cannot
@@ -91,7 +91,7 @@ func (e *ConfigError) Error() string { return e.msg }
 // Unwrap returns the wrapped errors, or nil when there are none.
 func (e *ConfigError) Unwrap() []error { return e.errs }
 
-func (*ConfigError) typesafeError() {}
+func (*ConfigError) decisionError() {}
 
 // InvalidRequestError reports a request the SDK refuses to send because the
 // API cannot accept it or its body cannot be written as JSON: a state that
@@ -126,7 +126,7 @@ func (e *InvalidRequestError) Error() string { return e.msg }
 // Unwrap returns the cause, or nil when there is none.
 func (e *InvalidRequestError) Unwrap() error { return e.err }
 
-func (*InvalidRequestError) typesafeError() {}
+func (*InvalidRequestError) decisionError() {}
 
 // APIErrorKind classifies an unsuccessful response by its status, as the
 // Python SDK's subclasses of TypeSafeAPIError do. The mapping is by status
@@ -286,7 +286,7 @@ func (e *APIError) IsAuthentication() bool {
 	return e.Kind == APIErrorAuthentication || e.ErrorType == "authentication_error"
 }
 
-func (*APIError) typesafeError() {}
+func (*APIError) decisionError() {}
 
 // newAPIError returns the *APIError for an unsuccessful response: its kind,
 // its message read from the body by the lenient reader
@@ -362,7 +362,7 @@ func (e *ResponseValidationError) Unwrap() error { return e.err }
 // [APIError.RequestID] does.
 func (e *ResponseValidationError) RequestID() (string, bool) { return requestID(e.Header) }
 
-func (*ResponseValidationError) typesafeError() {}
+func (*ResponseValidationError) decisionError() {}
 
 // newResponseValidationError returns the *ResponseValidationError for a
 // successful response whose body the decoder refused with err, with the
@@ -423,7 +423,7 @@ func (e *ResponseTooLargeError) Error() string {
 // [APIError.RequestID] does.
 func (e *ResponseTooLargeError) RequestID() (string, bool) { return requestID(e.Header) }
 
-func (*ResponseTooLargeError) typesafeError() {}
+func (*ResponseTooLargeError) decisionError() {}
 
 // newResponseTooLargeError returns the *ResponseTooLargeError for a
 // successful response whose body passed limit, with the response header's
@@ -502,7 +502,7 @@ func (e *ConnectionError) Unwrap() error { return e.err }
 // proxy wrote it, and Proxy is false.
 func (e *ConnectionError) Proxy() bool { return e.proxy }
 
-func (*ConnectionError) typesafeError() {}
+func (*ConnectionError) decisionError() {}
 
 // TimeoutError reports a request attempt that did not complete within its
 // deadline. Retrying may help. It is not a [*ConnectionError], which
@@ -543,7 +543,7 @@ func (e *TimeoutError) Proxy() bool { return e.proxy }
 // credential of the request, as [ConnectionError] describes.
 func (e *TimeoutError) Unwrap() error { return e.err }
 
-func (*TimeoutError) typesafeError() {}
+func (*TimeoutError) decisionError() {}
 
 // newTimeoutError returns the *TimeoutError for an attempt given timeout
 // that ended with cause.

@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -36,8 +36,8 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
+	decision "github.com/zchee/decision-model-sdk-go"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
 )
 
 // record makes the live tests write the bodies the API returned to
@@ -126,7 +126,7 @@ func (p *phases) line(total time.Duration) string {
 // liveClient is a client on the SDK's own default transport whose records
 // (LevelTrace and up) and connection phases the test reads.
 type liveClient struct {
-	c     *typesafe.Client
+	c     *decision.Client
 	logs  *testsupport.LogRecorder
 	times *phases
 	start time.Time
@@ -134,15 +134,15 @@ type liveClient struct {
 
 // newLiveClient builds a client from the environment (key, base URL) as a
 // caller's would be built, plus the test's logger, trace and deadline.
-func newLiveClient(t *testing.T, opts ...typesafe.ClientOption) *liveClient {
+func newLiveClient(t *testing.T, opts ...decision.ClientOption) *liveClient {
 	t.Helper()
-	lc := &liveClient{logs: testsupport.NewLogRecorder(typesafe.LevelTrace), times: new(phases)}
-	base := []typesafe.ClientOption{
-		typesafe.WithTimeout(liveTimeout),
-		typesafe.WithLogger(lc.logs.Logger()),
-		typesafe.WithClientTrace(lc.times.trace()),
+	lc := &liveClient{logs: testsupport.NewLogRecorder(decision.LevelTrace), times: new(phases)}
+	base := []decision.ClientOption{
+		decision.WithTimeout(liveTimeout),
+		decision.WithLogger(lc.logs.Logger()),
+		decision.WithClientTrace(lc.times.trace()),
 	}
-	c, err := typesafe.NewClient(append(base, opts...)...)
+	c, err := decision.NewClient(append(base, opts...)...)
 	if err != nil {
 		t.Fatalf("NewClient() error = %v", err)
 	}
@@ -260,20 +260,20 @@ func TestLiveModels(t *testing.T) {
 func TestLiveQuestions(t *testing.T) {
 	env := requireLive(t)
 	lc := newLiveClient(t)
-	qs, err := typesafe.NewQuestions().
-		Raw("billing", typesafe.RawQuestion{Type: "noul", Fields: map[string]any{
+	qs, err := decision.NewQuestions().
+		Raw("billing", decision.RawQuestion{Type: "noul", Fields: map[string]any{
 			"instructions": "Is this ticket about billing?",
 			"criteria": map[string]any{
 				"true": map[string]any{"meaning": "Payments or invoices", "examples": []any{"charged twice"}},
 			},
 		}}).
-		Choice("tone", typesafe.Choice{
-			Instructions: typesafe.Text("What is the customer's tone?"),
-			Options:      typesafe.Options{{Label: "calm"}, {Label: "frustrated"}, {Label: "angry"}},
+		Choice("tone", decision.Choice{
+			Instructions: decision.Text("What is the customer's tone?"),
+			Options:      decision.Options{{Label: "calm"}, {Label: "frustrated"}, {Label: "angry"}},
 		}).
-		Score("urgency", typesafe.Score{
-			Instructions: typesafe.Text("How urgent is this ticket?"),
-			Levels:       []typesafe.Content{typesafe.Text("can wait"), typesafe.Text("this week"), typesafe.Text("today")},
+		Score("urgency", decision.Score{
+			Instructions: decision.Text("How urgent is this ticket?"),
+			Levels:       []decision.Content{decision.Text("can wait"), decision.Text("this week"), decision.Text("today")},
 		}).
 		Prepare()
 	if err != nil {
@@ -331,9 +331,9 @@ func TestLiveQuestions(t *testing.T) {
 // liveTicket is upstream's PydanticQuestionsResponse as a typed set: the
 // questions of test_live_pydantic_response, the noul without criteria.
 type liveTicket struct {
-	Billing typesafe.NoulAnswer   `typesafe:"kind=noul;name=billing;instructions=Is this ticket about billing?"`
-	Tone    typesafe.ChoiceAnswer `typesafe:"kind=choice;name=tone;instructions=What is the customer's tone?;options=calm|frustrated|angry"`
-	Urgency typesafe.ScoreAnswer  `typesafe:"kind=score;name=urgency;instructions=How urgent is this ticket?;levels=can wait|this week|today"`
+	Billing decision.NoulAnswer   `typesafe:"kind=noul;name=billing;instructions=Is this ticket about billing?"`
+	Tone    decision.ChoiceAnswer `typesafe:"kind=choice;name=tone;instructions=What is the customer's tone?;options=calm|frustrated|angry"`
+	Urgency decision.ScoreAnswer  `typesafe:"kind=score;name=urgency;instructions=How urgent is this ticket?;levels=can wait|this week|today"`
 }
 
 // choiceView and scoreView are the comparable forms of the two
@@ -353,12 +353,12 @@ type scoreView struct {
 	Probabilities map[uint32]float64
 }
 
-func viewChoice(a typesafe.ChoiceAnswer) choiceView {
+func viewChoice(a decision.ChoiceAnswer) choiceView {
 	p, _ := probabilitySum(a.Probabilities())
 	return choiceView{a.Present(), a.Choice(), a.Confidence(), p}
 }
 
-func viewScore(a typesafe.ScoreAnswer) scoreView {
+func viewScore(a decision.ScoreAnswer) scoreView {
 	p, _ := probabilitySum(a.Probabilities())
 	legend := map[uint32]string{}
 	for level, c := range a.Legend() {
@@ -383,7 +383,7 @@ func TestLiveTypedResponse(t *testing.T) {
 	lc := newLiveClient(t)
 	state := map[string]any{"subject": "Charged twice this month", "body": "I see two charges of $49. Please fix this ASAP."}
 	lc.begin()
-	ticket, err := typesafe.Ask[liveTicket](t.Context(), lc.c, state)
+	ticket, err := decision.Ask[liveTicket](t.Context(), lc.c, state)
 	lc.done(t, "ask cold")
 	if err != nil {
 		t.Fatalf("Ask() error = %v", err)
@@ -409,11 +409,11 @@ func TestLiveTypedResponse(t *testing.T) {
 	body := []byte(bodyAttr.String())
 	recordBody(t, "typed-response.json", body, env.apiKey)
 
-	var stored typesafe.SystemOneResponse
+	var stored decision.SystemOneResponse
 	if err := stored.UnmarshalJSON(body); err != nil {
 		t.Fatalf("UnmarshalJSON(the recorded body) error = %v", err)
 	}
-	again, err := typesafe.DecodeAs[liveTicket](&stored)
+	again, err := decision.DecodeAs[liveTicket](&stored)
 	if err != nil {
 		t.Fatalf("DecodeAs(the recorded body) error = %v", err)
 	}
@@ -471,31 +471,31 @@ func TestLiveUnauthenticated(t *testing.T) {
 	var p http.Protocols
 	p.SetHTTP2(true)
 	stock := &http.Transport{Proxy: http.ProxyFromEnvironment, Protocols: &p}
-	qs, err := typesafe.NewQuestions().Noul("spam", typesafe.Noul{Instructions: typesafe.Text("Is this spam?")}).Prepare()
+	qs, err := decision.NewQuestions().Noul("spam", decision.Noul{Instructions: decision.Text("Is this spam?")}).Prepare()
 	if err != nil {
 		t.Fatal(err)
 	}
 	cases := map[string]struct {
-		opts   []typesafe.ClientOption
+		opts   []decision.ClientOption
 		status int
-		kind   typesafe.APIErrorKind
+		kind   decision.APIErrorKind
 		record string
 	}{
 		"no credential": {
-			opts:   []typesafe.ClientOption{typesafe.WithRoundTripper(withoutCredential{stock})},
+			opts:   []decision.ClientOption{decision.WithRoundTripper(withoutCredential{stock})},
 			status: http.StatusForbidden,
-			kind:   typesafe.APIErrorPermissionDenied,
+			kind:   decision.APIErrorPermissionDenied,
 			record: "unauthenticated.json",
 		},
 		"wrong key": {
 			status: http.StatusUnauthorized,
-			kind:   typesafe.APIErrorAuthentication,
+			kind:   decision.APIErrorAuthentication,
 			record: "wrong-key.json",
 		},
 	}
 	for _, name := range slices.Sorted(maps.Keys(cases)) {
 		tc := cases[name]
-		lc := newLiveClient(t, append([]typesafe.ClientOption{typesafe.WithAPIKey(wrongLiveKey), typesafe.WithRetry(typesafe.NoRetry())}, tc.opts...)...)
+		lc := newLiveClient(t, append([]decision.ClientOption{decision.WithAPIKey(wrongLiveKey), decision.WithRetry(decision.NoRetry())}, tc.opts...)...)
 		calls := map[string]func() error{
 			"models": func() error {
 				_, err := lc.c.Models().List(t.Context())
@@ -511,7 +511,7 @@ func TestLiveUnauthenticated(t *testing.T) {
 				lc.begin()
 				err := calls[endpoint]()
 				lc.done(t, name+" "+endpoint)
-				apiErr, ok := errors.AsType[*typesafe.APIError](err)
+				apiErr, ok := errors.AsType[*decision.APIError](err)
 				if !ok {
 					t.Fatalf("error = %v, want an *APIError", err)
 				}

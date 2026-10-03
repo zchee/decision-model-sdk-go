@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -38,8 +38,8 @@ package benchmark
 import (
 	"testing"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
+	decision "github.com/zchee/decision-model-sdk-go"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
 )
 
 // BenchmarkLoopback is B6's warm call; see the comment at the top of this
@@ -50,7 +50,7 @@ func BenchmarkLoopback(b *testing.B) {
 	state := newCallState()
 
 	b.Run("call", func(b *testing.B) {
-		c, err := typesafe.NewClient(typesafe.WithAPIKey(testKey), typesafe.WithBaseURL(srv.URL()), typesafe.WithModel(typesafe.DefaultModel), typesafe.WithRootCAs(testsupport.RootCAs(b)), typesafe.WithProxy(nil))
+		c, err := decision.NewClient(decision.WithAPIKey(testKey), decision.WithBaseURL(srv.URL()), decision.WithModel(decision.DefaultModel), decision.WithRootCAs(testsupport.RootCAs(b)), decision.WithProxy(nil))
 		if err != nil {
 			b.Fatal(err)
 		}

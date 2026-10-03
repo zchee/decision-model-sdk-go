@@ -39,6 +39,7 @@ docs/perf/ledger.md	37062a5848b09086cb70ec8efae9be022a182268a03b4033b965224be1c7
 docs/perf/ledger.md	377a9e23c4c280725175d90be0ee9b7ab74ec4c12c5b117d521c71dd01ede0df	_spikes/w4.3	1
 docs/perf/ledger.md	39fdf4b5f2b407b39f875e76b68870fcbcb13955e2ea9f966d83b7261b74a003	_spikes/w5.1/gates.sh	1
 docs/perf/ledger.md	3aaf89cd16ac3330d8ef4634629a931d20138318ed85cb1d5972398dfbe232dd	./_spikes/s-d1/	1
+docs/perf/ledger.md	3b3abfec6ea98b847154f320d19564065fc5e32782684e3a18d77cae5a3cd7f6	./_spikes/w6.4/diag	1
 docs/perf/ledger.md	3d6676402f175e9d9eb5e1c802c32d478588f44c0bdb7ce54f618a33557ae11e	R=_spikes/s-c1/run.sh	1
 docs/perf/ledger.md	3d901612ab2d457a2d1273df62195aaf29a5aadf16737112c0f3357e9c2f7dde	_spikes/w6-secfix/padcost.sh	1
 docs/perf/ledger.md	3dbdfee1681a5fb8034bf75493aba59dd793de67aa3a4d11ba295525f6dfda94	./_spikes/s-e1/	1
@@ -113,7 +114,6 @@ docs/perf/ledger.md	b4bfd76d3ccb0ba3bf223979deb2b6dded6bba3323d31c90ebb32355d2d3
 docs/perf/ledger.md	b5d723576d3e1d3d4de4da393f8fede681b9e87bf7408d144d26e42d960f15d1	_spikes/w4.2/gates.sh	1
 docs/perf/ledger.md	b5f11faaef0a5f9506b29325bf9f0d5eb8af98a1894728c24c223f3af95c1d00	./_spikes/s-t/	1
 docs/perf/ledger.md	b5fc78e9764adf5e35bec12f5c04062b59b22118f1a9fed5085ab87ebb9150a5	R=_spikes/s-c1/run.sh O=_spikes/w5.1/results	1
-docs/perf/ledger.md	b882e853f59774e44ecded9e37a37eabff56f7004e0385af317e87a0b2919433	./_spikes/w6.4/diag	1
 docs/perf/ledger.md	ba47628c217ac604525bd397c2444e84110236c9982b506179b1819698a2eddd	_spikes/w6-secfix/min9.sh	1
 docs/perf/ledger.md	c3ca4f35f4da5c333fd0fd0aecac405bea3a4288906fabe2965845896fd849da	_spikes/w2.5/proof-k34.sh	1
 docs/perf/ledger.md	c5244fc222a4390d8cbd1d6fba0fe3ef9fe12db63576497e3579e6db624fa70c	./_spikes/s-e1/	1

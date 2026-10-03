@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to typesafe-sdk-go are recorded here. The format follows
+All notable changes to decision-model-sdk-go are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
@@ -204,5 +204,5 @@ ones:
   was rewritten on 2026-09-27 to remove them, so the module and a clone
   carry none of them.
 
-[0.1.1]: https://github.com/zchee/typesafe-sdk-go/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/zchee/typesafe-sdk-go/tree/v0.1.0
+[0.1.1]: https://github.com/zchee/decision-model-sdk-go/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/zchee/decision-model-sdk-go/tree/v0.1.0

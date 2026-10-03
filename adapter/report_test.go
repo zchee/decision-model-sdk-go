@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 // Portions ported from system-one-adapter-python (MIT, see LICENSE-UPSTREAM).
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -34,10 +34,10 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 
-	"github.com/zchee/typesafe-sdk-go/adapter/internal/jsonx"
-	"github.com/zchee/typesafe-sdk-go/adapter/llm"
+	"github.com/zchee/decision-model-sdk-go/adapter/internal/jsonx"
+	"github.com/zchee/decision-model-sdk-go/adapter/llm"
 )
 
 // reportCasesPath is the table adapter/testdata/python/gen_report_cases.py
@@ -740,20 +740,20 @@ func TestReportFromError(t *testing.T) {
 	}{
 		"success: the Adapter's error":                       {err: &carrierError{report: &report}, want: true},
 		"success: the Adapter's error, wrapped":              {err: fmt.Errorf("call: %w", &carrierError{report: &report}), want: true},
-		"success: an APIError's body":                        {err: &typesafe.APIError{StatusCode: 503, Body: errorBody}, want: true},
-		"success: an APIError's body, wrapped":               {err: fmt.Errorf("x: %w", &typesafe.APIError{StatusCode: 424, Body: errorBody}), want: true},
-		"success: a ResponseValidationError's body":          {err: &typesafe.ResponseValidationError{StatusCode: 200, Body: body}, want: true},
-		"success: a ResponseValidationError's body, wrapped": {err: fmt.Errorf("x: %w", &typesafe.ResponseValidationError{StatusCode: 200, Body: body}), want: true},
-		"success: both, the Adapter's error first":           {err: errors.Join(&carrierError{report: &report}, &typesafe.APIError{Body: []byte(`{}`)}), want: true},
+		"success: an APIError's body":                        {err: &decision.APIError{StatusCode: 503, Body: errorBody}, want: true},
+		"success: an APIError's body, wrapped":               {err: fmt.Errorf("x: %w", &decision.APIError{StatusCode: 424, Body: errorBody}), want: true},
+		"success: a ResponseValidationError's body":          {err: &decision.ResponseValidationError{StatusCode: 200, Body: body}, want: true},
+		"success: a ResponseValidationError's body, wrapped": {err: fmt.Errorf("x: %w", &decision.ResponseValidationError{StatusCode: 200, Body: body}), want: true},
+		"success: both, the Adapter's error first":           {err: errors.Join(&carrierError{report: &report}, &decision.APIError{Body: []byte(`{}`)}), want: true},
 		"error: nil":           {err: nil},
 		"error: another error": {err: errors.New("x")},
 		"error: the Adapter's error without a Report":          {err: &carrierError{}},
 		"error: an error type without the method":              {err: &noCarrierError{Report: &report}},
-		"error: an APIError before an evaluation started":      {err: &typesafe.APIError{StatusCode: 400, Body: []byte(`{"detail":{"message":"bad","error_type":"invalid_body"}}`)}},
-		"error: an APIError whose body the SDK did not keep":   {err: &typesafe.APIError{StatusCode: 503}},
-		"error: an APIError from TypeSafe":                     {err: &typesafe.APIError{StatusCode: 404, Body: []byte(`{"detail":"Not Found"}`)}},
-		"error: a ResponseValidationError of another server":   {err: &typesafe.ResponseValidationError{StatusCode: 200, Body: []byte(`{"model":"m","usage":{"input_tokens":1,"output_tokens":1},"answers":null}`)}},
-		"error: a body with usage and debug of the wrong kind": {err: &typesafe.APIError{StatusCode: 503, Body: []byte(`{"usage":{},"debug":[]}`)}},
+		"error: an APIError before an evaluation started":      {err: &decision.APIError{StatusCode: 400, Body: []byte(`{"detail":{"message":"bad","error_type":"invalid_body"}}`)}},
+		"error: an APIError whose body the SDK did not keep":   {err: &decision.APIError{StatusCode: 503}},
+		"error: an APIError from TypeSafe":                     {err: &decision.APIError{StatusCode: 404, Body: []byte(`{"detail":"Not Found"}`)}},
+		"error: a ResponseValidationError of another server":   {err: &decision.ResponseValidationError{StatusCode: 200, Body: []byte(`{"model":"m","usage":{"input_tokens":1,"output_tokens":1},"answers":null}`)}},
+		"error: a body with usage and debug of the wrong kind": {err: &decision.APIError{StatusCode: 503, Body: []byte(`{"usage":{},"debug":[]}`)}},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -791,20 +791,20 @@ func (b *bodyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}, nil
 }
 
-// sdkCall makes one System One call through a TypeSafe client whose
+// sdkCall makes one System One call through a root SDK client whose
 // transport answers with status and body, with a made-up key and no retry.
-func sdkCall(t *testing.T, status int, body []byte) (*typesafe.SystemOneResponse, error) {
+func sdkCall(t *testing.T, status int, body []byte) (*decision.SystemOneResponse, error) {
 	t.Helper()
-	client, err := typesafe.NewClient(
-		typesafe.WithAPIKey("madeupword"),
-		typesafe.WithRoundTripper(&bodyTransport{status: status, body: body}),
-		typesafe.WithRetry(typesafe.NoRetry()),
+	client, err := decision.NewClient(
+		decision.WithAPIKey("madeupword"),
+		decision.WithRoundTripper(&bodyTransport{status: status, body: body}),
+		decision.WithRetry(decision.NoRetry()),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
-	questions, err := typesafe.NewQuestions().Noul("positive", typesafe.Noul{Instructions: typesafe.Text("The review is positive.")}).Prepare()
+	questions, err := decision.NewQuestions().Noul("positive", decision.Noul{Instructions: decision.Text("The review is positive.")}).Prepare()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -858,8 +858,8 @@ func TestReportOfThroughTheSDK(t *testing.T) {
 			jsonx.Member{Name: "message", Value: jsonx.String("unavailable")},
 			jsonx.Member{Name: "error_type", Value: jsonx.String("non_answer")},
 		)}))
-		if _, ok := errors.AsType[*typesafe.APIError](err); !ok {
-			t.Fatalf("SystemOne: %v, want *typesafe.APIError", err)
+		if _, ok := errors.AsType[*decision.APIError](err); !ok {
+			t.Fatalf("SystemOne: %v, want *decision.APIError", err)
 		}
 		got, ok := ReportFromError(err)
 		if !ok {
@@ -874,8 +874,8 @@ func TestReportOfThroughTheSDK(t *testing.T) {
 			jsonx.Member{Name: "model", Value: jsonx.String("fake-model")},
 			jsonx.Member{Name: "answers", Value: jsonx.Value{}},
 		))
-		if _, ok := errors.AsType[*typesafe.ResponseValidationError](err); !ok {
-			t.Fatalf("SystemOne: %v, want *typesafe.ResponseValidationError", err)
+		if _, ok := errors.AsType[*decision.ResponseValidationError](err); !ok {
+			t.Fatalf("SystemOne: %v, want *decision.ResponseValidationError", err)
 		}
 		got, ok := ReportFromError(err)
 		if !ok {

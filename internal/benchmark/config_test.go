@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,8 +20,8 @@ import (
 	"slices"
 	"testing"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
+	decision "github.com/zchee/decision-model-sdk-go"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
 )
 
 // sinkHeader keeps BenchmarkHeaderTemplateClone's result alive.
@@ -30,7 +30,7 @@ var sinkHeader http.Header
 // sentHeader returns the header a client built with opts sends on a call's
 // first attempt, which is its POST template itself, as a Recorder records
 // it: a copy with the same names and values.
-func sentHeader(tb testing.TB, opts ...typesafe.ClientOption) http.Header {
+func sentHeader(tb testing.TB, opts ...decision.ClientOption) http.Header {
 	tb.Helper()
 	rec := &testsupport.Recorder{Replies: []testsupport.Reply{testsupport.JSON(http.StatusOK, testsupport.Fixture(tb, "result.json"))}}
 	c := newBenchClient(tb, rec, opts...)
@@ -50,10 +50,10 @@ func sentHeader(tb testing.TB, opts ...typesafe.ClientOption) http.Header {
 // through the exported API: the cost of a clone depends only on the map's
 // names and values, which the recorded copy shares with the client's.
 func BenchmarkHeaderTemplateClone(b *testing.B) {
-	tests := map[string][]typesafe.ClientOption{
+	tests := map[string][]decision.ClientOption{
 		"sdk-only":       nil,
-		"three-defaults": {typesafe.WithHeader("X-Team", "billing"), typesafe.WithHeader("X-Trace", "on"), typesafe.WithHeader("X-Region", "ap-northeast-1")},
-		"no-runtime-hdr": {typesafe.WithRuntimeHeader(false)},
+		"three-defaults": {decision.WithHeader("X-Team", "billing"), decision.WithHeader("X-Trace", "on"), decision.WithHeader("X-Region", "ap-northeast-1")},
+		"no-runtime-hdr": {decision.WithRuntimeHeader(false)},
 	}
 	for _, name := range slices.Sorted(maps.Keys(tests)) {
 		b.Run(name, func(b *testing.B) {

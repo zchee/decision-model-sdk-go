@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,10 +22,10 @@ import (
 	"testing"
 	"time"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
-	"github.com/zchee/typesafe-sdk-go/internal/wire"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
+	"github.com/zchee/decision-model-sdk-go/internal/wire"
 )
 
 // TestLinearityFloodTime checks the time ratio of the structured-legend
@@ -76,7 +76,7 @@ func linearityRatio(t *testing.T) float64 {
 	type flood struct {
 		name    string
 		meta    *wire.ResponseMeta
-		qs      *typesafe.Prepared
+		qs      *decision.Prepared
 		model   string
 		decodes []int           // per span
 		each    []time.Duration // per span: its length divided by its decodes

@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 // SPDX-License-Identifier: Apache-2.0
 
 // Command transport gives the client a transport of its own: an
@@ -14,7 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 )
 
 func main() {
@@ -42,7 +42,7 @@ func run(ctx context.Context) error {
 		Proxy:           http.ProxyFromEnvironment,
 		IdleConnTimeout: 5 * time.Minute,
 	}
-	client, err := typesafe.NewClient(typesafe.WithHTTPTransport(tuned))
+	client, err := decision.NewClient(decision.WithHTTPTransport(tuned))
 	if err != nil {
 		return err
 	}
@@ -57,13 +57,13 @@ func run(ctx context.Context) error {
 	// The client's deadline and response size limit still apply; the
 	// SDK's connection policy does not.
 	counter := &countingTransport{base: http.DefaultTransport}
-	opaque, err := typesafe.NewClient(typesafe.WithRoundTripper(counter))
+	opaque, err := decision.NewClient(decision.WithRoundTripper(counter))
 	if err != nil {
 		return err
 	}
 	defer opaque.Close()
-	questions, err := typesafe.NewQuestions().
-		Noul("question", typesafe.Noul{Instructions: typesafe.Text("Is this a question?")}).
+	questions, err := decision.NewQuestions().
+		Noul("question", decision.Noul{Instructions: decision.Text("Is this a question?")}).
 		Prepare()
 	if err != nil {
 		return err

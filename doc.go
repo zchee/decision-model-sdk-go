@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package typesafe is a Go client for the TypeSafe System One API, a port
-// of typesafe-sdk-python 0.7.1.
+// Package decision is a Go client for decision models served through the
+// System One API, which TypeSafe AI (Jev) offered first and other vendors
+// serve too; it is a port of TypeSafe AI's typesafe-sdk-python 0.7.1.
 //
 // A [Client] asks questions about a state and returns the answers: a
 // question set built with [NewQuestions] and sent by [Client.SystemOne],
@@ -21,4 +22,4 @@
 // examples directory holds complete programs, docs/deviations.md lists
 // where the port behaves differently from the Python SDK, and
 // docs/support.md the supported Go releases and platforms.
-package typesafe
+package decision

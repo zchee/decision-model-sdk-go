@@ -1,5 +1,12 @@
 # Release checklist for v0.1.0
 
+The module was renamed on 2026-10-03 (see [CHANGELOG.md](../CHANGELOG.md)) and
+its version restarted at v0.1.0. The commands and outputs below name the
+module, its packages and the SDK identifier by their current names; a
+version named in an entry written before that date is a release made under
+the earlier module path, and a tag such an entry names is a tag of that
+time.
+
 The port plan tags `v0.1.0` after the exit evidence of every phase, green
 CI on `main`, the CodSpeed baseline, the Codecov gate, a clean
 `govulncheck`, the README's deviations checked against the plan's
@@ -9,7 +16,7 @@ risks K6, K7, K17 and K18). W7 ran that list; this page records each line
 with its evidence, when the evidence was taken, and PASS or STOP. The tag
 is the owner's act.
 
-The runs of record ran at f7c0ff3, the commit that sets `typesafe.Version`
+The runs of record ran at f7c0ff3, the commit that sets `decision.Version`
 to 0.1.0, on `main` e973adc. One later commit changes a test, 8490c48
 (`internal/testsupport/loopback_test.go` only, line 19), and the rows that
 a test binary of `internal/testsupport` produced were taken again there.
@@ -46,19 +53,19 @@ R119 and its last R111 are in the landing record, not here.
 | 13 | The archive holds every cited commit | The documents cite archive commits 815453827b43, on GitHub since the purge, and f1d90ae672f9, which the lead pushed after the scan (V130): GitHub's `main` of `zchee/typesafe-sdk-go-spikes`, private, is f1d90ae672f9d386a683d3cf95e0b4c6f1484c32 since 21:24:32 JST, a fast-forward. The checker's part 2 against a fresh clone of GitHub's archive, with the `--history` of line 14: part 1, 137 citations well-formed and 0 failures; part 2, 137 of 137 resolve and 0 SHAs name commits from before the rewrite; exit status 0 | 2026-09-27 21:24:32 JST; the clone 21:32:11 to 21:32:28 JST, the check 21:32:46 JST | PASS |
 | 14 | Every citation resolves (part 2 of the checker) | `.github/scripts/spikes-citations.py --archive <archive clone> --history <SDK clone>` on (M), at the commit of this page, `--history` being the lane's working repository, whose object store also holds the commits of the history before the rewrite (the split between the first two counts depends on that store; the third does not): part 1, 137 citations well-formed and 0 failures; part 2, 137 of 137 resolve in the archive, 1 467 SHA tokens name commits of the history, 493 name none (trees, run ids, digests) and 0 name commits from before the rewrite; exit status 0; at W7's head, 137 of 137 and 0 from before the rewrite | 2026-09-27 21:04:31 JST (W7); 2026-09-27 21:42:47 JST (W7.1) | PASS |
 | 15 | R111 and the gates of each commit | R111 on (L) for each of W7's commits alone, 25 before W7's last commit, each rc 0 with 10 packages ok (`spikes@f1d90ae672f9:w7/r111/`), and 6578016 itself; W7.1's rename 8fb16ea alone, rc 0, 10 packages ok. The lint chain 9 of 9 steps rc 0 at 8490c48 (`spikes@f1d90ae672f9:w7/mlint/`), at 6578016 and at 8fb16ea; `-race` on (L) at 6578016 and at 8fb16ea, 4 of 4 chunks, 0 DATA RACE. This commit's R111 and lint chain are in the landing record | 2026-09-27 20:24:25 to 21:30 JST | PASS |
-| 16 | `Version` 0.1.0 and the API golden (R120) | f7c0ff3: `typesafe.Version` is `0.1.0`, and `testdata/api/public-api.txt` was rewritten by `-update` in the same commit, one line; the client options golden is unchanged | 2026-09-27 | PASS |
+| 16 | `Version` 0.1.0 and the API golden (R120) | f7c0ff3: `decision.Version` is `0.1.0`, and `testdata/api/public-api.txt` was rewritten by `-update` in the same commit, one line; the client options golden is unchanged | 2026-09-27 | PASS |
 | 17 | The changelog | [`CHANGELOG.md`](../CHANGELOG.md), `[0.1.0] - 2026-09-27` | 2026-09-27 | PASS |
 | 18 | The module zip | 383 files and 1 561 045 B at e973adc, 385 files and 1 614 127 B at f7c0ff3, 387 files and 1 626 909 B at 8fb16ea (golang.org/x/mod/zip); no spike file. The size at the landed commit is in the tag proposal. `spikes@f1d90ae672f9:w7/zipsize-f7c0ff32527eb5812c7c116718e66ab7f9abb870.txt` | 2026-09-27 20:24:50 JST | PASS |
 | 19 | K25's fix and T-1 | e973adc (K25, review V128) and 8490c48 (T-1, ruling D-T1-in-W7): the subtest passes 20 of 20; the reviewer's mutant that counts an accept twice fails 20 of 20; the critic's forced probe, a third dial counted between two readings, fails 60 of 60 with e973adc's body and passes 60 of 60 with 8490c48's, the forced order confirmed 60 times; `internal/testsupport` under `-race -count=30 -cpu 1,2,4` on (L): 0 FAIL, 0 DATA RACE; R111 alone and the lint chain rc 0. `spikes@f1d90ae672f9:w7/t1/` | 2026-09-27 20:54:13 to 20:58:12 JST | PASS |
 | 20 | The tag | The owner's act. The rule for it (D-gate-red-run-a1): at the tagged commit every ci.yaml job is green on its first attempt; bench.yaml's job with its AC-P7 step is green on its first attempt, a failure of the AC-P7 step by noise being judged by one re-run with both host lines quoted (G8-b); `codecov/project` names a percentage and the target, beside Codecov's API totals. CodSpeed's own check and every absolute time are report-only | after the landing | STOP (the owner's) |
 | 21 | The runs at W7's head 6578016 | ci.yaml 36318010974 (dispatch, attempt 1, 5 of 5 jobs success) and bench.yaml 36318012829 (dispatch, attempt 1, success): "AC-P7 verdict: pass BenchmarkCall/sdk mean 6079 ns / BenchmarkCall/naive mean 8221 ns = 0.739454 < 1.0" on Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz; `codecov/project` "98.0% (target 85.0%)", Codecov's API 98.03 %, 4 589 lines, 4 499 hits, 90 misses, 3 sessions. CodSpeed's own check "Performance Analysis" read "Performance Regression: -46.8%" against a baseline from another CPU model, an AMD EPYC 9V45; report-only (K37, D-gate-red-run-a1). W7 landed on `main` at 6578016 at 21:40:53 JST (fast-forward); `main`'s push runs CI 36319798404 and Benchmarks 36319798401 had not ended at this commit | 2026-09-27 12:08:44Z to 12:20:17Z; the landing 21:40:53 JST | PASS |
-| 22 | G16: no package named in the plural | `go list` with and without `-tags live`: 17 packages (alloctest, benchmark, codec, engine, h2gate, livetest, naive, testsupport, typesafe, wire and 7 programs named main). At 8fb16ea: `go test -tags live -list '.*' ./livetest/` lists the 12 names that `./livetests/` listed at 6578016; `go vet` with and without `-tags live` passes; the guard test `TestLiveTestsFailWithoutEnv` passes; the API goldens do not change; no live test ran (both variables unset in every command). Not renamed, each for its reason: the [as-built](as-built.md) row G16 | 2026-09-27 21:21 to 21:26 JST | PASS |
+| 22 | G16: no package named in the plural | `go list` with and without `-tags live`: 17 packages (alloctest, benchmark, codec, decision, engine, h2gate, livetest, naive, testsupport, wire and 7 programs named main). At 8fb16ea: `go test -tags live -list '.*' ./livetest/` lists the 12 names that `./livetests/` listed at 6578016; `go vet` with and without `-tags live` passes; the guard test `TestLiveTestsFailWithoutEnv` passes; the API goldens do not change; no live test ran (both variables unset in every command). Not renamed, each for its reason: the [as-built](as-built.md) row G16 | 2026-09-27 21:21 to 21:26 JST | PASS |
 
 ## After the tag (the owner's)
 
 | # | Check | How |
 | --- | --- | --- |
-| T1 | The Go proxy serves the version | `GOPROXY=https://proxy.golang.org go list -m github.com/zchee/typesafe-sdk-go@v0.1.0` prints `github.com/zchee/typesafe-sdk-go v0.1.0` |
-| T2 | pkg.go.dev shows it | open `https://pkg.go.dev/github.com/zchee/typesafe-sdk-go@v0.1.0`; a first visit asks the site to fetch it |
-| T3 | A user can build against it | in an empty directory, `go mod init example.com/try && go get github.com/zchee/typesafe-sdk-go@v0.1.0`, then build the README's quick start |
-| T4 | The proxy's zip is the one measured | `curl -sSfO https://proxy.golang.org/github.com/zchee/typesafe-sdk-go/@v/v0.1.0.zip`, then `unzip -l v0.1.0.zip`: the file count and size the tag proposal states, and no spike file |
+| T1 | The Go proxy serves the version | `GOPROXY=https://proxy.golang.org go list -m github.com/zchee/decision-model-sdk-go@v0.1.0` prints `github.com/zchee/decision-model-sdk-go v0.1.0` |
+| T2 | pkg.go.dev shows it | open `https://pkg.go.dev/github.com/zchee/decision-model-sdk-go@v0.1.0`; a first visit asks the site to fetch it |
+| T3 | A user can build against it | in an empty directory, `go mod init example.com/try && go get github.com/zchee/decision-model-sdk-go@v0.1.0`, then build the README's quick start |
+| T4 | The proxy's zip is the one measured | `curl -sSfO https://proxy.golang.org/github.com/zchee/decision-model-sdk-go/@v/v0.1.0.zip`, then `unzip -l v0.1.0.zip`: the file count and size the tag proposal states, and no spike file |

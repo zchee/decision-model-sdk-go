@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ import (
 	"strings"
 	"testing"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 )
 
 // testKey is the benchmarks' API key; the Recorder and the loopback server
@@ -27,7 +27,7 @@ import (
 const testKey = "test-key"
 
 // mustPrepared prepares qs, failing tb when Prepare fails.
-func mustPrepared(tb testing.TB, qs *typesafe.Questions) *typesafe.Prepared {
+func mustPrepared(tb testing.TB, qs *decision.Questions) *decision.Prepared {
 	tb.Helper()
 	p, err := qs.Prepare()
 	if err != nil {
@@ -39,12 +39,12 @@ func mustPrepared(tb testing.TB, qs *typesafe.Questions) *typesafe.Prepared {
 // q3Questions is the whole call's question set: the three questions of the
 // upstream round-trip test (tests/test_clients.py:60-80), which result.json
 // answers. The root package's tests build the same set.
-func q3Questions(tb testing.TB) *typesafe.Prepared {
+func q3Questions(tb testing.TB) *decision.Prepared {
 	tb.Helper()
-	return mustPrepared(tb, typesafe.NewQuestions().
-		Noul("spam", typesafe.Noul{Instructions: typesafe.Text("Spam?")}).
-		Choice("tone", typesafe.Choice{Instructions: typesafe.Text("Tone?"), Options: typesafe.Options{{Label: "friendly"}, {Label: "hostile"}}}).
-		Score("quality", typesafe.Score{Instructions: typesafe.Text("Quality?"), Levels: []typesafe.Content{typesafe.Text("bad"), typesafe.Text("ok"), typesafe.Text("great")}}))
+	return mustPrepared(tb, decision.NewQuestions().
+		Noul("spam", decision.Noul{Instructions: decision.Text("Spam?")}).
+		Choice("tone", decision.Choice{Instructions: decision.Text("Tone?"), Options: decision.Options{{Label: "friendly"}, {Label: "hostile"}}}).
+		Score("quality", decision.Score{Instructions: decision.Text("Quality?"), Levels: []decision.Content{decision.Text("bad"), decision.Text("ok"), decision.Text("great")}}))
 }
 
 // newCallState returns the whole call's state: 1 KiB of text once encoded,
@@ -54,9 +54,9 @@ func newCallState() any { return strings.Repeat("s", 1<<10-2) }
 // newBenchClient builds a client over rt with every setting an option
 // gives, so that the environment cannot change the request, and closes it
 // when tb ends.
-func newBenchClient(tb testing.TB, rt http.RoundTripper, opts ...typesafe.ClientOption) *typesafe.Client {
+func newBenchClient(tb testing.TB, rt http.RoundTripper, opts ...decision.ClientOption) *decision.Client {
 	tb.Helper()
-	c, err := typesafe.NewClient(append([]typesafe.ClientOption{typesafe.WithRoundTripper(rt), typesafe.WithAPIKey(testKey), typesafe.WithBaseURL(typesafe.DefaultBaseURL), typesafe.WithModel(typesafe.DefaultModel)}, opts...)...)
+	c, err := decision.NewClient(append([]decision.ClientOption{decision.WithRoundTripper(rt), decision.WithAPIKey(testKey), decision.WithBaseURL(decision.DefaultBaseURL), decision.WithModel(decision.DefaultModel)}, opts...)...)
 	if err != nil {
 		tb.Fatal(err)
 	}

@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 // Portions ported from system-one-adapter-python (MIT, see LICENSE-UPSTREAM).
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,8 +29,8 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
-	"github.com/zchee/typesafe-sdk-go/adapter/internal/fake"
-	"github.com/zchee/typesafe-sdk-go/adapter/llm"
+	"github.com/zchee/decision-model-sdk-go/adapter/internal/fake"
+	"github.com/zchee/decision-model-sdk-go/adapter/llm"
 )
 
 // Every test of the retry loop runs inside a testing/synctest bubble, whose
@@ -380,7 +380,7 @@ func TestRetryPolicyBackoffWaits(t *testing.T) {
 }
 
 // TestRetryPolicyRetryAfter checks the wait a provider asks for, read by
-// typesafe.APIError.RetryAfter: Retry-After in seconds and as an HTTP date,
+// decision.APIError.RetryAfter: Retry-After in seconds and as an HTTP date,
 // retry-after-ms, a value that does not parse (the backoff then), a wait
 // longer than the backoff's maximum (not capped), a wait the budget refuses,
 // Retry-After on an error that is not a status error, and the setting off.

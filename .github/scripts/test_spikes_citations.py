@@ -61,7 +61,7 @@ COMMAND_LINE = (
     "commands keep their bytes: `go test ./_spikes/s-d1/`, `R=_spikes/s-c1/run.sh`,"
 )
 PROSE_LINE = (
-    "`ok github.com/zchee/typesafe-sdk-go/_spikes/s-c1`, and prose names "
+    "`ok github.com/zchee/decision-model-sdk-go/_spikes/s-c1`, and prose names "
     "`_spikes`; spikes@<commit>:<path> is a placeholder."
 )
 

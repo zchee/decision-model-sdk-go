@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,10 +22,10 @@ import (
 	"strings"
 	"testing"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 
-	"github.com/zchee/typesafe-sdk-go/internal/engine"
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
+	"github.com/zchee/decision-model-sdk-go/internal/engine"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
 )
 
 // The whole-call cases of the whole-call and the response-memory budgets,
@@ -44,7 +44,7 @@ func newAllocState() any { return strings.Repeat("s", allocStateSize-2) }
 // (testsupport.FloorCall): the request the call's first attempt sends, built
 // beforehand, over a rewindable copy of the body the call encodes, and the
 // reader under it, which the caller rewinds before each round trip.
-func floorRequest(t *testing.T, c *typesafe.Client, state any, qs *typesafe.Prepared) (*http.Request, *bytes.Reader) {
+func floorRequest(t *testing.T, c *decision.Client, state any, qs *decision.Prepared) (*http.Request, *bytes.Reader) {
 	t.Helper()
 	enc, err := encodeBody(state, cfgOf(c).Model, qs, nil)
 	if err != nil {
@@ -71,7 +71,7 @@ func outcomeOf(err error) string {
 	case errors.Is(err, io.ErrUnexpectedEOF):
 		return "eof"
 	}
-	if _, ok := errors.AsType[*typesafe.ResponseTooLargeError](err); ok {
+	if _, ok := errors.AsType[*decision.ResponseTooLargeError](err); ok {
 		return "large"
 	}
 	return err.Error()
@@ -112,7 +112,7 @@ func paddedResult(t *testing.T, size int) []byte {
 // that (ii) allows a call that reads nothing.
 func memCases(t *testing.T) map[string]memCase {
 	t.Helper()
-	const limit = typesafe.DefaultMaxResponseBytes
+	const limit = decision.DefaultMaxResponseBytes
 	const bigBound = 2*limit + 64<<10
 	over := bytes.Repeat([]byte{' '}, limit+1)
 	exact := paddedResult(t, limit)

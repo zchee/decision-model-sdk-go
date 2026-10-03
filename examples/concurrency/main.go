@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 // SPDX-License-Identifier: Apache-2.0
 
 // Command concurrency shares one client between goroutines. Over HTTPS the
@@ -13,7 +13,7 @@ import (
 	"log"
 	"sync"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 )
 
 func main() {
@@ -23,7 +23,7 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	client, err := typesafe.NewClient()
+	client, err := decision.NewClient()
 	if err != nil {
 		return err
 	}
@@ -33,10 +33,10 @@ func run(ctx context.Context) error {
 	}
 
 	// A prepared question set is read-only: every goroutine can ask it.
-	questions, err := typesafe.NewQuestions().
-		Choice("sentiment", typesafe.Choice{
-			Instructions: typesafe.Text("What is the sentiment of the review?"),
-			Options:      typesafe.Options{{Label: "positive"}, {Label: "neutral"}, {Label: "negative"}},
+	questions, err := decision.NewQuestions().
+		Choice("sentiment", decision.Choice{
+			Instructions: decision.Text("What is the sentiment of the review?"),
+			Options:      decision.Options{{Label: "positive"}, {Label: "neutral"}, {Label: "negative"}},
 		}).
 		Prepare()
 	if err != nil {

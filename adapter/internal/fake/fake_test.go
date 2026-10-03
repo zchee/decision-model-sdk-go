@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -23,8 +23,8 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
-	"github.com/zchee/typesafe-sdk-go/adapter/internal/fake"
-	"github.com/zchee/typesafe-sdk-go/adapter/llm"
+	"github.com/zchee/decision-model-sdk-go/adapter/internal/fake"
+	"github.com/zchee/decision-model-sdk-go/adapter/llm"
 )
 
 // answer is what one request to a Provider produced, for comparison.

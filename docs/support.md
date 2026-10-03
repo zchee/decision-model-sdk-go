@@ -18,7 +18,7 @@ Off the matrix there are two outcomes:
   `go.mod` requires `go 1.27`, so with `GOTOOLCHAIN=auto` (the default) it
   switches to a Go 1.27 toolchain and builds with that; with
   `GOTOOLCHAIN=local` it refuses the module (`requires go >= 1.27`). In a
-  module of yours, `go get github.com/zchee/typesafe-sdk-go` switches to the
+  module of yours, `go get github.com/zchee/decision-model-sdk-go` switches to the
   newest Go 1.27 release (`go1.27.1` on 2026-09-28), which adds the SDK and
   writes `go 1.27` into your `go.mod` with no `toolchain` line; the `go`
   commands after it take their toolchain from that line, as they do in a
@@ -52,7 +52,7 @@ It carries these build constraints:
 
 - `internal/codec/unsupported.go` carries
   `//go:build go1.28 || !(amd64 || arm64)`, and its only statement is
-  `var _ = typesafe_sdk_go_requires_go1_17_to_go1_27_on_amd64_or_arm64`. The
+  `var _ = decision_model_sdk_go_requires_go1_17_to_go1_27_on_amd64_or_arm64`. The
   identifier is undefined on purpose: Go has no `#error`, so the identifier's
   name is the error message.
 - Every other file of `internal/codec`, `_test.go` files included, carries the
@@ -62,7 +62,7 @@ Off the matrix the package is `unsupported.go` alone and imports nothing, so
 both `go build` and `go vet` fail with exactly:
 
 ```
-undefined: typesafe_sdk_go_requires_go1_17_to_go1_27_on_amd64_or_arm64
+undefined: decision_model_sdk_go_requires_go1_17_to_go1_27_on_amd64_or_arm64
 ```
 
 Without the complementary constraint, sonic's own 32-bit code or its JIT-only
@@ -176,10 +176,10 @@ API key. They run where a maintainer holds a key, with the key in the
 environment, never on the command line:
 
 ```sh
-TYPESAFE_LIVE_TESTS=1 go test -tags live -count=1 -v ./livetest/
+DECISION_MODEL_LIVE_TESTS=1 go test -tags live -count=1 -v ./livetest/
 ```
 
-Each test fails before it calls the API unless `TYPESAFE_LIVE_TESTS` is `1`
+Each test fails before it calls the API unless `DECISION_MODEL_LIVE_TESTS` is `1`
 and `TYPESAFE_API_KEY` is set; `TYPESAFE_BASE_URL` selects another host.
 `go test -list '.*' -tags live ./...` lists them without either variable,
 which is how CI's port test matrix check finds them. The untagged tests of
@@ -329,7 +329,7 @@ one worker per core).
   (`$(go env GOCACHE)/fuzz`), not in the tree, and a later campaign starts
   from them.
 - `testdata/fuzz/FuzzDecodeResponse`, `FuzzErrorBody` and `FuzzRetryAfter`
-  hold the Rust SDK's `fuzz/corpus` (typesafe-sdk-rust 34c3b7c), one file per
+  hold the Rust SDK's `fuzz/corpus` (decision-model-sdk-rust 34c3b7c), one file per
   input, byte for byte: `decode_response` for the first two (the Rust target
   reads every body as an error body too), `retry_after` for the third, whose
   input layout (the first byte picks the headers) `FuzzRetryAfter` keeps.

@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package typesafe
+package decision
 
 import (
 	"context"
@@ -21,16 +21,16 @@ import (
 	"slices"
 	"strconv"
 
-	"github.com/zchee/typesafe-sdk-go/internal/codec"
-	"github.com/zchee/typesafe-sdk-go/internal/engine"
-	"github.com/zchee/typesafe-sdk-go/internal/wire"
+	"github.com/zchee/decision-model-sdk-go/internal/codec"
+	"github.com/zchee/decision-model-sdk-go/internal/engine"
+	"github.com/zchee/decision-model-sdk-go/internal/wire"
 )
 
 // Ask asks the questions the struct type T declares about state and returns
 // the answers as a T: it is [Client.SystemOne] with the question set
 // [PreparedFor] builds for T, followed by [DecodeAs] of the response.
 //
-//	t, err := typesafe.Ask[Ticket](ctx, c, state)
+//	t, err := decision.Ask[Ticket](ctx, c, state)
 //
 // A T that PreparedFor refuses fails with its [*ConfigError] before any
 // request is made. Every error of the call itself, an [*APIError], a
@@ -43,9 +43,9 @@ import (
 // Ask returns only the answers. A caller that also needs the response,
 // its request id, usage, model or raw body, makes the two calls Ask makes:
 //
-//	qs, err := typesafe.PreparedFor[Ticket]()
+//	qs, err := decision.PreparedFor[Ticket]()
 //	resp, err := c.SystemOne(ctx, state, qs)
-//	t, err := typesafe.DecodeAs[Ticket](resp)
+//	t, err := decision.DecodeAs[Ticket](resp)
 //	id, ok := resp.Meta().RequestID()
 func Ask[T any](ctx context.Context, c *Client, state any, opts ...CallOption) (T, error) {
 	p := typedPlanFor[T]()
@@ -133,7 +133,7 @@ func DecodeAs[T any](resp *SystemOneResponse) (T, error) {
 func decodeTyped[T any](p *typedPlan, resp *SystemOneResponse, endpoint string, r engine.HeaderRedactor) (T, error) {
 	var t T
 	if p.err == nil && p.typ != reflect.TypeFor[T]() {
-		panic("typesafe: decodeTyped[" + reflect.TypeFor[T]().String() + "] given the plan of " + p.typ.String())
+		panic("decision: decodeTyped[" + reflect.TypeFor[T]().String() + "] given the plan of " + p.typ.String())
 	}
 	if err := p.decode(resp, endpoint, r, baseOf(&t)); err != nil {
 		var zero T
@@ -211,7 +211,7 @@ func (e storeRefusal) Error() string {
 	if f.index >= 0 && f.index < e.p.typ.NumField() {
 		field = e.p.typ.Field(f.index).Name
 	}
-	return "typesafe: the typed store refused to write field " + field + " (a " + answerTypeName(f.kind) + ", question " + strconv.Quote(f.name) + ") of " +
+	return "decision: the typed store refused to write field " + field + " (a " + answerTypeName(f.kind) + ", question " + strconv.Quote(f.name) + ") of " +
 		e.p.typ.String() + " at offset " + utoa(e.off) + ": a " + utoa(e.n) + "-byte write there would cover bytes [" + utoa(e.off) + ", " + utoa(e.off+e.n) +
 		") of the struct's " + utoa(e.size) + ", but the plan recorded the field's end at " + utoa(f.end) + "; the plan is corrupt"
 }

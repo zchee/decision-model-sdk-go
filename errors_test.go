@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package typesafe
+package decision
 
 import (
 	"context"
@@ -31,10 +31,10 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
-	"github.com/zchee/typesafe-sdk-go/internal/codec"
-	"github.com/zchee/typesafe-sdk-go/internal/engine"
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
-	"github.com/zchee/typesafe-sdk-go/internal/wire"
+	"github.com/zchee/decision-model-sdk-go/internal/codec"
+	"github.com/zchee/decision-model-sdk-go/internal/engine"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
+	"github.com/zchee/decision-model-sdk-go/internal/wire"
 )
 
 // errSentinel stands for a sentinel a *ConfigError wraps next to its cause:
@@ -700,7 +700,7 @@ func TestErrorsAsRoundTrip(t *testing.T) {
 				for which, pair := range map[string]struct{ err, want error }{"the error": {ch.orig, tt.err}, "the copy": {ch.copy, c}} {
 					var found Error
 					if !errors.As(pair.err, &found) || found != pair.want { //nolint:errorlint // the very pointer, not an error that matches it.
-						t.Errorf("%s: errors.As(typesafe.Error) for %s = %v, want the very error", chain, which, found)
+						t.Errorf("%s: errors.As(decision.Error) for %s = %v, want the very error", chain, which, found)
 					}
 					target := reflect.New(reflect.TypeOf(tt.err))
 					if !errors.As(pair.err, target.Interface()) || target.Elem().Interface() != pair.want { //nolint:errorlint // the very pointer, not an error that matches it.
@@ -747,7 +747,7 @@ func TestErrorsAsRoundTrip(t *testing.T) {
 }
 
 // TestErrorInterfaceExcludesForeignErrors checks that errors.As with a
-// typesafe.Error target finds an SDK error and nothing else: a cancellation,
+// decision.Error target finds an SDK error and nothing else: a cancellation,
 // a context deadline and the errors of other packages are not SDK errors,
 // wrapped or not.
 func TestErrorInterfaceExcludesForeignErrors(t *testing.T) {
@@ -762,7 +762,7 @@ func TestErrorInterfaceExcludesForeignErrors(t *testing.T) {
 	for name, err := range tests {
 		t.Run(name, func(t *testing.T) {
 			if found, ok := errors.AsType[Error](err); ok {
-				t.Errorf("errors.As(%v, typesafe.Error) = true with %v, want false", err, found)
+				t.Errorf("errors.As(%v, decision.Error) = true with %v, want false", err, found)
 			}
 		})
 	}

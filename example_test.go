@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package typesafe_test
+package decision_test
 
 import (
 	"context"
@@ -23,7 +23,7 @@ import (
 	"strings"
 	"time"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 )
 
 // cannedAPI answers every request with one status and body. It stands in
@@ -60,10 +60,10 @@ const answersBody = `{"model":"jev-latest","usage":{"input_tokens":12,"output_to
 	`"quality":{"type":"score","score":1.7,"confidence":0.8,"legend":{"0":"bad","1":"ok","2":"great"},"probabilities":{"0":0.1,"1":0.1,"2":0.8}}}}`
 
 // exampleClient returns a client whose requests the canned API answers.
-func exampleClient(status int, body string) *typesafe.Client {
-	c, err := typesafe.NewClient(
-		typesafe.WithAPIKey("example-key"),
-		typesafe.WithRoundTripper(cannedAPI{status: status, body: body}),
+func exampleClient(status int, body string) *decision.Client {
+	c, err := decision.NewClient(
+		decision.WithAPIKey("example-key"),
+		decision.WithRoundTripper(cannedAPI{status: status, body: body}),
 	)
 	if err != nil {
 		panic(err)
@@ -74,23 +74,23 @@ func exampleClient(status int, body string) *typesafe.Client {
 // Review is a question set declared as a struct: each tagged field is a
 // question, and receives its answer.
 type Review struct {
-	Spam    typesafe.NoulAnswer   `typesafe:"kind=noul;name=spam;instructions=Is this review spam?"`
-	Tone    typesafe.ChoiceAnswer `typesafe:"kind=choice;name=tone;instructions=What is the tone?;options=friendly|hostile=rude or threatening"`
-	Quality typesafe.ScoreAnswer  `typesafe:"kind=score;name=quality;instructions=How useful is the review?;levels=bad|ok|great"`
+	Spam    decision.NoulAnswer   `typesafe:"kind=noul;name=spam;instructions=Is this review spam?"`
+	Tone    decision.ChoiceAnswer `typesafe:"kind=choice;name=tone;instructions=What is the tone?;options=friendly|hostile=rude or threatening"`
+	Quality decision.ScoreAnswer  `typesafe:"kind=score;name=quality;instructions=How useful is the review?;levels=bad|ok|great"`
 }
 
 func ExampleNewQuestions() {
-	questions, err := typesafe.NewQuestions().
-		Noul("spam", typesafe.Noul{Instructions: typesafe.Text("Is this review spam?")}).
-		Choice("tone", typesafe.Choice{
-			Instructions: typesafe.Text("What is the tone?"),
-			Options:      typesafe.Options{{Label: "friendly"}, {Label: "hostile", Description: typesafe.Text("rude or threatening")}},
+	questions, err := decision.NewQuestions().
+		Noul("spam", decision.Noul{Instructions: decision.Text("Is this review spam?")}).
+		Choice("tone", decision.Choice{
+			Instructions: decision.Text("What is the tone?"),
+			Options:      decision.Options{{Label: "friendly"}, {Label: "hostile", Description: decision.Text("rude or threatening")}},
 		}).
-		Score("quality", typesafe.Score{
-			Instructions: typesafe.Text("How useful is the review?"),
-			Levels:       []typesafe.Content{typesafe.Text("bad"), typesafe.Text("ok"), typesafe.Text("great")},
+		Score("quality", decision.Score{
+			Instructions: decision.Text("How useful is the review?"),
+			Levels:       []decision.Content{decision.Text("bad"), decision.Text("ok"), decision.Text("great")},
 		}).
-		Raw("language", typesafe.RawQuestion{Type: "choice", Fields: map[string]any{
+		Raw("language", decision.RawQuestion{Type: "choice", Fields: map[string]any{
 			"instructions": "Which language is the review in?",
 			"criteria":     map[string]any{"en": nil, "ja": nil},
 		}}).
@@ -110,11 +110,11 @@ func ExampleNewQuestions() {
 }
 
 func ExampleQuestions_Prepare() {
-	_, err := typesafe.NewQuestions().
-		Noul("spam", typesafe.Noul{}).
-		Noul("spam", typesafe.Noul{Instructions: typesafe.Text("Is it spam?")}).
+	_, err := decision.NewQuestions().
+		Noul("spam", decision.Noul{}).
+		Noul("spam", decision.Noul{Instructions: decision.Text("Is it spam?")}).
 		Prepare()
-	_, ok := errors.AsType[*typesafe.ConfigError](err)
+	_, ok := errors.AsType[*decision.ConfigError](err)
 	fmt.Println(ok)
 	fmt.Println(err)
 	// Output:
@@ -125,10 +125,10 @@ func ExampleQuestions_Prepare() {
 func ExampleClient_SystemOne() {
 	client := exampleClient(http.StatusOK, answersBody)
 	defer client.Close()
-	questions, err := typesafe.NewQuestions().
-		Noul("spam", typesafe.Noul{Instructions: typesafe.Text("Is this review spam?")}).
-		Choice("tone", typesafe.Choice{Options: typesafe.Options{{Label: "friendly"}, {Label: "hostile"}}}).
-		Score("quality", typesafe.Score{Levels: []typesafe.Content{typesafe.Text("bad"), typesafe.Text("ok"), typesafe.Text("great")}}).
+	questions, err := decision.NewQuestions().
+		Noul("spam", decision.Noul{Instructions: decision.Text("Is this review spam?")}).
+		Choice("tone", decision.Choice{Options: decision.Options{{Label: "friendly"}, {Label: "hostile"}}}).
+		Score("quality", decision.Score{Levels: []decision.Content{decision.Text("bad"), decision.Text("ok"), decision.Text("great")}}).
 		Prepare()
 	if err != nil {
 		fmt.Println(err)
@@ -136,7 +136,7 @@ func ExampleClient_SystemOne() {
 	}
 
 	state := map[string]any{"review": "Great product, fast shipping."}
-	response, err := client.SystemOne(context.Background(), state, questions, typesafe.Timeout(5*time.Second))
+	response, err := client.SystemOne(context.Background(), state, questions, decision.Timeout(5*time.Second))
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -159,7 +159,7 @@ func ExampleAsk() {
 	client := exampleClient(http.StatusOK, answersBody)
 	defer client.Close()
 
-	review, err := typesafe.Ask[Review](context.Background(), client, "Great product, fast shipping.")
+	review, err := decision.Ask[Review](context.Background(), client, "Great product, fast shipping.")
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -174,7 +174,7 @@ func ExampleAsk() {
 }
 
 func ExamplePreparedFor() {
-	questions, err := typesafe.PreparedFor[Review]()
+	questions, err := decision.PreparedFor[Review]()
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -190,12 +190,12 @@ func ExamplePreparedFor() {
 
 func ExampleDecodeAs() {
 	// A response stored earlier with MarshalJSON, read back.
-	var stored typesafe.SystemOneResponse
+	var stored decision.SystemOneResponse
 	if err := stored.UnmarshalJSON([]byte(answersBody)); err != nil {
 		fmt.Println(err)
 		return
 	}
-	review, err := typesafe.DecodeAs[Review](&stored)
+	review, err := decision.DecodeAs[Review](&stored)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -206,7 +206,7 @@ func ExampleDecodeAs() {
 }
 
 func ExampleAnswers_All() {
-	var stored typesafe.SystemOneResponse
+	var stored decision.SystemOneResponse
 	if err := stored.UnmarshalJSON([]byte(answersBody)); err != nil {
 		fmt.Println(err)
 		return
@@ -221,7 +221,7 @@ func ExampleAnswers_All() {
 }
 
 func ExampleSystemOneResponse_MarshalJSON() {
-	var stored typesafe.SystemOneResponse
+	var stored decision.SystemOneResponse
 	if err := stored.UnmarshalJSON([]byte(`{"model":"jev-latest","usage":{"input_tokens":12},"answers":{"spam":{"type":"noul","noul":0.02}}}`)); err != nil {
 		fmt.Println(err)
 		return
@@ -258,7 +258,7 @@ func ExampleAPIError() {
 
 	// The error types are pointers: ask for *APIError (errors.As takes a
 	// **APIError).
-	if apiErr, ok := errors.AsType[*typesafe.APIError](err); ok {
+	if apiErr, ok := errors.AsType[*decision.APIError](err); ok {
 		fmt.Println(apiErr.StatusCode, apiErr.Kind, apiErr.IsAuthentication())
 		fmt.Println(apiErr.Message)
 	}
@@ -270,11 +270,11 @@ func ExampleAPIError() {
 func ExampleRetryPolicy() {
 	// A policy is a value: each setter returns a changed copy. This one
 	// retries twice, at once (a zero backoff), on top of the defaults.
-	quick := typesafe.DefaultRetry().MaxRetries(2).Backoff(0, 0, 0)
-	client, err := typesafe.NewClient(
-		typesafe.WithAPIKey("example-key"),
-		typesafe.WithRetry(quick),
-		typesafe.WithRoundTripper(cannedAPI{status: http.StatusServiceUnavailable, body: `{"detail":"try again later"}`}),
+	quick := decision.DefaultRetry().MaxRetries(2).Backoff(0, 0, 0)
+	client, err := decision.NewClient(
+		decision.WithAPIKey("example-key"),
+		decision.WithRetry(quick),
+		decision.WithRoundTripper(cannedAPI{status: http.StatusServiceUnavailable, body: `{"detail":"try again later"}`}),
 	)
 	if err != nil {
 		fmt.Println(err)
@@ -286,7 +286,7 @@ func ExampleRetryPolicy() {
 	_, err = client.Models().List(context.Background())
 	fmt.Println(err != nil, client.Stats().Attempts)
 	// One call's own policy: no retry.
-	_, err = client.Models().List(context.Background(), typesafe.Retry(typesafe.NoRetry()))
+	_, err = client.Models().List(context.Background(), decision.Retry(decision.NoRetry()))
 	fmt.Println(err != nil, client.Stats().Attempts)
 	// Output:
 	// true 3
@@ -294,8 +294,8 @@ func ExampleRetryPolicy() {
 }
 
 func ExampleText() {
-	plain, _ := typesafe.Text("payments or invoices").MarshalJSON()
-	structured, _ := typesafe.JSON([]byte(`{"summary": "payments", "examples": ["charged twice"]}`)).MarshalJSON()
+	plain, _ := decision.Text("payments or invoices").MarshalJSON()
+	structured, _ := decision.JSON([]byte(`{"summary": "payments", "examples": ["charged twice"]}`)).MarshalJSON()
 	fmt.Println(string(plain))
 	fmt.Println(string(structured))
 	// Output:

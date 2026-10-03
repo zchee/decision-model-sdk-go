@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package typesafe
+package decision
 
 import (
 	"reflect"
@@ -22,7 +22,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"github.com/zchee/typesafe-sdk-go/internal/wire"
+	"github.com/zchee/decision-model-sdk-go/internal/wire"
 )
 
 // PreparedFor returns the question set that the struct type T declares: one
@@ -34,20 +34,20 @@ import (
 // question it answers:
 //
 //	type Ticket struct {
-//		Billing typesafe.NoulAnswer   `typesafe:"kind=noul;instructions=Is this about billing, invoices or refunds?;yes=payments or invoices"`
-//		Tone    typesafe.ChoiceAnswer `typesafe:"kind=choice;instructions=What is the tone?;options=calm=neutral or polite|angry"`
-//		Urgency typesafe.ScoreAnswer  `typesafe:"kind=score;instructions=How urgent?;levels=can wait|this week|today"`
-//		Spam    typesafe.NoulAnswer   `typesafe:"kind=noul;optional;instructions=Spam?"`
+//		Billing decision.NoulAnswer   `typesafe:"kind=noul;instructions=Is this about billing, invoices or refunds?;yes=payments or invoices"`
+//		Tone    decision.ChoiceAnswer `typesafe:"kind=choice;instructions=What is the tone?;options=calm=neutral or polite|angry"`
+//		Urgency decision.ScoreAnswer  `typesafe:"kind=score;instructions=How urgent?;levels=can wait|this week|today"`
+//		Spam    decision.NoulAnswer   `typesafe:"kind=noul;optional;instructions=Spam?"`
 //	}
 //
 // PreparedFor[Ticket] asks the same four questions, with the same bytes on
 // the wire, as
 //
-//	typesafe.NewQuestions().
-//		Noul("Billing", typesafe.Noul{Instructions: typesafe.Text("Is this about billing, invoices or refunds?"), Yes: typesafe.Text("payments or invoices")}).
-//		Choice("Tone", typesafe.Choice{Instructions: typesafe.Text("What is the tone?"), Options: typesafe.Options{{Label: "calm", Description: typesafe.Text("neutral or polite")}, {Label: "angry"}}}).
-//		Score("Urgency", typesafe.Score{Instructions: typesafe.Text("How urgent?"), Levels: []typesafe.Content{typesafe.Text("can wait"), typesafe.Text("this week"), typesafe.Text("today")}}).
-//		Noul("Spam", typesafe.Noul{Instructions: typesafe.Text("Spam?")}).
+//	decision.NewQuestions().
+//		Noul("Billing", decision.Noul{Instructions: decision.Text("Is this about billing, invoices or refunds?"), Yes: decision.Text("payments or invoices")}).
+//		Choice("Tone", decision.Choice{Instructions: decision.Text("What is the tone?"), Options: decision.Options{{Label: "calm", Description: decision.Text("neutral or polite")}, {Label: "angry"}}}).
+//		Score("Urgency", decision.Score{Instructions: decision.Text("How urgent?"), Levels: []decision.Content{decision.Text("can wait"), decision.Text("this week"), decision.Text("today")}}).
+//		Noul("Spam", decision.Noul{Instructions: decision.Text("Spam?")}).
 //		Prepare()
 //
 // # Tag grammar
@@ -322,12 +322,12 @@ func checkPlanLayout(t reflect.Type, fields []typedField) {
 	for i := range fields {
 		f := &fields[i]
 		if f.index < 0 || f.index >= t.NumField() {
-			panic("typesafe: the typed plan of " + t.String() + " records question " + strconv.Quote(f.name) + " at field index " +
+			panic("decision: the typed plan of " + t.String() + " records question " + strconv.Quote(f.name) + " at field index " +
 				strconv.Itoa(f.index) + ", outside the struct's " + strconv.Itoa(t.NumField()) + " fields; the plan is corrupt")
 		}
 		sf := t.Field(f.index)
 		if f.offset != sf.Offset || f.end != sf.Offset+sf.Type.Size() || answerKind(sf.Type) != f.kind {
-			panic("typesafe: the typed plan of " + t.String() + " records field " + sf.Name + " (index " + strconv.Itoa(f.index) +
+			panic("decision: the typed plan of " + t.String() + " records field " + sf.Name + " (index " + strconv.Itoa(f.index) +
 				", question " + strconv.Quote(f.name) + ") as a " + answerTypeName(f.kind) + " at bytes [" + utoa(f.offset) + ", " + utoa(f.end) +
 				"), but reflect gives a " + sf.Type.String() + " at bytes [" + utoa(sf.Offset) + ", " + utoa(sf.Offset+sf.Type.Size()) + "); the plan is corrupt")
 		}

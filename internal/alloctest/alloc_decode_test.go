@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,11 +21,11 @@ import (
 	"strings"
 	"testing"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport/naive"
-	"github.com/zchee/typesafe-sdk-go/internal/wire"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport/naive"
+	"github.com/zchee/decision-model-sdk-go/internal/wire"
 )
 
 // sinkNaive keeps the naive decodes' maps reachable, as a caller's would be.
@@ -70,7 +70,7 @@ func TestAllocDecodeFixtures(t *testing.T) {
 			}
 			decoded++
 			qs, model := questionsFor(t, &first), strings.Clone(first.Model)
-			measure := func(label string, qs *typesafe.Prepared, model string) testsupport.Allocs {
+			measure := func(label string, qs *decision.Prepared, model string) testsupport.Allocs {
 				ctx := t.Context()
 				var warm wire.SystemOneResult
 				if err := decodeSystemOne(ctx, meta, qs, model, &warm); err != nil {

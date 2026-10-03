@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 // Portions ported from system-one-adapter-python (MIT, see LICENSE-UPSTREAM).
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,7 +22,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/zchee/typesafe-sdk-go/adapter/internal/jsonx"
+	"github.com/zchee/decision-model-sdk-go/adapter/internal/jsonx"
 )
 
 // The two limits of pydantic's JSON parser (jiter 0.14.0) on the text of an

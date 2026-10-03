@@ -45,7 +45,7 @@ Conventions:
 | `models.json` | `{"models": [CARD]}` (`CARD` at `tests/test_clients.py:57`) with `to_json`, as `test_models_shape` (`:246-253`) sends it | 89 |
 | `structured-legend.json` | the response body of `test_rich_descriptions`, `tests/test_clients.py:214-223`, serialized by `httpx2.Response(200, json=...)` | 217 |
 | `unknown-answer-type.json` | the response body of `test_unknown_answer_type_ignored`, `tests/test_responses.py:158-165`, serialized by `httpx2.Response(200, json=...)` | 145 |
-| `score-flood-mini.json` | the Rust port (`zchee/typesafe-sdk-rust` @ `34c3b7c`), `fuzz/corpus/decode_response/score-flood-mini.json`: 8 score answers with an empty legend, 8 with one level | 1495 |
+| `score-flood-mini.json` | the Rust port (`zchee/decision-model-sdk-rust` @ `34c3b7c`), `fuzz/corpus/decode_response/score-flood-mini.json`: 8 score answers with an empty legend, 8 with one level | 1495 |
 
 The upstream repository has no JSON files: its tests build these bodies in
 Python. The four upstream files above hold the bytes its test transport sends.

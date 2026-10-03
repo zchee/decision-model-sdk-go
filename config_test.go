@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package typesafe
+package decision
 
 import (
 	"errors"
@@ -29,7 +29,7 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
 )
 
 // noEnv is a getenv that finds no variable, so every setting an option
@@ -750,7 +750,7 @@ func TestLogger(t *testing.T) {
 // test_headers_timeout_and_logging (the request on the wire) is the client's
 // test.
 func TestHeaderTemplate(t *testing.T) {
-	sdk := "typesafe-sdk-go/" + Version
+	sdk := "decision-model-sdk-go/" + Version
 	base := func(extra map[string]string) http.Header {
 		h := http.Header{
 			"Authorization":      {"Bearer test-key"},
@@ -1071,7 +1071,7 @@ func TestUserAgentProductRules(t *testing.T) {
 			opts := []ClientOption{WithAPIKey("test-key"), WithUserAgentProduct(tt.product)}
 			if tt.want == "" {
 				c := mustResolve(t, noEnv, opts...)
-				if got, want := c.ModelsHeader.Get(headerUserAgent), tt.product+" typesafe-sdk-go/"+Version; got != want {
+				if got, want := c.ModelsHeader.Get(headerUserAgent), tt.product+" decision-model-sdk-go/"+Version; got != want {
 					t.Errorf("User-Agent = %q, want %q", got, want)
 				}
 				return

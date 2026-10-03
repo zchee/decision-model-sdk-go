@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 // Portions ported from system-one-adapter-python (MIT, see LICENSE-UPSTREAM).
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,10 +23,10 @@ import (
 	"strings"
 	"time"
 
-	typesafe "github.com/zchee/typesafe-sdk-go"
+	decision "github.com/zchee/decision-model-sdk-go"
 
-	"github.com/zchee/typesafe-sdk-go/adapter/internal/jsonx"
-	"github.com/zchee/typesafe-sdk-go/adapter/llm"
+	"github.com/zchee/decision-model-sdk-go/adapter/internal/jsonx"
+	"github.com/zchee/decision-model-sdk-go/adapter/llm"
 )
 
 // Report is the Adapter's accounting and diagnostics for one call:
@@ -97,7 +97,7 @@ type Debug struct {
 	// the order the retries were decided.
 	RetryReasons []RetryReason
 	// SDKRetryCount is sdk_retry_count, a member upstream does not have:
-	// the TypeSafe SDK's X-TypeSafe-Retry-Count of the request this Report
+	// the root SDK's X-TypeSafe-Retry-Count of the request this Report
 	// answers. 0 means the member is absent (a first attempt), so the JSON
 	// keeps upstream's shape.
 	SDKRetryCount int
@@ -162,7 +162,7 @@ type AttemptInfo struct {
 	// ModelName is model_name: the provider's model.
 	ModelName string
 	// Provider is provider: the Go type of the provider, such as
-	// "github.com/zchee/typesafe-sdk-go/adapter/openai.Provider".
+	// "github.com/zchee/decision-model-sdk-go/adapter/openai.Provider".
 	Provider string
 	// API is api: the provider's API, such as "responses",
 	// "chat_completions", "messages" or "interactions"; empty means absent,
@@ -760,7 +760,7 @@ type reportCarrier interface {
 // ReportOf returns the Report in resp's body (ResponseMeta.RawBody): the
 // usage and debug of an answer the Adapter gave. It fails when the body
 // holds no Report, as a body from another server does not.
-func ReportOf(resp *typesafe.SystemOneResponse) (*Report, error) {
+func ReportOf(resp *decision.SystemOneResponse) (*Report, error) {
 	if resp == nil {
 		return nil, fmt.Errorf("%w: no response", errReport)
 	}
@@ -772,8 +772,8 @@ func ReportOf(resp *typesafe.SystemOneResponse) (*Report, error) {
 }
 
 // ReportFromError returns the Report carried by an error a call returned:
-// the Adapter's own error in its chain, or the body of a *typesafe.APIError
-// or *typesafe.ResponseValidationError that the Adapter produced, upstream's
+// the Adapter's own error in its chain, or the body of a *decision.APIError
+// or *decision.ResponseValidationError that the Adapter produced, upstream's
 // error.debug with the call's usage. It returns false for an error that
 // carries none: one that ended the call before an evaluation started (a
 // request the Adapter refused, a closed Adapter, a cancelled context), and
@@ -784,7 +784,7 @@ func ReportOf(resp *typesafe.SystemOneResponse) (*Report, error) {
 // with an error the SDK's policy retries (a status in 408, 429 or 500-599, a
 // timeout, or a connection failure) and the call's context deadline then
 // ended the SDK's wait before the next attempt: the SDK then returns a new
-// *typesafe.TimeoutError that holds no earlier attempt's error. A client
+// *decision.TimeoutError that holds no earlier attempt's error. A client
 // from NewClient does not retry, so this does not occur there.
 func ReportFromError(err error) (*Report, bool) {
 	if carrier, ok := errors.AsType[reportCarrier](err); ok {
@@ -792,12 +792,12 @@ func ReportFromError(err error) (*Report, bool) {
 			return r, true
 		}
 	}
-	if apiErr, ok := errors.AsType[*typesafe.APIError](err); ok {
+	if apiErr, ok := errors.AsType[*decision.APIError](err); ok {
 		if r, ok := reportFromBody(apiErr.Body); ok {
 			return r, true
 		}
 	}
-	if invalid, ok := errors.AsType[*typesafe.ResponseValidationError](err); ok {
+	if invalid, ok := errors.AsType[*decision.ResponseValidationError](err); ok {
 		if r, ok := reportFromBody(invalid.Body); ok {
 			return r, true
 		}

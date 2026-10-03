@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package typesafe
+package decision
 
 import (
 	"errors"
@@ -29,9 +29,9 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
-	"github.com/zchee/typesafe-sdk-go/internal/codec"
-	"github.com/zchee/typesafe-sdk-go/internal/testsupport"
-	"github.com/zchee/typesafe-sdk-go/internal/wire"
+	"github.com/zchee/decision-model-sdk-go/internal/codec"
+	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
+	"github.com/zchee/decision-model-sdk-go/internal/wire"
 )
 
 // Citations of the form spikes@<commit>:<path> in this file name files in the
@@ -546,13 +546,13 @@ func TestUnencodableBodyFailsBeforeNetwork(t *testing.T) {
 		},
 		"error: a named byte-slice state (R59b)": {
 			state:   blob(`{"a":1}`),
-			want:    []string{"state: a plain []byte is ambiguous: typesafe.blob is a byte slice; send string(b) for text or RawJSON(b) for JSON"},
+			want:    []string{"state: a plain []byte is ambiguous: decision.blob is a byte slice; send string(b) for text or RawJSON(b) for JSON"},
 			isCause: codec.ErrPlainBytes,
 		},
 		"error: a named byte-slice extra member (R59b)": {
 			state:   "x",
 			extra:   []bodyMember{{Key: "b", Value: blob("hi")}},
-			want:    []string{`extra body member "b": a plain []byte is ambiguous: typesafe.blob is a byte slice; send string(b)`},
+			want:    []string{`extra body member "b": a plain []byte is ambiguous: decision.blob is a byte slice; send string(b)`},
 			isCause: codec.ErrPlainBytes,
 		},
 		"error: a pointer to a []byte state (NIT C)": {
@@ -563,13 +563,13 @@ func TestUnencodableBodyFailsBeforeNetwork(t *testing.T) {
 		"error: a pointer to a named byte slice extra member (NIT C)": {
 			state:   "x",
 			extra:   []bodyMember{{Key: "p", Value: new(blob("hi"))}},
-			want:    []string{`extra body member "p": a plain []byte is ambiguous: *typesafe.blob points to a byte slice; send string(b)`},
+			want:    []string{`extra body member "p": a plain []byte is ambiguous: *decision.blob points to a byte slice; send string(b)`},
 			isCause: codec.ErrPlainBytes,
 		},
 		"error: a nil pointer to a byte slice extra member (NIT C)": {
 			state:   "x",
 			extra:   []bodyMember{{Key: "p", Value: (*blob)(nil)}},
-			want:    []string{`extra body member "p": nil *typesafe.blob holds no value, not a JSON value`},
+			want:    []string{`extra body member "p": nil *decision.blob holds no value, not a JSON value`},
 			isCause: codec.ErrRawValue,
 		},
 		"error: a []byte extra member (R56)": {
@@ -647,10 +647,10 @@ func TestScalarStatesRefused(t *testing.T) {
 		"error: negative int64":             {state: int64(-1), want: "int64 encodes as a number"},
 		"error: uint8":                      {state: uint8(7), want: "uint8 encodes as a number"},
 		"error: float64":                    {state: 1.5, want: "float64 encodes as a number"},
-		"error: a named float":              {state: celsius(20), want: "typesafe.celsius encodes as a number"},
+		"error: a named float":              {state: celsius(20), want: "decision.celsius encodes as a number"},
 		"error: a nil map":                  {state: map[string]any(nil), want: "map[string]interface {} encodes as null"},
 		"error: a nil slice":                {state: []string(nil), want: "[]string encodes as null"},
-		"error: a nil pointer":              {state: (*ticketState)(nil), want: "*typesafe.ticketState encodes as null"},
+		"error: a nil pointer":              {state: (*ticketState)(nil), want: "*decision.ticketState encodes as null"},
 		"error: RawJSON number":             {state: RawJSON(`3`), want: "state: raw JSON starts with a number"},
 		"error: RawJSON null":               {state: RawJSON("\tnull"), want: "raw JSON starts with null"},
 		"error: empty RawJSON":              {state: RawJSON(nil), want: "state: raw JSON is empty"},

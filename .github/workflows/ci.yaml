@@ -113,7 +113,7 @@ jobs:
       # identifier. -tags go1.28 stands in for a Go 1.28 toolchain.
       - name: D1 refusal off the support matrix
         env:
-          D1_IDENTIFIER: typesafe_sdk_go_requires_go1_17_to_go1_27_on_amd64_or_arm64
+          D1_IDENTIFIER: decision_model_sdk_go_requires_go1_17_to_go1_27_on_amd64_or_arm64
         run: |
           # The refusal is the expected output. Drop setup-go's Go problem
           # matcher (owner "go") so that it is not reported as an error

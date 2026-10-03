@@ -1,5 +1,12 @@
 # Spikes
 
+The module was renamed on 2026-10-03 (see [CHANGELOG.md](../../CHANGELOG.md)) and
+its version restarted at v0.1.0. The commands and outputs below name the
+module, its packages and the SDK identifier by their current names; a
+version named in an entry written before that date is a release made under
+the earlier module path, and a tag such an entry names is a tag of that
+time.
+
 A spike here is a measurement made before the code it informs was written:
 a question about Python, a provider, a tool or a service that reading could
 not settle. Each section below gives one question, the result that counts as
@@ -228,7 +235,7 @@ The three classes where Python accepts and the port refuses:
 
 - `nan-token` (10 of the 10 000; 10 committed): the tokens `NaN`,
   `Infinity` and `-Infinity`, which `json.loads` reads and JSON does not
-  have. Through the TypeSafe SDK such a state reaches the wire only as a
+  have. Through the root SDK such a state reaches the wire only as a
   `RawJSON` value that is not JSON; the SDK's own encoders refuse a NaN
   before sending. The Adapter's parse of the body refuses it before the
   state is looked at.
@@ -238,7 +245,7 @@ The three classes where Python accepts and the port refuses:
   without its partner inside a value that a later member of the same name
   replaces. Python's dict drops that value before `to_json` would refuse
   it; a JSON reader refuses it while reading. It reaches the wire as
-  `RawJSON`, as `typesafe.JSON` content or from a caller's `Marshaler`,
+  `RawJSON`, as `decision.JSON` content or from a caller's `Marshaler`,
   always with a duplicate name the caller wrote. Upstream itself cannot be
   given such a document, because a Python dict has no duplicate names.
   Reading the body with invalid UTF-8 allowed, and decoding each string
@@ -254,7 +261,7 @@ The three classes where Python accepts and the port refuses:
   `github.com/go-json-experiment/json v0.0.0-20260820222146-c27c302e5fc3`
   and of go1.27.1's `encoding/json/jsontext`; Python's limit is the
   interpreter's stack. Measured by a review of this result against the SDK
-  v0.1.1: a `RawJSON` or `typesafe.JSON` state that opens 10 001
+  v0.1.1: a `RawJSON` or `decision.JSON` state that opens 10 001
   containers is sent as written and is one container deeper in the body,
   so through the seam a state opens at most 9 999; a Go value of nested
   slices is refused before sending at 9 999.
@@ -314,7 +321,7 @@ Each vector file's `# python:` line is the interpreter's whole
 
 ## S4: the seam with the Adapter's own error and report types
 
-**Question.** Through the released TypeSafe SDK, does each failure class
+**Question.** Through the released root SDK, does each failure class
 reach the caller as intended: can `errors.As` find the Adapter's error
 behind the SDK's timeout and connection errors, can the Report be read back
 from the SDK's error bodies, and how many attempts does the SDK's default
@@ -330,8 +337,8 @@ and the two hosts' observations are equal byte for byte.
 **What the port does because of it.** The failure classes stay as designed.
 
 - A provider timeout and a connection failure leave `RoundTrip` as the
-  Adapter's own error. The SDK wraps it in its `*typesafe.TimeoutError` or
-  `*typesafe.ConnectionError`, and `errors.As` reaches the Adapter's error,
+  Adapter's own error. The SDK wraps it in its `*decision.TimeoutError` or
+  `*decision.ConnectionError`, and `errors.As` reaches the Adapter's error,
   and through it the Report, in both. The provider's own error is not kept
   in the chain, so a URL that holds a key cannot be printed from it.
 - A Report is carried by exactly the classes that end after an evaluation
@@ -364,7 +371,7 @@ and the two hosts' observations are equal byte for byte.
 
 | Row | Date (UTC) | Host | Toolchain | Command | Result |
 | --- | --- | --- | --- | --- | --- |
-| S4-1 | 2026-10-02T04:40:41Z | (M) | go1.27.1 darwin/arm64, `github.com/zchee/typesafe-sdk-go` v0.1.1 | `go test -count=1 -race -v ./...` in a module outside this one, which requires the SDK at v0.1.1 from the module proxy and puts stand-ins for the Adapter's error and report types behind `typesafe.WithRoundTripper`; the test is the seed of this module's `TestSeamContract` | ok; 76 subtests, 38 cases under each of the two retry policies, 0 failed |
+| S4-1 | 2026-10-02T04:40:41Z | (M) | go1.27.1 darwin/arm64, `github.com/zchee/decision-model-sdk-go` v0.1.1 | `go test -count=1 -race -v ./...` in a module outside this one, which requires the SDK at v0.1.1 from the module proxy and puts stand-ins for the Adapter's error and report types behind `decision.WithRoundTripper`; the test is the seed of this module's `TestSeamContract` | ok; 76 subtests, 38 cases under each of the two retry policies, 0 failed |
 | S4-2 | 2026-10-02T04:41:20Z | (L) | go1.27.1 linux/amd64, the same SDK version | the same test, the same files | ok; 0 failed; the 80 observation lines equal (M)'s byte for byte |
 | S4-3 | 2026-10-02T04:41:01Z | (M) | as S4-1 | the same test twice with one expectation or one stand-in changed: the expected attempts of the non-answer class set to 3; the Adapter's error text made to hold the SDK's key | fails both times: 2 subtests for the wrong count; 16 subtests for the key, because the SDK then replaces the cause and `errors.As` no longer reaches the Adapter's error |
 | S4-4 | 2026-10-02T04:41:38Z | (L) | as S4-2 | the same two changed runs | fails both times, the same 2 and 16 subtests |
@@ -614,14 +621,14 @@ come out one session short.
 | S8-3 | 2026-10-02T04:36:05Z | (M) | curl | the same on three changed copies, one change each: `name_prefix` misspelt, `project: maybe`, a number in place of a path | HTTP 400 each, with the place of the error: the validator refuses an unknown key, a wrong value and a wrong type, so its `Valid!` is a result |
 | S8-4 | 2026-10-02T05:06:34Z | (M) | curl | `curl -sS -X POST --data-binary @.codecov.yaml https://api.codecov.io/validate`, the address the same documentation page links | HTTP 200, `Valid!`, the same answer as S8-2 byte for byte |
 | S8-5 | 2026-10-02T04:42:48Z | CI | codecov-action v7 | `gh run view 36965184872 --log`, the upload step in the three test jobs of the adapter workflow's first run, at commit `a0b2b824914f1ca7bee625fa19ea897cbc91dde3` | each job: `Found 1 coverage files to report`, `Upload queued for processing complete`; the step succeeds |
-| S8-6 | 2026-10-02T04:43:49Z | (M) | curl | `curl -sS https://api.codecov.io/api/v2/github/zchee/repos/typesafe-sdk-go/commits/a0b2b824914f1ca7bee625fa19ea897cbc91dde3/uploads/`, and the uploads' error codes from `https://api.codecov.io/graphql/gh`, both without a token | 6 uploads for the commit so far. Of the three with the flag `adapter`, two are in state `error` with the code `REPORT_EMPTY`; the third has no error recorded and stays in `started` |
-| S8-7 | 2026-10-02T04:54:35Z | (M) | curl | `curl -sS 'https://api.codecov.io/api/v2/github/zchee/repos/typesafe-sdk-go/report/?sha=a0b2b824914f1ca7bee625fa19ea897cbc91dde3'` and the same address with `components/` | after the SDK's three uploads are merged: 50 files, none under `adapter/`, 3 sessions; component `sdk` 98.17 %, component `adapter` without a value |
-| S8-8 | 2026-10-02T04:55:44Z | (M) | gh | `gh api repos/zchee/typesafe-sdk-go/commits/a0b2b824914f1ca7bee625fa19ea897cbc91dde3/status`, 7 minutes after the three uploads of the first CI run were merged | state `pending`, 0 statuses |
+| S8-6 | 2026-10-02T04:43:49Z | (M) | curl | `curl -sS https://api.codecov.io/api/v2/github/zchee/repos/decision-model-sdk-go/commits/a0b2b824914f1ca7bee625fa19ea897cbc91dde3/uploads/`, and the uploads' error codes from `https://api.codecov.io/graphql/gh`, both without a token | 6 uploads for the commit so far. Of the three with the flag `adapter`, two are in state `error` with the code `REPORT_EMPTY`; the third has no error recorded and stays in `started` |
+| S8-7 | 2026-10-02T04:54:35Z | (M) | curl | `curl -sS 'https://api.codecov.io/api/v2/github/zchee/repos/decision-model-sdk-go/report/?sha=a0b2b824914f1ca7bee625fa19ea897cbc91dde3'` and the same address with `components/` | after the SDK's three uploads are merged: 50 files, none under `adapter/`, 3 sessions; component `sdk` 98.17 %, component `adapter` without a value |
+| S8-8 | 2026-10-02T04:55:44Z | (M) | gh | `gh api repos/zchee/decision-model-sdk-go/commits/a0b2b824914f1ca7bee625fa19ea897cbc91dde3/status`, 7 minutes after the three uploads of the first CI run were merged | state `pending`, 0 statuses |
 | S8-9 | 2026-10-02T05:06:33Z | (M) | curl | `curl -fsSL https://docs.codecov.com/docs/notifications.md`, and `apps/worker/tasks/notify.py` and `upload_finisher.py` of `codecov/umbrella` at commit `90fc7dc04cd3` | the page: `after_n_builds` delays notifications "until a certain number of uploads have been received and processed". The source compares `after_n_builds` with the number of sessions in the commit's report (`notify.py` lines 805 to 820, `upload_finisher.py` lines 827 to 840) and sends nothing while it is larger: here 6 against 3 |
 | S8-10 | 2026-10-02T05:22:49Z | (M) | curl | the two reads of S8-6 and the commit's totals, after a second CI run (36967681205) and a second adapter run (36967681280) of the same commit, the ones its push to `main` started | 12 uploads. The six from the two CI runs are merged, the last at 05:14:31Z; the report has 6 sessions, 50 files, none under `adapter/`. Of the six with the flag `adapter`, five are `error` with `REPORT_EMPTY` and one is still `started` |
-| S8-11 | 2026-10-02T05:22:49Z | (M) | gh | `gh api repos/zchee/typesafe-sdk-go/commits/a0b2b824914f1ca7bee625fa19ea897cbc91dde3/status` | state `success`, 6 statuses, posted from 05:14:34Z to 05:14:37Z. `codecov/project/default-sdk`: `98.1% (target 85.0%)`. `codecov/project/goal-sdk`: `98.1% (target 90.0%)`. `codecov/patch/sdk` and `codecov/patch/adapter`: `Coverage not affected when comparing` the parent and the commit. `codecov/project/default-adapter` and `codecov/project/goal-adapter`: `No coverage information found on head` |
-| S8-12 | 2026-10-02T10:39:33Z | (M) | curl | `curl -sS 'https://api.codecov.io/api/v2/github/zchee/repos/typesafe-sdk-go/commits/948db511eb872ceb7588a35e262c490ad97fecc5/uploads/?page_size=50'`, and the commit itself at `https://api.codecov.io/api/v2/github/zchee/repos/typesafe-sdk-go/commits/948db511eb872ceb7588a35e262c490ad97fecc5/` | 6 uploads, every one in state `merged`, none in error and none stalled: three with the flag `adapter`, created from 10:28:07Z to 10:29:13Z (12 files, 735 lines, 99.3 each), and three from the SDK's workflow with the flags `xcode-27`, `ubuntu-26.04` and `windows-2025`, created from 10:30:59Z to 10:31:36Z (49 files, 4482 lines, 98.1 each). The commit: state `complete`, 6 sessions; 62 files, 5218 lines, 5131 hits, 87 misses, 98.33 |
-| S8-13 | 2026-10-02T10:39:44Z | (M) | curl, jq | `curl -sS 'https://api.codecov.io/api/v2/github/zchee/repos/typesafe-sdk-go/report/?sha=948db511eb872ceb7588a35e262c490ad97fecc5'`, then `jq '.files[].name'` | 12 files under `adapter/`, written as paths of the repository: `adapter/reason.go`, `adapter/retry.go`, five under `adapter/internal/jsonx/`, three under `adapter/internal/prob/`, two under `adapter/llm/`. No file under the module's import path. The other 50 are the SDK's. `adapter/internal/fake` is absent, as `.codecov.yaml` ignores it, and so are the two files that hold no statement |
+| S8-11 | 2026-10-02T05:22:49Z | (M) | gh | `gh api repos/zchee/decision-model-sdk-go/commits/a0b2b824914f1ca7bee625fa19ea897cbc91dde3/status` | state `success`, 6 statuses, posted from 05:14:34Z to 05:14:37Z. `codecov/project/default-sdk`: `98.1% (target 85.0%)`. `codecov/project/goal-sdk`: `98.1% (target 90.0%)`. `codecov/patch/sdk` and `codecov/patch/adapter`: `Coverage not affected when comparing` the parent and the commit. `codecov/project/default-adapter` and `codecov/project/goal-adapter`: `No coverage information found on head` |
+| S8-12 | 2026-10-02T10:39:33Z | (M) | curl | `curl -sS 'https://api.codecov.io/api/v2/github/zchee/repos/decision-model-sdk-go/commits/948db511eb872ceb7588a35e262c490ad97fecc5/uploads/?page_size=50'`, and the commit itself at `https://api.codecov.io/api/v2/github/zchee/repos/decision-model-sdk-go/commits/948db511eb872ceb7588a35e262c490ad97fecc5/` | 6 uploads, every one in state `merged`, none in error and none stalled: three with the flag `adapter`, created from 10:28:07Z to 10:29:13Z (12 files, 735 lines, 99.3 each), and three from the SDK's workflow with the flags `xcode-27`, `ubuntu-26.04` and `windows-2025`, created from 10:30:59Z to 10:31:36Z (49 files, 4482 lines, 98.1 each). The commit: state `complete`, 6 sessions; 62 files, 5218 lines, 5131 hits, 87 misses, 98.33 |
+| S8-13 | 2026-10-02T10:39:44Z | (M) | curl, jq | `curl -sS 'https://api.codecov.io/api/v2/github/zchee/repos/decision-model-sdk-go/report/?sha=948db511eb872ceb7588a35e262c490ad97fecc5'`, then `jq '.files[].name'` | 12 files under `adapter/`, written as paths of the repository: `adapter/reason.go`, `adapter/retry.go`, five under `adapter/internal/jsonx/`, three under `adapter/internal/prob/`, two under `adapter/llm/`. No file under the module's import path. The other 50 are the SDK's. `adapter/internal/fake` is absent, as `.codecov.yaml` ignores it, and so are the two files that hold no statement |
 | S8-14 | 2026-10-02T10:39:45Z | (M) | curl | the address of S8-13 with `&component_id=adapter`, and with `&component_id=sdk` | component `adapter`: 12 files, 735 lines, 730 hits, 5 misses, no partials, 99.31 % against the target of 85 %. Component `sdk`: 50 files, 4483 lines, 4401 hits, 82 misses, 98.17 % |
-| S8-15 | 2026-10-02T10:39:45Z | (M) | curl | `curl -sS 'https://api.codecov.io/api/v2/github/zchee/repos/typesafe-sdk-go/compare/components?base=c39c6927339016b96f34f7bae88bc565e4185975&head=948db511eb872ceb7588a35e262c490ad97fecc5'` | component `adapter`: at the base 0 files and 0 lines, at the head 12 files and 99.31 %. Component `sdk`: 98.17 % at both |
-| S8-16 | 2026-10-02T10:39:55Z | (M) | gh | `gh api repos/zchee/typesafe-sdk-go/commits/948db511eb872ceb7588a35e262c490ad97fecc5/status` | state `success`, 6 statuses, posted from 10:32:21Z to 10:32:26Z, 45 to 50 seconds after the sixth upload was created. `codecov/project/default-sdk`: `98.1% (target 85.0%)`. `codecov/project/goal-sdk`: `98.1% (target 90.0%)`. `codecov/patch/sdk`: `Coverage not affected when comparing` the parent and the commit. `codecov/project/default-adapter` and `codecov/project/goal-adapter`: `No coverage information found on base report`. `codecov/patch/adapter`: `99.3% of diff hit (target 90.0%)` |
+| S8-15 | 2026-10-02T10:39:45Z | (M) | curl | `curl -sS 'https://api.codecov.io/api/v2/github/zchee/repos/decision-model-sdk-go/compare/components?base=c39c6927339016b96f34f7bae88bc565e4185975&head=948db511eb872ceb7588a35e262c490ad97fecc5'` | component `adapter`: at the base 0 files and 0 lines, at the head 12 files and 99.31 %. Component `sdk`: 98.17 % at both |
+| S8-16 | 2026-10-02T10:39:55Z | (M) | gh | `gh api repos/zchee/decision-model-sdk-go/commits/948db511eb872ceb7588a35e262c490ad97fecc5/status` | state `success`, 6 statuses, posted from 10:32:21Z to 10:32:26Z, 45 to 50 seconds after the sixth upload was created. `codecov/project/default-sdk`: `98.1% (target 85.0%)`. `codecov/project/goal-sdk`: `98.1% (target 90.0%)`. `codecov/patch/sdk`: `Coverage not affected when comparing` the parent and the commit. `codecov/project/default-adapter` and `codecov/project/goal-adapter`: `No coverage information found on base report`. `codecov/patch/adapter`: `99.3% of diff hit (target 90.0%)` |

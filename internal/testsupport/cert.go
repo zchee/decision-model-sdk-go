@@ -1,4 +1,4 @@
-// Copyright 2026 The typesafe-sdk-go Authors.
+// Copyright 2026 The decision-model-sdk-go Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -50,7 +50,7 @@ func newTestCert() (certBundle, error) {
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{Organization: []string{"typesafe-sdk-go testsupport"}},
+		Subject:               pkix.Name{Organization: []string{"decision-model-sdk-go testsupport"}},
 		NotBefore:             time.Unix(0, 0),
 		NotAfter:              time.Date(2100, time.January, 1, 0, 0, 0, 0, time.UTC),
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
