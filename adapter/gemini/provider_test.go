@@ -43,16 +43,23 @@ type recordedRequest struct {
 	url    string
 	header http.Header
 	body   []byte
+	// traced is the request body the transport's trace held when the
+	// request reached the transport, and traceAPI its API name; nil and ""
+	// when it held none or the transport has no trace.
+	traced   []byte
+	traceAPI string
 }
 
 // transport is an http.RoundTripper of the test's own: it records each
 // request and answers with respond, or when respond is nil with status 200
-// and the body reply. No request leaves the process.
+// and the body reply. When trace is set it also records what trace held at
+// the moment each request arrived. No request leaves the process.
 type transport struct {
 	mu       sync.Mutex
 	requests []recordedRequest
 	reply    string
 	respond  func(*http.Request) (*http.Response, error)
+	trace    *llm.Trace
 }
 
 func (tr *transport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -61,8 +68,13 @@ func (tr *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		body, _ = io.ReadAll(req.Body)
 		_ = req.Body.Close()
 	}
+	rec := recordedRequest{method: req.Method, url: req.URL.String(), header: req.Header.Clone(), body: body}
+	if tr.trace != nil {
+		rec.traced, _ = tr.trace.Request()
+		rec.traceAPI = tr.trace.API()
+	}
 	tr.mu.Lock()
-	tr.requests = append(tr.requests, recordedRequest{method: req.Method, url: req.URL.String(), header: req.Header.Clone(), body: body})
+	tr.requests = append(tr.requests, rec)
 	tr.mu.Unlock()
 	if tr.respond == nil {
 		return response(req, http.StatusOK, http.Header{"Content-Type": {"application/json"}}, tr.reply), nil
@@ -753,6 +765,13 @@ func TestIncompleteReasonTexts(t *testing.T) {
 			}
 		})
 	}
+	t.Run("an empty status is recorded as itself", func(t *testing.T) {
+		trace := new(llm.Trace)
+		_, _ = result([]byte(`{"status":""}`), trace)
+		if f := trace.FinishReason(); f == nil || *f != "" {
+			t.Errorf("finish reason = %v, want the empty string, not null", f)
+		}
+	})
 	t.Run("errors of a completed interaction are not read", func(t *testing.T) {
 		got, err := result([]byte(`{"status":"completed","errors":{"not":"a list"},"steps":[],"usage":{"total_input_tokens":3,"total_output_tokens":4}}`), nil)
 		if err != nil || got.InputTokens.N != 3 {
@@ -762,14 +781,16 @@ func TestIncompleteReasonTexts(t *testing.T) {
 }
 
 // TestDoRecordsTheExchange checks what Do records in the Trace: the API
-// name interactions and the body it sent, before sending; the response body
+// name interactions and the body it sent, already recorded when the request
+// reaches the transport, as upstream records before it sends
+// (providers/gemini.py:137-138); the response body
 // as received with its status as the finish reason; and with a nil Trace
 // it records nothing and still answers.
 func TestDoRecordsTheExchange(t *testing.T) {
 	clearEnv(t)
-	tr := &transport{reply: completedBody}
-	p := newProvider(t, WithAPIKey("not-a-key"), WithHTTPClient(&http.Client{Transport: tr}))
 	trace := new(llm.Trace)
+	tr := &transport{reply: completedBody, trace: trace}
+	p := newProvider(t, WithAPIKey("not-a-key"), WithHTTPClient(&http.Client{Transport: tr}))
 	req := prompted()
 	req.Trace = trace
 	res, err := p.Do(t.Context(), req)
@@ -779,7 +800,11 @@ func TestDoRecordsTheExchange(t *testing.T) {
 	if res.Text != `{"answers": {}}` {
 		t.Errorf("text = %q", res.Text)
 	}
-	sent := tr.recorded()[0].body
+	first := tr.recorded()[0]
+	sent := first.body
+	if string(first.traced) != string(sent) || first.traceAPI != "interactions" {
+		t.Errorf("at the transport the Trace held %q with API %q, want the sent body with interactions", first.traced, first.traceAPI)
+	}
 	if body, ok := trace.Request(); !ok || string(body) != string(sent) || trace.API() != "interactions" {
 		t.Errorf("recorded request %v %s api %q, want the sent body with interactions", ok, body, trace.API())
 	}
@@ -795,11 +820,12 @@ func TestDoRecordsTheExchange(t *testing.T) {
 }
 
 // TestProviderModelAndClose checks that Model returns the model New was
-// given and that Close returns nil for an owned client and a borrowed one,
+// given, and nothing of the base URL's userinfo or query, and that Close
+// returns nil for an owned client and a borrowed one,
 // leaving a borrowed client usable.
 func TestProviderModelAndClose(t *testing.T) {
 	clearEnv(t)
-	owned, err := New("gemini-3.8-flash:with:colons", WithAPIKey("not-a-key"))
+	owned, err := New("gemini-3.8-flash:with:colons", WithAPIKey("not-a-key"), WithBaseURL("https://alice:madeupword@api.example.test/p?tenant=one"))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
