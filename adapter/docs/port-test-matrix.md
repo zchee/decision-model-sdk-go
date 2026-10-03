@@ -58,9 +58,9 @@ collapses into one Go case (DV1), so a row has fewer Go cases than items.
 | GT1 | `tests/test_gemini_transports.py::test_gemini_transport_preserves_corrections_and_usage` | 4 | `adapter/gemini.TestTransportPreservesCorrectionsAndUsage` (`gemini_test.go`) | 2 | ported (DV1) | planned |
 | GT2 | `tests/test_gemini_transports.py::test_gemini_incomplete_http_response_is_not_an_answer` | 2 | `adapter/gemini.TestIncompleteResponseIsNotAnAnswer` | 1 | ported (DV1) | planned |
 | GT3 | `tests/test_gemini_transports.py::test_gemini_transport_errors_obey_retry_budget` | 8 | `adapter/gemini.TestTransportErrorsObeyRetryBudget` | 4 | ported (DV1) | planned |
-| OT1 | `tests/test_openai_transports.py::test_openai_transport_preserves_corrections_and_usage` | 16 | `adapter/openai.TestTransportPreservesCorrectionsAndUsage` (`openai_test.go`) | 8 | ported (DV1) | planned |
+| OT1 | `tests/test_openai_transports.py::test_openai_transport_preserves_corrections_and_usage` | 16 | `adapter/openai.TestTransportPreservesCorrectionsAndUsage` (`openai_test.go`) | 8 | ported (DV1) | ported |
 | OT2 | `tests/test_openai_transports.py::test_unfinished_responses_are_not_treated_as_answers` | 2 | `adapter/openai.TestUnfinishedResponsesAreNotAnswers` (`responses_test.go`) | 2 | ported | ported |
-| OT3 | `tests/test_openai_transports.py::test_concurrent_attempts_are_isolated_and_preserve_failed_responses` | 3 | `adapter/openai.TestConcurrentAttemptsAreIsolated` (goroutines) | 3 | ported (DV1) | planned |
+| OT3 | `tests/test_openai_transports.py::test_concurrent_attempts_are_isolated_and_preserve_failed_responses` | 3 | `adapter/openai.TestConcurrentAttemptsAreIsolated` (goroutines) | 3 | ported (DV1) | ported |
 | OT4 | `tests/test_openai_transports.py::test_custom_endpoint_from_environment_defaults_to_chat` | 2 | `adapter/openai.TestEnvironmentBaseURLSelectsChat` (`t.Setenv`) | 1 | ported (DV1) | ported |
 | PL1 | `tests/test_provider_lifecycle.py::test_reuses_owned_provider_and_closes_sdk_on_context_exit` | 4 | `adapter.TestReusesOwnedProviderAndClosesIt` (`lifecycle_test.go`) | 2 | ported (DV1, DV10) | ported |
 | PL2 | `tests/test_provider_lifecycle.py::test_cache_uses_resolved_provider_and_model_and_is_per_client` | 4 | `adapter.TestProviderCacheKey` | 2 | ported (DV1) | ported |
@@ -75,10 +75,10 @@ collapses into one Go case (DV1), so a row has fewer Go cases than items.
 | PL11 | `tests/test_provider_lifecycle.py::test_concurrent_close_waits_for_same_cleanup` | 8 | `adapter.TestConcurrentCloseWaitsForSameCleanup` | 4 | ported (DV1) | ported |
 | PL12 | `tests/test_provider_lifecycle.py::test_cancelling_close_waiter_does_not_interrupt_cleanup` | 1 | none: a Go `Close` waiter cannot be cancelled | 0 | deviation DV2 | deviation |
 | PL13 | `tests/test_provider_lifecycle.py::test_concurrent_first_use_reuses_pool_and_isolates_traces` | 4 | `adapter.TestConcurrentFirstUseReusesProvider` (8 goroutines) | 2 | ported (DV1) | ported |
-| PN1 | `tests/test_provider_nonanswers.py::test_chat_completion_finish_reason` | 28 | `adapter/openai.TestChatFinishReason` (`nonanswer_test.go`) | 14 | ported (DV1) | planned |
-| PN2 | `tests/test_provider_nonanswers.py::test_openai_missing_usage` | 64 | `adapter/openai.TestMissingUsage` | 32 | ported (DV1) | planned |
+| PN1 | `tests/test_provider_nonanswers.py::test_chat_completion_finish_reason` | 28 | `adapter/openai.TestChatFinishReason` (`nonanswer_test.go`) | 14 | ported (DV1) | ported |
+| PN2 | `tests/test_provider_nonanswers.py::test_openai_missing_usage` | 64 | `adapter/openai.TestMissingUsage` | 32 | ported (DV1) | ported |
 | PN3 | `tests/test_provider_nonanswers.py::test_anthropic_nonanswers` | 36 | `adapter/anthropic.TestNonAnswers` (`anthropic_test.go`) | 18 | ported (DV1) | planned |
-| PN4 | `tests/test_provider_nonanswers.py::test_openai_responses_refusal` | 8 | `adapter/openai.TestResponsesRefusal` | 4 | ported (DV1) | planned |
+| PN4 | `tests/test_provider_nonanswers.py::test_openai_responses_refusal` | 8 | `adapter/openai.TestResponsesRefusal` | 4 | ported (DV1) | ported |
 | PR1 | `tests/test_provider_requests.py::test_openai_native_response_format_wraps_schema` | 1 | `adapter/openai.TestChatResponseFormatWrapsSchema` (`chat_test.go`) | 1 | ported | ported |
 | PR2 | `tests/test_provider_requests.py::test_openai_prompted_sends_no_response_format` | 1 | `adapter/openai.TestChatPromptedSendsNullResponseFormat` | 1 | ported | ported |
 | PR3 | `tests/test_provider_requests.py::test_openai_result_reads_content_and_usage` | 1 | `adapter/openai.TestChatResultReadsContentAndUsage` | 1 | ported | ported |
