@@ -431,9 +431,10 @@ program that used it changes four things:
 
 - The import: `decision "github.com/zchee/decision-model-sdk-go"`, and the
   package is named `decision`.
-- The struct tags of `Ask[T]`, `PreparedFor[T]` and `DecodeAs[T]`: rewrite
-  each `typesafe:"..."` as `decision:"..."`. The old key is not read; an
-  answer field that carries only it is refused as one with no tag is
+- The struct tags of `Ask[T]`, `PreparedFor[T]` and `DecodeAs[T]`: their key
+  is `decision`, as in `decision:"kind=noul"`, so rewrite each tag whose key
+  was `typesafe` before. The old key is not read; an answer field that
+  carries only it is refused as one with no tag is
   (`field has no decision tag`).
 - The environment: `DECISION_MODEL_API_KEY`, `DECISION_MODEL_BASE_URL` and
   `DECISION_MODEL_DEFAULT_MODEL` replace the variables of the old names.

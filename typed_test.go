@@ -969,7 +969,7 @@ func TestLookupTag(t *testing.T) {
 		"success: Go escapes unquoted":  {tag: `decision:"instructions=a\\;b \"quoted\""`, wantValue: `instructions=a\;b "quoted"`, wantOK: true},
 		"success: empty value":          {tag: `decision:""`, wantOK: true},
 		"success: key as a prefix only": {tag: `decision2:"kind=noul"`},
-		"success: key as a suffix only": {tag: `nottypesafe:"kind=noul"`},
+		"success: key as a suffix only": {tag: `notdecision:"kind=noul"`},
 		"success: bad literal of another key is not ours": {
 			tag: `json:"a\;b" decision:"kind=noul"`, wantValue: "kind=noul", wantOK: true,
 		},
