@@ -548,7 +548,7 @@ func kindKeys(k wire.Kind) string {
 // structTagKey is the key of a struct tag that describes an answer field's
 // question: the package's name, as encoding/json reads the key "json". It is
 // the only key read; a field whose tag gives only the key of the SDK's
-// earlier name, decision:"...", is read as a field without one.
+// earlier name, typesafe, is read as a field without one.
 const structTagKey = "decision"
 
 // The problems lookupTag reports: each is a decision key that

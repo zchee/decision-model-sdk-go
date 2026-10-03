@@ -37,8 +37,9 @@ package benchmark
 // timing, each scenario makes one real SDK call through a recording
 // transport; the floor sends that request's bytes again, and the naive
 // client takes its URL, header template and question bytes from it, with the
-// SDK's default model and deadline. So both clients send the same request
-// byte for byte (TestNaiveRequestMatchesSDK), through the exported API only.
+// benchmarks' model and the SDK's default deadline. So both clients send
+// the same request byte for byte (TestNaiveRequestMatchesSDK), through the
+// exported API only.
 //
 // How this can mislead: the Recorder answers at once and discards the
 // request body, so everything the network costs is absent by design (B6
@@ -169,9 +170,9 @@ func sentQuestions(tb testing.TB, body []byte) []byte {
 }
 
 // newNaiveClient returns the naive comparator of the call that sent
-// sent: the same URL, header template and question bytes, with the SDK's
-// default model and per-attempt deadline, through rt, encoding and
-// decoding with cd.
+// sent: the same URL, header template and question bytes, with the
+// benchmarks' model and the SDK's default per-attempt deadline, through rt,
+// encoding and decoding with cd.
 func newNaiveClient(tb testing.TB, sent testsupport.RecordedRequest, rt http.RoundTripper, cd naive.Codec) *naive.Client {
 	tb.Helper()
 	return &naive.Client{
