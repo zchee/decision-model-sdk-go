@@ -485,18 +485,30 @@ func checkRecord(t *testing.T, rec loggedRecord, level slog.Level, message strin
 	}
 }
 
-// unwatchedCalls are the calls that write to a logger or a stream no
-// WithLogger logger stands for: slog's package-level logger, the log
-// package's and the standard output.
+// unwatchedCalls are the names, by package, whose use writes to a logger or
+// a stream no WithLogger logger stands for: slog's package-level logger, the
+// log package's, and the standard output and error. os.Stdout and os.Stderr
+// are listed as values, so that any use of them is found: fmt.Fprint* to
+// them, their Write methods and log.New with one as its output. fmt.Fprint*
+// to another writer stays allowed.
 var unwatchedCalls = map[string][]string{
 	"log/slog": {"Debug", "DebugContext", "Default", "Error", "ErrorContext", "Info", "InfoContext", "Log", "LogAttrs", "SetDefault", "SetLogLoggerLevel", "Warn", "WarnContext"},
 	"log":      {"Fatal", "Fatalf", "Fatalln", "Panic", "Panicf", "Panicln", "Print", "Printf", "Println", "Default", "Output"},
 	"fmt":      {"Print", "Printf", "Println"},
+	"os":       {"Stdout", "Stderr"},
 }
 
-// unwatchedLogging parses the Go file src, named name, and returns each call
-// of unwatchedCalls in it as "<file>:<line>: <path>.<name>", resolving the
-// name each import has in the file.
+// unwatchedBuiltins are the builtin functions that write to the standard
+// error.
+var unwatchedBuiltins = []string{"print", "println"}
+
+// unwatchedLogging parses the Go file src, named name, and returns each use
+// of unwatchedCalls in it as "<file>:<line>:<column>: <path>.<name>",
+// resolving the name each import has in the file, and each call of
+// unwatchedBuiltins as "<file>:<line>:<column>: builtin <name>". The file is
+// parsed without resolving names, so a function of the package named print
+// or println would be reported as the builtin too; the module declares
+// none.
 func unwatchedLogging(name, src string) ([]string, error) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, name, src, parser.SkipObjectResolution)
@@ -517,6 +529,12 @@ func unwatchedLogging(name, src string) ([]string, error) {
 	}
 	var found []string
 	ast.Inspect(file, func(n ast.Node) bool {
+		if call, ok := n.(*ast.CallExpr); ok {
+			if fn, ok := call.Fun.(*ast.Ident); ok && slices.Contains(unwatchedBuiltins, fn.Name) {
+				found = append(found, fmt.Sprintf("%s: builtin %s", fset.Position(fn.Pos()), fn.Name))
+			}
+			return true
+		}
 		sel, ok := n.(*ast.SelectorExpr)
 		if !ok {
 			return true
@@ -538,7 +556,10 @@ func unwatchedLogging(name, src string) ([]string, error) {
 // output, so that every record the Adapter writes goes to the WithLogger
 // logger, whose records TestLogRecords checks, and no body or text can
 // reach a logger the tests do not watch. A planted file shows that each
-// form is found, an import renamed included.
+// form is found, an import renamed included, and that writing to another
+// writer is not. The walk skips what ./... skips: testdata and directories
+// whose names begin with a dot or an underscore, and vendor, whose files
+// are third-party code a checkout may hold beside the module's own.
 func TestNoUnwatchedLogging(t *testing.T) {
 	const planted = `package p
 
@@ -546,6 +567,8 @@ import (
 	"fmt"
 	stdlog "log"
 	"log/slog"
+	"os"
+	"strings"
 )
 
 func f() {
@@ -554,13 +577,30 @@ func f() {
 	stdlog.Printf("x")
 	fmt.Println("x")
 	_ = fmt.Sprint("x")
+	print("x")
+	println("x")
+	fmt.Fprintln(os.Stderr, "x")
+	_, _ = os.Stdout.Write(nil)
+	_ = stdlog.New(os.Stderr, "", 0)
+	var b strings.Builder
+	fmt.Fprint(&b, "x")
 }
 `
 	got, err := unwatchedLogging("planted.go", planted)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"planted.go:10:2: log/slog.Info", "planted.go:11:2: log/slog.Default", "planted.go:12:2: log.Printf", "planted.go:13:2: fmt.Println"}
+	want := []string{
+		"planted.go:12:2: log/slog.Info",
+		"planted.go:13:2: log/slog.Default",
+		"planted.go:14:2: log.Printf",
+		"planted.go:15:2: fmt.Println",
+		"planted.go:17:2: builtin print",
+		"planted.go:18:2: builtin println",
+		"planted.go:19:15: os.Stderr",
+		"planted.go:20:9: os.Stdout",
+		"planted.go:21:17: os.Stderr",
+	}
 	if diff := gocmp.Diff(want, got); diff != "" {
 		t.Fatalf("the planted file's calls (-want +got):\n%s", diff)
 	}
@@ -575,7 +615,7 @@ func f() {
 		switch {
 		case err != nil:
 			return err
-		case d.IsDir() && (d.Name() == "testdata" || strings.HasPrefix(d.Name(), ".")) && path != ".":
+		case d.IsDir() && (d.Name() == "testdata" || d.Name() == "vendor" || strings.HasPrefix(d.Name(), ".") || strings.HasPrefix(d.Name(), "_")) && path != ".":
 			return filepath.SkipDir
 		case d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go"):
 			return nil
