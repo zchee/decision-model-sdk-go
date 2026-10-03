@@ -310,7 +310,9 @@ func redact(u *url.URL) string {
 // A variable that is set to the empty string is reported as set, with the
 // empty value. Whether such a variable counts is the provider's rule,
 // because the vendors' Python SDKs differ: Anthropic's and Gemini's take an
-// empty value as none, OpenAI's takes it as the value.
+// empty value as none; OpenAI's takes an empty OPENAI_API_KEY as none and
+// an empty OPENAI_BASE_URL, OPENAI_ORG_ID or OPENAI_PROJECT_ID as the value
+// (openai 3.17.0, the version system-one-adapter-python v0.2.1 locks).
 func Env(name string) (value string, set bool) {
 	if name == "" {
 		return "", false

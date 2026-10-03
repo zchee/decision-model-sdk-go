@@ -37,6 +37,10 @@ type StatusError struct {
 	// http.CanonicalHeaderKey, as http.Header's methods and a net/http
 	// response keep them: the Adapter reads Retry-After and the request id
 	// by their canonical names and does not find a key in another case.
+	// The providers of this module keep only Retry-After, Retry-After-Ms
+	// and X-Typesafe-Request-Id here and drop every other response header,
+	// the vendors' own request ids included, so a retry policy's predicate
+	// cannot read another header from them.
 	Header http.Header
 	// Body is the response body as received. For the Adapter's retry
 	// reason, a nil Body is a response without a body and a Body that is

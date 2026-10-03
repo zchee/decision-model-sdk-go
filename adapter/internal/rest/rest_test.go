@@ -20,6 +20,7 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -779,7 +780,10 @@ func TestNewAndClose(t *testing.T) {
 			asked.Add(1)
 			return errPolicy
 		}
-		jar := http.CookieJar(nil)
+		jar, err := cookiejar.New(nil)
+		if err != nil {
+			t.Fatalf("cookiejar.New: %v", err)
+		}
 		hc := &http.Client{Transport: counter, Timeout: 3 * time.Second, CheckRedirect: policy, Jar: jar}
 		c := New(Config{HTTPClient: hc, Timeout: 5 * time.Second, BlankErrorBodyIsNone: true})
 		if c.owned {
@@ -823,7 +827,10 @@ func TestNewAndClose(t *testing.T) {
 
 	t.Run("success: borrowed client without a redirect policy", func(t *testing.T) {
 		counter := &closeCounter{RoundTripper: http.DefaultTransport}
-		jar := http.CookieJar(nil)
+		jar, err := cookiejar.New(nil)
+		if err != nil {
+			t.Fatalf("cookiejar.New: %v", err)
+		}
 		hc := &http.Client{Transport: counter, Timeout: 3 * time.Second, Jar: jar}
 		c := New(Config{HTTPClient: hc})
 		if c.owned {
