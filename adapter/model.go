@@ -49,7 +49,8 @@ const noModel = ":no-model"
 // reads the provider's environment variables when it is built. WithFactory
 // adds to them or replaces one for one Adapter.
 var presets = map[string]llm.Factory{
-	"openai": openaiPreset,
+	"anthropic": anthropicPreset,
+	"openai":    openaiPreset,
 }
 
 // ModelID returns the model string that selects model on provider:
