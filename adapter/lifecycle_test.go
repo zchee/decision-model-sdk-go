@@ -127,42 +127,85 @@ func await[T any](t testing.TB, what string, ch <-chan T) T {
 	}
 }
 
+// stuckBound is how long a method of *Adapter must stay in a wait that
+// awaitBlocked does not expect before it counts as stuck there. One sample
+// proves nothing: a contended mutex is released within milliseconds, and
+// the runtime parks a goroutine on a semaphore of its own inside an
+// allocation, for example while a garbage collection starts.
+const stuckBound = time.Second
+
 // awaitBlocked waits until a goroutine is blocked with the wait reason
 // reason, as runtime.Stack prints it ("chan receive",
 // "sync.WaitGroup.Wait"), and the first function of this package on its
-// stack is fn. It reads every goroutine's stack each millisecond and fails
-// t with the stacks at once when a goroutine whose first function of this
-// package is a method of *Adapter waits on another lock or channel (the
-// call is stuck where it should not wait), at once when returned delivers
-// (the call returned instead of blocking), and once lockBound has passed.
-func awaitBlocked(t testing.TB, reason, fn string, returned <-chan error) {
+// stack is fn, called on ad. It reads every goroutine's stack each
+// millisecond and fails t with the stacks when a goroutine whose first
+// function of this package is a method of ad waits on another lock or
+// channel with the same wait reason at the same line in every sample for
+// stuckBound (the call is stuck where it should not wait), at once when
+// returned delivers (the call returned instead of blocking), and once
+// lockBound has passed. Goroutines of another Adapter are ignored: one that
+// an earlier failed test left blocked must neither fail this test nor be
+// taken for the wait this test waits for.
+func awaitBlocked(t testing.TB, ad *Adapter, reason, fn string, returned <-chan error) {
 	t.Helper()
 	const pkg = "github.com/zchee/decision-model-sdk-go/adapter."
+	// A method's frame prints its receiver first: (*Adapter).Close(0xc000123400).
+	// The runtime appends a question mark to a value it may print wrongly.
+	self := fmt.Sprintf("%p", ad)
+	// wait is a goroutine's unexpected wait: its reason and the line of its
+	// first function of this package, and the time of the first sample of
+	// the run of samples that saw it.
+	type wait struct {
+		at    string
+		since time.Time
+	}
 	deadline := time.Now().Add(lockBound)
+	waits := map[string]wait{}
 	for {
 		stacks := goroutineStacks()
+		now := time.Now()
+		seen := map[string]wait{}
 		for g := range strings.SplitSeq(stacks, "\n\n") {
 			header, frames, _ := strings.Cut(g, "\n")
-			first := ""
-			for line := range strings.SplitSeq(frames, "\n") {
-				if strings.HasPrefix(line, pkg) {
-					first = line
+			first, line := "", ""
+			for f := range strings.SplitSeq(frames, "\n") {
+				if first != "" {
+					line, _, _ = strings.Cut(strings.TrimSpace(f), " ")
 					break
 				}
+				if strings.HasPrefix(f, pkg) {
+					first = f
+				}
 			}
-			if !strings.HasPrefix(first, pkg+"(*Adapter).") {
+			method, ok := strings.CutPrefix(first, pkg+"(*Adapter).")
+			if !ok {
 				continue
 			}
-			_, state, _ := strings.Cut(header, "[")
+			_, args, _ := strings.Cut(method, "(")
+			receiver, _, _ := strings.Cut(args, ",")
+			receiver, _, _ = strings.Cut(receiver, ")")
+			if strings.TrimSuffix(receiver, "?") != self {
+				continue
+			}
+			id, state, _ := strings.Cut(header, "[")
 			state, _, _ = strings.Cut(state, "]")
 			state, _, _ = strings.Cut(state, ",")
 			switch {
 			case state == reason && strings.HasPrefix(first, pkg+fn+"("):
 				return
 			case state != reason && isLockOrChannelWait(state):
-				t.Fatalf("%s is blocked (%s) where %s should wait (%s); goroutines:\n%s", strings.TrimPrefix(first, pkg), state, fn, reason, stacks)
+				at := state + " at " + line
+				w, ok := waits[id]
+				if !ok || w.at != at {
+					w = wait{at: at, since: now}
+				}
+				seen[id] = w
+				if now.Sub(w.since) >= stuckBound {
+					t.Fatalf("%s is blocked (%s) for %v where %s should wait (%s); goroutines:\n%s", strings.TrimPrefix(first, pkg), at, stuckBound, fn, reason, stacks)
+				}
 			}
 		}
+		waits = seen
 		select {
 		case err := <-returned:
 			t.Fatalf("%s returned %v instead of blocking (%s)", fn, err, reason)
@@ -176,9 +219,12 @@ func awaitBlocked(t testing.TB, reason, fn string, returned <-chan error) {
 }
 
 // isLockOrChannelWait reports whether a goroutine's wait reason is a wait
-// on a lock, a WaitGroup, a channel or a select.
+// on a lock, a WaitGroup, a channel or a select. A bare "semacquire" is not
+// one: sync.Mutex, sync.RWMutex, sync.WaitGroup and sync.Cond wait with
+// reasons of their own, and the runtime gives that reason to its own
+// semaphores, such as the one a garbage collection's start waits on.
 func isLockOrChannelWait(state string) bool {
-	for _, prefix := range []string{"sync.", "semacquire", "chan ", "select"} {
+	for _, prefix := range []string{"sync.", "chan ", "select"} {
 		if strings.HasPrefix(state, prefix) {
 			return true
 		}
@@ -297,7 +343,7 @@ func TestClosePanicLeavesTheCleanupConsistent(t *testing.T) {
 	await(t, "the first Close's cleanup", (<-chan struct{})(entered))
 	waited := make(chan error, 1)
 	go func() { waited <- ad.Close() }()
-	awaitBlocked(t, "chan receive", "(*Adapter).Close", waited)
+	awaitBlocked(t, ad, "chan receive", "(*Adapter).Close", waited)
 	close(release)
 	if got := await(t, "the first Close", (<-chan any)(panicked)); got != "provider close panicked" {
 		t.Fatalf("the first Close's panic = %v, want the provider's", got)
@@ -820,8 +866,12 @@ cases:
 				}
 				started, release := make(chan struct{}), make(chan struct{})
 				closeErr := errors.New("close failed")
-				l.providers()[0].closeFn = func(int) error {
-					close(started)
+				// A second cleanup would close the provider again: it fails the
+				// closes count below instead of closing started twice.
+				l.providers()[0].closeFn = func(n int) error {
+					if n == 1 {
+						close(started)
+					}
 					<-release
 					if fails {
 						return closeErr
@@ -832,7 +882,7 @@ cases:
 				go func() { first <- ad.Close() }()
 				await(t, "the first Close's cleanup", (<-chan struct{})(started))
 				go func() { second <- ad.Close() }()
-				awaitBlocked(t, "chan receive", "(*Adapter).Close", second)
+				awaitBlocked(t, ad, "chan receive", "(*Adapter).Close", second)
 				close(release)
 				want := error(nil)
 				if fails {
@@ -962,12 +1012,13 @@ func TestCloseWaitsForRunningCalls(t *testing.T) {
 			defer mu.Unlock()
 			events = append(events, e)
 		}
-		entered, release := make(chan struct{}), make(chan struct{})
+		entered, released := make(chan struct{}), make(chan struct{})
+		release := sync.OnceFunc(func() { close(released) })
 		var l lifecycle
 		l.configure = func(p *closingProvider) {
 			p.do = func(context.Context, *llm.Request) (*llm.Result, error) {
 				close(entered)
-				<-release
+				<-released
 				event("call returned")
 				return textResult(noulAnswer), nil
 			}
@@ -978,6 +1029,10 @@ func TestCloseWaitsForRunningCalls(t *testing.T) {
 		}
 		ad := l.adapter(t, "openai")
 		c := sdkClient(t, ad, false)
+		// Registered after the client's cleanup, so it runs first: a failure
+		// before the release below leaves no call blocked in its provider
+		// for the client's Close to wait for.
+		t.Cleanup(release)
 		questions := noulQuestions(t)
 		called := make(chan error, 1)
 		go func() {
@@ -987,13 +1042,13 @@ func TestCloseWaitsForRunningCalls(t *testing.T) {
 		await(t, "the call's provider request", (<-chan struct{})(entered))
 		closed := make(chan error, 1)
 		go func() { closed <- ad.Close() }()
-		awaitBlocked(t, "sync.WaitGroup.Wait", "(*Adapter).Close", closed)
+		awaitBlocked(t, ad, "sync.WaitGroup.Wait", "(*Adapter).Close", closed)
 		refused := make(chan error, 1)
 		go func() { refused <- roundTripError(ad, rawRequest(t.Context(), "POST", systemOnePath, noulBody)) }()
 		if err := await(t, "a call while Close waits", (<-chan error)(refused)); !isClosedError(err) {
 			t.Errorf("a call while Close waits: %v, want the closed Error", err)
 		}
-		close(release)
+		release()
 		if err := await(t, "the running call", (<-chan error)(called)); err != nil {
 			t.Errorf("the running call: %v", err)
 		}
