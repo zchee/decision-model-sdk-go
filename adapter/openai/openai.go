@@ -120,8 +120,8 @@ type Provider struct {
 type Option func(*options)
 
 // options are a Provider's settings as its Options set them. A pointer that
-// is nil is a setting the options did not give, which New takes from the
-// environment or the default.
+// is nil, or points to the empty string, is a setting the options did not
+// give, which New takes from the environment or the default.
 type options struct {
 	key, baseURL, org, project *string
 	api                        API
@@ -134,13 +134,15 @@ type options struct {
 
 // New returns a Provider for model, reading OPENAI_API_KEY, OPENAI_BASE_URL,
 // OPENAI_ORG_ID and OPENAI_PROJECT_ID once, each only when its option was
-// not given. An option given with the empty string is used as given and
-// its variable is not read.
+// not given. An option given with the empty string counts as not given, so
+// its variable applies.
 //
-// A key or base URL that is empty, from its option or its variable, is
-// none: New fails without a key, and the default base URL,
-// https://api.openai.com/v1, applies without a base URL. An organization or
-// project that is empty is not sent. Model returns model as it is given.
+// A variable that is set to the empty string counts as not set, and so
+// does a key from OPENAI_API_KEY that is only white space: the key, from
+// the option or the variable, is sent with the white space around it
+// removed (strings.TrimSpace). Without a key New fails, and without a base URL the default,
+// https://api.openai.com/v1, applies; an organization or project that ends
+// up empty is not sent. Model returns model as it is given.
 //
 // New fails for an API outside Auto, Responses and ChatCompletions (with
 // upstream's text "api must be 'responses' or 'chat_completions'"), a
@@ -163,7 +165,7 @@ func New(model string, opts ...Option) (*Provider, error) {
 	case o.timeoutSet && o.timeout <= 0:
 		return nil, errTimeout
 	}
-	key := setting(o.key, envAPIKey)
+	key := strings.TrimSpace(setting(o.key, envAPIKey))
 	if key == "" {
 		return nil, errNoKey
 	}
@@ -199,10 +201,11 @@ func New(model string, opts ...Option) (*Provider, error) {
 	}, nil
 }
 
-// setting returns *opt when the option was given, else the value of the
-// environment variable name, "" when it is not set.
+// setting returns *opt when the option was given with a value that is not
+// empty, else the value of the environment variable name, "" when it is
+// not set.
 func setting(opt *string, name string) string {
-	if opt != nil {
+	if opt != nil && *opt != "" {
 		return *opt
 	}
 	v, _ := rest.Env(name)
@@ -214,7 +217,7 @@ func setting(opt *string, name string) string {
 // error names where the refused URL came from and holds no part of it.
 func baseURL(opt *string) (*url.URL, error) {
 	raw, src := setting(opt, envBaseURL), envBaseURL
-	if opt != nil {
+	if opt != nil && *opt != "" {
 		src = "WithBaseURL"
 	}
 	if raw == "" {
@@ -241,13 +244,19 @@ func endpoint(base *url.URL, path string) *url.URL {
 }
 
 // WithAPIKey sets the key sent as Authorization: Bearer (default
-// OPENAI_API_KEY). An empty key is no key, and New fails.
+// OPENAI_API_KEY), with the white space around it removed. A key that is
+// empty or only white space counts as not given: OPENAI_API_KEY applies,
+// and without it New fails.
 func WithAPIKey(key string) Option {
-	return func(o *options) { o.key = &key }
+	return func(o *options) {
+		key = strings.TrimSpace(key)
+		o.key = &key
+	}
 }
 
 // WithBaseURL sets the base URL (default OPENAI_BASE_URL, else
-// https://api.openai.com/v1; an empty value is none). A request goes to its
+// https://api.openai.com/v1). An empty u counts as not given:
+// OPENAI_BASE_URL applies, else the default. A request goes to its
 // path with /responses or /chat/completions appended after one slash. Its
 // query is kept and sent with every request, and its fragment is dropped.
 // Its userinfo stays in the request's URL, which the HTTP client's
@@ -258,13 +267,15 @@ func WithBaseURL(u string) Option {
 }
 
 // WithOrganization sets the OpenAI-Organization header (default
-// OPENAI_ORG_ID; not sent when empty).
+// OPENAI_ORG_ID; not sent when empty). An empty id counts as not given:
+// OPENAI_ORG_ID applies.
 func WithOrganization(id string) Option {
 	return func(o *options) { o.org = &id }
 }
 
 // WithProject sets the OpenAI-Project header (default OPENAI_PROJECT_ID;
-// not sent when empty).
+// not sent when empty). An empty id counts as not given: OPENAI_PROJECT_ID
+// applies.
 func WithProject(id string) Option {
 	return func(o *options) { o.project = &id }
 }

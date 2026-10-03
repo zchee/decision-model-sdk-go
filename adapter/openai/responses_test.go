@@ -57,8 +57,10 @@ func TestUnfinishedResponsesAreNotAnswers(t *testing.T) {
 // in order and skips other item types; a refusal part of any message item
 // is a non-answer with upstream's text, which ends without a period; a
 // reason or refusal that is null or absent is written None; the counts are
-// usage.input_tokens and usage.output_tokens; and a body that is not a
-// Responses API response is a plain error of a fixed text.
+// usage.input_tokens and usage.output_tokens; a status, reason or refusal
+// that is null or absent is written None and an integer its digits; and a
+// body that is not a Responses API response, or such a value of another
+// kind, is a plain error of a fixed text.
 func TestResponsesResult(t *testing.T) {
 	const reasoning = `{"id":"reasoning-test","type":"reasoning","summary":[{"type":"summary_text","text":"Ignored summary."}]}`
 	tests := map[string]struct {
@@ -175,16 +177,43 @@ func TestResponsesResult(t *testing.T) {
 			body:    `[]`,
 			wantErr: errNotResponses.Error(),
 		},
-		"error: status absent": {
-			body:    `{"output":[]}`,
+		"error: status absent is None": {
+			body:      `{"output":[]}`,
+			wantErr:   "OpenAI response did not complete: None.",
+			nonAnswer: true,
+		},
+		"error: status null is None": {
+			body:      `{"status":null,"output":[]}`,
+			wantErr:   "OpenAI response did not complete: None.",
+			nonAnswer: true,
+		},
+		"error: an empty object is None": {
+			body:      `{}`,
+			wantErr:   "OpenAI response did not complete: None.",
+			nonAnswer: true,
+		},
+		"error: status an integer is its digits": {
+			body:       `{"status":200,"output":[]}`,
+			wantErr:    "OpenAI response did not complete: 200.",
+			nonAnswer:  true,
+			wantReason: new("200"),
+		},
+		"error: status an integer, error before it": {
+			body:       `{"status":1,"error":{"message":"generation failed"}}`,
+			wantErr:    "OpenAI response did not complete: generation failed.",
+			nonAnswer:  true,
+			wantReason: new("1"),
+		},
+		"error: status a fraction": {
+			body:    `{"status":2.5,"output":[]}`,
 			wantErr: errNotResponses.Error(),
 		},
-		"error: status null": {
-			body:    `{"status":null,"output":[]}`,
+		"error: status false": {
+			body:    `{"status":false,"output":[]}`,
 			wantErr: errNotResponses.Error(),
 		},
-		"error: status a number": {
-			body:    `{"status":200,"output":[]}`,
+		"error: status an array": {
+			body:    `{"status":["completed"],"output":[]}`,
 			wantErr: errNotResponses.Error(),
 		},
 		"error: error a string": {
@@ -192,10 +221,27 @@ func TestResponsesResult(t *testing.T) {
 			wantErr:    errNotResponses.Error(),
 			wantReason: new("failed"),
 		},
-		"error: an error message that is a number": {
+		"error: an error message that is an integer": {
 			body:       `{"status":"failed","error":{"message":500}}`,
+			wantErr:    "OpenAI response did not complete: 500.",
+			nonAnswer:  true,
+			wantReason: new("failed"),
+		},
+		"error: an error message that is a bool": {
+			body:       `{"status":"failed","error":{"message":true}}`,
 			wantErr:    errNotResponses.Error(),
 			wantReason: new("failed"),
+		},
+		"error: an incomplete reason that is an integer": {
+			body:       `{"status":"incomplete","incomplete_details":{"reason":7}}`,
+			wantErr:    "OpenAI response did not complete: 7.",
+			nonAnswer:  true,
+			wantReason: new("incomplete"),
+		},
+		"error: an incomplete reason with an exponent": {
+			body:       `{"status":"incomplete","incomplete_details":{"reason":1e2}}`,
+			wantErr:    errNotResponses.Error(),
+			wantReason: new("incomplete"),
 		},
 		"error: incomplete_details an array": {
 			body:       `{"status":"incomplete","incomplete_details":["max_output_tokens"]}`,
@@ -227,8 +273,14 @@ func TestResponsesResult(t *testing.T) {
 			wantErr:    errNotResponses.Error(),
 			wantReason: new("completed"),
 		},
-		"error: a refusal that is a number": {
+		"error: a refusal that is an integer": {
 			body:       `{"status":"completed","output":[{"type":"message","content":[{"type":"refusal","refusal":1}]}]}`,
+			wantErr:    "OpenAI response was a refusal: 1",
+			nonAnswer:  true,
+			wantReason: new("completed"),
+		},
+		"error: a refusal that is an array": {
+			body:       `{"status":"completed","output":[{"type":"message","content":[{"type":"refusal","refusal":["no"]}]}]}`,
 			wantErr:    errNotResponses.Error(),
 			wantReason: new("completed"),
 		},

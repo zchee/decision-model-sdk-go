@@ -24,9 +24,8 @@ import (
 )
 
 // errNotResponses is the error of a 2xx body that is not a Responses API
-// response: not JSON, not an object, a status that is not a string, or a
-// member the result needs absent or of the wrong kind. Its text quotes
-// nothing of the body.
+// response: not JSON, not an object, or a member the result needs absent
+// or of the wrong kind. Its text quotes nothing of the body.
 var errNotResponses = errors.New("openai: the response body is not a Responses API response")
 
 // responsesBody returns the Responses request body
@@ -76,32 +75,39 @@ func format(members ...jsonx.Member) jsonx.Value {
 
 // responsesResult returns the result of the Responses response body data
 // (providers/openai.py:72-90). It records data with its status before it
-// checks anything, nil when the status is not a string.
+// checks anything: the text pyValue gives, nil when the status is null or
+// absent or cannot be read.
 //
-// A status other than "completed" is a non-answer whose reason is
-// error.message when error is not null, else incomplete_details.reason when
-// incomplete_details is not null, else the status, a null or absent message
-// or reason written None. Then a part of type refusal in an item of type
-// message is a non-answer with its refusal text, None for null. The text is
+// A status other than the string "completed" is a non-answer whose reason
+// is error.message when error is not null, else incomplete_details.reason
+// when incomplete_details is not null, else the status, each written as
+// pyValue writes it (None for null or absent, an integer as its digits).
+// Then a part of type refusal in an item of type message is a non-answer
+// with its refusal text, written the same way. The text is
 // the text of every output_text part of every message item, in order;
 // items of other types, such as reasoning, are skipped. The counts are
 // usage.input_tokens and usage.output_tokens, unknown when usage or the
 // member is null or absent.
 func responsesResult(data []byte, trace *llm.Trace) (*llm.Result, error) {
 	doc, err := jsonx.Read(data)
-	var status *string
-	if err == nil && doc.Kind() == jsonx.KindObject {
-		if s, has := doc.Member("status"); has && s.Kind() == jsonx.KindString {
-			text := s.Text()
+	ok := err == nil && doc.Kind() == jsonx.KindObject
+	var (
+		status *string
+		text   string
+		kind   jsonx.Kind
+	)
+	if ok {
+		text, kind, ok = pyValue(doc, "status")
+		if ok && kind != jsonx.KindNull {
 			status = &text
 		}
 	}
 	trace.RecordResponse(data, status)
-	if status == nil {
+	if !ok {
 		return nil, errNotResponses
 	}
-	if *status != "completed" {
-		reason, ok := incompleteReason(doc, *status)
+	if kind != jsonx.KindString || text != "completed" {
+		reason, ok := incompleteReason(doc, text)
 		if !ok {
 			return nil, errNotResponses
 		}
@@ -126,15 +132,15 @@ func responsesResult(data []byte, trace *llm.Trace) (*llm.Result, error) {
 			if partType(part) != "refusal" {
 				continue
 			}
-			refusal, ok := optionalString(part, "refusal")
+			refusal, _, ok := pyValue(part, "refusal")
 			if !ok {
 				return nil, errNotResponses
 			}
 			// Upstream's text has no period after the refusal.
-			return nil, &llm.NonAnswerError{Message: "OpenAI response was a refusal: " + pyStr(refusal)}
+			return nil, &llm.NonAnswerError{Message: "OpenAI response was a refusal: " + refusal}
 		}
 	}
-	var text strings.Builder
+	var answer strings.Builder
 	for i := range output.Len() {
 		content, _ := messageContent(output.Index(i))
 		for j := range content.Len() {
@@ -146,19 +152,19 @@ func responsesResult(data []byte, trace *llm.Trace) (*llm.Result, error) {
 			if !has || t.Kind() != jsonx.KindString {
 				return nil, errNotResponses
 			}
-			text.WriteString(t.Text())
+			answer.WriteString(t.Text())
 		}
 	}
 	in, out, ok := usage(doc, "input_tokens", "output_tokens")
 	if !ok {
 		return nil, errNotResponses
 	}
-	return &llm.Result{Text: text.String(), InputTokens: in, OutputTokens: out}, nil
+	return &llm.Result{Text: answer.String(), InputTokens: in, OutputTokens: out}, nil
 }
 
-// incompleteReason returns the reason of a response whose status is not
-// "completed", and false when error or incomplete_details is neither null
-// nor an object, or its member is neither null, absent nor a string.
+// incompleteReason returns the reason of a response whose status, written
+// status, is not "completed", and false when error or incomplete_details is
+// neither null nor an object, or its member is one pyValue refuses.
 func incompleteReason(doc jsonx.Node, status string) (string, bool) {
 	for _, m := range [...]struct{ object, member string }{{"error", "message"}, {"incomplete_details", "reason"}} {
 		v, has := doc.Member(m.object)
@@ -168,8 +174,8 @@ func incompleteReason(doc jsonx.Node, status string) (string, bool) {
 		if v.Kind() != jsonx.KindObject {
 			return "", false
 		}
-		s, ok := optionalString(v, m.member)
-		return pyStr(s), ok
+		reason, _, ok := pyValue(v, m.member)
+		return reason, ok
 	}
 	return status, true
 }

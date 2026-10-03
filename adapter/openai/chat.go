@@ -82,9 +82,10 @@ func marshal(v jsonx.Value) ([]byte, error) {
 
 // chatResult returns the result of the Chat Completions response body data
 // (providers/openai.py:44-53). It records data with choices[0].finish_reason
-// before it checks anything else, nil when that member is null, absent or
-// cannot be read. A finish reason other than "stop" or null is a
-// non-answer with upstream's text. The text is choices[0].message.content,
+// before it checks anything else: the text pyValue gives, nil when the
+// member is null or absent or cannot be read. A finish reason other than
+// "stop" or null is a non-answer with upstream's text, an integer written
+// as its digits. The text is choices[0].message.content,
 // "" when it is null or absent, and the counts are usage.prompt_tokens and
 // usage.completion_tokens, unknown when usage or the member is null or
 // absent.
@@ -100,22 +101,29 @@ func chatResult(data []byte, trace *llm.Trace) (*llm.Result, error) {
 			ok = choice.Kind() == jsonx.KindObject
 		}
 	}
-	var reason *string
+	var (
+		reason *string
+		text   string
+		kind   jsonx.Kind
+	)
 	if ok {
-		reason, ok = optionalString(choice, "finish_reason")
+		text, kind, ok = pyValue(choice, "finish_reason")
+		if ok && kind != jsonx.KindNull {
+			reason = &text
+		}
 	}
 	trace.RecordResponse(data, reason)
 	if !ok {
 		return nil, errNotChat
 	}
-	if reason != nil && *reason != "stop" {
-		return nil, &llm.NonAnswerError{Message: "OpenAI chat completion did not complete: " + *reason + "."}
+	if kind != jsonx.KindNull && (kind != jsonx.KindString || text != "stop") {
+		return nil, &llm.NonAnswerError{Message: "OpenAI chat completion did not complete: " + text + "."}
 	}
 	message, has := choice.Member("message")
 	if !has || message.Kind() != jsonx.KindObject {
 		return nil, errNotChat
 	}
-	text, ok := optionalString(message, "content")
+	content, ok := optionalString(message, "content")
 	if !ok {
 		return nil, errNotChat
 	}
@@ -124,8 +132,8 @@ func chatResult(data []byte, trace *llm.Trace) (*llm.Result, error) {
 		return nil, errNotChat
 	}
 	res := &llm.Result{InputTokens: in, OutputTokens: out}
-	if text != nil {
-		res.Text = *text
+	if content != nil {
+		res.Text = *content
 	}
 	return res, nil
 }
@@ -145,13 +153,26 @@ func optionalString(obj jsonx.Node, name string) (*string, bool) {
 	return nil, false
 }
 
-// pyStr returns s as Python's str() writes the value of an optional string:
-// the string itself, or "None" for nil.
-func pyStr(s *string) string {
-	if s == nil {
-		return "None"
+// pyValue returns the text upstream's f-string writes, with Python's str(),
+// for the member name of the object obj, and the member's kind: a string
+// is itself (KindString); null or an absent member is None (KindNull); an
+// integer literal is its digits (KindNumber), -0 written 0 as json.loads
+// reads it. It returns false for any other kind, a number with a fraction
+// or an exponent included, whose Python text the port does not reproduce.
+func pyValue(obj jsonx.Node, name string) (string, jsonx.Kind, bool) {
+	v, has := obj.Member(name)
+	switch {
+	case !has || v.Kind() == jsonx.KindNull:
+		return "None", jsonx.KindNull, true
+	case v.Kind() == jsonx.KindString:
+		return v.Text(), jsonx.KindString, true
+	case v.Kind() == jsonx.KindNumber && v.IsInt():
+		if v.Text() == "-0" {
+			return "0", jsonx.KindNumber, true
+		}
+		return v.Text(), jsonx.KindNumber, true
 	}
-	return *s
+	return "", v.Kind(), false
 }
 
 // usage returns the counts named in and out of the usage member of the

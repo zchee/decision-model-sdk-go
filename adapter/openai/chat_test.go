@@ -145,7 +145,8 @@ func known(n uint64) llm.Count { return llm.Count{N: n, Known: true} }
 // TestChatResult pins the Chat Completions result parser
 // (providers/openai.py:44-53): the body is recorded with
 // choices[0].finish_reason before any check; a finish reason other than
-// "stop" or null is a non-answer with upstream's whole text; content null
+// "stop" or null is a non-answer with upstream's whole text, an integer
+// written as its digits and any other kind a plain error; content null
 // or absent is the empty text; a count null or absent is unknown and not
 // total_tokens; and a body that is not a Chat Completions response is a
 // plain error of a fixed text.
@@ -246,8 +247,32 @@ func TestChatResult(t *testing.T) {
 			body:    `{"choices":["stop"]}`,
 			wantErr: errNotChat.Error(),
 		},
-		"error: finish reason a number": {
-			body:    `{"choices":[{"finish_reason":1,"message":{"content":"t"}}]}`,
+		"error: finish reason an integer is its digits": {
+			body:       `{"choices":[{"finish_reason":1,"message":{"content":"t"}}]}`,
+			wantErr:    "OpenAI chat completion did not complete: 1.",
+			nonAnswer:  true,
+			wantReason: new("1"),
+		},
+		"error: finish reason -0 is 0": {
+			body:       `{"choices":[{"finish_reason":-0,"message":{"content":"t"}}]}`,
+			wantErr:    "OpenAI chat completion did not complete: 0.",
+			nonAnswer:  true,
+			wantReason: new("0"),
+		},
+		"error: finish reason a fraction": {
+			body:    `{"choices":[{"finish_reason":1.5,"message":{"content":"t"}}]}`,
+			wantErr: errNotChat.Error(),
+		},
+		"error: finish reason an exponent": {
+			body:    `{"choices":[{"finish_reason":1e2,"message":{"content":"t"}}]}`,
+			wantErr: errNotChat.Error(),
+		},
+		"error: finish reason true": {
+			body:    `{"choices":[{"finish_reason":true,"message":{"content":"t"}}]}`,
+			wantErr: errNotChat.Error(),
+		},
+		"error: finish reason an object": {
+			body:    `{"choices":[{"finish_reason":{"type":"stop"},"message":{"content":"t"}}]}`,
 			wantErr: errNotChat.Error(),
 		},
 		"error: message absent": {

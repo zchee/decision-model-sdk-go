@@ -232,9 +232,17 @@ func TestNewRefuses(t *testing.T) {
 			env:  map[string]string{envAPIKey: ""},
 			want: "openai: no API key: set OPENAI_API_KEY or pass WithAPIKey",
 		},
-		"error: WithAPIKey empty wins over the variable": {
-			env:  map[string]string{envAPIKey: testKey},
+		"error: WithAPIKey empty without the variable": {
 			opts: []Option{WithAPIKey("")},
+			want: "openai: no API key: set OPENAI_API_KEY or pass WithAPIKey",
+		},
+		"error: WithAPIKey only white space without the variable": {
+			opts: []Option{WithAPIKey(" \t\n ")},
+			want: "openai: no API key: set OPENAI_API_KEY or pass WithAPIKey",
+		},
+		"error: OPENAI_API_KEY only white space": {
+			env:  map[string]string{envAPIKey: "   "},
+			opts: []Option{WithAPIKey("  ")},
 			want: "openai: no API key: set OPENAI_API_KEY or pass WithAPIKey",
 		},
 		"error: OPENAI_BASE_URL not a URL": {
@@ -310,8 +318,8 @@ func TestNewAcceptsTheDefaults(t *testing.T) {
 			env:     map[string]string{envAPIKey: testKey, envBaseURL: ""},
 			wantAPI: Responses,
 		},
-		"success: WithBaseURL empty is the default base URL": {
-			env:     map[string]string{envAPIKey: testKey, envBaseURL: "https://compatible.test/v1"},
+		"success: WithBaseURL empty without the variable is the default base URL": {
+			env:     map[string]string{envAPIKey: testKey},
 			opts:    []Option{WithBaseURL("")},
 			wantAPI: Responses,
 		},
@@ -340,6 +348,90 @@ func TestNewAcceptsTheDefaults(t *testing.T) {
 			}
 			if got := p.endpoint.String(); got != "https://api.openai.com/v1/responses" {
 				t.Errorf("endpoint = %q, want the default base URL's", got)
+			}
+		})
+	}
+}
+
+// TestEmptyOptionIsNotGiven pins that an option given with the empty
+// string counts as not given, so its variable applies as if the option were
+// absent: the key, the base URL, the organization and the project. A key
+// is trimmed first, from the option or the variable, so a key of white
+// space is empty.
+func TestEmptyOptionIsNotGiven(t *testing.T) {
+	tests := map[string]struct {
+		env     map[string]string
+		opt     Option
+		wantURL string
+		want    http.Header
+	}{
+		"success: WithAPIKey empty": {
+			env:     map[string]string{envAPIKey: "env-word"},
+			opt:     WithAPIKey(""),
+			wantURL: "https://compatible.test/v1/chat/completions",
+			want:    http.Header{"Authorization": {"Bearer env-word"}, "Content-Type": {"application/json"}},
+		},
+		"success: WithAPIKey only white space": {
+			env:     map[string]string{envAPIKey: "env-word"},
+			opt:     WithAPIKey("  \t "),
+			wantURL: "https://compatible.test/v1/chat/completions",
+			want:    http.Header{"Authorization": {"Bearer env-word"}, "Content-Type": {"application/json"}},
+		},
+		"success: the key from WithAPIKey trimmed": {
+			env:     map[string]string{envAPIKey: "env-word"},
+			opt:     WithAPIKey(" option-word\n"),
+			wantURL: "https://compatible.test/v1/chat/completions",
+			want:    http.Header{"Authorization": {"Bearer option-word"}, "Content-Type": {"application/json"}},
+		},
+		"success: the key from OPENAI_API_KEY trimmed": {
+			env:     map[string]string{envAPIKey: "\tenv-word \r\n"}, //nolint:gosec // G101: a made-up word around white space, not a credential.
+			opt:     WithAPIKey(""),
+			wantURL: "https://compatible.test/v1/chat/completions",
+			want:    http.Header{"Authorization": {"Bearer env-word"}, "Content-Type": {"application/json"}},
+		},
+		"success: WithBaseURL empty": {
+			env:     map[string]string{envAPIKey: testKey, envBaseURL: "https://env.test/v1"},
+			opt:     WithBaseURL(""),
+			wantURL: "https://env.test/v1/chat/completions",
+			want:    http.Header{"Authorization": {"Bearer " + testKey}, "Content-Type": {"application/json"}},
+		},
+		"success: WithOrganization empty": {
+			env:     map[string]string{envAPIKey: testKey, envOrg: "org-env"},
+			opt:     WithOrganization(""),
+			wantURL: "https://compatible.test/v1/chat/completions",
+			want:    http.Header{"Authorization": {"Bearer " + testKey}, "Content-Type": {"application/json"}, "Openai-Organization": {"org-env"}},
+		},
+		"success: WithProject empty": {
+			env:     map[string]string{envAPIKey: testKey, envProject: "project-env"},
+			opt:     WithProject(""),
+			wantURL: "https://compatible.test/v1/chat/completions",
+			want:    http.Header{"Authorization": {"Bearer " + testKey}, "Content-Type": {"application/json"}, "Openai-Project": {"project-env"}},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			clearEnv(t)
+			t.Setenv(envBaseURL, "https://compatible.test/v1")
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
+			rec := &recorder{body: chatAnswer}
+			p, err := New("test-model", WithHTTPClient(&http.Client{Transport: rec}), tt.opt)
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			if _, err := p.Do(t.Context(), request()); err != nil {
+				t.Fatalf("Do: %v", err)
+			}
+			reqs := rec.requests()
+			if len(reqs) != 1 {
+				t.Fatalf("the transport received %d requests, want 1", len(reqs))
+			}
+			if reqs[0].url != tt.wantURL {
+				t.Errorf("URL = %q, want %q", reqs[0].url, tt.wantURL)
+			}
+			if diff := gocmp.Diff(tt.want, reqs[0].header); diff != "" {
+				t.Errorf("header mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -384,6 +476,11 @@ func TestAPIChoice(t *testing.T) {
 			base:    "https://api.openai.com.proxy.test/v1",
 			wantAPI: ChatCompletions,
 			wantURL: "https://api.openai.com.proxy.test/v1/chat/completions",
+		},
+		"success: the host with a trailing dot is Chat Completions": {
+			base:    "https://api.openai.com./v1",
+			wantAPI: ChatCompletions,
+			wantURL: "https://api.openai.com./v1/chat/completions",
 		},
 		"success: another host is Chat Completions": {
 			base:    "https://compatible.test/v1",
@@ -513,9 +610,11 @@ func TestOrganizationAndProjectHeaders(t *testing.T) {
 			wantOrg:     []string{"org-option"},
 			wantProject: []string{"project-option"},
 		},
-		"success: empty options send neither and read no variable": {
-			env:  map[string]string{envOrg: "org-env", envProject: "project-env"},
-			opts: []Option{WithOrganization(""), WithProject("")},
+		"success: empty options leave the variables in effect": {
+			env:         map[string]string{envOrg: "org-env", envProject: "project-env"},
+			opts:        []Option{WithOrganization(""), WithProject("")},
+			wantOrg:     []string{"org-env"},
+			wantProject: []string{"project-env"},
 		},
 		"success: empty variables send neither": {
 			env: map[string]string{envOrg: "", envProject: ""},
