@@ -173,15 +173,20 @@ The tests against the live API (`livetest/`, the port of the Python
 SDK's `tests/test_integration.py`) compile only with the build tag `live`
 and are not run by CI: each call to System One is billed, and CI holds no
 API key. They run where a maintainer holds a key, with the key in the
-environment, never on the command line:
+environment, never on the command line. For TypeSafe AI's API:
 
 ```sh
-DECISION_MODEL_LIVE_TESTS=1 go test -tags live -count=1 -v ./livetest/
+DECISION_MODEL_LIVE_TESTS=1 DECISION_MODEL_API_KEY=... \
+	DECISION_MODEL_BASE_URL=https://api.typesafe.ai \
+	DECISION_MODEL_DEFAULT_MODEL=jev-latest \
+	go test -tags live -count=1 -v ./livetest/
 ```
 
 Each test fails before it calls the API unless `DECISION_MODEL_LIVE_TESTS` is `1`
-and `TYPESAFE_API_KEY` is set; `TYPESAFE_BASE_URL` selects another host.
-`go test -list '.*' -tags live ./...` lists them without either variable,
+and `DECISION_MODEL_API_KEY`, `DECISION_MODEL_BASE_URL` and
+`DECISION_MODEL_DEFAULT_MODEL` are set: the environment, not the code, names
+the vendor and the model the tests call.
+`go test -list '.*' -tags live ./...` lists them without the variables,
 which is how CI's port test matrix check finds them. The untagged tests of
 the same package run in CI: the guard, the recorder's credential scrubber,
 and the example programs against a local stand-in for the API.
@@ -293,7 +298,7 @@ corpora also run as ordinary tests in every `go test` run.
 | `FuzzErrorBody` | `./internal/codec` | an error response body |
 | `FuzzDecodePaths` | `./internal/codec` | a program that writes a System One body with repeated members; the visitor and the lazy pass must agree with the body's last-wins reading |
 | `FuzzRetryAfter` | `.` | `Retry-After-Ms` and `Retry-After` values |
-| `FuzzTagGrammar` | `.` | a `typesafe` struct tag |
+| `FuzzTagGrammar` | `.` | a `decision` struct tag |
 | `FuzzFalsyJSON` | `./internal/engine` | a JSON value a question holds (`RawJSON`, JSON `Content`); `FalsyJSON`, which reads its first bytes first, must give the whole-value check's verdict |
 | `FuzzIsSecretHeader` | `./internal/engine` | a header name; `IsSecretHeader`, which folds an ASCII name in place, must give the verdict of the name lower-cased |
 | `FuzzValidUTF8` | `./internal/codec` | any byte string; `validUTF8` must give `utf8.Valid`'s verdict, which on amd64 holds sonic's SIMD validator to Go's (`TestValidUTF8Parity` covers the short inputs exhaustively) |

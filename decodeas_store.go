@@ -29,7 +29,7 @@ package decision
 //  2. off is reflect.StructField.Offset of one of that struct's own fields,
 //     taken once per type by buildPlan (typedField.offset). An answer field
 //     is never promoted from an embedded struct: planField refuses a
-//     typesafe tag below the struct's own fields, so no offset is a sum.
+//     decision tag below the struct's own fields, so no offset is a sum.
 //     Before a plan is used, checkPlanLayout compares each field's offset,
 //     end and kind with what reflect gives the field at its index, and
 //     panics by name on any difference.

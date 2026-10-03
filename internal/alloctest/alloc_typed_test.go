@@ -108,7 +108,7 @@ func TestAllocTypedDecode(t *testing.T) {
 // failToneAnswers is reviewAnswers's tone with options result.json's
 // "friendly" is not one of, so DecodeAs of result.json fails on it.
 type failToneAnswers struct {
-	Tone decision.ChoiceAnswer `typesafe:"kind=choice;name=tone;instructions=Tone?;options=calm|hostile"`
+	Tone decision.ChoiceAnswer `decision:"kind=choice;name=tone;instructions=Tone?;options=calm|hostile"`
 }
 
 // TestAllocTypedFailure pins what a typed failure costs: DecodeAs of

@@ -68,24 +68,24 @@ func spamPrepared(t *testing.T) *Prepared {
 // name is tagged, since a field's question name is otherwise the field's
 // name as written, "Spam".
 type knownResponse struct {
-	Spam NoulAnswer `typesafe:"kind=noul;name=spam"`
+	Spam NoulAnswer `decision:"kind=noul;name=spam"`
 }
 
 // typedSystemOneResponse is the Go form of the upstream
 // TypedSystemOneResponse (:28-43): spam, a tone whose pick is friendly or
 // hostile (the upstream Tone's Literal), and an optional missing.
 type typedSystemOneResponse struct {
-	Spam    NoulAnswer   `typesafe:"kind=noul;name=spam"`
-	Tone    ChoiceAnswer `typesafe:"kind=choice;name=tone;options=friendly|hostile"`
-	Missing NoulAnswer   `typesafe:"kind=noul;name=missing;optional"`
+	Spam    NoulAnswer   `decision:"kind=noul;name=spam"`
+	Tone    ChoiceAnswer `decision:"kind=choice;name=tone;options=friendly|hostile"`
+	Missing NoulAnswer   `decision:"kind=noul;name=missing;optional"`
 }
 
 // reviewAnswers types every answer of RESULT, with the question set
 // q3Questions builds by hand (tests/test_clients.py:60-80).
 type reviewAnswers struct {
-	Spam    NoulAnswer   `typesafe:"kind=noul;name=spam;instructions=Spam?"`
-	Tone    ChoiceAnswer `typesafe:"kind=choice;name=tone;instructions=Tone?;options=friendly|hostile"`
-	Quality ScoreAnswer  `typesafe:"kind=score;name=quality;instructions=Quality?;levels=bad|ok|great"`
+	Spam    NoulAnswer   `decision:"kind=noul;name=spam;instructions=Spam?"`
+	Tone    ChoiceAnswer `decision:"kind=choice;name=tone;instructions=Tone?;options=friendly|hostile"`
+	Quality ScoreAnswer  `decision:"kind=score;name=quality;instructions=Quality?;levels=bad|ok|great"`
 }
 
 // typedCmp compares answer values with their unexported wire value and
@@ -266,8 +266,8 @@ func TestDecodeAsOptionalFieldAndUnknownAnswer(t *testing.T) {
 // the *ConfigError of PreparedFor, Ask before any request.
 func TestDecodeAsOptional(t *testing.T) {
 	type notAnAnswer struct {
-		Spam  NoulAnswer `typesafe:"kind=noul;name=spam"`
-		Count int        `typesafe:"kind=noul;optional"`
+		Spam  NoulAnswer `decision:"kind=noul;name=spam"`
+		Count int        `decision:"kind=noul;optional"`
 	}
 	tests := map[string]struct {
 		body        []byte
@@ -487,7 +487,7 @@ func TestAskValidationFieldPaths(t *testing.T) {
 	// reviewWithFour is reviewAnswers with a fourth level, for a body whose
 	// score names level 3.
 	type reviewWithFour struct {
-		Quality ScoreAnswer `typesafe:"kind=score;name=quality;levels=bad|ok|great|wow"`
+		Quality ScoreAnswer `decision:"kind=score;name=quality;levels=bad|ok|great|wow"`
 	}
 	tests := map[string]struct {
 		body   []byte

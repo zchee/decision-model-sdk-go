@@ -178,7 +178,7 @@ func newNaiveClient(tb testing.TB, sent testsupport.RecordedRequest, rt http.Rou
 		Transport: rt,
 		URL:       sent.URL,
 		Header:    sent.Header,
-		Model:     decision.DefaultModel,
+		Model:     testModel,
 		Questions: sentQuestions(tb, sent.Body),
 		Timeout:   decision.DefaultTimeout,
 		Codec:     cd,

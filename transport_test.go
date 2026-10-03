@@ -50,7 +50,7 @@ func getWithin(t *testing.T, tr *engine.Transport, rawURL string, timeout, d tim
 func loopbackConfig(t *testing.T, srv *testsupport.LoopbackServer, opts ...ClientOption) *config {
 	t.Helper()
 	base := []ClientOption{WithAPIKey(testKey), WithBaseURL(srv.URL()), WithRootCAs(testsupport.RootCAs(t)), WithProxy(nil)}
-	return mustResolve(t, noEnv, append(base, opts...)...)
+	return mustResolve(t, vendorEnv, append(base, opts...)...)
 }
 
 // TestHTTPVersionString pins the names of the policies.
@@ -95,7 +95,7 @@ func TestHTTPVersionDefaults(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			c := mustResolve(t, noEnv, append([]ClientOption{WithAPIKey(testKey), WithBaseURL(tt.baseURL)}, tt.opts...)...)
+			c := mustResolve(t, vendorEnv, append([]ClientOption{WithAPIKey(testKey), WithBaseURL(tt.baseURL)}, tt.opts...)...)
 			r := getWithin(t, c.Transport, tt.baseURL+"/v1/models", 0, 10*time.Second)
 			if tt.wantProto == 0 {
 				if r.err == nil {
@@ -167,13 +167,13 @@ func TestTransportOptionsAreExclusive(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			opts := append([]ClientOption{WithAPIKey(testKey)}, tt.opts...)
 			if tt.want == "" {
-				c := mustResolve(t, noEnv, opts...)
+				c := mustResolve(t, vendorEnv, opts...)
 				if c.Transport == nil || c.Transport.RT == nil {
 					t.Fatalf("resolve built no transport")
 				}
 				return
 			}
-			ce := resolveError(t, noEnv, opts...)
+			ce := resolveError(t, vendorEnv, opts...)
 			if diff := gocmp.Diff(tt.want, ce.Error()); diff != "" {
 				t.Errorf("Error() (-want +got):\n%s", diff)
 			}
@@ -185,7 +185,7 @@ func TestTransportOptionsAreExclusive(t *testing.T) {
 // order: after every other setting, so a conflict of transport options does
 // not hide an unusable header.
 func TestTransportCheckedLast(t *testing.T) {
-	ce := resolveError(t, noEnv, WithAPIKey(testKey), WithRoundTripper(nil), WithHTTPTransport(nil), WithHeader("bad name", "v"))
+	ce := resolveError(t, vendorEnv, WithAPIKey(testKey), WithRoundTripper(nil), WithHTTPTransport(nil), WithHeader("bad name", "v"))
 	if strings.Contains(ce.Error(), "WithRoundTripper") {
 		t.Errorf("Error() = %q, want the header's error first", ce.Error())
 	}
@@ -206,7 +206,7 @@ func TestTransportKinds(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			c := mustResolve(t, noEnv, append([]ClientOption{WithAPIKey(testKey)}, tt.opts...)...)
+			c := mustResolve(t, vendorEnv, append([]ClientOption{WithAPIKey(testKey)}, tt.opts...)...)
 			if got := c.Transport.Gate != nil; got != tt.wantGate {
 				t.Fatalf("gate built: %t, want %t", got, tt.wantGate)
 			}
@@ -253,24 +253,24 @@ func TestTransportOptionsCopy(t *testing.T) {
 // failure, none of which repeats the host or a proxy URL.
 func TestTransportBuildErrors(t *testing.T) {
 	t.Run("error: a non-ASCII host under HTTP2Only", func(t *testing.T) {
-		ce := resolveError(t, noEnv, WithAPIKey(testKey), WithBaseURL("https://bücher.example"))
+		ce := resolveError(t, vendorEnv, WithAPIKey(testKey), WithBaseURL("https://bücher.example"))
 		const want = "The base URL's host must be ASCII under HTTP2Only (write an internationalised name in its xn-- form), or use WithHTTPVersion(HTTPAuto)."
 		if diff := gocmp.Diff(want, ce.Error()); diff != "" {
 			t.Errorf("Error() (-want +got):\n%s", diff)
 		}
 		testsupport.AssertNotPrinted(t, ce, "bücher")
-		mustResolve(t, noEnv, WithAPIKey(testKey), WithBaseURL("https://bücher.example"), WithHTTPVersion(HTTPAuto))
+		mustResolve(t, vendorEnv, WithAPIKey(testKey), WithBaseURL("https://bücher.example"), WithHTTPVersion(HTTPAuto))
 	})
 	t.Run("error: a caller transport carrying its own h2 under HTTP2Only", func(t *testing.T) {
 		ht := &http.Transport{TLSNextProto: map[string]func(string, *tls.Conn) http.RoundTripper{
 			"h2": func(string, *tls.Conn) http.RoundTripper { return nil },
 		}}
-		ce := resolveError(t, noEnv, WithAPIKey(testKey), WithHTTPTransport(ht))
+		ce := resolveError(t, vendorEnv, WithAPIKey(testKey), WithHTTPTransport(ht))
 		const want = "The transport passed to WithHTTPTransport carries its own HTTP/2 implementation in TLSNextProto, which HTTP2Only cannot check; remove it or use WithHTTPVersion(HTTPAuto)."
 		if diff := gocmp.Diff(want, ce.Error()); diff != "" {
 			t.Errorf("Error() (-want +got):\n%s", diff)
 		}
-		mustResolve(t, noEnv, WithAPIKey(testKey), WithHTTPTransport(ht), WithHTTPVersion(HTTPAuto))
+		mustResolve(t, vendorEnv, WithAPIKey(testKey), WithHTTPTransport(ht), WithHTTPVersion(HTTPAuto))
 	})
 	// http.ProxyFromEnvironment reads the environment once per process, so
 	// the proxy-environment failure is pinned on buildError directly.
@@ -404,7 +404,7 @@ func TestDialErrorsMapToSDKErrors(t *testing.T) {
 	})
 	t.Run("success: an unmapped error comes back from roundTrip as it is", func(t *testing.T) {
 		cause := errors.New("http2: stream closed")
-		c := mustResolve(t, noEnv, WithAPIKey(testKey), WithRoundTripper(testsupport.RoundTripFunc(func(*http.Request) (*http.Response, error) { return nil, cause })))
+		c := mustResolve(t, vendorEnv, WithAPIKey(testKey), WithRoundTripper(testsupport.RoundTripFunc(func(*http.Request) (*http.Response, error) { return nil, cause })))
 		if r := getWithin(t, c.Transport, "https://api.typesafe.ai/v1/models", attempt, time.Second); r.err != cause { //nolint:errorlint // identity is the assertion
 			t.Errorf("roundTrip error = %v, want the round tripper's own", r.err)
 		}
@@ -451,7 +451,7 @@ func testDialErrorsOverLoopback(t *testing.T) {
 	})
 	t.Run("error: a TLS-silent API host", func(t *testing.T) {
 		silent := testsupport.NewSilentListener(t)
-		c := mustResolve(t, noEnv, WithAPIKey(testKey), WithBaseURL(silent.URL()), WithProxy(nil), WithConnectTimeout(connect))
+		c := mustResolve(t, vendorEnv, WithAPIKey(testKey), WithBaseURL(silent.URL()), WithProxy(nil), WithConnectTimeout(connect))
 		r := getWithin(t, c.Transport, silent.URL()+"/v1/models", attempt, within)
 		var te *TimeoutError
 		if !errors.As(r.err, &te) || te.Proxy() || te.Timeout != attempt {
@@ -463,7 +463,7 @@ func testDialErrorsOverLoopback(t *testing.T) {
 	})
 	t.Run("error: a refused API host", func(t *testing.T) {
 		addr := testsupport.RefusedAddr(t)
-		c := mustResolve(t, noEnv, WithAPIKey(testKey), WithBaseURL("https://"+addr), WithProxy(nil))
+		c := mustResolve(t, vendorEnv, WithAPIKey(testKey), WithBaseURL("https://"+addr), WithProxy(nil))
 		r := getWithin(t, c.Transport, "https://"+addr+"/v1/models", attempt, within)
 		var ce *ConnectionError
 		if !errors.As(r.err, &ce) || ce.Proxy() || !strings.HasPrefix(ce.Error(), "Connection error: dial tcp ") {
@@ -475,7 +475,7 @@ func testDialErrorsOverLoopback(t *testing.T) {
 	})
 	t.Run("error: a refused proxy with a password", func(t *testing.T) {
 		proxy := &url.URL{Scheme: "http", User: url.UserPassword("user", "hunter2"), Host: testsupport.RefusedAddr(t)}
-		c := mustResolve(t, noEnv, WithAPIKey(testKey), WithBaseURL("https://example.com"), WithProxy(http.ProxyURL(proxy)))
+		c := mustResolve(t, vendorEnv, WithAPIKey(testKey), WithBaseURL("https://example.com"), WithProxy(http.ProxyURL(proxy)))
 		r := getWithin(t, c.Transport, "https://example.com/v1/models", attempt, within)
 		var ce *ConnectionError
 		if !errors.As(r.err, &ce) || !ce.Proxy() || !strings.HasPrefix(ce.Error(), "Connection error: proxyconnect tcp: ") {
@@ -486,7 +486,7 @@ func testDialErrorsOverLoopback(t *testing.T) {
 	t.Run("error: a TLS-silent proxy", func(t *testing.T) {
 		silent := testsupport.NewSilentListener(t)
 		proxy := &url.URL{Scheme: "https", Host: silent.Addr()}
-		c := mustResolve(t, noEnv, WithAPIKey(testKey), WithBaseURL("https://example.com"), WithProxy(http.ProxyURL(proxy)), WithConnectTimeout(connect))
+		c := mustResolve(t, vendorEnv, WithAPIKey(testKey), WithBaseURL("https://example.com"), WithProxy(http.ProxyURL(proxy)), WithConnectTimeout(connect))
 		r := getWithin(t, c.Transport, "https://example.com/v1/models", attempt, within)
 		var te *TimeoutError
 		if !errors.As(r.err, &te) || !te.Proxy() || te.Error() != "Request timed out on the proxy hop (timeout=7s)." {
@@ -495,7 +495,7 @@ func testDialErrorsOverLoopback(t *testing.T) {
 	})
 	t.Run("error: a strict TLS proxy refusing h2 is a proxy failure (R20)", func(t *testing.T) {
 		proxy := testsupport.NewProxy(t, testsupport.ProxyTLSStrict, nil)
-		c := mustResolve(t, noEnv, WithAPIKey(testKey), WithBaseURL("https://example.com"), WithProxy(http.ProxyURL(proxy.URL())),
+		c := mustResolve(t, vendorEnv, WithAPIKey(testKey), WithBaseURL("https://example.com"), WithProxy(http.ProxyURL(proxy.URL())),
 			WithRootCAs(testsupport.RootCAs(t)))
 		r := getWithin(t, c.Transport, "https://example.com/v1/models", attempt, within)
 		var ce *ConnectionError
@@ -653,7 +653,7 @@ func TestTransportClose(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			l := &closeLog{err: boom}
-			c := mustResolve(t, noEnv, WithAPIKey(testKey), WithRoundTripper(tt.rt(l)))
+			c := mustResolve(t, vendorEnv, WithAPIKey(testKey), WithRoundTripper(tt.rt(l)))
 			for i := range 3 {
 				if err := c.Transport.Close(); err != tt.wantErr { //nolint:errorlint // identity is the assertion
 					t.Errorf("close #%d = %v, want %v", i+1, err, tt.wantErr)
@@ -667,7 +667,7 @@ func TestTransportClose(t *testing.T) {
 	t.Run("success: a stock *http.Transport given as a round tripper closes its idle connection", func(t *testing.T) {
 		srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{})
 		stock := &http.Transport{TLSClientConfig: testsupport.ClientTLSConfig(t), ForceAttemptHTTP2: true}
-		c := mustResolve(t, noEnv, WithAPIKey(testKey), WithBaseURL(srv.URL()), WithRoundTripper(stock))
+		c := mustResolve(t, vendorEnv, WithAPIKey(testKey), WithBaseURL(srv.URL()), WithRoundTripper(stock))
 		if r := getWithin(t, c.Transport, srv.URL()+"/v1/models", 0, 10*time.Second); r.err != nil || r.protoMajor != 2 {
 			t.Fatalf("GET = HTTP/%d %v", r.protoMajor, r.err)
 		}

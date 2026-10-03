@@ -39,7 +39,7 @@ func (netTimeout) Temporary() bool { return true }
 
 // clearEnv unsets, for the rest of the test, the three variables a client
 // reads, whatever the shell running the test holds (a developer's
-// TYPESAFE_API_KEY among them); t.Setenv restores them when the test ends.
+// DECISION_MODEL_API_KEY among them); t.Setenv restores them when the test ends.
 func clearEnv(t *testing.T) {
 	t.Helper()
 	for _, name := range []string{APIKeyEnv, BaseURLEnv, DefaultModelEnv} {
@@ -177,6 +177,14 @@ const quirkyKey = `ts_live_quo'te"slash\tail`
 // 8 bytes long, so the checks that look for the key inside other text
 // apply to it.
 const testKey = "test-key"
+
+// testBaseURL and testModel are the base URL and the model the root tests'
+// clients are built with: TypeSafe AI's API and model, which the upstream
+// tests and the recorded bodies name. The SDK has no default for either.
+const (
+	testBaseURL = "https://api.typesafe.ai"
+	testModel   = "jev-latest"
+)
 
 // getResult is what a GET through a client's transport produced.
 type getResult struct {

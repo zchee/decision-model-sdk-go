@@ -63,15 +63,15 @@ const embeddedJSON = `"embedded":{"type":"noul","noul":0.25}`
 type storeKinds struct {
 	S          string
 	B          bool
-	Spam       NoulAnswer `typesafe:"kind=noul;name=spam"`
+	Spam       NoulAnswer `decision:"kind=noul;name=spam"`
 	I8         int8
 	I16        int16
-	Tone       ChoiceAnswer `typesafe:"kind=choice;name=tone;options=friendly|hostile"`
+	Tone       ChoiceAnswer `decision:"kind=choice;name=tone;options=friendly|hostile"`
 	I32        int32
 	I64        int64
 	I          int
 	U8         uint8
-	Quality    ScoreAnswer `typesafe:"kind=score;name=quality;levels=bad|ok|great"`
+	Quality    ScoreAnswer `decision:"kind=score;name=quality;levels=bad|ok|great"`
 	U16        uint16
 	U32        uint32
 	U64        uint64
@@ -88,7 +88,7 @@ type storeKinds struct {
 	Any        any
 	Ch         chan int
 	E          struct{}
-	NoulAnswer `typesafe:"kind=noul;name=embedded"`
+	NoulAnswer `decision:"kind=noul;name=embedded"`
 	Last       byte
 }
 

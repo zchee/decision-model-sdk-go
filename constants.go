@@ -19,29 +19,29 @@ import (
 )
 
 // The environment variables a client reads for a setting its options leave
-// unset, as typesafe-sdk-python names them. A value is trimmed of leading and
-// trailing whitespace, and a variable that is unset or blank counts as unset.
+// unset. A value is trimmed of leading and trailing whitespace, and a
+// variable that is unset or blank counts as unset. They are named for
+// decision models rather than for one vendor, because the API is served by
+// more than one: typesafe-sdk-python's TYPESAFE_API_KEY, TYPESAFE_BASE_URL
+// and TYPESAFE_DEFAULT_MODEL are not read, not even as a fallback, so a key
+// set for one vendor is never sent to another.
 const (
 	// APIKeyEnv names the variable holding the API key.
-	APIKeyEnv = "TYPESAFE_API_KEY" //nolint:gosec // G101: the name of the variable that holds the key, not a key.
+	APIKeyEnv = "DECISION_MODEL_API_KEY"
 
 	// BaseURLEnv names the variable holding the API base URL.
-	BaseURLEnv = "TYPESAFE_BASE_URL"
+	BaseURLEnv = "DECISION_MODEL_BASE_URL"
 
 	// DefaultModelEnv names the variable holding the model a request names
 	// when the call names none.
-	DefaultModelEnv = "TYPESAFE_DEFAULT_MODEL"
+	DefaultModelEnv = "DECISION_MODEL_DEFAULT_MODEL"
 )
 
 // The settings a client uses when neither an option nor the environment
-// gives one.
+// gives one. There is no default base URL and no default model: the API is
+// served by more than one vendor, and either default would pick one of them
+// for a caller who named none.
 const (
-	// DefaultBaseURL is the API base URL.
-	DefaultBaseURL = "https://api.typesafe.ai"
-
-	// DefaultModel is the model a request names when the call names none.
-	DefaultModel = "jev-latest"
-
 	// DefaultTimeout is the deadline of each attempt of a request.
 	DefaultTimeout = 10 * time.Second
 

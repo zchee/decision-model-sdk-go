@@ -256,7 +256,7 @@ func TestClientTraceMergeOrderAndCopy(t *testing.T) {
 		httptrace.ContextClientTrace(req.Context()).GetConn("api.typesafe.ai:443")
 		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Request: req}, nil
 	})
-	c := mustResolve(t, noEnv, WithAPIKey(testKey), WithRoundTripper(rt),
+	c := mustResolve(t, vendorEnv, WithAPIKey(testKey), WithRoundTripper(rt),
 		WithClientTrace(&httptrace.ClientTrace{GetConn: func(string) { calls = append(calls, "option") }}))
 	traced := httptrace.WithClientTrace(t.Context(), &httptrace.ClientTrace{GetConn: func(string) { calls = append(calls, "context") }})
 	for i, ctx := range []context.Context{traced, t.Context(), traced} {
@@ -353,7 +353,7 @@ func TestClientTraceRoundTripPanic(t *testing.T) {
 		captured.GetConn("h:443")
 		panic("the round tripper failed")
 	})
-	c := mustResolve(t, noEnv, WithAPIKey(testKey), WithRoundTripper(rt), WithLogger(slog.New(rec)), WithClientTrace(&httptrace.ClientTrace{
+	c := mustResolve(t, vendorEnv, WithAPIKey(testKey), WithRoundTripper(rt), WithLogger(slog.New(rec)), WithClientTrace(&httptrace.ClientTrace{
 		GetConn: func(string) { panic(hookPanic{hook: "GetConn"}) },
 		GotConn: func(httptrace.GotConnInfo) { panic(hookPanic{hook: "GotConn"}) },
 	}))

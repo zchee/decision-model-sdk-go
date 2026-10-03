@@ -56,7 +56,7 @@ Each reason starts with its class:
 | `text.go` | `(*pathText).name` | `t.full = true` | 1 | Gap: a name cut by the room left in the path rather than by its own limit. |
 | `typed.go` | `kindKeys` | `return "a choice takes kind, name, instructions, options and optional"` | 1 | Gap: a tag key outside its kind on a choice field; only the noul message is tested. |
 | `typed.go` | `kindKeys` | `return "a score takes kind, name, instructions, levels and optional"` | 1 | Gap: a tag key outside its kind on a score field; only the noul message is tested. |
-| `typed.go` | `lookupTag` | `break` | 2 | Gap: a struct tag that ends in spaces, and an unterminated value under a key other than `typesafe`. |
+| `typed.go` | `lookupTag` | `break` | 2 | Gap: a struct tag that ends in spaces, and an unterminated value under a key other than `decision`. |
 | `typed.go` | `(*tagSpec).keyOutside` | `return "yes"` | 1 | Gap: `yes=` on a choice or score field; only a misplaced `options=` is tested. |
 | `typed.go` | `(*tagSpec).keyOutside` | `return "no"` | 1 | Gap: `no=` on a choice or score field; only a misplaced `options=` is tested. |
 | `typed.go` | `(*tagSpec).keyOutside` | `return "levels"` | 1 | Gap: `levels=` on a noul or choice field; only a misplaced `options=` is tested. |

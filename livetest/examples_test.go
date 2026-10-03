@@ -125,15 +125,16 @@ const fakeExampleKey = "fake-example-key-0000000000"
 
 // TestExamplesOffline runs every program under examples/ against
 // testsupport.FakeAPI, an in-process stand-in for the API, with the
-// environment the programs read: TYPESAFE_API_KEY and TYPESAFE_BASE_URL, and
-// no other TYPESAFE_ variable. Each must exit 0 and print what its
+// environment the programs read: DECISION_MODEL_API_KEY,
+// DECISION_MODEL_BASE_URL and DECISION_MODEL_DEFAULT_MODEL (the fake API's
+// stand-in model), and no other DECISION_MODEL_ variable. Each must exit 0 and print what its
 // exampleOutputs pattern describes; none may print the key. The live variant,
 // TestExamples, runs them against the API itself (-tags live).
 func TestExamplesOffline(t *testing.T) {
 	api := &testsupport.FakeAPI{}
 	srv := httptest.NewServer(api)
 	t.Cleanup(srv.Close)
-	env := environWithout("TYPESAFE_", decision.APIKeyEnv+"="+fakeExampleKey, decision.BaseURLEnv+"="+srv.URL)
+	env := environWithout("DECISION_MODEL_", decision.APIKeyEnv+"="+fakeExampleKey, decision.BaseURLEnv+"="+srv.URL, decision.DefaultModelEnv+"=jev-latest")
 	checkExamples(t, env, []string{fakeExampleKey})
 	if api.Requests() == 0 {
 		t.Error("the fake API served no request")

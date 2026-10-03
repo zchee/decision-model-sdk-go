@@ -35,9 +35,19 @@ import (
 // Copied from the root package's helpers_test.go.
 const testKey = "test-key"
 
+// testBaseURL and testModel are the base URL and the model of the clients
+// these tests build, the root tests' own; the SDK has no default for
+// either.
+//
+// Copied from the root package's helpers_test.go.
+const (
+	testBaseURL = "https://api.typesafe.ai"
+	testModel   = "jev-latest"
+)
+
 // clearEnv unsets, for the rest of the test, the three variables a client
 // reads, whatever the shell running the test holds (a developer's
-// TYPESAFE_API_KEY among them); t.Setenv restores them when the test ends.
+// DECISION_MODEL_API_KEY among them); t.Setenv restores them when the test ends.
 //
 // Copied from the root package's helpers_test.go.
 func clearEnv(t *testing.T) {
@@ -54,7 +64,7 @@ func clearEnv(t *testing.T) {
 // (WithRoundTripper), with testKey (the upstream tests' key, 8 bytes long,
 // so the checks that look for the key inside other text apply to it) and
 // opts, after clearing the variables a client reads, so a developer's
-// TYPESAFE_API_KEY never reaches a test. The client is closed when the test
+// DECISION_MODEL_API_KEY never reaches a test. The client is closed when the test
 // ends.
 //
 // Its calls make one attempt each (NoRetry), as the upstream tests' clients
@@ -66,7 +76,7 @@ func clearEnv(t *testing.T) {
 func newTestClient(t *testing.T, rt http.RoundTripper, opts ...decision.ClientOption) *decision.Client {
 	t.Helper()
 	clearEnv(t)
-	c, err := decision.NewClient(append([]decision.ClientOption{decision.WithAPIKey(testKey), decision.WithRoundTripper(rt), decision.WithRetry(decision.NoRetry())}, opts...)...)
+	c, err := decision.NewClient(append([]decision.ClientOption{decision.WithAPIKey(testKey), decision.WithBaseURL(testBaseURL), decision.WithModel(testModel), decision.WithRoundTripper(rt), decision.WithRetry(decision.NoRetry())}, opts...)...)
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
@@ -185,7 +195,7 @@ func payloadOf(r *decision.SystemOneResponse) payloadView {
 //
 // Copied from the root package's decodeas_test.go.
 type reviewAnswers struct {
-	Spam    decision.NoulAnswer   `typesafe:"kind=noul;name=spam;instructions=Spam?"`
-	Tone    decision.ChoiceAnswer `typesafe:"kind=choice;name=tone;instructions=Tone?;options=friendly|hostile"`
-	Quality decision.ScoreAnswer  `typesafe:"kind=score;name=quality;instructions=Quality?;levels=bad|ok|great"`
+	Spam    decision.NoulAnswer   `decision:"kind=noul;name=spam;instructions=Spam?"`
+	Tone    decision.ChoiceAnswer `decision:"kind=choice;name=tone;instructions=Tone?;options=friendly|hostile"`
+	Quality decision.ScoreAnswer  `decision:"kind=score;name=quality;instructions=Quality?;levels=bad|ok|great"`
 }

@@ -50,7 +50,7 @@ func BenchmarkLoopback(b *testing.B) {
 	state := newCallState()
 
 	b.Run("call", func(b *testing.B) {
-		c, err := decision.NewClient(decision.WithAPIKey(testKey), decision.WithBaseURL(srv.URL()), decision.WithModel(decision.DefaultModel), decision.WithRootCAs(testsupport.RootCAs(b)), decision.WithProxy(nil))
+		c, err := decision.NewClient(decision.WithAPIKey(testKey), decision.WithBaseURL(srv.URL()), decision.WithModel(testModel), decision.WithRootCAs(testsupport.RootCAs(b)), decision.WithProxy(nil))
 		if err != nil {
 			b.Fatal(err)
 		}

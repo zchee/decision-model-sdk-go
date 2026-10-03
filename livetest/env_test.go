@@ -46,10 +46,12 @@ type liveEnv struct {
 
 // liveEnvFrom reads the live-test variables through getenv. It fails, naming
 // every variable that is missing, unless DECISION_MODEL_LIVE_TESTS is 1 and
-// TYPESAFE_API_KEY is not blank; no message repeats a variable's value. The
-// base URL comes from TYPESAFE_BASE_URL or the SDK's default, as for any
-// client; a value the SDK would refuse (no scheme, userinfo, a query) fails
-// here too, without echoing it.
+// DECISION_MODEL_API_KEY, DECISION_MODEL_BASE_URL and
+// DECISION_MODEL_DEFAULT_MODEL are not blank; no message repeats a variable's
+// value. The environment alone names the vendor the tests call and its model:
+// the SDK has no default for either, and the tests name none in code. A base
+// URL the SDK would refuse (no scheme, userinfo, a query) fails here too,
+// without echoing it.
 func liveEnvFrom(getenv func(string) string) (liveEnv, error) {
 	var errs []error
 	if strings.TrimSpace(getenv(liveTestsEnv)) != "1" {
@@ -59,18 +61,21 @@ func liveEnvFrom(getenv func(string) string) (liveEnv, error) {
 	if key == "" {
 		errs = append(errs, errors.New(decision.APIKeyEnv+" is unset or blank: set it to the API key the tests call with"))
 	}
-	base := strings.TrimSpace(getenv(decision.BaseURLEnv))
-	if base == "" {
-		base = decision.DefaultBaseURL
-	}
-	u, err := url.Parse(base)
-	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+	var host string
+	if base := strings.TrimSpace(getenv(decision.BaseURLEnv)); base == "" {
+		errs = append(errs, errors.New(decision.BaseURLEnv+" is unset or blank: set it to the base URL of the API the tests call"))
+	} else if u, err := url.Parse(base); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		errs = append(errs, errors.New(decision.BaseURLEnv+" is not an http or https URL with a host and no userinfo, query or fragment"))
+	} else {
+		host = u.Host
+	}
+	if strings.TrimSpace(getenv(decision.DefaultModelEnv)) == "" {
+		errs = append(errs, errors.New(decision.DefaultModelEnv+" is unset or blank: set it to the model the tests ask"))
 	}
 	if len(errs) > 0 {
 		return liveEnv{}, fmt.Errorf("live tests: %w", errors.Join(errs...))
 	}
-	return liveEnv{apiKey: key, host: u.Host}, nil
+	return liveEnv{apiKey: key, host: host}, nil
 }
 
 // redactedCredential replaces a credential that scrub removes.

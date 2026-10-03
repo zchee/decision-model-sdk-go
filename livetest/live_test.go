@@ -331,9 +331,9 @@ func TestLiveQuestions(t *testing.T) {
 // liveTicket is upstream's PydanticQuestionsResponse as a typed set: the
 // questions of test_live_pydantic_response, the noul without criteria.
 type liveTicket struct {
-	Billing decision.NoulAnswer   `typesafe:"kind=noul;name=billing;instructions=Is this ticket about billing?"`
-	Tone    decision.ChoiceAnswer `typesafe:"kind=choice;name=tone;instructions=What is the customer's tone?;options=calm|frustrated|angry"`
-	Urgency decision.ScoreAnswer  `typesafe:"kind=score;name=urgency;instructions=How urgent is this ticket?;levels=can wait|this week|today"`
+	Billing decision.NoulAnswer   `decision:"kind=noul;name=billing;instructions=Is this ticket about billing?"`
+	Tone    decision.ChoiceAnswer `decision:"kind=choice;name=tone;instructions=What is the customer's tone?;options=calm|frustrated|angry"`
+	Urgency decision.ScoreAnswer  `decision:"kind=score;name=urgency;instructions=How urgent is this ticket?;levels=can wait|this week|today"`
 }
 
 // choiceView and scoreView are the comparable forms of the two

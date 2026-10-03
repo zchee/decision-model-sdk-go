@@ -133,7 +133,7 @@ func countPings(base *http.Transport, pings *atomic.Int64) {
 // the test ends, before the server's own cleanup.
 func fakeConfig(t *testing.T, base *http.Transport) *config {
 	t.Helper()
-	c := mustResolve(t, noEnv, WithAPIKey(testKey), WithBaseURL("http://example.com"), WithHTTPVersion(HTTP2Only), WithHTTPTransport(base))
+	c := mustResolve(t, vendorEnv, WithAPIKey(testKey), WithBaseURL("http://example.com"), WithHTTPVersion(HTTP2Only), WithHTTPTransport(base))
 	t.Cleanup(func() { _ = c.Transport.Close() })
 	return c
 }

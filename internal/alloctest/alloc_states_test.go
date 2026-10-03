@@ -115,46 +115,46 @@ func (k stateKind) b() uint64 {
 var stateKinds = []stateKind{
 	{name: "string", bare: true, sonic: 1, boxBytes: 16, build: func(_ testing.TB, size int) stateCase {
 		s := stateString(size)
-		return stateCase{boxed: s, pass: func(qs *decision.Prepared) (codec.Body, error) { return encodeBody(s, decision.DefaultModel, qs, nil) }, json: []byte(strconv.Quote(s))}
+		return stateCase{boxed: s, pass: func(qs *decision.Prepared) (codec.Body, error) { return encodeBody(s, testModel, qs, nil) }, json: []byte(strconv.Quote(s))}
 	}},
 	{name: "boxed-string", sonic: 1, build: func(_ testing.TB, size int) stateCase {
 		var s any = stateString(size)
-		return stateCase{boxed: s, pass: func(qs *decision.Prepared) (codec.Body, error) { return encodeBody(s, decision.DefaultModel, qs, nil) }, json: []byte(strconv.Quote(s.(string)))}
+		return stateCase{boxed: s, pass: func(qs *decision.Prepared) (codec.Body, error) { return encodeBody(s, testModel, qs, nil) }, json: []byte(strconv.Quote(s.(string)))}
 	}},
 	{name: "RawJSON", bare: true, boxBytes: 24, build: func(tb testing.TB, size int) stateCase {
 		raw := decision.RawJSON(nestedMapJSON(tb, size))
 		return stateCase{boxed: raw, pass: func(qs *decision.Prepared) (codec.Body, error) {
-			return encodeBody(raw, decision.DefaultModel, qs, nil)
+			return encodeBody(raw, testModel, qs, nil)
 		}, json: raw}
 	}},
 	{name: "boxed-RawJSON", build: func(tb testing.TB, size int) stateCase {
 		raw := nestedMapJSON(tb, size)
 		var boxed any = decision.RawJSON(raw)
 		return stateCase{boxed: boxed, pass: func(qs *decision.Prepared) (codec.Body, error) {
-			return encodeBody(boxed, decision.DefaultModel, qs, nil)
+			return encodeBody(boxed, testModel, qs, nil)
 		}, json: raw}
 	}},
 	{name: "json.RawMessage", sonic: 1, build: func(tb testing.TB, size int) stateCase {
 		raw := nestedMapJSON(tb, size)
 		var boxed any = json.RawMessage(raw)
 		return stateCase{boxed: boxed, pass: func(qs *decision.Prepared) (codec.Body, error) {
-			return encodeBody(boxed, decision.DefaultModel, qs, nil)
+			return encodeBody(boxed, testModel, qs, nil)
 		}, json: raw}
 	}},
 	{name: "pointer-to-struct", sonic: 1, build: func(tb testing.TB, size int) stateCase {
 		st := calibrate(tb, size, makeStruct)
 		var boxed any = st
-		return stateCase{boxed: boxed, pass: func(qs *decision.Prepared) (codec.Body, error) { return encodeBody(st, decision.DefaultModel, qs, nil) }, json: sonicJSON(tb, boxed)}
+		return stateCase{boxed: boxed, pass: func(qs *decision.Prepared) (codec.Body, error) { return encodeBody(st, testModel, qs, nil) }, json: sonicJSON(tb, boxed)}
 	}},
 	{name: "flat-map", sonic: 1, build: func(tb testing.TB, size int) stateCase {
 		m := calibrate(tb, size, func(n int) map[string]any { return makeMap(n, true) })
 		var boxed any = m
-		return stateCase{boxed: boxed, pass: func(qs *decision.Prepared) (codec.Body, error) { return encodeBody(m, decision.DefaultModel, qs, nil) }, maps: countMaps(m), json: sonicJSON(tb, boxed)}
+		return stateCase{boxed: boxed, pass: func(qs *decision.Prepared) (codec.Body, error) { return encodeBody(m, testModel, qs, nil) }, maps: countMaps(m), json: sonicJSON(tb, boxed)}
 	}},
 	{name: "nested-map", sonic: 1, build: func(tb testing.TB, size int) stateCase {
 		m := nestedMap(tb, size)
 		var boxed any = m
-		return stateCase{boxed: boxed, pass: func(qs *decision.Prepared) (codec.Body, error) { return encodeBody(m, decision.DefaultModel, qs, nil) }, maps: countMaps(m), json: sonicJSON(tb, boxed)}
+		return stateCase{boxed: boxed, pass: func(qs *decision.Prepared) (codec.Body, error) { return encodeBody(m, testModel, qs, nil) }, maps: countMaps(m), json: sonicJSON(tb, boxed)}
 	}},
 }
 
@@ -377,7 +377,7 @@ func sequenceStates(t *testing.T, k stateKind, qs *decision.Prepared) (states [3
 	t.Helper()
 	for i, size := range sequenceSizes {
 		states[i] = stateFor(t, k, size).boxed
-		body, err := encodeBody(states[i], decision.DefaultModel, qs, nil)
+		body, err := encodeBody(states[i], testModel, qs, nil)
 		if err != nil {
 			t.Fatalf("encodeBody: %v", err)
 		}

@@ -59,10 +59,14 @@ const answersBody = `{"model":"jev-latest","usage":{"input_tokens":12,"output_to
 	`"tone":{"type":"choice","choice":"friendly","confidence":0.9,"probabilities":{"friendly":0.9,"hostile":0.1}},` +
 	`"quality":{"type":"score","score":1.7,"confidence":0.8,"legend":{"0":"bad","1":"ok","2":"great"},"probabilities":{"0":0.1,"1":0.1,"2":0.8}}}}`
 
-// exampleClient returns a client whose requests the canned API answers.
+// exampleClient returns a client whose requests the canned API answers. The
+// SDK has no default API or model: a client names the vendor's base URL and,
+// here, the model every call asks; these are TypeSafe AI's.
 func exampleClient(status int, body string) *decision.Client {
 	c, err := decision.NewClient(
 		decision.WithAPIKey("example-key"),
+		decision.WithBaseURL("https://api.typesafe.ai"),
+		decision.WithModel("jev-latest"),
 		decision.WithRoundTripper(cannedAPI{status: status, body: body}),
 	)
 	if err != nil {
@@ -74,9 +78,9 @@ func exampleClient(status int, body string) *decision.Client {
 // Review is a question set declared as a struct: each tagged field is a
 // question, and receives its answer.
 type Review struct {
-	Spam    decision.NoulAnswer   `typesafe:"kind=noul;name=spam;instructions=Is this review spam?"`
-	Tone    decision.ChoiceAnswer `typesafe:"kind=choice;name=tone;instructions=What is the tone?;options=friendly|hostile=rude or threatening"`
-	Quality decision.ScoreAnswer  `typesafe:"kind=score;name=quality;instructions=How useful is the review?;levels=bad|ok|great"`
+	Spam    decision.NoulAnswer   `decision:"kind=noul;name=spam;instructions=Is this review spam?"`
+	Tone    decision.ChoiceAnswer `decision:"kind=choice;name=tone;instructions=What is the tone?;options=friendly|hostile=rude or threatening"`
+	Quality decision.ScoreAnswer  `decision:"kind=score;name=quality;instructions=How useful is the review?;levels=bad|ok|great"`
 }
 
 func ExampleNewQuestions() {
@@ -273,6 +277,8 @@ func ExampleRetryPolicy() {
 	quick := decision.DefaultRetry().MaxRetries(2).Backoff(0, 0, 0)
 	client, err := decision.NewClient(
 		decision.WithAPIKey("example-key"),
+		decision.WithBaseURL("https://api.typesafe.ai"),
+		decision.WithModel("jev-latest"),
 		decision.WithRetry(quick),
 		decision.WithRoundTripper(cannedAPI{status: http.StatusServiceUnavailable, body: `{"detail":"try again later"}`}),
 	)

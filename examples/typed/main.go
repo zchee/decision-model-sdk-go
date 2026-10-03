@@ -17,10 +17,10 @@ import (
 // the wire (the field name when left out); optional marks an answer that
 // may be missing from the response, which Present then reports.
 type Ticket struct {
-	Billing decision.NoulAnswer   `typesafe:"kind=noul;name=billing;instructions=Is this ticket about billing?"`
-	Tone    decision.ChoiceAnswer `typesafe:"kind=choice;name=tone;instructions=What is the customer's tone?;options=calm|frustrated|angry"`
-	Urgency decision.ScoreAnswer  `typesafe:"kind=score;name=urgency;instructions=How urgent is this ticket?;levels=can wait|this week|today"`
-	Spam    decision.NoulAnswer   `typesafe:"kind=noul;name=spam;optional;instructions=Is this spam?"`
+	Billing decision.NoulAnswer   `decision:"kind=noul;name=billing;instructions=Is this ticket about billing?"`
+	Tone    decision.ChoiceAnswer `decision:"kind=choice;name=tone;instructions=What is the customer's tone?;options=calm|frustrated|angry"`
+	Urgency decision.ScoreAnswer  `decision:"kind=score;name=urgency;instructions=How urgent is this ticket?;levels=can wait|this week|today"`
+	Spam    decision.NoulAnswer   `decision:"kind=noul;name=spam;optional;instructions=Is this spam?"`
 }
 
 func main() {

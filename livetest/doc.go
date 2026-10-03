@@ -12,17 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package livetest holds the SDK's tests against the live TypeSafe API,
+// Package livetest holds the SDK's tests against a live System One API,
 // the port of the Python SDK's tests/test_integration.py. The API is billed
 // per call, so the tests are opt-in twice over: they compile only with the
 // build tag live, and each of them fails at once, before it calls the API,
-// unless the environment sets DECISION_MODEL_LIVE_TESTS=1 and TYPESAFE_API_KEY:
+// unless the environment sets DECISION_MODEL_LIVE_TESTS=1 and names the
+// vendor: DECISION_MODEL_API_KEY, DECISION_MODEL_BASE_URL and
+// DECISION_MODEL_DEFAULT_MODEL. The tests name no vendor's API or model in
+// code. For TypeSafe AI's API:
 //
-//	DECISION_MODEL_LIVE_TESTS=1 TYPESAFE_API_KEY=... go test -tags live -count=1 -v ./livetest/
+//	DECISION_MODEL_LIVE_TESTS=1 DECISION_MODEL_API_KEY=... \
+//		DECISION_MODEL_BASE_URL=https://api.typesafe.ai \
+//		DECISION_MODEL_DEFAULT_MODEL=jev-latest \
+//		go test -tags live -count=1 -v ./livetest/
 //
-// TYPESAFE_BASE_URL, when set, selects another API host, as it does for any
-// client. The key is read from the environment by the SDK itself; no test
-// prints it, and no command line needs it. Each test checks the environment
+// The client is built from those variables as a caller's would be. The key
+// is read from the environment by the SDK itself; no test prints it, and no
+// command line needs it. Each test checks the environment
 // inside the test, never in TestMain, so go test -list -tags live lists the
 // tests without the variables. CI does not run them.
 //

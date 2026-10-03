@@ -24,7 +24,8 @@ import (
 // TestExamples runs every program under examples/ against the live API (the
 // README's and docs' Go blocks are those programs, and they call the API, as
 // upstream's test_markdown runs its Markdown examples live). The programs read
-// TYPESAFE_API_KEY and TYPESAFE_BASE_URL from the environment they inherit;
+// DECISION_MODEL_API_KEY, DECISION_MODEL_BASE_URL and
+// DECISION_MODEL_DEFAULT_MODEL from the environment they inherit;
 // the key is on no command line, and output that held it would fail the test
 // with the key shown as ***. The programs make 14 billed System One calls
 // (concurrency 3, logging 1, options 4, quickstart 1, retries 2, transport 1,

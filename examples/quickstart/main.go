@@ -1,9 +1,10 @@
 // Copyright 2026 The decision-model-sdk-go Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-// Command quickstart asks the TypeSafe API one question about a support
-// ticket and prints the answer. The client reads the API key from the
-// TYPESAFE_API_KEY environment variable.
+// Command quickstart asks a decision model one question about a support
+// ticket and prints the answer. The client reads the API key, the API's base
+// URL and the model from the DECISION_MODEL_API_KEY, DECISION_MODEL_BASE_URL
+// and DECISION_MODEL_DEFAULT_MODEL environment variables.
 package main
 
 import (

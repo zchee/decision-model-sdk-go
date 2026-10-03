@@ -22,7 +22,7 @@ const APIErrorOther APIErrorKind = 0
 const APIErrorPermissionDenied APIErrorKind = 3
 const APIErrorRateLimit APIErrorKind = 6
 const APIErrorUnprocessableEntity APIErrorKind = 5
-const APIKeyEnv untyped string = "TYPESAFE_API_KEY"
+const APIKeyEnv untyped string = "DECISION_MODEL_API_KEY"
 type Answer struct, incomparable
 method (Answer) Choice() (ChoiceAnswer, bool)
 method (Answer) Kind() AnswerKind
@@ -43,7 +43,7 @@ method (Answers) Nouls() iter.Seq2[string, NoulAnswer]
 method (Answers) Score(string) (ScoreAnswer, bool)
 method (Answers) Scores() iter.Seq2[string, ScoreAnswer]
 func Ask[T any](context.Context, *Client, any, ...CallOption) (T, error)
-const BaseURLEnv untyped string = "TYPESAFE_BASE_URL"
+const BaseURLEnv untyped string = "DECISION_MODEL_BASE_URL"
 type CallOption func(*callOptions), incomparable
 type Choice struct, incomparable
 type Choice struct, Instructions Content
@@ -76,11 +76,9 @@ method (Content) JSON() RawJSON
 method (Content) MarshalJSON() ([]byte, error)
 method (Content) Text() string
 func DecodeAs[T any](*SystemOneResponse) (T, error)
-const DefaultBaseURL untyped string = "https://api.typesafe.ai"
 const DefaultConnectTimeout time.Duration = 10000000000
 const DefaultMaxResponseBytes untyped int = 16777216
-const DefaultModel untyped string = "jev-latest"
-const DefaultModelEnv untyped string = "TYPESAFE_DEFAULT_MODEL"
+const DefaultModelEnv untyped string = "DECISION_MODEL_DEFAULT_MODEL"
 func DefaultRetry() RetryPolicy
 const DefaultTimeout time.Duration = 10000000000
 var ErrClientClosed error

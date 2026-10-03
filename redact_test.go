@@ -57,7 +57,7 @@ var secretSpellings = []string{
 func TestRedactedHeadersSecretSpellings(t *testing.T) {
 	for _, spelling := range secretSpellings {
 		t.Run(spelling, func(t *testing.T) {
-			c := mustResolve(t, noEnv,
+			c := mustResolve(t, vendorEnv,
 				WithAPIKey("auth-credential"),
 				WithHeader(spelling, "request-credential"),
 				WithHeader("x-visible", "request-visible"),
@@ -139,12 +139,12 @@ func TestAPIKeyNeedleThreshold(t *testing.T) {
 			}
 			opts := []ClientOption{WithAPIKey(tt.key), WithHeader(tt.name, "v")}
 			if tt.wantRefused {
-				err := resolveError(t, noEnv, opts...)
+				err := resolveError(t, vendorEnv, opts...)
 				if want := "The name given to WithHeader call 1 contains the API key, so it is not shown; pass the key with WithAPIKey only."; err.Error() != want {
 					t.Errorf("Error() = %q, want %q", err.Error(), want)
 				}
 			} else {
-				c := mustResolve(t, noEnv, opts...)
+				c := mustResolve(t, vendorEnv, opts...)
 				if got := c.ModelsHeader.Get(tt.name); got != "v" {
 					t.Errorf("template %s = %q, want %q", tt.name, got, "v")
 				}

@@ -6,11 +6,14 @@ decoder against real responses. The live tests write them when run with
 (`livetest/env_test.go`, `writeFixture`):
 
 ```sh
-DECISION_MODEL_LIVE_TESTS=1 go test -tags live -count=1 -v ./livetest/ -args -record
+DECISION_MODEL_LIVE_TESTS=1 DECISION_MODEL_API_KEY=... \
+	DECISION_MODEL_BASE_URL=https://api.typesafe.ai \
+	DECISION_MODEL_DEFAULT_MODEL=jev-latest \
+	go test -tags live -count=1 -v ./livetest/ -args -record
 ```
 
-The API key is not on that command line: the SDK reads `TYPESAFE_API_KEY`
-from the environment. Before a body reaches the disk the recorder replaces
+The API key is not on that command line: the SDK reads
+`DECISION_MODEL_API_KEY` from the environment. Before a body reaches the disk the recorder replaces
 every occurrence of the API key, and of the wrong key
 `TestLiveUnauthenticated` sends, with `***`, and it refuses, writing
 nothing, a body that still holds a credential shape: a token starting with
@@ -41,6 +44,6 @@ committed beside these files.
 
 Two tests read them on every `go test` run, without the live tag:
 `livetest.TestRecordedBodiesHoldNoCredentials` (exactly these files, no
-credential shape, and no byte of `TYPESAFE_API_KEY` when the environment
-holds it) and `internal/codec.TestLiveBodiesOneScan` (each decodes, with the
+credential shape, and no byte of `DECISION_MODEL_API_KEY` when the
+environment holds it) and `internal/codec.TestLiveBodiesOneScan` (each decodes, with the
 one-scan and the whole-body traversal agreeing).

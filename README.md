@@ -4,8 +4,9 @@ decision-model-sdk-go is a Go client for decision models served through the
 System One API: the System One endpoint (`POST /v1/systemone`), which
 answers named questions about a state, and the model listing
 (`GET /v1/models`). The API and its decision models were first offered by
-[TypeSafe AI](https://typesafe.ai) (Jev), and other vendors serve them too.
-The SDK is a port of TypeSafe AI's Python SDK,
+[TypeSafe AI](https://typesafe.ai) (Jev), and other vendors serve them too;
+a client talks to the vendor whose base URL it is given, and the SDK has no
+default one. The SDK is a port of TypeSafe AI's Python SDK,
 [typesafe-sdk-python](https://github.com/typesafe-ai/typesafe-sdk-python)
 0.7.1. It asks questions about a state (a support ticket, a review, any
 JSON) and returns typed answers: a probability (noul), a choice among
@@ -37,19 +38,24 @@ go get github.com/zchee/decision-model-sdk-go
 
 ## Quick start
 
-Set `TYPESAFE_API_KEY` in your environment, then build a client and ask a
-question. `NewClient` without options reads the key from
-`TYPESAFE_API_KEY` and, when they are set, the API's address from
-`TYPESAFE_BASE_URL` and the default model from `TYPESAFE_DEFAULT_MODEL`.
+Set `DECISION_MODEL_API_KEY`, `DECISION_MODEL_BASE_URL` and
+`DECISION_MODEL_DEFAULT_MODEL` in your environment, then build a client and
+ask a question. `NewClient` without options reads the API key, the API's
+base URL and the default model from those variables; for TypeSafe AI's API
+the base URL is `https://api.typesafe.ai`, and `jev-latest` is one of its
+models. The SDK has no default base URL or model, since the API is served by
+more than one vendor: without a base URL `NewClient` fails, and without a
+model each call names its own with `Model`.
 
 <!-- example: quickstart/main.go -->
 ```go
 // Copyright 2026 The decision-model-sdk-go Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-// Command quickstart asks the TypeSafe API one question about a support
-// ticket and prints the answer. The client reads the API key from the
-// TYPESAFE_API_KEY environment variable.
+// Command quickstart asks a decision model one question about a support
+// ticket and prints the answer. The client reads the API key, the API's base
+// URL and the model from the DECISION_MODEL_API_KEY, DECISION_MODEL_BASE_URL
+// and DECISION_MODEL_DEFAULT_MODEL environment variables.
 package main
 
 import (
@@ -128,10 +134,10 @@ import (
 // the wire (the field name when left out); optional marks an answer that
 // may be missing from the response, which Present then reports.
 type Ticket struct {
-	Billing decision.NoulAnswer   `typesafe:"kind=noul;name=billing;instructions=Is this ticket about billing?"`
-	Tone    decision.ChoiceAnswer `typesafe:"kind=choice;name=tone;instructions=What is the customer's tone?;options=calm|frustrated|angry"`
-	Urgency decision.ScoreAnswer  `typesafe:"kind=score;name=urgency;instructions=How urgent is this ticket?;levels=can wait|this week|today"`
-	Spam    decision.NoulAnswer   `typesafe:"kind=noul;name=spam;optional;instructions=Is this spam?"`
+	Billing decision.NoulAnswer   `decision:"kind=noul;name=billing;instructions=Is this ticket about billing?"`
+	Tone    decision.ChoiceAnswer `decision:"kind=choice;name=tone;instructions=What is the customer's tone?;options=calm|frustrated|angry"`
+	Urgency decision.ScoreAnswer  `decision:"kind=score;name=urgency;instructions=How urgent is this ticket?;levels=can wait|this week|today"`
+	Spam    decision.NoulAnswer   `decision:"kind=noul;name=spam;optional;instructions=Is this spam?"`
 }
 
 func main() {
@@ -404,6 +410,12 @@ differences:
 - A response is read under a 16 MiB limit (`WithMaxResponseBytes`).
 - `TYPESAFE_LOG_LEVEL` is not read; bodies are logged at
   `decision.LevelTrace` only.
+- The client reads `DECISION_MODEL_API_KEY`, `DECISION_MODEL_BASE_URL` and
+  `DECISION_MODEL_DEFAULT_MODEL`, never the Python SDK's `TYPESAFE_` names,
+  and has no default base URL (`https://api.typesafe.ai` there) and no
+  default model (`jev-latest` there): the SDK serves any vendor's decision
+  model, so a default would silently send a key to one vendor or ask its
+  model.
 
 [`docs/deviations.md`](docs/deviations.md) is the full table, each row
 naming the Python behaviour, the Go behaviour and why, and the upstream
@@ -411,16 +423,38 @@ tests it replaces; [`docs/port-test-matrix.md`](docs/port-test-matrix.md)
 maps every one of the Python SDK's 129 tests to a Go test or to a row of
 that table.
 
+## Moving from the earlier module path
+
+The module was renamed on 2026-10-03; [`CHANGELOG.md`](CHANGELOG.md)
+names its earlier path, whose releases stay on the Go module proxy. A
+program that used it changes four things:
+
+- The import: `decision "github.com/zchee/decision-model-sdk-go"`, and the
+  package is named `decision`.
+- The struct tags of `Ask[T]`, `PreparedFor[T]` and `DecodeAs[T]`: rewrite
+  each `typesafe:"..."` as `decision:"..."`. The old key is not read; an
+  answer field that carries only it is refused as one with no tag is
+  (`field has no decision tag`).
+- The environment: `DECISION_MODEL_API_KEY`, `DECISION_MODEL_BASE_URL` and
+  `DECISION_MODEL_DEFAULT_MODEL` replace the variables of the old names.
+- The base URL and the model: there is no default for either, so a client
+  names its vendor's base URL (`WithBaseURL` or the variable) and a model
+  (`WithModel`, the variable, or `Model` on each call).
+
 ## Tests
 
 `go test ./...` runs every test offline, the examples included (against
 a local stand-in for the API). The tests against the live API are opt-in:
 they compile only with the build tag `live`, and each fails before it
-calls the API unless both `DECISION_MODEL_LIVE_TESTS=1` and `TYPESAFE_API_KEY`
-are set. With the key already in your environment:
+calls the API unless `DECISION_MODEL_LIVE_TESTS=1`, `DECISION_MODEL_API_KEY`,
+`DECISION_MODEL_BASE_URL` and `DECISION_MODEL_DEFAULT_MODEL` are set: the
+tests name no vendor's API or model in code. For TypeSafe AI's API:
 
 ```sh
-DECISION_MODEL_LIVE_TESTS=1 go test -tags live -count=1 -v ./livetest/
+DECISION_MODEL_LIVE_TESTS=1 DECISION_MODEL_API_KEY=... \
+	DECISION_MODEL_BASE_URL=https://api.typesafe.ai \
+	DECISION_MODEL_DEFAULT_MODEL=jev-latest \
+	go test -tags live -count=1 -v ./livetest/
 ```
 
 The key is read from the environment and is never printed. The API bills

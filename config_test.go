@@ -32,9 +32,19 @@ import (
 	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
 )
 
-// noEnv is a getenv that finds no variable, so every setting an option
-// leaves unset takes its default.
-func noEnv(string) string { return "" }
+// vendorEnv is a getenv that finds the base URL and the model the tests use
+// (testBaseURL, testModel) and no other variable: no key. The SDK has no
+// default base URL or model, so a test about another setting starts from
+// it, where it once started from an empty environment and the defaults.
+func vendorEnv(name string) string {
+	switch name {
+	case BaseURLEnv:
+		return testBaseURL
+	case DefaultModelEnv:
+		return testModel
+	}
+	return ""
+}
 
 // mapEnv returns a getenv that finds the variables in m.
 func mapEnv(m map[string]string) func(string) string {
@@ -97,9 +107,89 @@ func TestMissingAPIKey(t *testing.T) {
 				t.Setenv(APIKeyEnv, tt.value)
 			}
 			err := resolveError(t, os.Getenv)
-			const want = "No API key was provided. Pass WithAPIKey or set the TYPESAFE_API_KEY environment variable."
+			const want = "No API key was provided. Pass WithAPIKey or set the DECISION_MODEL_API_KEY environment variable."
 			if got := err.Error(); got != want {
 				t.Errorf("Error() = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// TestMissingBaseURL checks the base URL's counterpart of TestMissingAPIKey:
+// the SDK has no default base URL, because the API is served by more than
+// one vendor and a default would send the key to one of them. No base URL
+// from either source, an empty variable and a blank one are the same error,
+// in the form of the missing key's, and it names the option and the
+// variable.
+func TestMissingBaseURL(t *testing.T) {
+	tests := map[string]struct {
+		set   bool
+		value string
+	}{
+		"error: variable unset":                        {},
+		"error: variable empty":                        {set: true, value: ""},
+		"error: variable blank":                        {set: true, value: " \t\n "},
+		"error: variable blank by Python's separators": {set: true, value: "\x1c\x1d\x1e\x1f\u3000"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			clearEnv(t)
+			if tt.set {
+				t.Setenv(BaseURLEnv, tt.value)
+			}
+			err := resolveError(t, os.Getenv, WithAPIKey("test-key"), WithModel(testModel))
+			const want = "No base URL was provided. Pass WithBaseURL or set the DECISION_MODEL_BASE_URL environment variable."
+			if got := err.Error(); got != want {
+				t.Errorf("Error() = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// TestOldVariablesNotRead checks that typesafe-sdk-python's variables,
+// named after one vendor, are not read, not even as a fallback: each one,
+// set alone where its DECISION_MODEL_ counterpart is unset, leaves the
+// setting as missing as if it were unset too.
+func TestOldVariablesNotRead(t *testing.T) {
+	tests := map[string]struct {
+		old  string
+		opts []ClientOption
+		// wantErr is the error resolving fails with; "" when it succeeds
+		// and the client has no model.
+		wantErr string
+	}{
+		"error: TYPESAFE_API_KEY is not an API key": {
+			old:     "TYPESAFE_API_KEY",
+			opts:    []ClientOption{WithBaseURL(testBaseURL), WithModel(testModel)},
+			wantErr: "No API key was provided. Pass WithAPIKey or set the DECISION_MODEL_API_KEY environment variable.",
+		},
+		"error: TYPESAFE_BASE_URL is not a base URL": {
+			old:     "TYPESAFE_BASE_URL",
+			opts:    []ClientOption{WithAPIKey("test-key"), WithModel(testModel)},
+			wantErr: "No base URL was provided. Pass WithBaseURL or set the DECISION_MODEL_BASE_URL environment variable.",
+		},
+		"success: TYPESAFE_DEFAULT_MODEL is not a model": {
+			old:  "TYPESAFE_DEFAULT_MODEL",
+			opts: []ClientOption{WithAPIKey("test-key"), WithBaseURL(testBaseURL)},
+		},
+	}
+	values := map[string]string{
+		"TYPESAFE_API_KEY":       "old-key",
+		"TYPESAFE_BASE_URL":      "https://old.test",
+		"TYPESAFE_DEFAULT_MODEL": "old-model",
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			clearEnv(t)
+			t.Setenv(tt.old, values[tt.old])
+			if tt.wantErr != "" {
+				if got := resolveError(t, os.Getenv, tt.opts...).Error(); got != tt.wantErr {
+					t.Errorf("Error() = %q, want %q", got, tt.wantErr)
+				}
+				return
+			}
+			if c := mustResolve(t, os.Getenv, tt.opts...); c.Model != "" {
+				t.Errorf("model = %q, want none: %s must not be read", c.Model, tt.old)
 			}
 		})
 	}
@@ -129,7 +219,7 @@ func TestAPIKeyTrimmed(t *testing.T) {
 			t.Run(name+" padded with "+padName, func(t *testing.T) {
 				clearEnv(t)
 				key := pad + "test-key" + pad
-				var opts []ClientOption
+				opts := []ClientOption{WithBaseURL(testBaseURL)}
 				if tt.fromEnv {
 					t.Setenv(APIKeyEnv, key)
 				} else {
@@ -161,11 +251,11 @@ func TestInvalidExplicitKeyDoesNotFallBack(t *testing.T) {
 	}{
 		"error: empty": {
 			key:  "",
-			want: "The API key passed to WithAPIKey is empty; the TYPESAFE_API_KEY environment variable is not read when WithAPIKey is given.",
+			want: "The API key passed to WithAPIKey is empty; the DECISION_MODEL_API_KEY environment variable is not read when WithAPIKey is given.",
 		},
 		"error: blank": {
 			key:  " \t\r\n ",
-			want: "The API key passed to WithAPIKey is empty; the TYPESAFE_API_KEY environment variable is not read when WithAPIKey is given.",
+			want: "The API key passed to WithAPIKey is empty; the DECISION_MODEL_API_KEY environment variable is not read when WithAPIKey is given.",
 		},
 		"error: leading NUL": {
 			key:  "\x00private",
@@ -218,7 +308,7 @@ func TestInvalidAPIKeyNeverEchoed(t *testing.T) {
 	}{
 		"error: environment": {
 			fromEnv: true,
-			want:    "The API key in the TYPESAFE_API_KEY environment variable must contain only printable ASCII characters without whitespace.",
+			want:    "The API key in the DECISION_MODEL_API_KEY environment variable must contain only printable ASCII characters without whitespace.",
 		},
 		"error: WithAPIKey": {
 			fromEnv: false,
@@ -253,9 +343,11 @@ func TestInvalidAPIKeyNeverEchoed(t *testing.T) {
 }
 
 // TestBlankEnvIsUnset ports test_empty_env_unset: a variable that is blank
-// once trimmed counts as unset, so the defaults apply. TYPESAFE_LOG_LEVEL is
-// set as upstream sets it, and is not read at all (docs/deviations.md,
-// "`TYPESAFE_LOG_LEVEL` not read").
+// once trimmed counts as unset. Upstream's defaults then apply; here, where
+// there are none, a blank base URL variable is the missing base URL, and a
+// blank model variable leaves the client without a model.
+// TYPESAFE_LOG_LEVEL is set as upstream sets it, and is not read at all
+// (docs/deviations.md, "`TYPESAFE_LOG_LEVEL` not read").
 func TestBlankEnvIsUnset(t *testing.T) {
 	tests := map[string]struct {
 		blank string
@@ -270,9 +362,13 @@ func TestBlankEnvIsUnset(t *testing.T) {
 			for _, v := range []string{BaseURLEnv, DefaultModelEnv, "TYPESAFE_LOG_LEVEL"} {
 				t.Setenv(v, tt.blank)
 			}
-			c := mustResolve(t, os.Getenv, WithAPIKey("test-key"))
+			const missing = "No base URL was provided. Pass WithBaseURL or set the DECISION_MODEL_BASE_URL environment variable."
+			if got := resolveError(t, os.Getenv, WithAPIKey("test-key")).Error(); got != missing {
+				t.Errorf("Error() = %q, want %q", got, missing)
+			}
+			c := mustResolve(t, os.Getenv, WithAPIKey("test-key"), WithBaseURL(testBaseURL))
 			got := [3]string{c.SystemOneURL.String(), c.ModelsURL.String(), c.Model}
-			want := [3]string{"https://api.typesafe.ai/v1/systemone", "https://api.typesafe.ai/v1/models", "jev-latest"}
+			want := [3]string{"https://api.typesafe.ai/v1/systemone", "https://api.typesafe.ai/v1/models", ""}
 			if got != want {
 				t.Errorf("(system one URL, models URL, model) = %q, want %q", got, want)
 			}
@@ -311,7 +407,7 @@ func TestInvalidTimeout(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			err := resolveError(t, noEnv, append([]ClientOption{WithAPIKey("test-key")}, tt.opts...)...)
+			err := resolveError(t, vendorEnv, append([]ClientOption{WithAPIKey("test-key")}, tt.opts...)...)
 			if got := err.Error(); got != tt.want {
 				t.Errorf("Error() = %q, want %q", got, tt.want)
 			}
@@ -351,7 +447,7 @@ func TestTimeoutSettings(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			c := mustResolve(t, noEnv, append([]ClientOption{WithAPIKey("test-key")}, tt.opts...)...)
+			c := mustResolve(t, vendorEnv, append([]ClientOption{WithAPIKey("test-key")}, tt.opts...)...)
 			if c.Timeout != tt.wantTimeout || c.ConnectTimeout != tt.wantConnect {
 				t.Errorf("(timeout, connect timeout) = (%v, %v), want (%v, %v)", c.Timeout, c.ConnectTimeout, tt.wantTimeout, tt.wantConnect)
 			}
@@ -360,9 +456,12 @@ func TestTimeoutSettings(t *testing.T) {
 }
 
 // TestConfigResolutionOrder is the configuration half of test_resolution: each
-// setting comes from its option, else from its trimmed variable, else from the
-// default, independently of the others. Whether the resolved values reach the
-// wire is the client's test.
+// setting comes from its option, else from its trimmed variable,
+// independently of the others. Upstream then falls back to a default; here
+// the base URL and the model have none (a missing base URL is
+// TestMissingBaseURL's error, and a missing model leaves the client without
+// one, so each call must name its own). Whether the resolved values reach
+// the wire is the client's test.
 func TestConfigResolutionOrder(t *testing.T) {
 	env := map[string]string{ //nolint:gosec // G101: test values, not credentials.
 		APIKeyEnv:       "  env-key  ",
@@ -378,9 +477,9 @@ func TestConfigResolutionOrder(t *testing.T) {
 		opts []ClientOption
 		want resolved
 	}{
-		"success: default": {
-			opts: []ClientOption{WithAPIKey("test-key")},
-			want: resolved{"Bearer test-key", "https://api.typesafe.ai/v1/systemone", "https://api.typesafe.ai/v1/models", "jev-latest", 10 * time.Second},
+		"success: no model from either source: the client has none": {
+			opts: []ClientOption{WithAPIKey("test-key"), WithBaseURL(testBaseURL)},
+			want: resolved{"Bearer test-key", "https://api.typesafe.ai/v1/systemone", "https://api.typesafe.ai/v1/models", "", 10 * time.Second},
 		},
 		"success: environment": {
 			env:  env,
@@ -391,15 +490,20 @@ func TestConfigResolutionOrder(t *testing.T) {
 			opts: []ClientOption{WithAPIKey("code-key"), WithBaseURL("https://code.test///"), WithModel("code-model")},
 			want: resolved{"Bearer code-key", "https://code.test/v1/systemone", "https://code.test/v1/models", "code-model", 10 * time.Second},
 		},
-		"success: option key, variable URL, default model": {
+		"success: option key, variable URL, no model": {
 			env:  map[string]string{BaseURLEnv: env[BaseURLEnv]},
 			opts: []ClientOption{WithAPIKey("code-key")},
-			want: resolved{"Bearer code-key", "https://env.test/v1/systemone", "https://env.test/v1/models", "jev-latest", 10 * time.Second},
+			want: resolved{"Bearer code-key", "https://env.test/v1/systemone", "https://env.test/v1/models", "", 10 * time.Second},
 		},
-		"success: variable key, default URL, option model": {
+		"success: variable key, option URL, option model": {
 			env:  map[string]string{APIKeyEnv: env[APIKeyEnv]},
-			opts: []ClientOption{WithModel("code-model")},
-			want: resolved{"Bearer env-key", "https://api.typesafe.ai/v1/systemone", "https://api.typesafe.ai/v1/models", "code-model", 10 * time.Second},
+			opts: []ClientOption{WithBaseURL("https://code.test"), WithModel("code-model")},
+			want: resolved{"Bearer env-key", "https://code.test/v1/systemone", "https://code.test/v1/models", "code-model", 10 * time.Second},
+		},
+		"success: option URL, variable key and model": {
+			env:  map[string]string{APIKeyEnv: env[APIKeyEnv], DefaultModelEnv: env[DefaultModelEnv]},
+			opts: []ClientOption{WithBaseURL("https://code.test")},
+			want: resolved{"Bearer env-key", "https://code.test/v1/systemone", "https://code.test/v1/models", "env-model", 10 * time.Second},
 		},
 		"success: an option is taken as given, without trimming": {
 			env:  env,
@@ -415,7 +519,7 @@ func TestConfigResolutionOrder(t *testing.T) {
 			want: resolved{"Bearer code-key", "https://code.test/v1/systemone", "https://code.test/v1/models", "code-model", 10 * time.Second},
 		},
 		"success: nil options are ignored": {
-			opts: []ClientOption{nil, WithAPIKey("test-key"), nil},
+			opts: []ClientOption{nil, WithAPIKey("test-key"), nil, WithBaseURL(testBaseURL), nil, WithModel(testModel)},
 			want: resolved{"Bearer test-key", "https://api.typesafe.ai/v1/systemone", "https://api.typesafe.ai/v1/models", "jev-latest", 10 * time.Second},
 		},
 	}
@@ -558,7 +662,7 @@ func TestBaseURL(t *testing.T) {
 		},
 		"error: variable names itself": {
 			env:     map[string]string{BaseURLEnv: "ftp://hunter2.test"},
-			wantErr: "The base URL in the TYPESAFE_BASE_URL environment variable must use http or https.",
+			wantErr: "The base URL in the DECISION_MODEL_BASE_URL environment variable must use http or https.",
 		},
 		"error: option wins over a valid variable": {
 			env:     map[string]string{BaseURLEnv: "https://env.test"},
@@ -619,7 +723,7 @@ func TestLogEndpointHost(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			c := mustResolve(t, noEnv, append([]ClientOption{WithAPIKey("test-key"), WithBaseURL("https://example.test/prefix/")}, tt.opts...)...)
+			c := mustResolve(t, vendorEnv, append([]ClientOption{WithAPIKey("test-key"), WithBaseURL("https://example.test/prefix/")}, tt.opts...)...)
 			if c.SystemOneLog != tt.wantSystemOne || c.ModelsLog != tt.wantModels {
 				t.Errorf("log endpoints = (%q, %q), want (%q, %q)", c.SystemOneLog, c.ModelsLog, tt.wantSystemOne, tt.wantModels)
 			}
@@ -630,11 +734,12 @@ func TestLogEndpointHost(t *testing.T) {
 	}
 }
 
-// TestModel pins the default model's sources beyond the resolution table: an
-// empty or blank WithModel is refused rather than sent, and a model that is
-// not UTF-8 is refused when the client is built.
+// TestModel pins the default model's sources beyond the resolution table:
+// neither source leaves the client without a model, an empty or blank
+// WithModel is refused rather than sent, and a model that is not UTF-8 is
+// refused when the client is built.
 func TestModel(t *testing.T) {
-	const empty = "The model passed to WithModel is empty; leave WithModel out to use TYPESAFE_DEFAULT_MODEL or jev-latest."
+	const empty = "The model passed to WithModel is empty; leave WithModel out to use DECISION_MODEL_DEFAULT_MODEL, or name the model on each call with Model."
 	tests := map[string]struct {
 		env     map[string]string
 		opts    []ClientOption
@@ -642,16 +747,17 @@ func TestModel(t *testing.T) {
 		wantErr string
 	}{
 		"success: variable trimmed":         {env: map[string]string{DefaultModelEnv: "\u3000env-model\n"}, want: "env-model"},
+		"success: neither source, no model": {want: ""},
 		"error: empty":                      {opts: []ClientOption{WithModel("")}, wantErr: empty},
 		"error: blank":                      {opts: []ClientOption{WithModel(" \t\n")}, wantErr: empty},
 		"error: blank by Python's rule":     {opts: []ClientOption{WithModel("\x1f\u3000")}, wantErr: empty},
 		"error: empty wins over a variable": {env: map[string]string{DefaultModelEnv: "env-model"}, opts: []ClientOption{WithModel("")}, wantErr: empty},
 		"error: option not UTF-8":           {opts: []ClientOption{WithModel("jev-\xff")}, wantErr: "The model passed to WithModel is not valid UTF-8."},
-		"error: variable not UTF-8":         {env: map[string]string{DefaultModelEnv: "jev-\xff"}, wantErr: "The model in the TYPESAFE_DEFAULT_MODEL environment variable is not valid UTF-8."},
+		"error: variable not UTF-8":         {env: map[string]string{DefaultModelEnv: "jev-\xff"}, wantErr: "The model in the DECISION_MODEL_DEFAULT_MODEL environment variable is not valid UTF-8."},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			opts := append([]ClientOption{WithAPIKey("test-key")}, tt.opts...)
+			opts := append([]ClientOption{WithAPIKey("test-key"), WithBaseURL(testBaseURL)}, tt.opts...)
 			if tt.wantErr != "" {
 				err := resolveError(t, mapEnv(tt.env), opts...)
 				if got := err.Error(); got != tt.wantErr {
@@ -695,12 +801,12 @@ func TestMaxResponseBytes(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			opts := append([]ClientOption{WithAPIKey("test-key")}, tt.opts...)
 			if tt.wantErr != "" {
-				if got := resolveError(t, noEnv, opts...).Error(); got != tt.wantErr {
+				if got := resolveError(t, vendorEnv, opts...).Error(); got != tt.wantErr {
 					t.Errorf("Error() = %q, want %q", got, tt.wantErr)
 				}
 				return
 			}
-			if got := mustResolve(t, noEnv, opts...).MaxResponseBytes; got != tt.want {
+			if got := mustResolve(t, vendorEnv, opts...).MaxResponseBytes; got != tt.want {
 				t.Errorf("maxResponseBytes = %d, want %d", got, tt.want)
 			}
 		})
@@ -723,7 +829,7 @@ func TestLogger(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			c := mustResolve(t, noEnv, append([]ClientOption{WithAPIKey("test-key")}, tt.opts...)...)
+			c := mustResolve(t, vendorEnv, append([]ClientOption{WithAPIKey("test-key")}, tt.opts...)...)
 			if c.Logger == nil {
 				t.Fatal("logger is nil")
 			}
@@ -834,7 +940,7 @@ func TestHeaderTemplate(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			c := mustResolve(t, noEnv, append([]ClientOption{WithAPIKey("test-key")}, tt.opts...)...)
+			c := mustResolve(t, vendorEnv, append([]ClientOption{WithAPIKey("test-key")}, tt.opts...)...)
 			if diff := gocmp.Diff(tt.want, c.ModelsHeader); diff != "" {
 				t.Errorf("models template mismatch (-want +got):\n%s", diff)
 			}
@@ -893,7 +999,7 @@ func TestHeaderDropsLogged(t *testing.T) {
 	for canonical, tt := range tests {
 		t.Run(canonical, func(t *testing.T) {
 			rec := testsupport.NewLogRecorder(nil)
-			c := mustResolve(t, noEnv,
+			c := mustResolve(t, vendorEnv,
 				WithAPIKey("test-key"), WithLogger(rec.Logger()),
 				WithHeader(tt.name, value), WithHeader("X-Kept", "kept-value"),
 			)
@@ -962,7 +1068,7 @@ func TestInvalidHeader(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			err := resolveError(t, noEnv, append([]ClientOption{WithAPIKey("test-key")}, tt.opts...)...)
+			err := resolveError(t, vendorEnv, append([]ClientOption{WithAPIKey("test-key")}, tt.opts...)...)
 			if got := err.Error(); got != tt.want {
 				t.Errorf("Error() = %q, want %q", got, tt.want)
 			}
@@ -1023,10 +1129,10 @@ func TestHeaderNameHoldingKey(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			if tt.want == "" {
-				mustResolve(t, mapEnv(tt.env), tt.opts...)
+				mustResolve(t, mapEnv(tt.env), append([]ClientOption{WithBaseURL(testBaseURL)}, tt.opts...)...)
 				return
 			}
-			err := resolveError(t, mapEnv(tt.env), tt.opts...)
+			err := resolveError(t, mapEnv(tt.env), append([]ClientOption{WithBaseURL(testBaseURL)}, tt.opts...)...)
 			if got := err.Error(); got != tt.want {
 				t.Errorf("Error() = %q, want %q", got, tt.want)
 			}
@@ -1070,13 +1176,13 @@ func TestUserAgentProductRules(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			opts := []ClientOption{WithAPIKey("test-key"), WithUserAgentProduct(tt.product)}
 			if tt.want == "" {
-				c := mustResolve(t, noEnv, opts...)
+				c := mustResolve(t, vendorEnv, opts...)
 				if got, want := c.ModelsHeader.Get(headerUserAgent), tt.product+" decision-model-sdk-go/"+Version; got != want {
 					t.Errorf("User-Agent = %q, want %q", got, want)
 				}
 				return
 			}
-			err := resolveError(t, noEnv, opts...)
+			err := resolveError(t, vendorEnv, opts...)
 			if got, want := err.Error(), prefix+tt.want+"."; got != want {
 				t.Errorf("Error() = %q, want %q", got, want)
 			}

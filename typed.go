@@ -30,14 +30,14 @@ import (
 // prepares a set built by hand.
 //
 // An answer field is an exported field of type [NoulAnswer], [ChoiceAnswer]
-// or [ScoreAnswer] whose struct tag has a "typesafe" key describing the
+// or [ScoreAnswer] whose struct tag has a "decision" key describing the
 // question it answers:
 //
 //	type Ticket struct {
-//		Billing decision.NoulAnswer   `typesafe:"kind=noul;instructions=Is this about billing, invoices or refunds?;yes=payments or invoices"`
-//		Tone    decision.ChoiceAnswer `typesafe:"kind=choice;instructions=What is the tone?;options=calm=neutral or polite|angry"`
-//		Urgency decision.ScoreAnswer  `typesafe:"kind=score;instructions=How urgent?;levels=can wait|this week|today"`
-//		Spam    decision.NoulAnswer   `typesafe:"kind=noul;optional;instructions=Spam?"`
+//		Billing decision.NoulAnswer   `decision:"kind=noul;instructions=Is this about billing, invoices or refunds?;yes=payments or invoices"`
+//		Tone    decision.ChoiceAnswer `decision:"kind=choice;instructions=What is the tone?;options=calm=neutral or polite|angry"`
+//		Urgency decision.ScoreAnswer  `decision:"kind=score;instructions=How urgent?;levels=can wait|this week|today"`
+//		Spam    decision.NoulAnswer   `decision:"kind=noul;optional;instructions=Spam?"`
 //	}
 //
 // PreparedFor[Ticket] asks the same four questions, with the same bytes on
@@ -96,12 +96,12 @@ import (
 // UTF-8.
 //
 // A struct tag is itself a Go string literal, so in source each of these
-// backslashes is written twice: `typesafe:"kind=noul;instructions=a\\;b"`
+// backslashes is written twice: `decision:"kind=noul;instructions=a\\;b"`
 // asks "a;b". A single backslash makes the tag malformed (go vet reports it),
 // and PreparedFor refuses the field instead of ignoring the tag, as it does
 // when the key is written with a space around its colon, is given twice, or
 // follows a malformed pair: every tag that reflect would read as having no
-// typesafe key, or only the first of two, while it names one.
+// decision key, or only the first of two, while it names one.
 //
 // # Rejections
 //
@@ -117,11 +117,11 @@ import (
 //   - an answer field's tag has no kind, or the field has no tag at all;
 //   - the kind is not noul, choice or score;
 //   - the kind does not agree with the field's type, or a field that is not
-//     an answer field has a typesafe tag;
+//     an answer field has a decision tag;
 //   - a field is a pointer to an answer type (write optional instead);
-//   - an unexported field has a typesafe tag;
+//   - an unexported field has a decision tag;
 //   - a struct-typed field, embedded or named, value or pointer, holds a
-//     field with a typesafe tag at any depth: the fields of a nested struct
+//     field with a decision tag at any depth: the fields of a nested struct
 //     are not read, and an embedded struct's are not promoted;
 //   - T is not a struct type (a pointer to a struct included);
 //   - a question name is reserved;
@@ -131,7 +131,7 @@ import (
 //     [Questions.Prepare] reports for an empty set.
 //
 // Fields that are neither answer fields nor tagged, and unexported fields
-// without a typesafe tag, are ignored. A type alias of an answer type is that
+// without a decision tag, are ignored. A type alias of an answer type is that
 // answer type; a type defined from one is not an answer type.
 //
 // # Caching
@@ -298,7 +298,7 @@ func buildPlan(t reflect.Type) *typedPlan {
 	if err != nil {
 		// Every rule Prepare applies to a question was checked above, so the
 		// one failure left is a set without questions.
-		msg := err.Error() + " " + typeLabel(t) + " has no answer fields: give it one NoulAnswer, ChoiceAnswer or ScoreAnswer field per question, each with a typesafe tag."
+		msg := err.Error() + " " + typeLabel(t) + " has no answer fields: give it one NoulAnswer, ChoiceAnswer or ScoreAnswer field per question, each with a decision tag."
 		return &typedPlan{err: newConfigError(owner + msg)}
 	}
 	entries := p.wirePrepared().Entries()
@@ -379,12 +379,12 @@ func planField(outer string, f *reflect.StructField) (q typedQuestion, asks bool
 			if f.Anonymous {
 				rule = "fields of an embedded struct are not promoted"
 			}
-			return q, false, newConfigError(at + rule + ", and " + f.Name + "." + inner + " has a typesafe tag; declare " + name + " in " + outer + " itself, since PreparedFor reads only the struct's own fields.")
+			return q, false, newConfigError(at + rule + ", and " + f.Name + "." + inner + " has a decision tag; declare " + name + " in " + outer + " itself, since PreparedFor reads only the struct's own fields.")
 		}
 	}
 	if !f.IsExported() {
 		if tagged || problem != "" {
-			return q, false, newConfigError(at + "the field is unexported and has a typesafe tag; only exported fields are answered: export the field or remove the tag.")
+			return q, false, newConfigError(at + "the field is unexported and has a decision tag; only exported fields are answered: export the field or remove the tag.")
 		}
 		return q, false, nil
 	}
@@ -396,7 +396,7 @@ func planField(outer string, f *reflect.StructField) (q typedQuestion, asks bool
 	if !tagged {
 		switch {
 		case kind != wire.KindUnknown:
-			return q, false, newConfigError(at + "the " + answerTypeName(kind) + " field has no typesafe tag, so no kind; every answer field asks a question: add a tag such as typesafe:\"kind=" + kind.String() + "\".")
+			return q, false, newConfigError(at + "the " + answerTypeName(kind) + " field has no decision tag, so no kind; every answer field asks a question: add a tag such as decision:\"kind=" + kind.String() + "\".")
 		case pointer:
 			return q, false, pointerField(at, f.Type)
 		default:
@@ -405,7 +405,7 @@ func planField(outer string, f *reflect.StructField) (q typedQuestion, asks bool
 	}
 	spec, err := parseTag(tag)
 	if err != nil {
-		return q, false, newConfigError(at + "typesafe tag: " + err.Error() + ".")
+		return q, false, newConfigError(at + "decision tag: " + err.Error() + ".")
 	}
 	switch {
 	case pointer:
@@ -413,9 +413,9 @@ func planField(outer string, f *reflect.StructField) (q typedQuestion, asks bool
 	case kind == wire.KindUnknown && spec.optional:
 		return q, false, newConfigError(at + "optional applies only to NoulAnswer, ChoiceAnswer and ScoreAnswer fields, and the field is a " + typeLabel(f.Type) + ".")
 	case kind == wire.KindUnknown:
-		return q, false, newConfigError(at + "a typesafe tag needs a NoulAnswer, ChoiceAnswer or ScoreAnswer field, and the field is a " + typeLabel(f.Type) + ".")
+		return q, false, newConfigError(at + "a decision tag needs a NoulAnswer, ChoiceAnswer or ScoreAnswer field, and the field is a " + typeLabel(f.Type) + ".")
 	case spec.kind == "":
-		return q, false, newConfigError(at + "the typesafe tag has no kind; add kind=" + kind.String() + ".")
+		return q, false, newConfigError(at + "the decision tag has no kind; add kind=" + kind.String() + ".")
 	}
 	tagKind := wire.ParseKind(spec.kind)
 	if tagKind == wire.KindUnknown {
@@ -425,7 +425,7 @@ func planField(outer string, f *reflect.StructField) (q typedQuestion, asks bool
 		return q, false, newConfigError(at + "kind=" + spec.kind + " needs a " + answerTypeName(tagKind) + " field, and the field is a " + answerTypeName(kind) + "; make the kind and the field's type agree.")
 	}
 	if key := spec.keyOutside(kind); key != "" {
-		return q, false, newConfigError(at + "typesafe tag: " + key + " does not apply to kind=" + spec.kind + "; " + kindKeys(kind) + ".")
+		return q, false, newConfigError(at + "decision tag: " + key + " does not apply to kind=" + spec.kind + "; " + kindKeys(kind) + ".")
 	}
 	name := f.Name
 	if spec.name != "" {
@@ -472,7 +472,7 @@ func planField(outer string, f *reflect.StructField) (q typedQuestion, asks bool
 }
 
 // taggedPath returns the path, relative to the struct type t or the struct
-// t points to, of the first field inside it with a typesafe key: one of its
+// t points to, of the first field inside it with a decision key: one of its
 // own fields, or a field of one of its struct-typed fields, embedded or
 // named, value or pointer, at any depth. It returns "" when there is none,
 // and when t is neither a struct nor a pointer to one; answer types are not
@@ -545,17 +545,23 @@ func kindKeys(k wire.Kind) string {
 	}
 }
 
-// The problems lookupTag reports: each is a typesafe key that
+// structTagKey is the key of a struct tag that describes an answer field's
+// question: the package's name, as encoding/json reads the key "json". It is
+// the only key read; a field whose tag gives only the key of the SDK's
+// earlier name, decision:"...", is read as a field without one.
+const structTagKey = "decision"
+
+// The problems lookupTag reports: each is a decision key that
 // [reflect.StructTag.Lookup] would not return, or would return while
 // ignoring a second one.
 const (
-	tagNotLiteral = `the typesafe tag is not a valid Go string literal; write each backslash of an escape twice in the struct tag, as in typesafe:"instructions=a\\;b".`
-	tagNotForm    = `the typesafe key is not written as typesafe:"...", with no space around the colon and the value in double quotes, so reflect does not see it; write it that way.`
-	tagTwice      = `the struct tag gives the typesafe key more than once; give it once.`
-	tagHidden     = `the struct tag is not in the key:"value" form before its typesafe key, so reflect does not see that key; separate the key:"value" pairs with single spaces.`
+	tagNotLiteral = `the decision tag is not a valid Go string literal; write each backslash of an escape twice in the struct tag, as in decision:"instructions=a\\;b".`
+	tagNotForm    = `the decision key is not written as decision:"...", with no space around the colon and the value in double quotes, so reflect does not see it; write it that way.`
+	tagTwice      = `the struct tag gives the decision key more than once; give it once.`
+	tagHidden     = `the struct tag is not in the key:"value" form before its decision key, so reflect does not see that key; separate the key:"value" pairs with single spaces.`
 )
 
-// lookupTag returns the value of the "typesafe" key of the struct tag tag,
+// lookupTag returns the value of the "decision" key of the struct tag tag,
 // as [reflect.StructTag.Lookup] does, and whether the key is there. Where
 // Lookup would report the key as absent although the tag names it, or would
 // return the first of two, lookupTag returns a problem instead, one of the
@@ -580,7 +586,7 @@ func lookupTag(tag reflect.StructTag) (value string, ok bool, problem string) {
 			i++
 		}
 		if i == 0 || i+1 >= len(tag) || tag[i] != ':' || tag[i+1] != '"' {
-			// Lookup's scan stops here: a typesafe key in the rest is one
+			// Lookup's scan stops here: a decision key in the rest is one
 			// it would not see.
 			return hiddenKey(string(tag), value, ok)
 		}
@@ -594,7 +600,7 @@ func lookupTag(tag reflect.StructTag) (value string, ok bool, problem string) {
 			i++
 		}
 		if i >= len(tag) {
-			if name != "typesafe" {
+			if name != structTagKey {
 				break
 			}
 			if ok {
@@ -604,7 +610,7 @@ func lookupTag(tag reflect.StructTag) (value string, ok bool, problem string) {
 		}
 		qvalue := string(tag[:i+1])
 		tag = tag[i+1:]
-		if name == "typesafe" {
+		if name == structTagKey {
 			if ok {
 				return "", false, tagTwice
 			}
@@ -620,12 +626,12 @@ func lookupTag(tag reflect.StructTag) (value string, ok bool, problem string) {
 
 // hiddenKey is lookupTag's result when the conventional scan stops at rest,
 // having found value (when ok) before it: a problem when rest names a
-// typesafe key, and value itself otherwise. A key is "typesafe" at the start
+// decision key, and value itself otherwise. A key is "decision" at the start
 // of rest or after a space, followed by a colon, outside double quotes: text
-// inside a quoted value, such as doc:"see typesafe:x", only mentions the key,
+// inside a quoted value, such as doc:"see decision:x", only mentions the key,
 // and the tag's own malformation is go vet's to report.
 func hiddenKey(rest, value string, ok bool) (string, bool, string) {
-	const key = "typesafe"
+	const key = structTagKey
 	quoted := false
 	for i := 0; i < len(rest); i++ {
 		c := rest[i]
@@ -683,7 +689,7 @@ var tagKeys = map[string]tagKey{
 	"optional":     keyOptional,
 }
 
-// tagSpec is a parsed typesafe tag. A value is never empty when its key was
+// tagSpec is a parsed decision tag. A value is never empty when its key was
 // given, so the empty string means a key that was not.
 type tagSpec struct {
 	kind         string
@@ -737,7 +743,7 @@ type tagError struct{ msg string }
 
 func (e *tagError) Error() string { return e.msg }
 
-// parseTag parses the value of a typesafe struct tag. It is a pure function
+// parseTag parses the value of a decision struct tag. It is a pure function
 // of tag: it checks the grammar only, and leaves the rules that depend on the
 // field (the kind, its keys, repeated options and levels) to the caller. An
 // empty tag has no entries and parses to the zero tagSpec.

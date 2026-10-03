@@ -80,7 +80,7 @@ Rows by status: 35 deviation, 94 ported.
 | --- | --- | --- | --- |
 | F1 | `test_transport_and_http_client_mutually_exclusive` | deviation "one transport option, two kinds" + `TestTransportOptionsAreExclusive` | deviation |
 | F2 | `test_model_override` | `TestModelOverridePerCall` | ported |
-| F3 | `test_resolution` | `TestConfigResolutionOrder` (default/env/explicit) + `TestConfigResolutionOnTheWire` | ported |
+| F3 | `test_resolution` | `TestConfigResolutionOrder` (env/explicit; no default base URL or model) + `TestConfigResolutionOnTheWire` | ported |
 | F4 | `test_missing_key` | `TestMissingAPIKey` | ported |
 | F5 | `test_api_key_whitespace` | `TestAPIKeyTrimmed` | ported |
 | F6 | `test_invalid_explicit_key_does_not_fall_back_to_env` | `TestInvalidExplicitKeyDoesNotFallBack` | ported |

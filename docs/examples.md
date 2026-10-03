@@ -8,12 +8,16 @@ runs each with `go run` against a local stand-in for the API
 (`livetest.TestExamplesOffline`); `livetest.TestExamples` runs them
 against the API itself (`-tags live`, not in CI).
 
-Each program reads the API key from `TYPESAFE_API_KEY`, as every client
-built without `WithAPIKey` does, and `TYPESAFE_BASE_URL` when it is set.
-To run one, from the repository root, with the key in your environment:
+Each program reads the API key, the API's base URL and the model from
+`DECISION_MODEL_API_KEY`, `DECISION_MODEL_BASE_URL` and
+`DECISION_MODEL_DEFAULT_MODEL`, as every client built without `WithAPIKey`,
+`WithBaseURL` and `WithModel` does; the SDK has no default for any of them.
+To run one, from the repository root, with the key in your environment, for
+TypeSafe AI's API:
 
 ```sh
-go run ./examples/quickstart
+DECISION_MODEL_BASE_URL=https://api.typesafe.ai DECISION_MODEL_DEFAULT_MODEL=jev-latest \
+	go run ./examples/quickstart
 ```
 
 | Program | Shows | Python SDK counterpart |
@@ -29,18 +33,19 @@ go run ./examples/quickstart
 ## Quickstart
 
 One choice question about a support ticket. `NewClient` with no options
-reads the key from the environment, and the base URL and the model when
-`TYPESAFE_BASE_URL` and `TYPESAFE_DEFAULT_MODEL` are set. The model is
-otherwise `jev-latest`; each attempt has 10 s, and a call two retries.
+reads the key, the base URL and the model from the environment; without a
+base URL it fails, and without a model the call would have to name one.
+Each attempt has 10 s, and a call two retries.
 
 <!-- example: quickstart/main.go -->
 ```go
 // Copyright 2026 The decision-model-sdk-go Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-// Command quickstart asks the TypeSafe API one question about a support
-// ticket and prints the answer. The client reads the API key from the
-// TYPESAFE_API_KEY environment variable.
+// Command quickstart asks a decision model one question about a support
+// ticket and prints the answer. The client reads the API key, the API's base
+// URL and the model from the DECISION_MODEL_API_KEY, DECISION_MODEL_BASE_URL
+// and DECISION_MODEL_DEFAULT_MODEL environment variables.
 package main
 
 import (
@@ -117,10 +122,10 @@ import (
 // the wire (the field name when left out); optional marks an answer that
 // may be missing from the response, which Present then reports.
 type Ticket struct {
-	Billing decision.NoulAnswer   `typesafe:"kind=noul;name=billing;instructions=Is this ticket about billing?"`
-	Tone    decision.ChoiceAnswer `typesafe:"kind=choice;name=tone;instructions=What is the customer's tone?;options=calm|frustrated|angry"`
-	Urgency decision.ScoreAnswer  `typesafe:"kind=score;name=urgency;instructions=How urgent is this ticket?;levels=can wait|this week|today"`
-	Spam    decision.NoulAnswer   `typesafe:"kind=noul;name=spam;optional;instructions=Is this spam?"`
+	Billing decision.NoulAnswer   `decision:"kind=noul;name=billing;instructions=Is this ticket about billing?"`
+	Tone    decision.ChoiceAnswer `decision:"kind=choice;name=tone;instructions=What is the customer's tone?;options=calm|frustrated|angry"`
+	Urgency decision.ScoreAnswer  `decision:"kind=score;name=urgency;instructions=How urgent is this ticket?;levels=can wait|this week|today"`
+	Spam    decision.NoulAnswer   `decision:"kind=noul;name=spam;optional;instructions=Is this spam?"`
 }
 
 func main() {
@@ -218,9 +223,9 @@ type Ticket struct {
 }
 
 func run(ctx context.Context) error {
-	// The client's settings apply to every call it makes.
+	// The client's settings apply to every call it makes; the API key, the
+	// base URL and the model come from the environment.
 	client, err := decision.NewClient(
-		decision.WithModel(decision.DefaultModel),
 		decision.WithTimeout(30*time.Second),
 		decision.WithRetry(decision.DefaultRetry().MaxRetries(1)),
 		decision.WithHeader("X-Team", "support"),

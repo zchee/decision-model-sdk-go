@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -37,10 +38,18 @@ import (
 const syntheticKey = "ts_synthetic_live_key_0123456789"
 
 // TestLiveEnvGuard checks the guard every live test calls first: without
-// DECISION_MODEL_LIVE_TESTS=1 and a non-blank TYPESAFE_API_KEY it fails naming each
-// missing variable, and no message repeats a value. It runs on every go test,
-// without the live tag.
+// DECISION_MODEL_LIVE_TESTS=1 and a non-blank DECISION_MODEL_API_KEY,
+// DECISION_MODEL_BASE_URL and DECISION_MODEL_DEFAULT_MODEL it fails naming
+// each missing variable, and no message repeats a value. It runs on every go
+// test, without the live tag.
 func TestLiveEnvGuard(t *testing.T) {
+	// all is a complete environment: TypeSafe AI's API and model, as the
+	// package documentation shows them.
+	all := func(over map[string]string) map[string]string {
+		env := map[string]string{liveTestsEnv: "1", decision.APIKeyEnv: syntheticKey, decision.BaseURLEnv: "https://api.typesafe.ai", decision.DefaultModelEnv: "jev-latest"}
+		maps.Copy(env, over)
+		return env
+	}
 	tests := map[string]struct {
 		env      map[string]string
 		wantErr  []string // parts the error must contain; nil: no error
@@ -48,42 +57,54 @@ func TestLiveEnvGuard(t *testing.T) {
 	}{
 		"error: nothing set": {
 			env:     map[string]string{},
-			wantErr: []string{liveTestsEnv + " is not 1", decision.APIKeyEnv + " is unset or blank"},
+			wantErr: []string{liveTestsEnv + " is not 1", decision.APIKeyEnv + " is unset or blank", decision.BaseURLEnv + " is unset or blank", decision.DefaultModelEnv + " is unset or blank"},
 		},
-		"error: the key without the switch": {
-			env:     map[string]string{decision.APIKeyEnv: syntheticKey},
+		"error: everything but the switch": {
+			env:     all(map[string]string{liveTestsEnv: ""}),
 			wantErr: []string{liveTestsEnv + " is not 1"},
 		},
 		"error: the switch set to something other than 1": {
-			env:     map[string]string{liveTestsEnv: "true", decision.APIKeyEnv: syntheticKey},
+			env:     all(map[string]string{liveTestsEnv: "true"}),
 			wantErr: []string{liveTestsEnv + " is not 1"},
 		},
-		"error: the switch without the key": {
-			env:     map[string]string{liveTestsEnv: "1"},
+		"error: everything but the key": {
+			env:     all(map[string]string{decision.APIKeyEnv: ""}),
 			wantErr: []string{decision.APIKeyEnv + " is unset or blank"},
 		},
 		"error: a blank key": {
-			env:     map[string]string{liveTestsEnv: "1", decision.APIKeyEnv: " \t "},
+			env:     all(map[string]string{decision.APIKeyEnv: " \t "}),
 			wantErr: []string{decision.APIKeyEnv + " is unset or blank"},
 		},
+		"error: everything but the base URL: the tests pick no vendor": {
+			env:     all(map[string]string{decision.BaseURLEnv: ""}),
+			wantErr: []string{decision.BaseURLEnv + " is unset or blank"},
+		},
+		"error: everything but the model: the tests pick no model": {
+			env:     all(map[string]string{decision.DefaultModelEnv: " "}),
+			wantErr: []string{decision.DefaultModelEnv + " is unset or blank"},
+		},
 		"error: a base URL with userinfo is refused without echo": {
-			env:     map[string]string{liveTestsEnv: "1", decision.APIKeyEnv: syntheticKey, decision.BaseURLEnv: "https://user:" + syntheticKey + "@api.example.com"},
+			env:     all(map[string]string{decision.BaseURLEnv: "https://user:" + syntheticKey + "@api.example.com"}),
 			wantErr: []string{decision.BaseURLEnv + " is not an http or https URL"},
 		},
 		"error: a base URL without a scheme": {
-			env:     map[string]string{liveTestsEnv: "1", decision.APIKeyEnv: syntheticKey, decision.BaseURLEnv: "api.example.com"},
+			env:     all(map[string]string{decision.BaseURLEnv: "api.example.com"}),
 			wantErr: []string{decision.BaseURLEnv + " is not an http or https URL"},
 		},
-		"success: the switch and the key, the default host": {
-			env:      map[string]string{liveTestsEnv: "1", decision.APIKeyEnv: syntheticKey},
+		"error: the old variables are not read": {
+			env:     map[string]string{liveTestsEnv: "1", "TYPESAFE_API_KEY": syntheticKey, "TYPESAFE_BASE_URL": "https://api.typesafe.ai", "TYPESAFE_DEFAULT_MODEL": "jev-latest"},
+			wantErr: []string{decision.APIKeyEnv + " is unset or blank", decision.BaseURLEnv + " is unset or blank", decision.DefaultModelEnv + " is unset or blank"},
+		},
+		"success: all four set": {
+			env:      all(nil),
 			wantHost: "api.typesafe.ai",
 		},
 		"success: blanks around the values are ignored": {
-			env:      map[string]string{liveTestsEnv: " 1 ", decision.APIKeyEnv: " " + syntheticKey + "\n"},
+			env:      all(map[string]string{liveTestsEnv: " 1 ", decision.APIKeyEnv: " " + syntheticKey + "\n", decision.BaseURLEnv: " https://api.typesafe.ai\t"}),
 			wantHost: "api.typesafe.ai",
 		},
-		"success: TYPESAFE_BASE_URL selects the host": {
-			env:      map[string]string{liveTestsEnv: "1", decision.APIKeyEnv: syntheticKey, decision.BaseURLEnv: "https://staging.example.com/prefix"},
+		"success: the base URL names the host": {
+			env:      all(map[string]string{decision.BaseURLEnv: "https://staging.example.com/prefix"}),
 			wantHost: "staging.example.com",
 		},
 	}
@@ -157,14 +178,14 @@ func testNames(out string) []string {
 }
 
 // TestLiveTestsFailWithoutEnv builds this package with the live tag in a child
-// go test whose environment has no TYPESAFE_ variable, and checks end to end
+// go test whose environment has no DECISION_MODEL_ variable, and checks end to end
 // that the live tests fail without the variables: go test -list names every
 // live test without the variables, and running them fails every one of them
 // with the guard's message, none passing. The live tests are the ones -tags
 // live adds to the list, so a new one is covered without an edit here; the
 // four of the upstream port must be among them.
 func TestLiveTestsFailWithoutEnv(t *testing.T) {
-	env := environWithout("TYPESAFE_")
+	env := environWithout("DECISION_MODEL_")
 	untagged, err := runGo(t, env, "test", "-list", ".*", ".")
 	if err != nil {
 		t.Fatalf("go test -list without the tag: %v\n%s", err, untagged)
@@ -322,7 +343,7 @@ func TestRecorderOnSyntheticResponses(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	c, err := decision.NewClient(decision.WithAPIKey(syntheticKey), decision.WithBaseURL(srv.URL), decision.WithRetry(decision.NoRetry()))
+	c, err := decision.NewClient(decision.WithAPIKey(syntheticKey), decision.WithBaseURL(srv.URL), decision.WithModel("jev"), decision.WithRetry(decision.NoRetry()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -384,7 +405,7 @@ var recordedBodies = []string{
 // exactly the recorded bodies, each a JSON object as the API sent it (no
 // trailing newline added), with no credential shape in it (credentialShapes:
 // no ts_ token, no member named like a credential header, no bearer
-// credential). When the environment holds TYPESAFE_API_KEY, as on the
+// credential). When the environment holds DECISION_MODEL_API_KEY, as on the
 // machine that recorded them, the key's bytes must not occur either; the
 // check prints nothing of it.
 // internal/codec's TestLiveBodiesOneScan decodes every one of them.

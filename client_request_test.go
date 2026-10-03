@@ -56,12 +56,80 @@ func (c *capture) RoundTrip(req *http.Request) (*http.Response, error) {
 	return c.rt.RoundTrip(req)
 }
 
-// newEnvClient builds a client over rt (WithRoundTripper) from opts alone,
-// reading the environment the test set, and closes it when the test ends.
-// Its calls make one attempt each, as newTestClient's do.
+// newEnvClient builds a client over rt (WithRoundTripper) from opts, without
+// the key newTestClient adds, so the key comes from opts or the environment
+// the test set, and closes it when the test ends. As newTestClient's, its
+// calls make one attempt each, and it names testBaseURL and testModel unless
+// opts name others.
 func newEnvClient(t *testing.T, rt http.RoundTripper, opts ...ClientOption) *Client {
 	t.Helper()
 	return mustClient(t, append([]ClientOption{WithRoundTripper(rt), WithRetry(NoRetry())}, opts...)...)
+}
+
+// TestNoModelFailsBeforeAnyIO checks the client half of having no default
+// model: a client without one sends only the System One calls that name a
+// model. A call that names none, SystemOne's or Ask's, fails with a
+// *ConfigError before anything reaches the transport, and its message names
+// the call option, the client option and the variable. A model named with
+// Model, or as an ExtraBody member named "model", is sent as given, and a
+// list-models call, which names no model, is sent too.
+func TestNoModelFailsBeforeAnyIO(t *testing.T) {
+	const want = "No model was named. Pass Model on the call, or set WithModel on the client or the DECISION_MODEL_DEFAULT_MODEL environment variable."
+	clearEnv(t)
+	result := testsupport.JSON(http.StatusOK, testsupport.Fixture(t, "result.json"))
+	rec := &testsupport.Recorder{Replies: []testsupport.Reply{result, result, testsupport.JSON(http.StatusOK, testsupport.Fixture(t, "models.json"))}}
+	c, err := NewClient(WithAPIKey(testKey), WithBaseURL(testBaseURL), WithRoundTripper(rec), WithRetry(NoRetry()))
+	if err != nil {
+		t.Fatalf("NewClient without a model: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+
+	refused := map[string]func() error{
+		"SystemOne": func() error {
+			_, err := c.SystemOne(t.Context(), "hi", noulQuestion(t))
+			return err
+		},
+		"SystemOne with other call options": func() error {
+			_, err := c.SystemOne(t.Context(), "hi", noulQuestion(t), Timeout(time.Second), ExtraBody("beam_width", 4))
+			return err
+		},
+		"Ask": func() error {
+			_, err := Ask[knownResponse](t.Context(), c, "hi")
+			return err
+		},
+	}
+	for name, call := range refused {
+		err := call()
+		ce, ok := errors.AsType[*ConfigError](err)
+		if !ok || ce.Error() != want {
+			t.Errorf("%s: error = %T %v, want the *ConfigError %q", name, err, err, want)
+		}
+	}
+	if n := len(rec.Requests()); n != 0 {
+		t.Fatalf("the transport saw %d requests from calls that name no model, want 0", n)
+	}
+
+	if _, err := c.SystemOne(t.Context(), "hi", noulQuestion(t), Model("jev-2")); err != nil {
+		t.Fatalf("SystemOne with Model: %v", err)
+	}
+	if _, err := c.SystemOne(t.Context(), "hi", noulQuestion(t), ExtraBody("model", "jev-3")); err != nil {
+		t.Fatalf("SystemOne with an ExtraBody model: %v", err)
+	}
+	if _, err := c.Models().List(t.Context()); err != nil {
+		t.Fatalf("Models().List: %v", err)
+	}
+	var got []string
+	for _, r := range rec.Requests() {
+		got = append(got, r.Method+" "+r.URL+" "+string(r.Body))
+	}
+	wantSent := []string{
+		`POST https://api.typesafe.ai/v1/systemone {"state":"hi","model":"jev-2",` + noulBody + `}`,
+		`POST https://api.typesafe.ai/v1/systemone {"state":"hi","model":"jev-3",` + noulBody + `}`,
+		`GET https://api.typesafe.ai/v1/models `,
+	}
+	if diff := gocmp.Diff(wantSent, got); diff != "" {
+		t.Errorf("requests sent (-want +got):\n%s", diff)
+	}
 }
 
 // TestClientExtraBodyShallowOverride re-asserts
@@ -379,8 +447,8 @@ func TestConfigResolutionOnTheWire(t *testing.T) {
 		opts                      []ClientOption
 		wantKey, wantURL, wantMod string
 	}{
-		"success: default": {
-			opts:    []ClientOption{WithAPIKey(testKey)},
+		"success: options alone": {
+			opts:    []ClientOption{WithAPIKey(testKey), WithBaseURL(testBaseURL), WithModel(testModel)},
 			wantKey: testKey, wantURL: "https://api.typesafe.ai/v1/systemone", wantMod: "jev-latest",
 		},
 		"success: env": {
@@ -401,7 +469,13 @@ func TestConfigResolutionOnTheWire(t *testing.T) {
 			}
 			rec := replying(http.StatusOK, testsupport.Fixture(t, "result.json"))
 			cp := &capture{rt: rec}
-			c := newEnvClient(t, cp, tt.opts...)
+			// NewClient itself, not newEnvClient, which names a base URL and a
+			// model of its own over the environment's.
+			c, err := NewClient(append([]ClientOption{WithRoundTripper(cp), WithRetry(NoRetry())}, tt.opts...)...)
+			if err != nil {
+				t.Fatalf("NewClient: %v", err)
+			}
+			t.Cleanup(func() { _ = c.Close() })
 			before := time.Now()
 			if _, err := c.SystemOne(t.Context(), "hello", noulQuestion(t)); err != nil {
 				t.Fatalf("SystemOne: %v", err)
@@ -672,7 +746,7 @@ func TestRequestBodyIdenticalAcrossReaders(t *testing.T) {
 func TestClientNeverPrintsKey(t *testing.T) {
 	const longKey = "ts_live_0123456789abcdef"
 	clearEnv(t)
-	own, err := NewClient(WithAPIKey(longKey))
+	own, err := NewClient(WithAPIKey(longKey), WithBaseURL(testBaseURL))
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
@@ -750,7 +824,7 @@ func TestWithPretouch(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			clearEnv(t)
 			rec := replying(http.StatusOK, testsupport.Fixture(t, "result.json"))
-			c, err := NewClient(append([]ClientOption{WithAPIKey(testKey), WithRoundTripper(rec)}, tt.opts...)...)
+			c, err := NewClient(append([]ClientOption{WithAPIKey(testKey), WithBaseURL(testBaseURL), WithModel(testModel), WithRoundTripper(rec)}, tt.opts...)...)
 			if tt.wantErr != "" {
 				if _, ok := errors.AsType[*ConfigError](err); !ok || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("NewClient error = %v, want a *ConfigError with %q", err, tt.wantErr)

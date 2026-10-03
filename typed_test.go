@@ -32,10 +32,10 @@ import (
 // Ticket is a typed question set: billing, tone, urgency and an optional
 // spam.
 type Ticket struct {
-	Billing NoulAnswer   `typesafe:"kind=noul;instructions=Is this about billing, invoices or refunds?;yes=payments or invoices"`
-	Tone    ChoiceAnswer `typesafe:"kind=choice;instructions=What is the tone?;options=calm=neutral or polite|angry"`
-	Urgency ScoreAnswer  `typesafe:"kind=score;instructions=How urgent?;levels=can wait|this week|today"`
-	Spam    NoulAnswer   `typesafe:"kind=noul;optional;instructions=Spam?"`
+	Billing NoulAnswer   `decision:"kind=noul;instructions=Is this about billing, invoices or refunds?;yes=payments or invoices"`
+	Tone    ChoiceAnswer `decision:"kind=choice;instructions=What is the tone?;options=calm=neutral or polite|angry"`
+	Urgency ScoreAnswer  `decision:"kind=score;instructions=How urgent?;levels=can wait|this week|today"`
+	Spam    NoulAnswer   `decision:"kind=noul;optional;instructions=Spam?"`
 }
 
 // ticketByHand is the question set Ticket declares, built by hand.
@@ -108,14 +108,14 @@ func TestPreparedForTicketParity(t *testing.T) {
 // escapes asks one question per case of the eight escape cases: each of the
 // four escapes once inside an option label and once inside free text.
 type escapes struct {
-	LabelSemicolon ChoiceAnswer `typesafe:"kind=choice;options=a\\;b=desc|c"`
-	LabelBar       ChoiceAnswer `typesafe:"kind=choice;options=a\\|b=desc|c"`
-	LabelEquals    ChoiceAnswer `typesafe:"kind=choice;options=a\\=b=desc|c"`
-	LabelBackslash ChoiceAnswer `typesafe:"kind=choice;options=a\\\\b=desc|c"`
-	TextSemicolon  NoulAnswer   `typesafe:"kind=noul;instructions=a\\;b"`
-	TextBar        NoulAnswer   `typesafe:"kind=noul;instructions=a\\|b"`
-	TextEquals     NoulAnswer   `typesafe:"kind=noul;instructions=a\\=b"`
-	TextBackslash  NoulAnswer   `typesafe:"kind=noul;instructions=a\\\\b"`
+	LabelSemicolon ChoiceAnswer `decision:"kind=choice;options=a\\;b=desc|c"`
+	LabelBar       ChoiceAnswer `decision:"kind=choice;options=a\\|b=desc|c"`
+	LabelEquals    ChoiceAnswer `decision:"kind=choice;options=a\\=b=desc|c"`
+	LabelBackslash ChoiceAnswer `decision:"kind=choice;options=a\\\\b=desc|c"`
+	TextSemicolon  NoulAnswer   `decision:"kind=noul;instructions=a\\;b"`
+	TextBar        NoulAnswer   `decision:"kind=noul;instructions=a\\|b"`
+	TextEquals     NoulAnswer   `decision:"kind=noul;instructions=a\\=b"`
+	TextBackslash  NoulAnswer   `decision:"kind=noul;instructions=a\\\\b"`
 }
 
 // TestPreparedForEscapes pins the eight escape cases end to end: the
@@ -371,7 +371,7 @@ type selfPointer *selfPointer
 
 // TaggedBase is a struct with a tagged answer field, to be embedded.
 type TaggedBase struct {
-	Spam NoulAnswer `typesafe:"kind=noul"`
+	Spam NoulAnswer `decision:"kind=noul"`
 }
 
 // OuterBase embeds TaggedBase, one level further down.
@@ -382,7 +382,7 @@ type OuterBase struct {
 
 // taggedBase is TaggedBase under an unexported name.
 type taggedBase struct {
-	Spam NoulAnswer `typesafe:"kind=noul"`
+	Spam NoulAnswer `decision:"kind=noul"`
 }
 
 // NamedOuter holds TaggedBase in a named field.
@@ -393,13 +393,13 @@ type NamedOuter struct {
 
 // hiddenTaggedBase has a tagged field that is unexported.
 type hiddenTaggedBase struct {
-	spam NoulAnswer `typesafe:"kind=noul"`
+	spam NoulAnswer `decision:"kind=noul"`
 }
 
 // CyclicTagged embeds a pointer to itself and has a tagged field.
 type CyclicTagged struct {
 	*CyclicTagged
-	Spam NoulAnswer `typesafe:"kind=noul"`
+	Spam NoulAnswer `decision:"kind=noul"`
 }
 
 // The struct types of TestPreparedForRejections: Go generics need a named
@@ -407,28 +407,28 @@ type CyclicTagged struct {
 type (
 	// (1) duplicate wire name.
 	rejDupName struct {
-		Spam  NoulAnswer `typesafe:"kind=noul"`
-		Other NoulAnswer `typesafe:"kind=noul;name=Spam"`
+		Spam  NoulAnswer `decision:"kind=noul"`
+		Other NoulAnswer `decision:"kind=noul;name=Spam"`
 	}
 	// (2) duplicate option label.
 	rejDupOption struct {
-		Tone ChoiceAnswer `typesafe:"kind=choice;options=calm=polite|angry|calm"`
+		Tone ChoiceAnswer `decision:"kind=choice;options=calm=polite|angry|calm"`
 	}
 	// (3) duplicate level text.
 	rejDupLevel struct {
-		Urgency ScoreAnswer `typesafe:"kind=score;levels=low|high|low"`
+		Urgency ScoreAnswer `decision:"kind=score;levels=low|high|low"`
 	}
 	// (4) choice without options, in case 4's family.
 	rejNoOptions struct {
-		Tone ChoiceAnswer `typesafe:"kind=choice;instructions=Tone?"`
+		Tone ChoiceAnswer `decision:"kind=choice;instructions=Tone?"`
 	}
 	// (4) score without levels.
 	rejNoLevels struct {
-		Urgency ScoreAnswer `typesafe:"kind=score;instructions=How urgent?"`
+		Urgency ScoreAnswer `decision:"kind=score;instructions=How urgent?"`
 	}
 	// (5) missing kind.
 	rejNoKind struct {
-		Spam NoulAnswer `typesafe:"instructions=Spam?"`
+		Spam NoulAnswer `decision:"instructions=Spam?"`
 	}
 	// (5) missing kind: an answer field without a tag.
 	rejUntagged struct {
@@ -436,32 +436,32 @@ type (
 	}
 	// (6) unknown kind.
 	rejUnknownKind struct {
-		Spam NoulAnswer `typesafe:"kind=yesno"`
+		Spam NoulAnswer `decision:"kind=yesno"`
 	}
 	// (7) kind/field-type mismatch.
 	rejKindMismatch struct {
-		Tone NoulAnswer `typesafe:"kind=choice;options=calm"`
+		Tone NoulAnswer `decision:"kind=choice;options=calm"`
 	}
 	// (7) kind/field-type mismatch: a tag on a field that is not an answer.
 	rejTaggedString struct {
-		Note string `typesafe:"kind=noul"`
+		Note string `decision:"kind=noul"`
 	}
 	// (7) kind/field-type mismatch: a tag on a field of an unnamed struct
 	// type, which the message names without its fields and their tags.
 	rejTaggedUnnamedStruct struct {
 		Meta struct {
 			Secret string `json:"secret"`
-		} `typesafe:"kind=noul"`
+		} `decision:"kind=noul"`
 	}
 	// (7) kind/field-type mismatch: a pointer type that points to itself,
 	// which the pointer walk must not follow forever.
 	rejSelfPointer struct {
 		Loose selfPointer
-		Spam  selfPointer `typesafe:"kind=noul"`
+		Spam  selfPointer `decision:"kind=noul"`
 	}
 	// (8) pointer field.
 	rejPointer struct {
-		Spam *NoulAnswer `typesafe:"kind=noul;instructions=Spam?"`
+		Spam *NoulAnswer `decision:"kind=noul;instructions=Spam?"`
 	}
 	// (8) pointer field: untagged, an answer field all the same.
 	rejUntaggedPointer struct {
@@ -470,11 +470,11 @@ type (
 	// (9) a tagged field inside an embedded struct, which is not promoted.
 	rejEmbeddedTagged struct {
 		TaggedBase
-		Tone ChoiceAnswer `typesafe:"kind=choice;options=calm"`
+		Tone ChoiceAnswer `decision:"kind=choice;options=calm"`
 	}
 	// (9) a tagged field inside an embedded pointer to a struct.
 	rejEmbeddedPointer struct {
-		Tone ChoiceAnswer `typesafe:"kind=choice;options=calm"`
+		Tone ChoiceAnswer `decision:"kind=choice;options=calm"`
 		*TaggedBase
 	}
 	// (9) a tagged field two embeddings deep.
@@ -504,7 +504,7 @@ type (
 	}
 	// (9) a tagged field inside a named pointer-to-struct field.
 	rejNamedPointer struct {
-		Tone  ChoiceAnswer `typesafe:"kind=choice;options=calm"`
+		Tone  ChoiceAnswer `decision:"kind=choice;options=calm"`
 		Inner *TaggedBase
 	}
 	// (9) a tagged field two levels into a named field, through an
@@ -522,7 +522,7 @@ type (
 	}
 	// (9) a named field whose type is itself a typed question set.
 	rejNamedTicket struct {
-		Spam NoulAnswer `typesafe:"kind=noul"`
+		Spam NoulAnswer `decision:"kind=noul"`
 		Prev Ticket
 	}
 	// (9) a tagged field inside an unexported named field.
@@ -532,39 +532,39 @@ type (
 	// (9) a tagged field inside a field of an unnamed struct type.
 	rejNamedAnonymousType struct {
 		Meta struct {
-			Spam NoulAnswer `typesafe:"kind=noul"`
+			Spam NoulAnswer `decision:"kind=noul"`
 		}
 	}
 	// (9) unexported field with a tag.
 	rejUnexported struct {
-		Tone ChoiceAnswer `typesafe:"kind=choice;options=calm"`
-		spam NoulAnswer   `typesafe:"kind=noul"`
+		Tone ChoiceAnswer `decision:"kind=choice;options=calm"`
+		spam NoulAnswer   `decision:"kind=noul"`
 	}
 	// (11) reserved name.
 	rejReserved struct {
-		Model NoulAnswer `typesafe:"kind=noul;name=model"`
+		Model NoulAnswer `decision:"kind=noul;name=model"`
 	}
 	// (11) reserved name, after an ignored unexported field.
 	rejReservedAfterIgnored struct {
 		answers NoulAnswer
-		Usage   NoulAnswer `typesafe:"kind=noul;name=usage"`
+		Usage   NoulAnswer `decision:"kind=noul;name=usage"`
 	}
 	// (12) optional on a field that is not an answer.
 	rejOptionalString struct {
-		Spam NoulAnswer `typesafe:"kind=noul"`
-		Note string     `typesafe:"optional"`
+		Spam NoulAnswer `decision:"kind=noul"`
+		Note string     `decision:"optional"`
 	}
 	// (13) tag syntax error: unknown key.
 	rejUnknownKey struct {
-		Spam NoulAnswer `typesafe:"kind=noul;weight=3"`
+		Spam NoulAnswer `decision:"kind=noul;weight=3"`
 	}
 	// (13) tag syntax error: unterminated escape.
 	rejUnterminated struct {
-		Spam NoulAnswer `typesafe:"kind=noul;instructions=Spam?\\"`
+		Spam NoulAnswer `decision:"kind=noul;instructions=Spam?\\"`
 	}
 	// (13) tag syntax error: a key the kind does not take.
 	rejKeyOutsideKind struct {
-		Spam NoulAnswer `typesafe:"kind=noul;options=x"`
+		Spam NoulAnswer `decision:"kind=noul;options=x"`
 	}
 	// (14) no answer fields: the empty set Prepare refuses.
 	rejEmpty struct {
@@ -637,11 +637,11 @@ func TestPreparedForRejections(t *testing.T) {
 		},
 		"error: (5) missing kind": {
 			prepare: PreparedFor[rejNoKind],
-			wantMsg: `PreparedFor[decision.rejNoKind]: field Spam: the typesafe tag has no kind; add kind=noul.`,
+			wantMsg: `PreparedFor[decision.rejNoKind]: field Spam: the decision tag has no kind; add kind=noul.`,
 		},
 		"error: (5) missing kind: answer field without a tag": {
 			prepare: PreparedFor[rejUntagged],
-			wantMsg: `PreparedFor[decision.rejUntagged]: field Spam: the NoulAnswer field has no typesafe tag, so no kind; every answer field asks a question: add a tag such as typesafe:"kind=noul".`,
+			wantMsg: `PreparedFor[decision.rejUntagged]: field Spam: the NoulAnswer field has no decision tag, so no kind; every answer field asks a question: add a tag such as decision:"kind=noul".`,
 		},
 		"error: (6) unknown kind": {
 			prepare: PreparedFor[rejUnknownKind],
@@ -653,15 +653,15 @@ func TestPreparedForRejections(t *testing.T) {
 		},
 		"error: (7) kind/field-type mismatch: tag on a string field": {
 			prepare: PreparedFor[rejTaggedString],
-			wantMsg: `PreparedFor[decision.rejTaggedString]: field Note: a typesafe tag needs a NoulAnswer, ChoiceAnswer or ScoreAnswer field, and the field is a string.`,
+			wantMsg: `PreparedFor[decision.rejTaggedString]: field Note: a decision tag needs a NoulAnswer, ChoiceAnswer or ScoreAnswer field, and the field is a string.`,
 		},
 		"error: (7) kind/field-type mismatch: tag on a field of an unnamed struct type": {
 			prepare: PreparedFor[rejTaggedUnnamedStruct],
-			wantMsg: `PreparedFor[decision.rejTaggedUnnamedStruct]: field Meta: a typesafe tag needs a NoulAnswer, ChoiceAnswer or ScoreAnswer field, and the field is a struct {...}.`,
+			wantMsg: `PreparedFor[decision.rejTaggedUnnamedStruct]: field Meta: a decision tag needs a NoulAnswer, ChoiceAnswer or ScoreAnswer field, and the field is a struct {...}.`,
 		},
 		"error: (7) kind/field-type mismatch: self-referential pointer": {
 			prepare: PreparedFor[rejSelfPointer],
-			wantMsg: `PreparedFor[decision.rejSelfPointer]: field Spam: a typesafe tag needs a NoulAnswer, ChoiceAnswer or ScoreAnswer field, and the field is a decision.selfPointer.`,
+			wantMsg: `PreparedFor[decision.rejSelfPointer]: field Spam: a decision tag needs a NoulAnswer, ChoiceAnswer or ScoreAnswer field, and the field is a decision.selfPointer.`,
 		},
 		"error: (8) pointer field": {
 			prepare: PreparedFor[rejPointer],
@@ -673,67 +673,67 @@ func TestPreparedForRejections(t *testing.T) {
 		},
 		"error: (9) tagged field inside an embedded struct": {
 			prepare: PreparedFor[rejEmbeddedTagged],
-			wantMsg: `PreparedFor[decision.rejEmbeddedTagged]: field TaggedBase: fields of an embedded struct are not promoted, and TaggedBase.Spam has a typesafe tag; declare Spam in decision.rejEmbeddedTagged itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejEmbeddedTagged]: field TaggedBase: fields of an embedded struct are not promoted, and TaggedBase.Spam has a decision tag; declare Spam in decision.rejEmbeddedTagged itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) tagged field inside an embedded pointer to a struct": {
 			prepare: PreparedFor[rejEmbeddedPointer],
-			wantMsg: `PreparedFor[decision.rejEmbeddedPointer]: field TaggedBase: fields of an embedded struct are not promoted, and TaggedBase.Spam has a typesafe tag; declare Spam in decision.rejEmbeddedPointer itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejEmbeddedPointer]: field TaggedBase: fields of an embedded struct are not promoted, and TaggedBase.Spam has a decision tag; declare Spam in decision.rejEmbeddedPointer itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) tagged field two embeddings deep": {
 			prepare: PreparedFor[rejEmbeddedDeep],
-			wantMsg: `PreparedFor[decision.rejEmbeddedDeep]: field OuterBase: fields of an embedded struct are not promoted, and OuterBase.TaggedBase.Spam has a typesafe tag; declare Spam in decision.rejEmbeddedDeep itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejEmbeddedDeep]: field OuterBase: fields of an embedded struct are not promoted, and OuterBase.TaggedBase.Spam has a decision tag; declare Spam in decision.rejEmbeddedDeep itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) tagged field inside an unexported embedded struct": {
 			prepare: PreparedFor[rejEmbeddedUnexported],
-			wantMsg: `PreparedFor[decision.rejEmbeddedUnexported]: field taggedBase: fields of an embedded struct are not promoted, and taggedBase.Spam has a typesafe tag; declare Spam in decision.rejEmbeddedUnexported itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejEmbeddedUnexported]: field taggedBase: fields of an embedded struct are not promoted, and taggedBase.Spam has a decision tag; declare Spam in decision.rejEmbeddedUnexported itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) tagged field inside a self-embedding struct": {
 			prepare: PreparedFor[rejEmbeddedCyclic],
-			wantMsg: `PreparedFor[decision.rejEmbeddedCyclic]: field CyclicTagged: fields of an embedded struct are not promoted, and CyclicTagged.Spam has a typesafe tag; declare Spam in decision.rejEmbeddedCyclic itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejEmbeddedCyclic]: field CyclicTagged: fields of an embedded struct are not promoted, and CyclicTagged.Spam has a decision tag; declare Spam in decision.rejEmbeddedCyclic itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) unexported tagged field inside an embedded struct": {
 			prepare: PreparedFor[rejEmbeddedHiddenTag],
-			wantMsg: `PreparedFor[decision.rejEmbeddedHiddenTag]: field hiddenTaggedBase: fields of an embedded struct are not promoted, and hiddenTaggedBase.spam has a typesafe tag; declare spam in decision.rejEmbeddedHiddenTag itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejEmbeddedHiddenTag]: field hiddenTaggedBase: fields of an embedded struct are not promoted, and hiddenTaggedBase.spam has a decision tag; declare spam in decision.rejEmbeddedHiddenTag itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) unexported tagged field inside a named struct field": {
 			prepare: PreparedFor[rejNamedHiddenTag],
-			wantMsg: `PreparedFor[decision.rejNamedHiddenTag]: field Inner: fields of a nested struct are not read, and Inner.spam has a typesafe tag; declare spam in decision.rejNamedHiddenTag itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejNamedHiddenTag]: field Inner: fields of a nested struct are not read, and Inner.spam has a decision tag; declare spam in decision.rejNamedHiddenTag itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) tagged field inside a named struct field": {
 			prepare: PreparedFor[rejNamedStruct],
-			wantMsg: `PreparedFor[decision.rejNamedStruct]: field Inner: fields of a nested struct are not read, and Inner.Spam has a typesafe tag; declare Spam in decision.rejNamedStruct itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejNamedStruct]: field Inner: fields of a nested struct are not read, and Inner.Spam has a decision tag; declare Spam in decision.rejNamedStruct itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) tagged field inside a named pointer-to-struct field": {
 			prepare: PreparedFor[rejNamedPointer],
-			wantMsg: `PreparedFor[decision.rejNamedPointer]: field Inner: fields of a nested struct are not read, and Inner.Spam has a typesafe tag; declare Spam in decision.rejNamedPointer itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejNamedPointer]: field Inner: fields of a nested struct are not read, and Inner.Spam has a decision tag; declare Spam in decision.rejNamedPointer itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) tagged field deep inside a named field": {
 			prepare: PreparedFor[rejNamedDeep],
-			wantMsg: `PreparedFor[decision.rejNamedDeep]: field Wrap: fields of a nested struct are not read, and Wrap.TaggedBase.Spam has a typesafe tag; declare Spam in decision.rejNamedDeep itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejNamedDeep]: field Wrap: fields of a nested struct are not read, and Wrap.TaggedBase.Spam has a decision tag; declare Spam in decision.rejNamedDeep itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) tagged field behind two named fields": {
 			prepare: PreparedFor[rejNamedTwoLevels],
-			wantMsg: `PreparedFor[decision.rejNamedTwoLevels]: field Outer: fields of a nested struct are not read, and Outer.Inner.Spam has a typesafe tag; declare Spam in decision.rejNamedTwoLevels itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejNamedTwoLevels]: field Outer: fields of a nested struct are not read, and Outer.Inner.Spam has a decision tag; declare Spam in decision.rejNamedTwoLevels itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) tagged field behind a named field of an embedded struct": {
 			prepare: PreparedFor[rejEmbeddedNamedInner],
-			wantMsg: `PreparedFor[decision.rejEmbeddedNamedInner]: field NamedOuter: fields of an embedded struct are not promoted, and NamedOuter.Inner.Spam has a typesafe tag; declare Spam in decision.rejEmbeddedNamedInner itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejEmbeddedNamedInner]: field NamedOuter: fields of an embedded struct are not promoted, and NamedOuter.Inner.Spam has a decision tag; declare Spam in decision.rejEmbeddedNamedInner itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) named field of a typed question set type": {
 			prepare: PreparedFor[rejNamedTicket],
-			wantMsg: `PreparedFor[decision.rejNamedTicket]: field Prev: fields of a nested struct are not read, and Prev.Billing has a typesafe tag; declare Billing in decision.rejNamedTicket itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejNamedTicket]: field Prev: fields of a nested struct are not read, and Prev.Billing has a decision tag; declare Billing in decision.rejNamedTicket itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) tagged field inside an unexported named field": {
 			prepare: PreparedFor[rejNamedUnexported],
-			wantMsg: `PreparedFor[decision.rejNamedUnexported]: field inner: fields of a nested struct are not read, and inner.Spam has a typesafe tag; declare Spam in decision.rejNamedUnexported itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejNamedUnexported]: field inner: fields of a nested struct are not read, and inner.Spam has a decision tag; declare Spam in decision.rejNamedUnexported itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) tagged field inside a field of an unnamed struct type": {
 			prepare: PreparedFor[rejNamedAnonymousType],
-			wantMsg: `PreparedFor[decision.rejNamedAnonymousType]: field Meta: fields of a nested struct are not read, and Meta.Spam has a typesafe tag; declare Spam in decision.rejNamedAnonymousType itself, since PreparedFor reads only the struct's own fields.`,
+			wantMsg: `PreparedFor[decision.rejNamedAnonymousType]: field Meta: fields of a nested struct are not read, and Meta.Spam has a decision tag; declare Spam in decision.rejNamedAnonymousType itself, since PreparedFor reads only the struct's own fields.`,
 		},
 		"error: (9) unexported field with a tag": {
 			prepare: PreparedFor[rejUnexported],
-			wantMsg: `PreparedFor[decision.rejUnexported]: field spam: the field is unexported and has a typesafe tag; only exported fields are answered: export the field or remove the tag.`,
+			wantMsg: `PreparedFor[decision.rejUnexported]: field spam: the field is unexported and has a decision tag; only exported fields are answered: export the field or remove the tag.`,
 		},
 		"error: (10) non-struct T": {
 			prepare: PreparedFor[int],
@@ -761,19 +761,19 @@ func TestPreparedForRejections(t *testing.T) {
 		},
 		"error: (13) tag syntax: unknown key": {
 			prepare: PreparedFor[rejUnknownKey],
-			wantMsg: `PreparedFor[decision.rejUnknownKey]: field Spam: typesafe tag: unknown key "weight"; the keys are kind, name, instructions, yes, no, options, levels and optional.`,
+			wantMsg: `PreparedFor[decision.rejUnknownKey]: field Spam: decision tag: unknown key "weight"; the keys are kind, name, instructions, yes, no, options, levels and optional.`,
 		},
 		"error: (13) tag syntax: unterminated escape": {
 			prepare: PreparedFor[rejUnterminated],
-			wantMsg: `PreparedFor[decision.rejUnterminated]: field Spam: typesafe tag: unterminated escape: a "\" at the end of the tag; write "\\" for a backslash.`,
+			wantMsg: `PreparedFor[decision.rejUnterminated]: field Spam: decision tag: unterminated escape: a "\" at the end of the tag; write "\\" for a backslash.`,
 		},
 		"error: (13) tag syntax: key the kind does not take": {
 			prepare: PreparedFor[rejKeyOutsideKind],
-			wantMsg: `PreparedFor[decision.rejKeyOutsideKind]: field Spam: typesafe tag: options does not apply to kind=noul; a noul takes kind, name, instructions, yes, no and optional.`,
+			wantMsg: `PreparedFor[decision.rejKeyOutsideKind]: field Spam: decision tag: options does not apply to kind=noul; a noul takes kind, name, instructions, yes, no and optional.`,
 		},
 		"error: (14) no answer fields": {
 			prepare: PreparedFor[rejEmpty],
-			wantMsg: `PreparedFor[decision.rejEmpty]: At least one question is required. decision.rejEmpty has no answer fields: give it one NoulAnswer, ChoiceAnswer or ScoreAnswer field per question, each with a typesafe tag.`,
+			wantMsg: `PreparedFor[decision.rejEmpty]: At least one question is required. decision.rejEmpty has no answer fields: give it one NoulAnswer, ChoiceAnswer or ScoreAnswer field per question, each with a decision tag.`,
 		},
 	}
 	for name, tt := range tests {
@@ -799,20 +799,20 @@ func TestPreparedForRejections(t *testing.T) {
 	}
 }
 
-// TestPreparedForMalformedTag covers the struct tags that name a typesafe
+// TestPreparedForMalformedTag covers the struct tags that name a decision
 // key reflect.StructTag.Lookup would not return, or would return while
 // ignoring a second one: a value that is not a valid Go string literal
-// (such as `typesafe:"instructions=a\;b"` written with one backslash), a
+// (such as `decision:"instructions=a\;b"` written with one backslash), a
 // space around the colon, the key given twice, and a malformed pair before
 // the key. PreparedFor refuses the field (13) instead of ignoring the tag,
 // on answer fields and on other fields alike. go vet refuses most of these
 // literals in source, so the types are made with reflect.StructOf.
 func TestPreparedForMalformedTag(t *testing.T) {
 	const (
-		notLiteral = `the typesafe tag is not a valid Go string literal; write each backslash of an escape twice in the struct tag, as in typesafe:"instructions=a\\;b".`
-		notForm    = `the typesafe key is not written as typesafe:"...", with no space around the colon and the value in double quotes, so reflect does not see it; write it that way.`
-		twice      = `the struct tag gives the typesafe key more than once; give it once.`
-		hidden     = `the struct tag is not in the key:"value" form before its typesafe key, so reflect does not see that key; separate the key:"value" pairs with single spaces.`
+		notLiteral = `the decision tag is not a valid Go string literal; write each backslash of an escape twice in the struct tag, as in decision:"instructions=a\\;b".`
+		notForm    = `the decision key is not written as decision:"...", with no space around the colon and the value in double quotes, so reflect does not see it; write it that way.`
+		twice      = `the struct tag gives the decision key more than once; give it once.`
+		hidden     = `the struct tag is not in the key:"value" form before its decision key, so reflect does not see that key; separate the key:"value" pairs with single spaces.`
 	)
 	answer, text := reflect.TypeFor[NoulAnswer](), reflect.TypeFor[string]()
 	tests := map[string]struct {
@@ -820,43 +820,43 @@ func TestPreparedForMalformedTag(t *testing.T) {
 		wantMsg string
 	}{
 		"error: (13) single backslash before ;": {
-			field:   reflect.StructField{Name: "Spam", Type: answer, Tag: `typesafe:"kind=noul;instructions=a\;b"`},
+			field:   reflect.StructField{Name: "Spam", Type: answer, Tag: `decision:"kind=noul;instructions=a\;b"`},
 			wantMsg: `field Spam: ` + notLiteral,
 		},
 		"error: (13) unterminated Go literal": {
-			field:   reflect.StructField{Name: "Spam", Type: answer, Tag: `json:"spam" typesafe:"kind=noul`},
+			field:   reflect.StructField{Name: "Spam", Type: answer, Tag: `json:"spam" decision:"kind=noul`},
 			wantMsg: `field Spam: ` + notLiteral,
 		},
 		"error: (13) malformed literal on a string field": {
-			field:   reflect.StructField{Name: "Note", Type: text, Tag: `typesafe:"optional\;"`},
+			field:   reflect.StructField{Name: "Note", Type: text, Tag: `decision:"optional\;"`},
 			wantMsg: `field Note: ` + notLiteral,
 		},
 		"error: (13) space after the colon": {
-			field:   reflect.StructField{Name: "Spam", Type: answer, Tag: `typesafe: "kind=noul"`},
+			field:   reflect.StructField{Name: "Spam", Type: answer, Tag: `decision: "kind=noul"`},
 			wantMsg: `field Spam: ` + notForm,
 		},
 		"error: (13) space after the colon on a string field": {
-			field:   reflect.StructField{Name: "Note", Type: text, Tag: `typesafe: "optional"`},
+			field:   reflect.StructField{Name: "Note", Type: text, Tag: `decision: "optional"`},
 			wantMsg: `field Note: ` + notForm,
 		},
 		"error: (13) space before the colon": {
-			field:   reflect.StructField{Name: "Spam", Type: answer, Tag: `typesafe :"kind=noul"`},
+			field:   reflect.StructField{Name: "Spam", Type: answer, Tag: `decision :"kind=noul"`},
 			wantMsg: `field Spam: ` + notForm,
 		},
-		"error: (13) typesafe key given twice": {
-			field:   reflect.StructField{Name: "Spam", Type: answer, Tag: `typesafe:"kind=noul" typesafe:"kind=choice"`},
+		"error: (13) decision key given twice": {
+			field:   reflect.StructField{Name: "Spam", Type: answer, Tag: `decision:"kind=noul" decision:"kind=choice"`},
 			wantMsg: `field Spam: ` + twice,
 		},
-		"error: (13) typesafe key given twice on a string field": {
-			field:   reflect.StructField{Name: "Note", Type: text, Tag: `typesafe:"optional" json:"note" typesafe:"optional"`},
+		"error: (13) decision key given twice on a string field": {
+			field:   reflect.StructField{Name: "Note", Type: text, Tag: `decision:"optional" json:"note" decision:"optional"`},
 			wantMsg: `field Note: ` + twice,
 		},
-		"error: (13) malformed pair before the typesafe key": {
-			field:   reflect.StructField{Name: "Spam", Type: answer, Tag: `json:spam typesafe:"kind=noul"`},
+		"error: (13) malformed pair before the decision key": {
+			field:   reflect.StructField{Name: "Spam", Type: answer, Tag: `json:spam decision:"kind=noul"`},
 			wantMsg: `field Spam: ` + hidden,
 		},
-		"error: (13) malformed pair before the typesafe key on a string field": {
-			field:   reflect.StructField{Name: "Note", Type: text, Tag: `json:note typesafe:"optional"`},
+		"error: (13) malformed pair before the decision key on a string field": {
+			field:   reflect.StructField{Name: "Note", Type: text, Tag: `json:note decision:"optional"`},
 			wantMsg: `field Note: ` + hidden,
 		},
 	}
@@ -876,17 +876,84 @@ func TestPreparedForMalformedTag(t *testing.T) {
 	// reflect.StructOf cannot make an unexported field; planField reads one
 	// as reflection describes it, with a package path.
 	t.Run("error: (9) malformed tag on an unexported field", func(t *testing.T) {
-		field := reflect.StructField{Name: "spam", PkgPath: "github.com/zchee/decision-model-sdk-go", Type: answer, Tag: `typesafe: "kind=noul"`}
+		field := reflect.StructField{Name: "spam", PkgPath: "github.com/zchee/decision-model-sdk-go", Type: answer, Tag: `decision: "kind=noul"`}
 		_, asks, err := planField("T", &field)
-		want := `PreparedFor[T]: field spam: the field is unexported and has a typesafe tag; only exported fields are answered: export the field or remove the tag.`
+		want := `PreparedFor[T]: field spam: the field is unexported and has a decision tag; only exported fields are answered: export the field or remove the tag.`
 		if asks || err == nil || err.Error() != want {
 			t.Errorf("planField = (asks %v, %v), want the error %q", asks, err, want)
 		}
 	})
 }
 
+// TestOldTagKeyNotRead checks that the struct tag key of the SDK's earlier
+// name is not read, not even as a fallback: a struct whose fields carry it is
+// planned exactly as the same struct with those tags removed. An answer field
+// with only the old key is refused as one with no tag is; the old key beside
+// the new one, or on a field that is not an answer, changes nothing; and a
+// malformed old key is not refused as a malformed key, since it is not one.
+// The old key is spelled at run time, so that the tag substitution of the
+// rename does not turn these inputs into the new key.
+func TestOldTagKeyNotRead(t *testing.T) {
+	old := "type" + "safe"
+	answer := reflect.TypeFor[NoulAnswer]()
+	text := reflect.TypeFor[string]()
+	tests := map[string]struct {
+		withOld, without []reflect.StructField
+		wantErr          bool
+	}{
+		"error: an answer field with only the old key is an answer field without a tag": {
+			withOld: []reflect.StructField{{Name: "Spam", Type: answer, Tag: reflect.StructTag(old + `:"kind=noul;name=spam"`)}},
+			without: []reflect.StructField{{Name: "Spam", Type: answer}},
+			wantErr: true,
+		},
+		"error: a malformed old key is not a malformed key": {
+			withOld: []reflect.StructField{{Name: "Spam", Type: answer, Tag: reflect.StructTag(old + `: "kind=noul"`)}},
+			without: []reflect.StructField{{Name: "Spam", Type: answer}},
+			wantErr: true,
+		},
+		"success: the old key beside the new one is ignored": {
+			withOld: []reflect.StructField{{Name: "Spam", Type: answer, Tag: reflect.StructTag(old + `:"kind=choice;name=old;options=a|b" decision:"kind=noul;name=spam"`)}},
+			without: []reflect.StructField{{Name: "Spam", Type: answer, Tag: `decision:"kind=noul;name=spam"`}},
+		},
+		"success: the old key on a field that is not an answer is ignored": {
+			withOld: []reflect.StructField{
+				{Name: "Note", Type: text, Tag: reflect.StructTag(old + `:"kind=noul"`)},
+				{Name: "Spam", Type: answer, Tag: `decision:"kind=noul"`},
+			},
+			without: []reflect.StructField{
+				{Name: "Note", Type: text},
+				{Name: "Spam", Type: answer, Tag: `decision:"kind=noul"`},
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := buildPlan(reflect.StructOf(tt.withOld))
+			want := buildPlan(reflect.StructOf(tt.without))
+			if tt.wantErr {
+				if got.err == nil || want.err == nil {
+					t.Fatalf("buildPlan errors = (%v, %v), want both to fail", got.err, want.err)
+				}
+				if diff := gocmp.Diff(want.err.Error(), got.err.Error()); diff != "" {
+					t.Errorf("error with the old key against without it (-without +with):\n%s", diff)
+				}
+				return
+			}
+			if got.err != nil || want.err != nil {
+				t.Fatalf("buildPlan errors = (%v, %v), want neither to fail", got.err, want.err)
+			}
+			if diff := gocmp.Diff(string(want.prepared.wirePrepared().Questions), string(got.prepared.wirePrepared().Questions)); diff != "" {
+				t.Errorf("questions with the old key against without it (-without +with):\n%s", diff)
+			}
+			if len(got.fields) != len(want.fields) {
+				t.Errorf("answer fields = %d with the old key, %d without", len(got.fields), len(want.fields))
+			}
+		})
+	}
+}
+
 // TestLookupTag checks the struct tag lookup against reflect's for the tags
-// reflect reads, and its report of every tag that names a typesafe key
+// reflect reads, and its report of every tag that names a decision key
 // reflect would miss, or would read only the first of.
 func TestLookupTag(t *testing.T) {
 	tests := map[string]struct {
@@ -897,42 +964,42 @@ func TestLookupTag(t *testing.T) {
 	}{
 		"success: no tag":               {tag: ``},
 		"success: other keys only":      {tag: `json:"spam,omitzero" xml:"spam"`},
-		"success: typesafe alone":       {tag: `typesafe:"kind=noul"`, wantValue: "kind=noul", wantOK: true},
-		"success: after another key":    {tag: `json:"spam" typesafe:"kind=noul;optional"`, wantValue: "kind=noul;optional", wantOK: true},
-		"success: Go escapes unquoted":  {tag: `typesafe:"instructions=a\\;b \"quoted\""`, wantValue: `instructions=a\;b "quoted"`, wantOK: true},
-		"success: empty value":          {tag: `typesafe:""`, wantOK: true},
-		"success: key as a prefix only": {tag: `typesafe2:"kind=noul"`},
+		"success: decision alone":       {tag: `decision:"kind=noul"`, wantValue: "kind=noul", wantOK: true},
+		"success: after another key":    {tag: `json:"spam" decision:"kind=noul;optional"`, wantValue: "kind=noul;optional", wantOK: true},
+		"success: Go escapes unquoted":  {tag: `decision:"instructions=a\\;b \"quoted\""`, wantValue: `instructions=a\;b "quoted"`, wantOK: true},
+		"success: empty value":          {tag: `decision:""`, wantOK: true},
+		"success: key as a prefix only": {tag: `decision2:"kind=noul"`},
 		"success: key as a suffix only": {tag: `nottypesafe:"kind=noul"`},
 		"success: bad literal of another key is not ours": {
-			tag: `json:"a\;b" typesafe:"kind=noul"`, wantValue: "kind=noul", wantOK: true,
+			tag: `json:"a\;b" decision:"kind=noul"`, wantValue: "kind=noul", wantOK: true,
 		},
 		"success: malformed pair after the key": {
-			tag: `typesafe:"kind=noul" json:spam`, wantValue: "kind=noul", wantOK: true,
+			tag: `decision:"kind=noul" json:spam`, wantValue: "kind=noul", wantOK: true,
 		},
-		"success: malformed pair that only mentions typesafe": {
-			tag: `json:spam doc:"see typesafe"`,
+		"success: malformed pair that only mentions decision": {
+			tag: `json:spam doc:"see decision"`,
 		},
-		"success: the word typesafe inside a malformed pair": {
-			tag: `json:about-typesafe:x`,
+		"success: the word decision inside a malformed pair": {
+			tag: `json:about-decision:x`,
 		},
-		"success: a malformed tag mentioning typesafe: in a quoted value": {
-			tag: `json:spam doc:"use typesafe:x"`,
+		"success: a malformed tag mentioning decision: in a quoted value": {
+			tag: `json:spam doc:"use decision:x"`,
 		},
 		"success: an escaped quote does not end the quoted mention": {
-			tag: `json:spam doc:"a \" typesafe:x"`,
+			tag: `json:spam doc:"a \" decision:x"`,
 		},
 		"error: a key after a quoted mention": {
-			tag: `json:spam doc:"typesafe:x" typesafe:"kind=noul"`, wantProblem: tagHidden,
+			tag: `json:spam doc:"decision:x" decision:"kind=noul"`, wantProblem: tagHidden,
 		},
-		"error: invalid Go escape":           {tag: `typesafe:"a\;b"`, wantProblem: tagNotLiteral},
-		"error: unterminated literal":        {tag: `typesafe:"kind=noul`, wantProblem: tagNotLiteral},
-		"error: space after the colon":       {tag: `typesafe: "kind=noul"`, wantProblem: tagNotForm},
-		"error: space before the colon":      {tag: `typesafe :"kind=noul"`, wantProblem: tagNotForm},
-		"error: value without quotes":        {tag: `typesafe:kind=noul`, wantProblem: tagNotForm},
-		"error: key given twice":             {tag: `typesafe:"kind=noul" typesafe:"kind=choice"`, wantProblem: tagTwice},
-		"error: second key unterminated":     {tag: `typesafe:"kind=noul" typesafe:"kind=choice`, wantProblem: tagTwice},
-		"error: second key with a space":     {tag: `typesafe:"kind=noul" typesafe: "kind=choice"`, wantProblem: tagTwice},
-		"error: malformed pair before a key": {tag: `json:spam typesafe:"kind=noul"`, wantProblem: tagHidden},
+		"error: invalid Go escape":           {tag: `decision:"a\;b"`, wantProblem: tagNotLiteral},
+		"error: unterminated literal":        {tag: `decision:"kind=noul`, wantProblem: tagNotLiteral},
+		"error: space after the colon":       {tag: `decision: "kind=noul"`, wantProblem: tagNotForm},
+		"error: space before the colon":      {tag: `decision :"kind=noul"`, wantProblem: tagNotForm},
+		"error: value without quotes":        {tag: `decision:kind=noul`, wantProblem: tagNotForm},
+		"error: key given twice":             {tag: `decision:"kind=noul" decision:"kind=choice"`, wantProblem: tagTwice},
+		"error: second key unterminated":     {tag: `decision:"kind=noul" decision:"kind=choice`, wantProblem: tagTwice},
+		"error: second key with a space":     {tag: `decision:"kind=noul" decision: "kind=choice"`, wantProblem: tagTwice},
+		"error: malformed pair before a key": {tag: `json:spam decision:"kind=noul"`, wantProblem: tagHidden},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -941,7 +1008,7 @@ func TestLookupTag(t *testing.T) {
 				t.Errorf("lookupTag(%q) = (value, ok, problem) (-want +got):\n%s", tt.tag, diff)
 			}
 			if tt.wantProblem == "" {
-				rv, rok := tt.tag.Lookup("typesafe")
+				rv, rok := tt.tag.Lookup("decision")
 				if rv != value || rok != ok {
 					t.Errorf("reflect's Lookup(%q) = (%q, %v), lookupTag = (%q, %v)", tt.tag, rv, rok, value, ok)
 				}
@@ -954,14 +1021,14 @@ func TestLookupTag(t *testing.T) {
 // optional, and optional on each kind.
 type (
 	optionalSet struct {
-		Spam NoulAnswer   `typesafe:"kind=noul;optional;instructions=Spam?"`
-		Tone ChoiceAnswer `typesafe:"optional;kind=choice;options=calm|angry"`
-		Mood ScoreAnswer  `typesafe:"kind=score;levels=low|high;optional"`
+		Spam NoulAnswer   `decision:"kind=noul;optional;instructions=Spam?"`
+		Tone ChoiceAnswer `decision:"optional;kind=choice;options=calm|angry"`
+		Mood ScoreAnswer  `decision:"kind=score;levels=low|high;optional"`
 	}
 	requiredSet struct {
-		Spam NoulAnswer   `typesafe:"kind=noul;instructions=Spam?"`
-		Tone ChoiceAnswer `typesafe:"kind=choice;options=calm|angry"`
-		Mood ScoreAnswer  `typesafe:"kind=score;levels=low|high"`
+		Spam NoulAnswer   `decision:"kind=noul;instructions=Spam?"`
+		Tone ChoiceAnswer `decision:"kind=choice;options=calm|angry"`
+		Mood ScoreAnswer  `decision:"kind=score;levels=low|high"`
 	}
 )
 
@@ -1014,12 +1081,12 @@ type ignoredFields struct {
 	Count    int
 	internal NoulAnswer
 	plainBase
-	First  NoulAnswer  `typesafe:"kind=noul;name=first"`
+	First  NoulAnswer  `decision:"kind=noul;name=first"`
 	Label  string      `json:"label"`
 	Second ScoreAnswer // refused: an answer field without a tag
 }
 
-// plainBase is an embedded struct without typesafe tags: ignored, answer
+// plainBase is an embedded struct without decision tags: ignored, answer
 // fields included, since its fields are not promoted.
 type plainBase struct {
 	Hidden NoulAnswer
@@ -1038,9 +1105,9 @@ type ignoredOnly struct {
 	Count    int
 	internal NoulAnswer
 	plainBase
-	First NoulAnswer  `typesafe:"kind=noul;name=first"`
+	First NoulAnswer  `decision:"kind=noul;name=first"`
 	Label string      `json:"label"`
-	Last  ScoreAnswer `typesafe:"kind=score;levels=1|2"`
+	Last  ScoreAnswer `decision:"kind=score;levels=1|2"`
 	*Cyclic
 	Meta  plainBase
 	Link  *Cyclic
@@ -1050,7 +1117,7 @@ type ignoredOnly struct {
 // TestPreparedForIgnoredFields checks which fields ask nothing: untagged
 // fields of other types, untagged unexported fields (answer types
 // included), and struct-typed fields, embedded or named, whose types hold no
-// typesafe tags, even one that embeds a pointer to itself; and that the
+// decision tags, even one that embeds a pointer to itself; and that the
 // plan's indexes skip them.
 func TestPreparedForIgnoredFields(t *testing.T) {
 	_ = ignoredFields{}.note
@@ -1074,7 +1141,7 @@ func TestPreparedForIgnoredFields(t *testing.T) {
 	}
 
 	_, err := PreparedFor[ignoredFields]()
-	want5 := `PreparedFor[decision.ignoredFields]: field Second: the ScoreAnswer field has no typesafe tag, so no kind; every answer field asks a question: add a tag such as typesafe:"kind=score".`
+	want5 := `PreparedFor[decision.ignoredFields]: field Second: the ScoreAnswer field has no decision tag, so no kind; every answer field asks a question: add a tag such as decision:"kind=score".`
 	if err == nil || err.Error() != want5 {
 		t.Errorf("PreparedFor[ignoredFields] error = %v, want %q", err, want5)
 	}
@@ -1105,7 +1172,7 @@ func TestPreparedForManyFields(t *testing.T) {
 	n := repeatScanLimit + 8
 	fields := make([]reflect.StructField, n)
 	for i := range fields {
-		fields[i] = reflect.StructField{Name: "Q" + string(rune('A'+i/26)) + string(rune('a'+i%26)), Type: reflect.TypeFor[NoulAnswer](), Tag: `typesafe:"kind=noul"`}
+		fields[i] = reflect.StructField{Name: "Q" + string(rune('A'+i/26)) + string(rune('a'+i%26)), Type: reflect.TypeFor[NoulAnswer](), Tag: `decision:"kind=noul"`}
 	}
 	plan := buildPlan(reflect.StructOf(fields))
 	if plan.err != nil {
@@ -1133,7 +1200,7 @@ func TestPreparedForManyFields(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			repeated := slices.Clone(fields)
-			repeated[n-1].Tag = reflect.StructTag(`typesafe:"kind=noul;name=` + fields[tt.first].Name + `"`)
+			repeated[n-1].Tag = reflect.StructTag(`decision:"kind=noul;name=` + fields[tt.first].Name + `"`)
 			plan := buildPlan(reflect.StructOf(repeated))
 			want := `PreparedFor[struct {...}]: field ` + fields[n-1].Name + `: Question "` + fields[tt.first].Name + `" is added more than once; question names must be unique. Field ` + fields[tt.first].Name + ` asks it first.`
 			if plan.err == nil {
@@ -1149,12 +1216,12 @@ func TestPreparedForManyFields(t *testing.T) {
 // cacheOnly is used by TestPreparedForCache alone, so that its first call
 // there is the first call of the process (of the first run, with -count).
 type cacheOnly struct {
-	Spam NoulAnswer `typesafe:"kind=noul;instructions=Spam?"`
+	Spam NoulAnswer `decision:"kind=noul;instructions=Spam?"`
 }
 
 // concurrentOnly is used by TestPreparedForConcurrentFirstUse alone.
 type concurrentOnly struct {
-	Spam NoulAnswer `typesafe:"kind=noul;instructions=Spam?"`
+	Spam NoulAnswer `decision:"kind=noul;instructions=Spam?"`
 }
 
 // TestPreparedForCache pins the caching contract: the first call builds
@@ -1218,7 +1285,7 @@ func TestPreparedForConcurrentFirstUse(t *testing.T) {
 			fields[i] = reflect.StructField{
 				Name: "Q" + strconv.Itoa(i),
 				Type: noulAnswerType,
-				Tag:  reflect.StructTag(`typesafe:"kind=noul;instructions=run ` + run + ` round ` + strconv.Itoa(round) + `"`),
+				Tag:  reflect.StructTag(`decision:"kind=noul;instructions=run ` + run + ` round ` + strconv.Itoa(round) + `"`),
 			}
 		}
 		typ := reflect.StructOf(fields)
@@ -1280,23 +1347,23 @@ type (
 	definedNoul NoulAnswer
 
 	aliasSet struct {
-		Spam aliasNoul `typesafe:"kind=noul"`
+		Spam aliasNoul `decision:"kind=noul"`
 	}
 	definedTagged struct {
-		Spam definedNoul `typesafe:"kind=noul"`
+		Spam definedNoul `decision:"kind=noul"`
 	}
 	definedUntagged struct {
 		Spam definedNoul
-		Tone ChoiceAnswer `typesafe:"kind=choice;options=calm"`
+		Tone ChoiceAnswer `decision:"kind=choice;options=calm"`
 	}
 	// genericSet is instantiated per test; each instantiation is its own
 	// type, with its own plan.
 	genericSet[T any] struct {
-		Spam  NoulAnswer `typesafe:"kind=noul"`
+		Spam  NoulAnswer `decision:"kind=noul"`
 		Extra T
 	}
 	embeddedAnswer struct {
-		NoulAnswer `typesafe:"kind=noul;instructions=Spam?"`
+		NoulAnswer `decision:"kind=noul;instructions=Spam?"`
 	}
 )
 
@@ -1316,7 +1383,7 @@ func TestPreparedForTypeIdentity(t *testing.T) {
 		},
 		"error: (7) a type defined from an answer type is not one": {
 			prepare: PreparedFor[definedTagged],
-			wantMsg: `PreparedFor[decision.definedTagged]: field Spam: a typesafe tag needs a NoulAnswer, ChoiceAnswer or ScoreAnswer field, and the field is a decision.definedNoul.`,
+			wantMsg: `PreparedFor[decision.definedTagged]: field Spam: a decision tag needs a NoulAnswer, ChoiceAnswer or ScoreAnswer field, and the field is a decision.definedNoul.`,
 		},
 		"success: an untagged field of a defined type is ignored": {
 			prepare:   PreparedFor[definedUntagged],
@@ -1328,7 +1395,7 @@ func TestPreparedForTypeIdentity(t *testing.T) {
 		},
 		"error: (5) a generic struct whose type argument makes an untagged answer field": {
 			prepare: PreparedFor[genericSet[NoulAnswer]],
-			wantMsg: `PreparedFor[decision.genericSet[github.com/zchee/decision-model-sdk-go.NoulAnswer]]: field Extra: the NoulAnswer field has no typesafe tag, so no kind; every answer field asks a question: add a tag such as typesafe:"kind=noul".`,
+			wantMsg: `PreparedFor[decision.genericSet[github.com/zchee/decision-model-sdk-go.NoulAnswer]]: field Extra: the NoulAnswer field has no decision tag, so no kind; every answer field asks a question: add a tag such as decision:"kind=noul".`,
 		},
 		"success: an embedded answer type asks under its type's name": {
 			prepare:   PreparedFor[embeddedAnswer],

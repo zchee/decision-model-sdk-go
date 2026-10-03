@@ -121,7 +121,7 @@ func TestCompressionOption(t *testing.T) {
 			srv := testsupport.NewLoopbackServer(t, testsupport.ServerConfig{Handler: api})
 			logs := testsupport.NewLogRecorder(slog.LevelDebug)
 			clearEnv(t)
-			opts := append([]ClientOption{WithAPIKey(testKey), WithBaseURL(srv.URL()), WithLogger(logs.Logger())}, tt.opts(t)...)
+			opts := append([]ClientOption{WithAPIKey(testKey), WithBaseURL(srv.URL()), WithModel(testModel), WithLogger(logs.Logger())}, tt.opts(t)...)
 			c, err := NewClient(opts...)
 			if err != nil {
 				t.Fatalf("NewClient: %v", err)

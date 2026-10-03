@@ -793,10 +793,14 @@ func (b *bodyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 // sdkCall makes one System One call through a root SDK client whose
 // transport answers with status and body, with a made-up key and no retry.
+// The root SDK has no default base URL or model; the client names TypeSafe
+// AI's, which the transport never checks.
 func sdkCall(t *testing.T, status int, body []byte) (*decision.SystemOneResponse, error) {
 	t.Helper()
 	client, err := decision.NewClient(
 		decision.WithAPIKey("madeupword"),
+		decision.WithBaseURL("https://api.typesafe.ai"),
+		decision.WithModel("jev-latest"),
 		decision.WithRoundTripper(&bodyTransport{status: status, body: body}),
 		decision.WithRetry(decision.NoRetry()),
 	)

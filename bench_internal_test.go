@@ -74,7 +74,7 @@ func newCallState() any { return strings.Repeat("s", 1<<10-2) }
 // when tb ends.
 func newBenchClient(tb testing.TB, rt http.RoundTripper, opts ...ClientOption) *Client {
 	tb.Helper()
-	c, err := NewClient(append([]ClientOption{WithRoundTripper(rt), WithAPIKey(testKey), WithBaseURL(DefaultBaseURL), WithModel(DefaultModel)}, opts...)...)
+	c, err := NewClient(append([]ClientOption{WithRoundTripper(rt), WithAPIKey(testKey), WithBaseURL(testBaseURL), WithModel(testModel)}, opts...)...)
 	if err != nil {
 		tb.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func BenchmarkEncodeBody(b *testing.B) {
 	for _, kind := range slices.Sorted(maps.Keys(encodeKinds)) {
 		for _, size := range []string{"1KiB", "64KiB", "1MiB"} {
 			state := encodeKinds[kind](encodeSizes[size])
-			first, err := encodeBody(state, DefaultModel, qs, nil)
+			first, err := encodeBody(state, testModel, qs, nil)
 			if err != nil {
 				b.Fatalf("%s/%s: %v", kind, size, err)
 			}
@@ -201,7 +201,7 @@ func BenchmarkEncodeBody(b *testing.B) {
 				b.SetBytes(n)
 				b.ReportAllocs()
 				for b.Loop() {
-					body, err := encodeBody(state, DefaultModel, qs, nil)
+					body, err := encodeBody(state, testModel, qs, nil)
 					if err != nil {
 						b.Fatal(err)
 					}
@@ -213,7 +213,7 @@ func BenchmarkEncodeBody(b *testing.B) {
 					b.SetBytes(n)
 					b.ReportAllocs()
 					for b.Loop() {
-						if sinkEncoded, err = nc.codec.Encode(state, DefaultModel, qs.wirePrepared().Questions); err != nil {
+						if sinkEncoded, err = nc.codec.Encode(state, testModel, qs.wirePrepared().Questions); err != nil {
 							b.Fatal(err)
 						}
 					}
@@ -233,7 +233,7 @@ func TestEncodeBodyMatchesNaive(t *testing.T) {
 		for size, n := range encodeSizes {
 			t.Run("success: "+kind+"/"+size, func(t *testing.T) {
 				state := build(n)
-				body, err := encodeBody(state, DefaultModel, qs, nil)
+				body, err := encodeBody(state, testModel, qs, nil)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -243,7 +243,7 @@ func TestEncodeBodyMatchesNaive(t *testing.T) {
 					t.Errorf("the SDK's body is %d bytes, want at least the state's %d", len(sdk), n)
 				}
 				for _, nc := range naiveCodecs {
-					got, err := nc.codec.Encode(state, DefaultModel, qs.wirePrepared().Questions)
+					got, err := nc.codec.Encode(state, testModel, qs.wirePrepared().Questions)
 					if err != nil {
 						t.Fatalf("%s: %v", nc.name, err)
 					}
@@ -511,7 +511,7 @@ const fanOut = 64
 // BenchmarkLoopback is B6's cold burst; see the comment above.
 func BenchmarkLoopback(b *testing.B) {
 	srv := testsupport.NewFixtureServer(b)
-	opts := []ClientOption{WithAPIKey(testKey), WithBaseURL(srv.URL()), WithModel(DefaultModel), WithRootCAs(testsupport.RootCAs(b)), WithProxy(nil)}
+	opts := []ClientOption{WithAPIKey(testKey), WithBaseURL(srv.URL()), WithModel(testModel), WithRootCAs(testsupport.RootCAs(b)), WithProxy(nil)}
 	qs := q3Questions(b)
 	state := newCallState()
 

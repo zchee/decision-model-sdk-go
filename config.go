@@ -42,10 +42,12 @@ import (
 //
 // A setting that no option gives is read from its environment variable
 // ([APIKeyEnv], [BaseURLEnv], [DefaultModelEnv]), trimmed of leading and
-// trailing whitespace; a variable that is unset or blank counts as unset, and
-// the SDK's default ([DefaultBaseURL], [DefaultModel]) applies. An option
-// always wins over the environment, even when its value is unusable: the
-// environment is not consulted for a setting an option gave.
+// trailing whitespace; a variable that is unset or blank counts as unset.
+// There is no default beyond the environment: a client is built only with an
+// API key and a base URL, and a client without a model sends only the System
+// One calls that name theirs with [Model]. An option always wins over the
+// environment, even when its value is unusable: the environment is not
+// consulted for a setting an option gave.
 type ClientOption func(*options)
 
 // options is what a list of [ClientOption] values recorded, before any of it is
@@ -88,9 +90,10 @@ func WithAPIKey(key string) ClientOption {
 	return func(o *options) { o.apiKey = new(key) }
 }
 
-// WithBaseURL sets the API base URL, such as https://api.typesafe.ai. Without
-// it the URL is read from [BaseURLEnv], and [DefaultBaseURL] applies when that
-// is unset.
+// WithBaseURL sets the API base URL, such as https://api.typesafe.ai for
+// TypeSafe AI's API. Without it the URL is read from [BaseURLEnv]; when that
+// is unset too, [NewClient] fails, since the API is served by more than one
+// vendor and the SDK does not pick one.
 //
 // Trailing slashes are removed, and a path the URL keeps is a prefix of the
 // API paths: https://example.test/prefix/ sends to
@@ -105,8 +108,9 @@ func WithBaseURL(rawURL string) ClientOption {
 }
 
 // WithModel sets the model a request names when the call names none. Without
-// it the model is read from [DefaultModelEnv], and [DefaultModel] applies
-// when that is unset.
+// it the model is read from [DefaultModelEnv]; when that is unset too, the
+// client has no model, and a System One call that names none with [Model]
+// fails with a [*ConfigError] before anything is sent.
 //
 // The model is sent as given, without trimming. An empty or blank model is
 // refused rather than sent, where typesafe-sdk-python would send it.
@@ -361,14 +365,18 @@ func resolveAPIKey(explicit *string, getenv func(string) string) (string, error)
 }
 
 // resolveEndpoints returns the System One and models endpoint URLs under the
-// base URL from explicit, or from [BaseURLEnv] when explicit is nil, or
-// [DefaultBaseURL] when that is unset.
+// base URL from explicit, or from [BaseURLEnv] when explicit is nil. Without
+// either it fails as a missing API key does: there is no default, because
+// the API is served by more than one vendor and a default would send the key
+// to one of them without the caller saying so.
 func resolveEndpoints(explicit *string, getenv func(string) string) (systemOne, models *url.URL, err error) {
-	raw, source := DefaultBaseURL, "The default base URL"
+	var raw, source string
 	if explicit != nil {
 		raw, source = *explicit, "The base URL passed to WithBaseURL"
 	} else if v := envValue(getenv, BaseURLEnv); v != "" {
 		raw, source = v, "The base URL in the "+BaseURLEnv+" environment variable"
+	} else {
+		return nil, nil, newConfigError("No base URL was provided. Pass WithBaseURL or set the " + BaseURLEnv + " environment variable.")
 	}
 	// As py:_core/config.py:61 strips them, before anything else looks at
 	// the URL.
@@ -409,7 +417,7 @@ func baseURLRule(raw string) string {
 	}
 	switch {
 	case u.Scheme == "":
-		return "must be absolute, with a scheme and a host, such as " + DefaultBaseURL
+		return "must be absolute, with a scheme and a host, such as https://api.typesafe.ai"
 	case u.Scheme != "http" && u.Scheme != "https":
 		return "must use http or https"
 	case u.User != nil:
@@ -451,18 +459,22 @@ func dropDefaultPort(raw string) string {
 }
 
 // resolveModel returns the model from explicit, or from [DefaultModelEnv]
-// when explicit is nil, or [DefaultModel] when that is unset. An explicit
-// model is taken as given, as Python takes it, except that a blank one is
-// refused rather than sent.
+// when explicit is nil, or "" when that is unset: the client then has no
+// model, and each System One call must name its own. There is no default,
+// because a default would ask one vendor's model of whichever vendor the base
+// URL names. An explicit model is taken as given, as Python takes it, except
+// that a blank one is refused rather than sent.
 func resolveModel(explicit *string, getenv func(string) string) (string, error) {
-	model, source := DefaultModel, "default model"
+	var model, source string
 	if explicit != nil {
 		if strings.TrimFunc(*explicit, isPythonSpace) == "" {
-			return "", newConfigError("The model passed to WithModel is empty; leave WithModel out to use " + DefaultModelEnv + " or " + DefaultModel + ".")
+			return "", newConfigError("The model passed to WithModel is empty; leave WithModel out to use " + DefaultModelEnv + ", or name the model on each call with Model.")
 		}
 		model, source = *explicit, "model passed to WithModel"
 	} else if v := envValue(getenv, DefaultModelEnv); v != "" {
 		model, source = v, "model in the "+DefaultModelEnv+" environment variable"
+	} else {
+		return "", nil
 	}
 	if !utf8.ValidString(model) {
 		return "", newConfigError("The " + source + " is not valid UTF-8.")

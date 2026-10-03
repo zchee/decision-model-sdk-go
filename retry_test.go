@@ -199,7 +199,7 @@ func assertRefused(t *testing.T, policy RetryPolicy, want string) {
 	}
 	clearEnv(t)
 	rec := replying(http.StatusOK, []byte(`{"models":[]}`))
-	_, err := NewClient(WithAPIKey(testKey), WithRoundTripper(rec), WithRetry(policy))
+	_, err := NewClient(WithAPIKey(testKey), WithBaseURL(testBaseURL), WithModel(testModel), WithRoundTripper(rec), WithRetry(policy))
 	check("NewClient(WithRetry)", err)
 	c := newTestClient(t, rec)
 	check("Models().List(Retry)", listCall(t.Context(), c, Retry(policy)))
@@ -214,7 +214,7 @@ func assertAccepted(t *testing.T, policy RetryPolicy) {
 	t.Helper()
 	clearEnv(t)
 	rec := replying(http.StatusOK, []byte(`{"models":[]}`))
-	c, err := NewClient(WithAPIKey(testKey), WithRoundTripper(rec), WithRetry(policy))
+	c, err := NewClient(WithAPIKey(testKey), WithBaseURL(testBaseURL), WithModel(testModel), WithRoundTripper(rec), WithRetry(policy))
 	if err != nil {
 		t.Fatalf("NewClient(WithRetry): %v", err)
 	}
@@ -367,7 +367,7 @@ func TestRetryPolicyCheckOrder(t *testing.T) {
 			var err error
 			if tt.client != nil {
 				clearEnv(t)
-				_, err = NewClient(append([]ClientOption{WithAPIKey(testKey), WithRoundTripper(rec)}, tt.client...)...)
+				_, err = NewClient(append([]ClientOption{WithAPIKey(testKey), WithBaseURL(testBaseURL), WithModel(testModel), WithRoundTripper(rec)}, tt.client...)...)
 			} else {
 				err = listCall(t.Context(), newTestClient(t, rec), tt.call...)
 			}

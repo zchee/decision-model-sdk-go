@@ -25,10 +25,12 @@ import (
 	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
 )
 
-// mustClient builds a client from opts and closes it when tb ends.
+// mustClient builds a client from opts and closes it when tb ends. It names
+// testBaseURL and testModel unless opts name others: the SDK has no default
+// for either, and the tests were written against those two.
 func mustClient(tb testing.TB, opts ...ClientOption) *Client {
 	tb.Helper()
-	c, err := NewClient(opts...)
+	c, err := NewClient(append([]ClientOption{WithBaseURL(testBaseURL), WithModel(testModel)}, opts...)...)
 	if err != nil {
 		tb.Fatalf("NewClient: %v", err)
 	}
@@ -38,7 +40,7 @@ func mustClient(tb testing.TB, opts ...ClientOption) *Client {
 
 // newTestClient builds a client over rt, the test's transport
 // (WithRoundTripper), with testKey and opts, after clearing the variables a
-// client reads, so a developer's TYPESAFE_API_KEY never reaches a test. The
+// client reads, so a developer's DECISION_MODEL_API_KEY never reaches a test. The
 // client is closed when the test ends.
 //
 // Its calls make one attempt each (NoRetry), as the upstream tests' clients

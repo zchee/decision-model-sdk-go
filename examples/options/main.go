@@ -28,9 +28,9 @@ type Ticket struct {
 }
 
 func run(ctx context.Context) error {
-	// The client's settings apply to every call it makes.
+	// The client's settings apply to every call it makes; the API key, the
+	// base URL and the model come from the environment.
 	client, err := decision.NewClient(
-		decision.WithModel(decision.DefaultModel),
 		decision.WithTimeout(30*time.Second),
 		decision.WithRetry(decision.DefaultRetry().MaxRetries(1)),
 		decision.WithHeader("X-Team", "support"),

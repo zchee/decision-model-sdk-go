@@ -82,7 +82,7 @@ func loopbackClient(t *testing.T, body func(w http.ResponseWriter) []byte) *deci
 		}
 	})})
 	clearEnv(t)
-	c, err := decision.NewClient(decision.WithAPIKey(testKey), decision.WithBaseURL(srv.URL()), decision.WithRootCAs(testsupport.RootCAs(t)))
+	c, err := decision.NewClient(decision.WithAPIKey(testKey), decision.WithBaseURL(srv.URL()), decision.WithModel(testModel), decision.WithRootCAs(testsupport.RootCAs(t)))
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}

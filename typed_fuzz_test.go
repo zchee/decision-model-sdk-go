@@ -138,12 +138,12 @@ var tagGrammarSeeds = []string{
 	"instructions=\xff",
 	"name=請求;instructions=請求の件ですか？",
 	// Whole struct tags, for the lookupTag half.
-	`typesafe:"kind=noul"`,
-	`typesafe: "kind=noul"`,
-	`typesafe :"kind=noul"`,
-	`typesafe:"kind=noul" typesafe:"kind=choice"`,
-	`json:spam typesafe:"kind=noul"`,
-	`json:"spam" typesafe:"kind=noul;optional" xml:x`,
+	`decision:"kind=noul"`,
+	`decision: "kind=noul"`,
+	`decision :"kind=noul"`,
+	`decision:"kind=noul" decision:"kind=choice"`,
+	`json:spam decision:"kind=noul"`,
+	`json:"spam" decision:"kind=noul;optional" xml:x`,
 }
 
 // FuzzTagGrammar checks the tag grammar on any input, within the per-input
@@ -190,13 +190,13 @@ func FuzzTagGrammar(f *testing.F) {
 		}
 
 		if value, ok, problem := lookupTag(reflect.StructTag(tag)); problem == "" {
-			if rv, rok := reflect.StructTag(tag).Lookup("typesafe"); rv != value || rok != ok {
+			if rv, rok := reflect.StructTag(tag).Lookup("decision"); rv != value || rok != ok {
 				t.Fatalf("lookupTag(%q) = (%q, %v), reflect's Lookup = (%q, %v)", tag, value, ok, rv, rok)
 			}
 		}
 
 		for _, typ := range fieldTypes {
-			field := reflect.StructField{Name: "F", Type: typ, Tag: reflect.StructTag("typesafe:" + strconv.Quote(tag))}
+			field := reflect.StructField{Name: "F", Type: typ, Tag: reflect.StructTag("decision:" + strconv.Quote(tag))}
 			q, asks, err := planField("T", &field)
 			if err != nil {
 				ce, ok := errors.AsType[*ConfigError](err)

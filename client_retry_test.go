@@ -296,7 +296,7 @@ func uploadCalls(n int) []uploadCall {
 		calls[i] = uploadCall{
 			name:  "upload-" + strconv.Itoa(i),
 			state: state,
-			body:  []byte(`{"state":"` + state + `","model":"` + DefaultModel + `",` + noulBody + `}`),
+			body:  []byte(`{"state":"` + state + `","model":"` + testModel + `",` + noulBody + `}`),
 		}
 	}
 	return calls

@@ -28,14 +28,16 @@ import (
 // TestConstantsMatchPython pins every name and default the SDK shares with
 // typesafe-sdk-python 0.7.1 to the value its source spells
 // (py:constants.py, py:_core/constants.py), so a typo in one of them fails
-// here rather than on the wire.
+// here rather than on the wire. The three environment variables are the
+// exception, pinned to this SDK's own names: Python's are named after one
+// vendor, and the SDK serves any vendor's decision model. Python's
+// DEFAULT_BASE_URL and DEFAULT_MODEL have no counterpart here for the same
+// reason.
 func TestConstantsMatchPython(t *testing.T) {
 	got := map[string]any{
 		"API_KEY_ENV":                   APIKeyEnv,
 		"BASE_URL_ENV":                  BaseURLEnv,
 		"DEFAULT_MODEL_ENV":             DefaultModelEnv,
-		"DEFAULT_BASE_URL":              DefaultBaseURL,
-		"DEFAULT_MODEL":                 DefaultModel,
 		"DEFAULT_TIMEOUT":               DefaultTimeout,
 		"SYSTEM_ONE_PATH":               engine.SystemOnePath,
 		"MODELS_PATH":                   engine.ModelsPath,
@@ -52,11 +54,9 @@ func TestConstantsMatchPython(t *testing.T) {
 		"DefaultMaxResponseBytes (NF5)": int64(DefaultMaxResponseBytes),
 	}
 	want := map[string]any{
-		"API_KEY_ENV":                   "TYPESAFE_API_KEY",
-		"BASE_URL_ENV":                  "TYPESAFE_BASE_URL",
-		"DEFAULT_MODEL_ENV":             "TYPESAFE_DEFAULT_MODEL",
-		"DEFAULT_BASE_URL":              "https://api.typesafe.ai",
-		"DEFAULT_MODEL":                 "jev-latest",
+		"API_KEY_ENV":                   "DECISION_MODEL_API_KEY",
+		"BASE_URL_ENV":                  "DECISION_MODEL_BASE_URL",
+		"DEFAULT_MODEL_ENV":             "DECISION_MODEL_DEFAULT_MODEL",
 		"DEFAULT_TIMEOUT":               10 * time.Second,
 		"SYSTEM_ONE_PATH":               "/v1/systemone",
 		"MODELS_PATH":                   "/v1/models",

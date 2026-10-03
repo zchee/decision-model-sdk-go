@@ -51,7 +51,7 @@ import (
 func TestAllocEncodeFunctional(t *testing.T) {
 	qs := encodeQuestions(t)
 	prefix := []byte(`{"state":`)
-	suffix := []byte(`,"model":` + strconv.Quote(decision.DefaultModel) + `,"questions":` + string(wireOf(qs).Questions) + `}`)
+	suffix := []byte(`,"model":` + strconv.Quote(testModel) + `,"questions":` + string(wireOf(qs).Questions) + `}`)
 	for _, k := range stateKinds {
 		for _, size := range allocSizes {
 			t.Run(k.name+"/"+sizeName(size), func(t *testing.T) {
@@ -120,7 +120,7 @@ func TestAllocScratchSequenceFunctional(t *testing.T) {
 			states, lens := sequenceStates(t, k, qs)
 			var want [3][]byte
 			for i, st := range states {
-				body, err := encodeBody(st, decision.DefaultModel, qs, nil)
+				body, err := encodeBody(st, testModel, qs, nil)
 				if err != nil {
 					t.Fatal(err)
 				}

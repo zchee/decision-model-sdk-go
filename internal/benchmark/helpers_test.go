@@ -26,6 +26,14 @@ import (
 // never check it.
 const testKey = "test-key"
 
+// testBaseURL and testModel are the base URL and the model the benchmarks'
+// clients name: TypeSafe AI's API and model, as the root tests name them.
+// The SDK has no default for either.
+const (
+	testBaseURL = "https://api.typesafe.ai"
+	testModel   = "jev-latest"
+)
+
 // mustPrepared prepares qs, failing tb when Prepare fails.
 func mustPrepared(tb testing.TB, qs *decision.Questions) *decision.Prepared {
 	tb.Helper()
@@ -56,7 +64,7 @@ func newCallState() any { return strings.Repeat("s", 1<<10-2) }
 // when tb ends.
 func newBenchClient(tb testing.TB, rt http.RoundTripper, opts ...decision.ClientOption) *decision.Client {
 	tb.Helper()
-	c, err := decision.NewClient(append([]decision.ClientOption{decision.WithRoundTripper(rt), decision.WithAPIKey(testKey), decision.WithBaseURL(decision.DefaultBaseURL), decision.WithModel(decision.DefaultModel)}, opts...)...)
+	c, err := decision.NewClient(append([]decision.ClientOption{decision.WithRoundTripper(rt), decision.WithAPIKey(testKey), decision.WithBaseURL(testBaseURL), decision.WithModel(testModel)}, opts...)...)
 	if err != nil {
 		tb.Fatal(err)
 	}

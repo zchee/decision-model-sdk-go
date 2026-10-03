@@ -4,7 +4,48 @@ All notable changes to decision-model-sdk-go are recorded here. The format follo
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.1] - 2026-09-30
+## [0.1.0] - Unreleased
+
+The first release under the module path
+`github.com/zchee/decision-model-sdk-go`. "Decision model" is the
+vendor-neutral name for the models served through the System One API,
+which more than one vendor serves, so the repository and the module were
+renamed from `github.com/zchee/typesafe-sdk-go`, and the version starts
+again at 0.1.0. The versions published as `github.com/zchee/typesafe-sdk-go`
+v0.1.0 and v0.1.1 stay on the Go module proxy under that old path; their
+entries follow this one, as they were written.
+
+### Changed
+
+- The module path is `github.com/zchee/decision-model-sdk-go` and the
+  package is named `decision` (it was `typesafe`): import it as
+  `decision "github.com/zchee/decision-model-sdk-go"`. The adapter module
+  is `github.com/zchee/decision-model-sdk-go/adapter`.
+- Every request names `decision-model-sdk-go/0.1.0` in its `User-Agent`
+  and `X-TypeSafe-SDK` headers. The header names, the API paths and the
+  JSON members are unchanged.
+- **Breaking:** the client reads its settings from
+  `DECISION_MODEL_API_KEY`, `DECISION_MODEL_BASE_URL` and
+  `DECISION_MODEL_DEFAULT_MODEL`. The earlier names, `TYPESAFE_API_KEY`,
+  `TYPESAFE_BASE_URL` and `TYPESAFE_DEFAULT_MODEL`, are not read, not even
+  as a fallback.
+- **Breaking:** there is no default base URL. `DefaultBaseURL` is removed,
+  and `NewClient` without `WithBaseURL` or `DECISION_MODEL_BASE_URL` fails
+  with a `*ConfigError`, as it does without an API key.
+- **Breaking:** there is no default model. `DefaultModel` is removed, and a
+  System One call that names no model (`Model`, or an `ExtraBody` member
+  named `model`), on a client without `WithModel` or
+  `DECISION_MODEL_DEFAULT_MODEL`, fails with a `*ConfigError` before
+  anything is sent.
+- **Breaking:** the struct tag key of `Ask`, `PreparedFor` and `DecodeAs`
+  is `decision`: rewrite each `typesafe:"..."` tag as `decision:"..."`. The
+  old key is not read, not even as a fallback; an answer field that carries
+  only it is refused as a field without a tag.
+- The live tests are switched on by `DECISION_MODEL_LIVE_TESTS=1`, and
+  read the vendor's base URL and model from the environment, as any client
+  does; they name no vendor in code.
+
+## [typesafe-sdk-go 0.1.1] - 2026-09-30
 
 This release corrects documents and comments. No Go code changed apart
 from the constant `Version`, and `go.mod` and `go.sum` are those of 0.1.0.
@@ -37,7 +78,7 @@ from the constant `Version`, and `go.mod` and `go.sum` are those of 0.1.0.
   go.dev/dl: reading the manifest, or downloading, extracting or caching
   the file it lists.
 
-## [0.1.0] - 2026-09-27
+## [typesafe-sdk-go 0.1.0] - 2026-09-27
 
 The first release: a Go client for the TypeSafe System One API, ported from
 typesafe-sdk-python 0.7.1 (commit `0ffd094`). Each of the Python SDK's 129
@@ -204,5 +245,6 @@ ones:
   was rewritten on 2026-09-27 to remove them, so the module and a clone
   carry none of them.
 
-[0.1.1]: https://github.com/zchee/decision-model-sdk-go/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/zchee/decision-model-sdk-go/tree/v0.1.0
+[0.1.0]: https://github.com/zchee/decision-model-sdk-go/releases/tag/v0.1.0
+[typesafe-sdk-go 0.1.1]: https://github.com/zchee/decision-model-sdk-go/compare/v0.1.0...v0.1.1
+[typesafe-sdk-go 0.1.0]: https://github.com/zchee/decision-model-sdk-go/tree/v0.1.0

@@ -17,6 +17,7 @@ package decision
 import (
 	"context"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 )
@@ -175,15 +176,25 @@ func (o *callOptions) settings(ctx context.Context, cfg *config, base http.Heade
 }
 
 // systemOneModel returns the model the call names: its own from [Model], or
-// the client's.
+// the client's. A call that names none, on a client that has none, fails
+// before anything is encoded or sent, unless an [ExtraBody] member named
+// "model" stands in the model's place.
 func (o *callOptions) systemOneModel(cfg *config) (string, error) {
 	if o.model == nil {
+		if cfg.Model == "" && !o.extraNames("model") {
+			return "", newConfigError("No model was named. Pass Model on the call, or set WithModel on the client or the " + DefaultModelEnv + " environment variable.")
+		}
 		return cfg.Model, nil
 	}
 	if strings.TrimFunc(*o.model, isPythonSpace) == "" {
 		return "", newConfigError("The model passed to Model is empty; leave Model out to use the client's model.")
 	}
 	return *o.model, nil
+}
+
+// extraNames reports whether an [ExtraBody] member of the call is named key.
+func (o *callOptions) extraNames(key string) bool {
+	return slices.ContainsFunc(o.extra, func(m bodyMember) bool { return m.Key == key })
 }
 
 // forModels refuses the options a list-models call cannot use.
