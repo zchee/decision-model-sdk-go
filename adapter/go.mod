@@ -19,8 +19,3 @@ require (
 	golang.org/x/arch v0.31.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 )
-
-// The module proxy has no github.com/zchee/decision-model-sdk-go until the
-// renamed repository is tagged v0.1.0, so the root module is taken from
-// this checkout. Remove this replace once that tag exists.
-replace github.com/zchee/decision-model-sdk-go => ../
