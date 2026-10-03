@@ -44,9 +44,13 @@ const (
 const noModel = ":no-model"
 
 // presets holds the factories an Adapter has without WithFactory, by
-// provider name; WithFactory adds to them or replaces one for one Adapter.
-// It is empty: no provider package is part of the module yet.
-var presets = map[string]llm.Factory{}
+// provider name: "openai", "anthropic" and "gemini" build the Provider of
+// this module's package of that name with New(model) and no option, which
+// reads the provider's environment variables when it is built. WithFactory
+// adds to them or replaces one for one Adapter.
+var presets = map[string]llm.Factory{
+	"openai": openaiPreset,
+}
 
 // ModelID returns the model string that selects model on provider:
 // provider + ":" + model. The provider is the name before the first colon,

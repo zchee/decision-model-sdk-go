@@ -113,7 +113,10 @@ func WithProvider(name string, p llm.Provider) Option {
 // WithFactory sets how the Adapter builds the owned providers named name: a
 // call whose model is "<name>:<model>" uses the provider f builds for model,
 // built on first use and closed by Close. A second WithFactory with the same
-// name replaces f. An empty name or a nil f is an error of New.
+// name replaces f. An empty name or a nil f is an error of New. The names
+// openai, anthropic and gemini are preset: without WithFactory they build
+// the Provider of the package of that name with New(model), which reads its
+// environment variables when it is built.
 func WithFactory(name string, f llm.Factory) Option {
 	return func(o *options) {
 		switch {
