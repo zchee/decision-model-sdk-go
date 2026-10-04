@@ -93,7 +93,7 @@ collapses into one Go case (DV1), so a row has fewer Go cases than items.
 | PR12 | `tests/test_provider_requests.py::test_anthropic_result_joins_text_blocks_and_reads_usage` | 1 | `adapter/anthropic.TestResultJoinsTextBlocks` | 1 | ported | ported |
 | PR13 | `tests/test_provider_requests.py::test_anthropic_output_limit` | 8 | `adapter/anthropic.TestOutputLimit` | 4 | ported (DV1) | ported |
 | PR14 | `tests/test_provider_requests.py::test_anthropic_rejects_nonpositive_output_limit` | 4 | `adapter/anthropic.TestNewRejectsNonpositiveMaxTokens` | 2 | ported (DV1) | ported |
-| PR15 | `tests/test_provider_requests.py::test_build_providers_select_gemini` | 1 | `adapter.TestResolveModel` case `gemini prefix builds a gemini provider` (`model_test.go`) | 1 | ported (DV9) | planned |
+| PR15 | `tests/test_provider_requests.py::test_build_providers_select_gemini` | 1 | `adapter.TestResolveModel` case `gemini prefix builds a gemini provider` (`model_test.go`) | 1 | ported (DV9) | ported |
 | PR16 | `tests/test_provider_requests.py::test_unknown_provider_is_rejected` | 1 | `adapter.TestResolveModel` case `default model naming a provider without a factory` | 1 | ported (DV9) | ported |
 | RT1 | `tests/test_provider_retries.py::test_retry_policy_controls_http_attempts` | 12 | `adapter.TestRetryPolicyControlsHTTPAttempts` (`retry_provider_test.go`: the three real providers over a 503 transport) | 6 | ported (DV1, DV16) | planned |
 | SC1 | `tests/test_schema.py::test_invalid_dictionary_questions_are_rejected` | 4 | `adapter/internal/schema.TestInvalidQuestionsAreRejected` (`internal/schema/question_test.go`) | 4 | ported | ported |

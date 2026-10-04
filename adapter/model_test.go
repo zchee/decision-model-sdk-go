@@ -18,6 +18,8 @@ package adapter
 import (
 	"errors"
 	"net/http"
+	"os"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -29,6 +31,7 @@ import (
 
 	decision "github.com/zchee/decision-model-sdk-go"
 
+	"github.com/zchee/decision-model-sdk-go/adapter/gemini"
 	"github.com/zchee/decision-model-sdk-go/adapter/internal/fake"
 	"github.com/zchee/decision-model-sdk-go/adapter/llm"
 )
@@ -108,6 +111,16 @@ func TestResolveModel(t *testing.T) {
 		wantRefusal *refusal
 		// wantNewErr is New's error text, empty when New succeeds.
 		wantNewErr string
+		// setup, when not nil, runs before New: a preset's case sets the
+		// provider's environment with it.
+		setup func(t *testing.T)
+		// wantType, when not nil, is the type of the owned provider a preset
+		// builds; the case then also checks that a second resolution reuses
+		// that provider and that Close closes it and drops it.
+		wantType reflect.Type
+		// wantBuildErr, when not empty, is the error text the owned
+		// provider's build must fail with; nothing is then cached.
+		wantBuildErr string
 	}{
 		"a WithProvider name is the borrowed provider and its model": {
 			model:        "mine",
@@ -190,9 +203,46 @@ func TestResolveModel(t *testing.T) {
 			defaultModel: "nope:model",
 			wantNewErr:   "Unknown provider 'nope'. Use 'openai', 'anthropic', or 'gemini', or pass a provider instance as the model.",
 		},
+		// tests/test_provider_requests.py::test_build_providers_select_gemini:
+		// the gemini preset builds a gemini Provider without WithFactory.
+		"gemini prefix builds a gemini provider": {
+			model:     "gemini:gemini-3.8-flash",
+			wantName:  "gemini",
+			wantModel: "gemini-3.8-flash",
+			setup: func(t *testing.T) {
+				for _, name := range []string{"GOOGLE_API_KEY", "GOOGLE_GEMINI_BASE_URL"} {
+					t.Setenv(name, "")
+					if err := os.Unsetenv(name); err != nil {
+						t.Fatalf("Unsetenv(%s): %v", name, err)
+					}
+				}
+				t.Setenv("GEMINI_API_KEY", "not-a-key")
+			},
+			wantType: reflect.TypeFor[*gemini.Provider](),
+		},
+		// The gemini preset passes no option to gemini.New, so the
+		// provider's own base URL variable decides: a value gemini refuses
+		// fails the build with gemini's text, before any request.
+		"gemini preset reads the base URL variable": {
+			model:     "gemini:gemini-3.8-flash",
+			wantName:  "gemini",
+			wantModel: "gemini-3.8-flash",
+			setup: func(t *testing.T) {
+				t.Setenv("GOOGLE_API_KEY", "")
+				if err := os.Unsetenv("GOOGLE_API_KEY"); err != nil {
+					t.Fatalf("Unsetenv(GOOGLE_API_KEY): %v", err)
+				}
+				t.Setenv("GEMINI_API_KEY", "not-a-key")
+				t.Setenv("GOOGLE_GEMINI_BASE_URL", "notaurl")
+			},
+			wantBuildErr: "gemini: the base URL of GOOGLE_GEMINI_BASE_URL is not an absolute http or https URL with a host",
+		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
+			if tt.setup != nil {
+				tt.setup(t)
+			}
 			var log factoryLog
 			opts := []Option{
 				WithFactory("openai", log.factory("openai")),
@@ -229,6 +279,15 @@ func TestResolveModel(t *testing.T) {
 			if got.name != tt.wantName || got.model != tt.wantModel || (got.borrowed != nil) != tt.wantBorrowed {
 				t.Fatalf("resolve(%q) = {%q, %q, borrowed %v}, want {%q, %q, borrowed %v}", tt.model, got.name, got.model, got.borrowed != nil, tt.wantName, tt.wantModel, tt.wantBorrowed)
 			}
+			if tt.wantBuildErr != "" {
+				if _, err := ad.provider(got); err == nil || err.Error() != tt.wantBuildErr {
+					t.Errorf("provider() error = %v, want %q", err, tt.wantBuildErr)
+				}
+				if len(ad.owned) != 0 {
+					t.Errorf("a failed build left %d owned providers, want none", len(ad.owned))
+				}
+				return
+			}
 			p, err := ad.provider(got)
 			if err != nil {
 				t.Fatalf("provider() error = %v", err)
@@ -241,6 +300,23 @@ func TestResolveModel(t *testing.T) {
 			}
 			if diff := gocmp.Diff(tt.wantBuilds, log.snapshot(), cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("factory builds (-want +got):\n%s", diff)
+			}
+			if tt.wantType != nil {
+				if typ := reflect.TypeOf(p); typ != tt.wantType {
+					t.Errorf("provider() type = %v, want %v", typ, tt.wantType)
+				}
+				if again, err := ad.provider(got); err != nil || again != p {
+					t.Errorf("a second provider() = %v, %v; want the provider built first", again, err)
+				}
+				if owned := ad.owned[providerKey{name: got.name, model: got.model}]; owned != p {
+					t.Errorf("owned provider = %v, want the provider built", owned)
+				}
+				if err := ad.Close(); err != nil {
+					t.Fatalf("Close: %v", err)
+				}
+				if len(ad.owned) != 0 {
+					t.Errorf("Close left %d owned providers, want none", len(ad.owned))
+				}
 			}
 		})
 	}

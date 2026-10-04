@@ -50,6 +50,7 @@ const noModel = ":no-model"
 // adds to them or replaces one for one Adapter.
 var presets = map[string]llm.Factory{
 	"anthropic": anthropicPreset,
+	"gemini":    geminiPreset,
 	"openai":    openaiPreset,
 }
 
