@@ -249,8 +249,10 @@ func endpoint(base *url.URL, path string) *url.URL {
 // and without it New fails.
 func WithAPIKey(key string) Option {
 	return func(o *options) {
-		key = strings.TrimSpace(key)
-		o.key = &key
+		// The Option may be applied by several New calls at once, so it
+		// writes a copy and never the key it captured.
+		k := strings.TrimSpace(key)
+		o.key = &k
 	}
 }
 

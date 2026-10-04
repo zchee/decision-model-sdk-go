@@ -257,6 +257,11 @@ func TestNewRefuses(t *testing.T) {
 			opts: []Option{WithAPIKey(testKey), WithBaseURL("/v1?key=" + secret)},
 			want: "openai: the base URL of WithBaseURL is not an absolute http or https URL with a host",
 		},
+		"error: WithBaseURL empty and OPENAI_BASE_URL not a URL": {
+			env:  map[string]string{envAPIKey: testKey, envBaseURL: "notaurl"},
+			opts: []Option{WithBaseURL("")},
+			want: "openai: the base URL of OPENAI_BASE_URL is not an absolute http or https URL with a host",
+		},
 		"error: WithHTTPClient nil": {
 			opts: []Option{WithAPIKey(testKey), WithHTTPClient(nil)},
 			want: "openai: WithHTTPClient: the client is nil",
@@ -434,6 +439,65 @@ func TestEmptyOptionIsNotGiven(t *testing.T) {
 				t.Errorf("header mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestOptionsAreSafeToShare pins that one slice of Options can be applied
+// by several New calls at once, as a factory closure shared by two Adapters
+// does: no Option writes what it captured, which -race would report, and
+// each Provider gets the settings the Options give.
+func TestOptionsAreSafeToShare(t *testing.T) {
+	clearEnv(t)
+	const n = 8
+	rec := &recorder{body: chatAnswer}
+	opts := []Option{
+		WithAPIKey("  shared-word \n"),
+		WithBaseURL("https://compatible.test/v1"),
+		WithOrganization("org"),
+		WithProject("project"),
+		WithAPI(ChatCompletions),
+		WithPromptedResponseFormat(FormatOmit),
+		WithHTTPClient(&http.Client{Transport: rec}),
+		WithTimeout(time.Minute),
+	}
+	start := make(chan struct{})
+	errs := make(chan error, n)
+	var wg sync.WaitGroup
+	for range n {
+		wg.Go(func() {
+			<-start
+			p, err := New("test-model", opts...)
+			if err == nil {
+				_, err = p.Do(t.Context(), request())
+			}
+			errs <- err
+		})
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Errorf("New or Do with the shared Options: %v", err)
+		}
+	}
+	reqs := rec.requests()
+	if len(reqs) != n {
+		t.Fatalf("the transport received %d requests, want %d", len(reqs), n)
+	}
+	want := http.Header{
+		"Authorization":       {"Bearer shared-word"},
+		"Content-Type":        {"application/json"},
+		"Openai-Organization": {"org"},
+		"Openai-Project":      {"project"},
+	}
+	for i, r := range reqs {
+		if r.url != "https://compatible.test/v1/chat/completions" {
+			t.Errorf("request %d: URL = %q", i, r.url)
+		}
+		if diff := gocmp.Diff(want, r.header); diff != "" {
+			t.Errorf("request %d: header mismatch (-want +got):\n%s", i, diff)
+		}
 	}
 }
 
