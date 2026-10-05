@@ -16,11 +16,10 @@ package jsonx
 
 import (
 	"bytes"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"math"
-
-	"github.com/go-json-experiment/json/jsontext"
 )
 
 // The refusals of Marshal.

@@ -27,8 +27,10 @@ const (
 	modulePath = "github.com/zchee/decision-model-sdk-go/adapter"
 	// sdkPath is the root SDK's module path and its root package.
 	sdkPath = "github.com/zchee/decision-model-sdk-go"
-	// jsonLibPath is the JSON library the module uses (go-json-experiment).
-	jsonLibPath = "github.com/go-json-experiment/json"
+	// externalJSONPath is a JSON library outside the standard library that no
+	// file of the module imports: the standard library's v2 JSON packages are
+	// the module's JSON implementation.
+	externalJSONPath = "github.com/go-json-experiment/json"
 	// cmpPath is the one module test files may add.
 	cmpPath = "github.com/google/go-cmp/cmp"
 )
@@ -36,7 +38,8 @@ const (
 // allowedImports lists, for each package of this module (by its path
 // relative to the module, "." for the root package), what its non-test
 // files may import directly besides the standard library: packages of this
-// module (relative paths) and the SDK's root package. A package missing from
+// module (relative paths), the SDK's root package and, for internal/jsonx,
+// the standard library's v2 JSON packages. A package missing from
 // the map fails TestImportPolicy, so a new package is added here on purpose,
 // with the edges the import graph allows it.
 var allowedImports = map[string][]string{
@@ -50,15 +53,20 @@ var allowedImports = map[string][]string{
 	"internal/fake":     {"llm"},
 	"llm":               {},
 	"internal/prob":     {},
-	"internal/jsonx":    {jsonLibPath, jsonLibPath + "/jsontext"},
+	"internal/jsonx":    {"encoding/json/v2", "encoding/json/jsontext"},
 	"livetest":          {".", "llm", "openai", "anthropic", "gemini", "internal/cassette", sdkPath},
 	"examples/compare":  {".", "llm", "openai", "anthropic", "gemini", "internal/cassette", sdkPath},
 }
 
-// forbiddenStdlib are the standard library's JSON packages, which no file of
-// the module imports: the JSON library, confined to internal/jsonx, is the
-// module's one JSON implementation.
-var forbiddenStdlib = []string{"encoding/json", "encoding/json/v2", "encoding/json/jsontext"}
+// forbiddenStdlib is the standard library's first JSON package, which no
+// file of the module imports: the v2 packages, confined to internal/jsonx,
+// are the module's one JSON implementation.
+var forbiddenStdlib = []string{"encoding/json"}
+
+// jsonV2Packages are the standard library's v2 JSON packages. Only
+// internal/jsonx imports them, and only those its allowedImports entry
+// names.
+var jsonV2Packages = []string{"encoding/json/v2", "encoding/json/jsontext"}
 
 // listedPackage is one package of this module as go list reports it.
 type listedPackage struct {
@@ -72,11 +80,11 @@ type listedPackage struct {
 // files, in the default build configuration and with the live tag. It
 // refuses an import under the SDK's internal/ directory (the go command would
 // allow it, since this module's path lies under the SDK's), the standard
-// library's JSON packages anywhere, the JSON library outside internal/jsonx,
-// and any module other than the SDK, the JSON library and, in test files,
-// go-cmp. Imports of the standard library are otherwise free; only direct
-// imports are read, because the SDK and the JSON library themselves import
-// the standard library's JSON packages.
+// library's encoding/json anywhere, its v2 JSON packages outside
+// internal/jsonx, github.com/go-json-experiment/json anywhere, and any
+// module other than the SDK and, in test files, go-cmp. Imports of the
+// standard library are otherwise free; only direct imports are read,
+// because the SDK itself imports encoding/json.
 //
 // allowedImports binds non-test files exactly. Test files are read more
 // widely: they may import any package of this module and the SDK's root
@@ -118,14 +126,16 @@ func TestImportPolicy(t *testing.T) {
 func importViolation(rel, imp string, allowed []string, test bool) string {
 	switch {
 	case slices.Contains(forbiddenStdlib, imp):
-		return "the standard library's JSON packages are not used; internal/jsonx wraps the JSON library"
+		return "encoding/json is not used; internal/jsonx wraps the standard library's v2 JSON packages"
 	case imp == sdkPath+"/internal" || strings.HasPrefix(imp, sdkPath+"/internal/"):
 		return "the SDK's internal packages are not part of its API"
-	case imp == jsonLibPath || strings.HasPrefix(imp, jsonLibPath+"/"):
+	case imp == externalJSONPath || strings.HasPrefix(imp, externalJSONPath+"/"):
+		return "github.com/go-json-experiment/json is not used; the standard library's v2 JSON packages are the module's JSON library"
+	case slices.Contains(jsonV2Packages, imp):
 		if rel == "internal/jsonx" && slices.Contains(allowed, imp) {
 			return ""
 		}
-		return "only internal/jsonx imports the JSON library, and only its json and jsontext packages"
+		return "only internal/jsonx imports the standard library's v2 JSON packages, and only those its allowedImports entry names"
 	case isStdlib(imp):
 		return ""
 	case imp == modulePath || strings.HasPrefix(imp, modulePath+"/"):
@@ -154,6 +164,57 @@ func importViolation(rel, imp string, allowed []string, test bool) string {
 func isStdlib(path string) bool {
 	first, _, _ := strings.Cut(path, "/")
 	return !strings.Contains(first, ".")
+}
+
+// TestImportViolation checks importViolation's JSON rules on imports that
+// no package of the module has, so that TestImportPolicy cannot pass by
+// accepting them: internal/jsonx may import the standard library's v2 JSON
+// packages its allowedImports entry names, no other package may import
+// them, and no package imports encoding/json or
+// github.com/go-json-experiment/json, not even one whose allowedImports
+// entry names it.
+func TestImportViolation(t *testing.T) {
+	const (
+		v1Refused       = "encoding/json is not used; internal/jsonx wraps the standard library's v2 JSON packages"
+		externalRefused = "github.com/go-json-experiment/json is not used; the standard library's v2 JSON packages are the module's JSON library"
+		v2Refused       = "only internal/jsonx imports the standard library's v2 JSON packages, and only those its allowedImports entry names"
+	)
+	tests := map[string]struct {
+		rel, imp string
+		// extra is added to rel's allowedImports entry.
+		extra []string
+		test  bool
+		want  string
+	}{
+		"internal/jsonx imports encoding/json/jsontext":                 {rel: "internal/jsonx", imp: "encoding/json/jsontext"},
+		"internal/jsonx imports encoding/json/v2":                       {rel: "internal/jsonx", imp: "encoding/json/v2"},
+		"a test file of internal/jsonx imports encoding/json/jsontext":  {rel: "internal/jsonx", imp: "encoding/json/jsontext", test: true},
+		"internal/jsonx imports encoding/json":                          {rel: "internal/jsonx", imp: "encoding/json", want: v1Refused},
+		"the root package imports encoding/json":                        {rel: ".", imp: "encoding/json", want: v1Refused},
+		"a test file of openai imports encoding/json":                   {rel: "openai", imp: "encoding/json", test: true, want: v1Refused},
+		"the root package imports encoding/json/v2":                     {rel: ".", imp: "encoding/json/v2", want: v2Refused},
+		"openai imports encoding/json/jsontext":                         {rel: "openai", imp: "encoding/json/jsontext", want: v2Refused},
+		"a test file of internal/schema imports encoding/json/v2":       {rel: "internal/schema", imp: "encoding/json/v2", test: true, want: v2Refused},
+		"internal/schema lists encoding/json/jsontext and imports it":   {rel: "internal/schema", imp: "encoding/json/jsontext", extra: []string{"encoding/json/jsontext"}, want: v2Refused},
+		"internal/jsonx imports the external json package":              {rel: "internal/jsonx", imp: externalJSONPath, want: externalRefused},
+		"internal/jsonx imports the external jsontext package":          {rel: "internal/jsonx", imp: externalJSONPath + "/jsontext", want: externalRefused},
+		"internal/jsonx lists the external jsontext and imports it":     {rel: "internal/jsonx", imp: externalJSONPath + "/jsontext", extra: []string{externalJSONPath + "/jsontext"}, want: externalRefused},
+		"a test file of internal/jsonx imports the external json":       {rel: "internal/jsonx", imp: externalJSONPath, test: true, want: externalRefused},
+		"the root package imports the external json package":            {rel: ".", imp: externalJSONPath, want: externalRefused},
+		"a test file of the root package imports the external jsontext": {rel: ".", imp: externalJSONPath + "/jsontext", test: true, want: externalRefused},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			allowed, known := allowedImports[tt.rel]
+			if !known {
+				t.Fatalf("package %s is not in allowedImports", tt.rel)
+			}
+			allowed = append(slices.Clone(allowed), tt.extra...)
+			if got := importViolation(tt.rel, tt.imp, allowed, tt.test); got != tt.want {
+				t.Errorf("importViolation(%q, %q, %q, %v) = %q, want %q", tt.rel, tt.imp, allowed, tt.test, got, tt.want)
+			}
+		})
+	}
 }
 
 // listModulePackages runs go list over every package of the module with the

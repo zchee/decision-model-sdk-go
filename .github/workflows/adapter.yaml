@@ -147,15 +147,6 @@ jobs:
           fi
           exit "$status"
 
-      # go-json-experiment/json aliases the standard library under the
-      # default goexperiment.jsonv2 tag and uses its own copy without it:
-      # the second path is different code, so it runs too.
-      - name: go test with GOEXPERIMENT=nojsonv2 (the library's own code)
-        if: matrix.os == 'ubuntu-26.04'
-        env:
-          GOEXPERIMENT: nojsonv2
-        run: go test -count=1 ./...
-
       # OIDC authentication, as in ci.yaml; the flag keeps this module's
       # uploads apart from the root's.
       - uses: codecov/codecov-action@v7

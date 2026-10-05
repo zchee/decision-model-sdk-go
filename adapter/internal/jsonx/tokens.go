@@ -16,11 +16,10 @@ package jsonx
 
 import (
 	"bytes"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"io"
-
-	"github.com/go-json-experiment/json/jsontext"
 )
 
 // TokenKind is the kind of a Token.

@@ -18,6 +18,7 @@ package jsonx
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"math"
@@ -25,7 +26,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-json-experiment/json/jsontext"
 	gocmp "github.com/google/go-cmp/cmp"
 )
 

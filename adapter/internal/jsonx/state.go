@@ -17,13 +17,12 @@ package jsonx
 
 import (
 	"bytes"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"io"
 	"strconv"
 	"strings"
-
-	"github.com/go-json-experiment/json/jsontext"
 )
 
 const (
