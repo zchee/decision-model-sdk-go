@@ -147,6 +147,13 @@ jobs:
           fi
           exit "$status"
 
+      # Added when livetest/ exists: the live tests compile and list without
+      # secrets; nothing live runs in CI.
+      - name: live tests compile and list without secrets
+        run: |
+          go vet -tags live ./...
+          go test -tags live -list '.*' ./livetest/ >/dev/null
+
       # OIDC authentication, as in ci.yaml; the flag keeps this module's
       # uploads apart from the root's.
       - uses: codecov/codecov-action@v7
