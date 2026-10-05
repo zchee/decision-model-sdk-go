@@ -600,9 +600,18 @@ func TestNewClientTransportIsTheAdapter(t *testing.T) {
 // TestPlaceholderKeyNeverForwarded checks that the SDK's key never reaches
 // a provider, the Report or an error: neither NewClient's placeholder nor a
 // canary key of a client of the caller's own appears in any provider
-// request, response body or error text, on success and on failure. The
+// request, response body or error text, on success and on failure. A fake
 // provider sees no header at all; its request holds only the messages and
 // the schema.
+//
+// Each of the three real providers sends its HTTP requests to a transport
+// that records them: no request URL, header value or body holds either SDK
+// key, the provider's own key travels in its header alone (Authorization
+// for OpenAI, x-api-key for Anthropic, x-goog-api-key for Gemini) and
+// Anthropic and Gemini send no Authorization header, so the SDK's bearer
+// value cannot pass through. Neither SDK key nor the provider's key appears
+// in the response body, the Report, the error's texts or any record of a
+// logger whose handler resolves every attribute.
 func TestPlaceholderKeyNeverForwarded(t *testing.T) {
 	canary := canaryKey(t)
 	for name, outcome := range map[string]fake.Outcome{
@@ -648,6 +657,114 @@ func TestPlaceholderKeyNeverForwarded(t *testing.T) {
 					}
 				}
 			})
+		}
+	}
+	answers := map[string]func(t *testing.T, req *http.Request) (*http.Response, error){
+		"an answer": func(t *testing.T, req *http.Request) (*http.Response, error) {
+			return providerResponse(req, http.StatusOK, providerAnswer(t, req, noulAnswer)), nil
+		},
+		"a status": func(_ *testing.T, req *http.Request) (*http.Response, error) {
+			return providerResponse(req, http.StatusBadRequest, `{"error":{"message":"bad request"}}`), nil
+		},
+		"a timeout": func(*testing.T, *http.Request) (*http.Response, error) {
+			return nil, &transportTimeout{text: "the request timed out"}
+		},
+		"malformed output": func(t *testing.T, req *http.Request) (*http.Response, error) {
+			return providerResponse(req, http.StatusOK, providerAnswer(t, req, "not JSON")), nil
+		},
+	}
+	for _, provider := range []string{"openai", "anthropic", "gemini"} {
+		for name, answer := range answers {
+			for _, own := range []bool{false, true} {
+				t.Run(fmt.Sprintf("real %s provider, %s, own client %v", provider, name, own), func(t *testing.T) {
+					rt := &providerTransport{answer: func(req *http.Request, _ int) (*http.Response, error) { return answer(t, req) }}
+					p := buildRealProvider(t, provider, rt, vendorKey, "")
+					h := &recordHandler{level: slog.LevelDebug}
+					ad, err := New(Probabilities, Structured, WithProvider(provider, p), WithDefaultModel(provider), WithLogger(slog.New(h)))
+					if err != nil {
+						t.Fatalf("New: %v", err)
+					}
+					var opts []decision.ClientOption
+					if own {
+						opts = []decision.ClientOption{decision.WithAPIKey(canary), decision.WithRetry(decision.NoRetry())}
+					}
+					c := sdkClient(t, ad, own, opts...)
+					resp, err := c.SystemOne(t.Context(), "state", noulQuestions(t))
+					if (err == nil) != (name == "an answer") {
+						t.Errorf("SystemOne error = %v", err)
+					}
+					sent := rt.requests()
+					if len(sent) == 0 {
+						t.Fatal("the provider sent no request")
+					}
+					auth := providerAuth[provider]
+					for i, r := range sent {
+						if got, want := r.header.Values(auth.header), []string{auth.value(vendorKey)}; !gocmp.Equal(got, want) {
+							t.Errorf("request %d: %s = %q, want %q", i, auth.header, got, want)
+						}
+						if auth.header != "Authorization" && len(r.header.Values("Authorization")) != 0 {
+							t.Errorf("request %d: the %s provider sent an Authorization header", i, provider)
+						}
+						fields := []string{r.url, string(r.body)}
+						for field, values := range r.header {
+							fields = append(fields, field)
+							if field != auth.header {
+								fields = append(fields, values...)
+							}
+						}
+						for _, s := range append(fields, r.header.Values(auth.header)...) {
+							for _, key := range []string{PlaceholderAPIKey, canary} {
+								if strings.Contains(s, key) {
+									t.Errorf("request %d holds the SDK key %q: %.200s", i, key, s)
+								}
+							}
+						}
+						for _, s := range fields {
+							if strings.Contains(s, vendorKey) {
+								t.Errorf("request %d holds the provider's key outside %s: %.200s", i, auth.header, s)
+							}
+						}
+					}
+					texts := []string{}
+					if err != nil {
+						texts = append(texts, err.Error(), fmt.Sprintf("%+v", err), fmt.Sprintf("%#v", err), string(apiErrorBody(err)))
+					}
+					if resp != nil {
+						texts = append(texts, string(resp.Meta().RawBody()))
+					}
+					r, ok := ReportFromError(err)
+					if resp != nil {
+						var rerr error
+						r, rerr = ReportOf(resp)
+						ok = rerr == nil
+					}
+					if !ok {
+						t.Fatal("no Report")
+					}
+					b, merr := r.MarshalJSON()
+					if merr != nil {
+						t.Fatal(merr)
+					}
+					texts = append(texts, string(b))
+					records := h.all()
+					if len(records) == 0 {
+						t.Error("the logger kept no record")
+					}
+					for _, rec := range records {
+						texts = append(texts, rec.Message)
+						for k, v := range rec.Attrs {
+							texts = append(texts, k, v)
+						}
+					}
+					for _, s := range texts {
+						for _, key := range []string{PlaceholderAPIKey, canary, vendorKey} {
+							if strings.Contains(s, key) {
+								t.Errorf("a text holds the key %q: %.200s", key, s)
+							}
+						}
+					}
+				})
+			}
 		}
 	}
 }

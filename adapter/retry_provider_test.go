@@ -142,6 +142,49 @@ func (p *providerTransport) requests() []providerRequest {
 	return append([]providerRequest(nil), p.reqs...)
 }
 
+// providerAuth is, for each of realProviders, the request header that
+// carries its key and the header's value for a key.
+var providerAuth = map[string]struct {
+	header string
+	value  func(key string) string
+}{
+	"openai":    {header: "Authorization", value: func(key string) string { return "Bearer " + key }},
+	"anthropic": {header: "X-Api-Key", value: func(key string) string { return key }},
+	"gemini":    {header: "X-Goog-Api-Key", value: func(key string) string { return key }},
+}
+
+// providerAnswer returns the 2xx body with which the API that req calls,
+// told by its path, answers with text and reports 11 input and 7 output
+// tokens: OpenAI's Responses or Chat Completions, Anthropic's Messages or
+// Gemini's Interactions.
+func providerAnswer(t testing.TB, req *http.Request, text string) string {
+	t.Helper()
+	q, err := jsonx.Marshal(jsonx.String(text))
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	switch path := req.URL.Path; {
+	case strings.HasSuffix(path, "/responses"):
+		return `{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":` + string(q) + `}]}],"usage":{"input_tokens":11,"output_tokens":7}}`
+	case strings.HasSuffix(path, "/chat/completions"):
+		return `{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":` + string(q) + `}}],"usage":{"prompt_tokens":11,"completion_tokens":7}}`
+	case strings.HasSuffix(path, "/v1/messages"):
+		return `{"type":"message","role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":` + string(q) + `}],"usage":{"input_tokens":11,"output_tokens":7}}`
+	case strings.HasSuffix(path, "/v1beta/interactions"):
+		return `{"status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":` + string(q) + `}]}],"usage":{"total_input_tokens":11,"total_output_tokens":7}}`
+	}
+	t.Errorf("no provider API has the path %q", req.URL.Path)
+	return ""
+}
+
+// transportTimeout is the error of a transport whose request timed out: a
+// net.Error whose Timeout is true, with text as its message.
+type transportTimeout struct{ text string }
+
+func (e *transportTimeout) Error() string   { return e.text }
+func (e *transportTimeout) Timeout() bool   { return true }
+func (e *transportTimeout) Temporary() bool { return false }
+
 // providerResponse returns a provider's response to req with status and a
 // JSON body.
 func providerResponse(req *http.Request, status int, body string) *http.Response {
