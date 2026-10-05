@@ -573,55 +573,71 @@ func TestReplayEscapedPathNotUnescaped(t *testing.T) {
 	}
 }
 
-func TestReplayUnparsableQueryIsAMiss(t *testing.T) {
+func TestReplayQueryPairsAsPython(t *testing.T) {
 	t.Parallel()
 	tests := map[string]struct {
-		target string
-		want   string
+		sent, recorded string
+		match          bool
 	}{
-		"error: an invalid escape in the query": {
-			target: "https://api.example.test/v1/answers?key=%zz",
-			want:   "query (the request's query does not parse)",
+		"success: sent blank value omitted":        {sent: "a=", match: true},
+		"success: recorded blank value omitted":    {recorded: "a=", match: true},
+		"success: absent equal sign omitted":       {sent: "a", match: true},
+		"success: blank values mixed with pairs":   {sent: "a=&x=1", recorded: "x=1", match: true},
+		"success: semicolon self match":            {sent: "a=one;two", recorded: "a=one;two", match: true},
+		"success: invalid escape self match":       {sent: "key=%zz", recorded: "key=%zz", match: true},
+		"success: encoded semicolon":               {sent: "a=one;two", recorded: "a=one%3Btwo", match: true},
+		"success: escaped invalid percent":         {sent: "key=%zz", recorded: "key=%25zz", match: true},
+		"success: plus decodes to space":           {sent: "q=a+b", recorded: "q=a%20b", match: true},
+		"success: valid and invalid escapes mix":   {sent: "q=%zz%41", recorded: "q=%25zzA", match: true},
+		"success: incomplete escape kept":          {sent: "q=%2", recorded: "q=%252", match: true},
+		"success: trailing percent kept":           {sent: "q=%", recorded: "q=%25", match: true},
+		"success: names decode too":                {sent: "%61=value", recorded: "a=value", match: true},
+		"success: empty name kept":                 {sent: "=value", recorded: "=value", match: true},
+		"success: unicode percent decoding":        {sent: "q=%e6%97%a5", recorded: "q=日", match: true},
+		"success: invalid UTF-8 byte replaced":     {sent: "q=%FF", recorded: "q=%EF%BF%BD", match: true},
+		"success: truncated UTF-8 prefix replaced": {sent: "q=%E2%82", recorded: "q=%EF%BF%BD", match: true},
+		"success: invalid UTF-8 suffix retained":   {sent: "q=%E2%82x", recorded: "q=%EF%BF%BDx", match: true},
+		"success: distinct invalid bytes replaced": {
+			sent: "q=%FF%FF", recorded: "q=%EF%BF%BD%EF%BF%BD", match: true,
 		},
-		"error: a semicolon separator in the query": {
-			target: "https://api.example.test/v1/answers?a=one;two",
-			want:   "query (the request's query does not parse)",
-		},
+		"error: sent semicolon is not an absent pair":     {sent: "a=one;two"},
+		"error: recorded semicolon is not an absent pair": {recorded: "a=one;two"},
+		"error: sent invalid escape is not absent":        {sent: "key=%zz"},
+		"error: recorded invalid escape is not absent":    {recorded: "key=%zz"},
+		"error: semicolon suffix matters":                 {sent: "a=one;two", recorded: "a=one"},
+		"error: invalid escape text matters":              {sent: "key=%zz", recorded: "key=%zy"},
+		"error: empty name is not an absent pair":         {sent: "=value"},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
+			const base = "https://api.example.test/v1/answers"
 			c := &Cassette{Interactions: []Interaction{{
-				Request:  jsonRequest("POST", "https://api.example.test/v1/answers", `{"a":1}`),
+				Request:  jsonRequest("POST", base+"?"+tt.recorded, `{"a":1}`),
 				Response: jsonResponse(`{"ok":true}`),
 			}}}
 			tr := c.Transport()
-			_, _, err := send(t, tr, "POST", tt.target, `{"a":1}`)
-			if err == nil {
-				t.Fatal("a request whose query does not parse matched a no-query recording, want a miss")
+			_, _, err := send(t, tr, "POST", base+"?"+tt.sent, `{"a":1}`)
+			if tt.match {
+				if err != nil {
+					t.Fatalf("equivalent query pairs missed: %v", err)
+				}
+				if got := tr.Unconsumed(); got != 0 {
+					t.Errorf("Unconsumed = %d after match, want 0", got)
+				}
+				return
 			}
-			if !strings.Contains(err.Error(), tt.want) {
-				t.Errorf("error = %q, want it to contain %q", err, tt.want)
+			if err == nil {
+				t.Fatal("different query pairs matched, want a miss")
+			}
+			if !strings.Contains(err.Error(), "query (") {
+				t.Errorf("error = %q, want a query mismatch", err)
 			}
 			if got := tr.Unconsumed(); got != 1 {
-				t.Errorf("Unconsumed = %d after the miss, want 1", got)
+				t.Errorf("Unconsumed = %d after miss, want 1", got)
 			}
 		})
 	}
-	t.Run("error: a recorded query that does not parse", func(t *testing.T) {
-		t.Parallel()
-		c := &Cassette{Interactions: []Interaction{{
-			Request:  jsonRequest("POST", "https://api.example.test/v1/answers?key=%zz", `{"a":1}`),
-			Response: jsonResponse(`{"ok":true}`),
-		}}}
-		_, _, err := send(t, c.Transport(), "POST", "https://api.example.test/v1/answers", `{"a":1}`)
-		if err == nil {
-			t.Fatal("a recording whose query does not parse matched, want a miss")
-		}
-		if want := "query (the recorded query does not parse)"; !strings.Contains(err.Error(), want) {
-			t.Errorf("error = %q, want it to contain %q", err, want)
-		}
-	})
 }
 
 func TestReplayHostCaseInsensitive(t *testing.T) {

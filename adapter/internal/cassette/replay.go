@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/zchee/decision-model-sdk-go/adapter/internal/jsonx"
 )
@@ -186,15 +187,7 @@ func matchInteraction(req *http.Request, body []byte, rec Request) (key int, dif
 	if req.URL.EscapedPath() != recURL.EscapedPath() {
 		return keyPath, fmt.Sprintf("path (%q is not the recorded %q)", req.URL.EscapedPath(), recURL.EscapedPath())
 	}
-	gotQuery, err := url.ParseQuery(req.URL.RawQuery)
-	if err != nil {
-		return keyQuery, "query (the request's query does not parse)"
-	}
-	recQuery, err := url.ParseQuery(recURL.RawQuery)
-	if err != nil {
-		return keyQuery, "query (the recorded query does not parse)"
-	}
-	if diff := queryDiff(gotQuery, recQuery); diff != "" {
+	if diff := queryDiff(queryPairs(req.URL.RawQuery), queryPairs(recURL.RawQuery)); diff != "" {
 		return keyQuery, diff
 	}
 	if diff := bodyDiff(body, rec); diff != "" {
@@ -217,6 +210,61 @@ func effectivePort(u *url.URL) string {
 	default:
 		return ""
 	}
+}
+
+// queryPairs follows urllib.parse.parse_qsl's defaults used by vcrpy:
+// split on ampersands, discard blank values, and decode each component
+// without rejecting semicolons or malformed percent escapes.
+func queryPairs(raw string) url.Values {
+	values := make(url.Values)
+	for pair := range strings.SplitSeq(raw, "&") {
+		name, value, _ := strings.Cut(pair, "=")
+		if value == "" {
+			continue
+		}
+		values.Add(unquoteQuery(name), unquoteQuery(value))
+	}
+	return values
+}
+
+// unquoteQuery is Python's unquote_plus with UTF-8 replacement decoding.
+// QueryUnescape cannot be used directly because it rejects a malformed
+// escape instead of preserving it alongside the valid escapes.
+func unquoteQuery(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == '+' {
+			b.WriteByte(' ')
+			continue
+		}
+		if s[i] == '%' && i+2 < len(s) {
+			if value, err := strconv.ParseUint(s[i+1:i+3], 16, 8); err == nil {
+				b.WriteByte(byte(value))
+				i += 2
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	decoded := b.String()
+	if utf8.ValidString(decoded) {
+		return decoded
+	}
+	var normalized strings.Builder
+	for len(decoded) > 0 {
+		r, size := utf8.DecodeRuneInString(decoded)
+		if r == utf8.RuneError && size == 1 {
+			// Python replaces an incomplete valid prefix once, without
+			// consuming the byte that makes the sequence invalid.
+			for size < len(decoded) && !utf8.FullRuneInString(decoded[:size+1]) {
+				size++
+			}
+		}
+		normalized.WriteRune(r)
+		decoded = decoded[size:]
+	}
+	return normalized.String()
 }
 
 // queryDiff compares two parsed query strings and names the first
