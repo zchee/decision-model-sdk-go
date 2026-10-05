@@ -139,11 +139,11 @@ func TestReplayMatchKeys(t *testing.T) {
 		},
 		"error: a body value differs": {
 			method: "POST", target: "https://api.example.test/v1/answers", body: `{"a":2,"b":[1,2],"s":"x"}`,
-			wantErr: "body at $.a (2 is not the recorded 1)",
+			wantErr: "body at $.a (the numbers differ)",
 		},
 		"error: a float differing in the last bit": {
 			method: "POST", target: "https://api.example.test/v1/answers", body: `{"a":1.0000000000000002,"b":[1,2],"s":"x"}`,
-			wantErr: "body at $.a (1.0000000000000002 is not the recorded 1)",
+			wantErr: "body at $.a (the numbers differ)",
 		},
 		"error: a member null where a number is recorded": {
 			method: "POST", target: "https://api.example.test/v1/answers", body: `{"a":null,"b":[1,2],"s":"x"}`,
@@ -159,7 +159,7 @@ func TestReplayMatchKeys(t *testing.T) {
 		},
 		"error: an array element differs": {
 			method: "POST", target: "https://api.example.test/v1/answers", body: `{"a":1,"b":[1,3],"s":"x"}`,
-			wantErr: "body at $.b[1] (3 is not the recorded 2)",
+			wantErr: "body at $.b[1] (the numbers differ)",
 		},
 		"error: an array length differs": {
 			method: "POST", target: "https://api.example.test/v1/answers", body: `{"a":1,"b":[1],"s":"x"}`,
@@ -234,7 +234,7 @@ func TestReplayServesEachInteractionOnce(t *testing.T) {
 	}
 	if _, _, err := send(t, tr, "POST", uri, `{"n":2}`); err == nil {
 		t.Fatal("an identical second request matched a consumed interaction, want a miss")
-	} else if want := "body at $.n (2 is not the recorded 1)"; !strings.Contains(err.Error(), want) {
+	} else if want := "body at $.n (the numbers differ)"; !strings.Contains(err.Error(), want) {
 		t.Errorf("second request's error = %q, want the difference against the one unconsumed candidate %q", err, want)
 	}
 	if got, want := tr.Unconsumed(), 1; got != want {
@@ -274,12 +274,12 @@ func TestReplayMissErrorRedaction(t *testing.T) {
 		t.Fatal("RoundTrip matched, want a miss")
 	}
 	text := err.Error()
-	if want := `body at $.questions.q1.text ("sent-value" is not the recorded "recorded-value")`; !strings.Contains(text, want) {
+	if want := "body at $.questions.q1.text (the strings differ)"; !strings.Contains(text, want) {
 		t.Errorf("error = %q, want the first differing member %q", text, want)
 	}
-	for _, leaked := range []string{"hunter2", "user:", "shared-query-value", "never-quoted"} {
+	for _, leaked := range []string{"hunter2", "user:", "shared-query-value", "never-quoted", "sent-value", "recorded-value"} {
 		if strings.Contains(text, leaked) {
-			t.Errorf("error %q quotes %q: a miss must hold no userinfo, no query value and no body beyond the first differing member", text, leaked)
+			t.Errorf("error %q quotes %q: a miss must hold no userinfo, no query value and no body value at all", text, leaked)
 		}
 	}
 	if want := "key="; !strings.Contains(text, want) {
@@ -413,7 +413,7 @@ func TestReplayNearestCandidateChosenByKey(t *testing.T) {
 	if err == nil {
 		t.Fatal("RoundTrip matched, want a miss")
 	}
-	if want := "body at $.n (9 is not the recorded 1)"; !strings.Contains(err.Error(), want) {
+	if want := "body at $.n (the numbers differ)"; !strings.Contains(err.Error(), want) {
 		t.Errorf("error = %q, want the body difference of the nearest candidate %q", err, want)
 	}
 }
@@ -492,7 +492,7 @@ func TestReplayWalksEqualMembersToTheDifference(t *testing.T) {
 	if err == nil {
 		t.Fatal("RoundTrip matched, want a miss")
 	}
-	if want := "body at $.x (1 is not the recorded 2)"; !strings.Contains(err.Error(), want) {
+	if want := "body at $.x (the numbers differ)"; !strings.Contains(err.Error(), want) {
 		t.Errorf("error = %q, want it to contain %q", err, want)
 	}
 }
@@ -520,16 +520,167 @@ func TestReplayDefaultPorts(t *testing.T) {
 
 func TestReplayUnparsableRecordedURI(t *testing.T) {
 	t.Parallel()
+	// A recorded URI that url.Parse refuses is reported without any part
+	// of the URI: url.Parse's own error quotes it whole, userinfo and
+	// query values included, so that error never reaches the message.
+	// The userinfo is a made-up canary, concatenated so no literal spells
+	// a credential-in-URL shape.
+	userinfo := "user:" + "hunter2"
 	c := &Cassette{Interactions: []Interaction{{
-		Request:  Request{Method: "POST", URI: "https://example.test/%zz", Body: []byte(`{}`), BodyIsJSON: true},
+		Request: Request{
+			Method:     "POST",
+			URI:        "https://" + userinfo + "@example.test/%zz?key=recorded-query-value",
+			Body:       []byte(`{}`),
+			BodyIsJSON: true,
+		},
 		Response: jsonResponse(`{"ok":true}`),
 	}}}
 	_, _, err := send(t, c.Transport(), "POST", "https://example.test/x", `{}`)
 	if err == nil {
 		t.Fatal("RoundTrip matched, want an error about the recorded URI")
 	}
-	if want := "a recorded URI that does not parse"; !strings.Contains(err.Error(), want) {
+	text := err.Error()
+	if want := "a recorded URI that does not parse"; !strings.Contains(text, want) {
+		t.Errorf("error = %q, want it to contain %q", text, want)
+	}
+	for _, leaked := range []string{"hunter2", "user:", "recorded-query-value", "%zz"} {
+		if strings.Contains(text, leaked) {
+			t.Errorf("error %q quotes %q of the unparsable recorded URI", text, leaked)
+		}
+	}
+}
+
+func TestReplayEscapedPathNotUnescaped(t *testing.T) {
+	t.Parallel()
+	// Paths compare in escaped form: a recorded /a%2Fb is not a sent
+	// /a/b although both decode to the same text, and the same escaped
+	// spelling matches.
+	c := &Cassette{Interactions: []Interaction{{
+		Request:  jsonRequest("POST", "https://api.example.test/a%2Fb", `{"n":1}`),
+		Response: jsonResponse(`{"ok":true}`),
+	}}}
+	tr := c.Transport()
+	_, _, err := send(t, tr, "POST", "https://api.example.test/a/b", `{"n":1}`)
+	if err == nil {
+		t.Fatal("an unescaped /a/b matched the recorded /a%2Fb, want a path miss")
+	}
+	if want := `path ("/a/b" is not the recorded "/a%2Fb")`; !strings.Contains(err.Error(), want) {
 		t.Errorf("error = %q, want it to contain %q", err, want)
+	}
+	_, _, err = send(t, tr, "POST", "https://api.example.test/a%2Fb", `{"n":1}`)
+	if err != nil {
+		t.Errorf("the recorded escaped path missed itself: %v", err)
+	}
+}
+
+func TestReplayUnparsableQueryIsAMiss(t *testing.T) {
+	t.Parallel()
+	tests := map[string]struct {
+		target string
+		want   string
+	}{
+		"error: an invalid escape in the query": {
+			target: "https://api.example.test/v1/answers?key=%zz",
+			want:   "query (the request's query does not parse)",
+		},
+		"error: a semicolon separator in the query": {
+			target: "https://api.example.test/v1/answers?a=one;two",
+			want:   "query (the request's query does not parse)",
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			c := &Cassette{Interactions: []Interaction{{
+				Request:  jsonRequest("POST", "https://api.example.test/v1/answers", `{"a":1}`),
+				Response: jsonResponse(`{"ok":true}`),
+			}}}
+			tr := c.Transport()
+			_, _, err := send(t, tr, "POST", tt.target, `{"a":1}`)
+			if err == nil {
+				t.Fatal("a request whose query does not parse matched a no-query recording, want a miss")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("error = %q, want it to contain %q", err, tt.want)
+			}
+			if got := tr.Unconsumed(); got != 1 {
+				t.Errorf("Unconsumed = %d after the miss, want 1", got)
+			}
+		})
+	}
+	t.Run("error: a recorded query that does not parse", func(t *testing.T) {
+		t.Parallel()
+		c := &Cassette{Interactions: []Interaction{{
+			Request:  jsonRequest("POST", "https://api.example.test/v1/answers?key=%zz", `{"a":1}`),
+			Response: jsonResponse(`{"ok":true}`),
+		}}}
+		_, _, err := send(t, c.Transport(), "POST", "https://api.example.test/v1/answers", `{"a":1}`)
+		if err == nil {
+			t.Fatal("a recording whose query does not parse matched, want a miss")
+		}
+		if want := "query (the recorded query does not parse)"; !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %q, want it to contain %q", err, want)
+		}
+	})
+}
+
+func TestReplayHostCaseInsensitive(t *testing.T) {
+	t.Parallel()
+	c := &Cassette{Interactions: []Interaction{{
+		Request:  jsonRequest("POST", "https://API.Example.TEST/v1/answers", `{"a":1}`),
+		Response: jsonResponse(`{"ok":true}`),
+	}}}
+	_, _, err := send(t, c.Transport(), "POST", "https://api.example.test/v1/answers", `{"a":1}`)
+	if err != nil {
+		t.Errorf("a host differing only in case missed: %v", err)
+	}
+}
+
+func TestReplayRepeatedQueryValueOrderIgnored(t *testing.T) {
+	t.Parallel()
+	c := &Cassette{Interactions: []Interaction{{
+		Request:  jsonRequest("POST", "https://api.example.test/v1/answers?a=1&a=2", `{"n":1}`),
+		Response: jsonResponse(`{"ok":true}`),
+	}}}
+	_, _, err := send(t, c.Transport(), "POST", "https://api.example.test/v1/answers?a=2&a=1", `{"n":1}`)
+	if err != nil {
+		t.Errorf("repeated query values in another order missed: %v", err)
+	}
+}
+
+// closeRecorder records whether a request body was closed.
+type closeRecorder struct {
+	io.Reader
+	closed bool
+}
+
+func (c *closeRecorder) Close() error {
+	c.closed = true
+	return nil
+}
+
+func TestReplayClosesTheRequestBody(t *testing.T) {
+	t.Parallel()
+	c := &Cassette{Interactions: []Interaction{{
+		Request:  jsonRequest("POST", "https://api.example.test/v1/answers", `{"a":1}`),
+		Response: jsonResponse(`{"ok":true}`),
+	}}}
+	tr := c.Transport()
+	recorder := &closeRecorder{Reader: strings.NewReader(`{"a":1}`)}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "https://api.example.test/v1/answers", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Body = recorder
+	resp, err := tr.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Error(err)
+	}
+	if !recorder.closed {
+		t.Error("the request body was not closed after the round trip")
 	}
 }
 

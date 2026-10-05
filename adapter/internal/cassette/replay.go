@@ -80,8 +80,9 @@ func (t *Transport) Requests() []SentRequest {
 
 // RoundTrip serves the first unconsumed interaction the request matches,
 // or fails with an error naming the request and the first difference from
-// the nearest candidate. The error never quotes a query value or more of a
-// body than the first differing member's path and values.
+// the nearest candidate. The error never quotes a query value, and never
+// quotes a body beyond the first differing member's path: a differing
+// value is named by its path and kind, not shown.
 func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	body, err := readBody(req)
 	if err != nil {
@@ -163,7 +164,9 @@ const (
 func matchInteraction(req *http.Request, body []byte, rec Request) (key int, diff string) {
 	recURL, err := url.Parse(rec.URI)
 	if err != nil {
-		return keyMethod, fmt.Sprintf("a recorded URI that does not parse: %v", err)
+		// url.Parse's own error quotes the whole URI, userinfo and query
+		// values included, so the message never carries it.
+		return keyMethod, "a recorded URI that does not parse"
 	}
 	if req.Method != rec.Method {
 		return keyMethod, fmt.Sprintf("method (%q is not the recorded %q)", req.Method, rec.Method)
@@ -171,16 +174,27 @@ func matchInteraction(req *http.Request, body []byte, rec Request) (key int, dif
 	if req.URL.Scheme != recURL.Scheme {
 		return keyScheme, fmt.Sprintf("scheme (%q is not the recorded %q)", req.URL.Scheme, recURL.Scheme)
 	}
-	if req.URL.Hostname() != recURL.Hostname() {
+	// Hosts are compared without regard to case, as vcrpy compares them.
+	if !strings.EqualFold(req.URL.Hostname(), recURL.Hostname()) {
 		return keyHost, fmt.Sprintf("host (%q is not the recorded %q)", req.URL.Hostname(), recURL.Hostname())
 	}
 	if got, want := effectivePort(req.URL), effectivePort(recURL); got != want {
 		return keyPort, fmt.Sprintf("port (%q is not the recorded %q)", got, want)
 	}
-	if req.URL.Path != recURL.Path {
-		return keyPath, fmt.Sprintf("path (%q is not the recorded %q)", req.URL.Path, recURL.Path)
+	// Paths are compared in escaped form, as vcrpy compares them: a
+	// recorded /a%2Fb is not a sent /a/b although both decode alike.
+	if req.URL.EscapedPath() != recURL.EscapedPath() {
+		return keyPath, fmt.Sprintf("path (%q is not the recorded %q)", req.URL.EscapedPath(), recURL.EscapedPath())
 	}
-	if diff := queryDiff(req.URL.Query(), recURL.Query()); diff != "" {
+	gotQuery, err := url.ParseQuery(req.URL.RawQuery)
+	if err != nil {
+		return keyQuery, "query (the request's query does not parse)"
+	}
+	recQuery, err := url.ParseQuery(recURL.RawQuery)
+	if err != nil {
+		return keyQuery, "query (the recorded query does not parse)"
+	}
+	if diff := queryDiff(gotQuery, recQuery); diff != "" {
 		return keyQuery, diff
 	}
 	if diff := bodyDiff(body, rec); diff != "" {
@@ -271,10 +285,11 @@ func bodyDiff(body []byte, rec Request) string {
 // firstDiff phrases a difference jsonx.Equal already found: it walks two
 // read JSON values, member order ignored, and returns the path and a
 // one-line description of the first difference, or "" when it locates
-// none. It never decides a match. Numbers of more than fifteen
-// significant digits may compare equal here although jsonx.Equal tells
-// them apart; the caller's message then says the bodies differ without a
-// located member.
+// none. It never decides a match, and it never quotes a value: the
+// description names the path and the kind of difference only. Numbers of
+// more than fifteen significant digits may compare equal here although
+// jsonx.Equal tells them apart; the caller's message then says the bodies
+// differ without a located member.
 func firstDiff(got, want jsonx.Node, path string) (string, string) {
 	bothNumbers := got.Kind() == jsonx.KindNumber && want.Kind() == jsonx.KindNumber
 	if got.Kind() != want.Kind() && !bothNumbers {
@@ -289,12 +304,12 @@ func firstDiff(got, want jsonx.Node, path string) (string, string) {
 		if numbersEqual(got, want) {
 			return "", ""
 		}
-		return path, fmt.Sprintf("%s is not the recorded %s", got.Text(), want.Text())
+		return path, "the numbers differ"
 	case jsonx.KindString:
 		if got.Text() == want.Text() {
 			return "", ""
 		}
-		return path, fmt.Sprintf("%q is not the recorded %q", got.Text(), want.Text())
+		return path, "the strings differ"
 	case jsonx.KindArray:
 		if got.Len() != want.Len() {
 			return path, fmt.Sprintf("an array of %d elements is not the recorded %d", got.Len(), want.Len())
