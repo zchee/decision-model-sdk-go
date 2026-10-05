@@ -41,9 +41,8 @@ import (
 // system-one-adapter-python v0.2.1: the recorded provider exchanges under
 // testdata/cassettes replayed through the real providers and the real SDK
 // client, and the recorded reference responses under testdata/expected
-// compared member for member. Rows LV1 to LV3 of docs/port-test-matrix.md
-// name these tests, and the subtest names are upstream's bracketed
-// parametrize ids.
+// compared member for member. The subtest names are upstream's bracketed
+// parametrize ids from test_client_with_live_apis.py.
 //
 // The fixtures below are that file's STATE, QUESTIONS,
 // CONTEXT_PROBE_STATE and CONTEXT_PROBE_QUESTIONS (its lines 38 to 85),
@@ -299,14 +298,17 @@ func TestReplayReferenceShape(t *testing.T) {
 			if p, ok := choice.Probability("fiction"); !ok || p <= 0.9 {
 				t.Errorf("genre P(fiction) = %v (present %t), want above 0.9", p, ok)
 			}
-			var legend []string
-			var levels []uint32
+			legend := make(map[uint32]string)
 			for level, content := range score.Legend() {
-				levels = append(levels, level)
-				legend = append(legend, content.Text())
+				legend[level] = content.Text()
 			}
-			slices.Sort(levels)
-			if diff := cmp.Diff(replayRatingCriteria, legend); diff != "" {
+			wantLegend := make(map[uint32]string, len(replayRatingCriteria))
+			var level uint32
+			for _, criterion := range replayRatingCriteria {
+				wantLegend[level] = criterion
+				level++
+			}
+			if diff := cmp.Diff(wantLegend, legend); diff != "" {
 				t.Errorf("score legend (-criteria +got):\n%s", diff)
 			}
 			var probabilityLevels []uint32
@@ -548,7 +550,7 @@ func usageDiffs(got, want jsonx.Node, out *[]string) {
 		name := got.Name(i)
 		if name == "latency" {
 			sawLatency = true
-			if text := got.Index(i).Text(); !latencyBoundsOK(text) {
+			if text := got.Index(i).Text(); got.Index(i).Kind() != jsonx.KindNumber || !latencyBoundsOK(text) {
 				*out = append(*out, "$.usage.latency = "+text+", want a number above 0 and below 120")
 			}
 			continue
@@ -839,12 +841,8 @@ func withoutNullMembers(v jsonx.Node) []string {
 // pythonNumbersEqual compares two number literals as Python's == compares
 // the values json.loads makes of them.
 func pythonNumbersEqual(a, b jsonx.Node) bool {
-	if a.IsInt() && b.IsInt() {
-		return normalizeMinusZero(a.Text()) == normalizeMinusZero(b.Text())
-	}
-	x, errX := strconv.ParseFloat(a.Text(), 64)
-	y, errY := strconv.ParseFloat(b.Text(), 64)
-	return errX == nil && errY == nil && x == y
+	equal, err := jsonx.Equal([]byte(a.Text()), []byte(b.Text()))
+	return err == nil && equal
 }
 
 // checkChoiceSchemaInRequest reads the native answer schema back out of
@@ -921,6 +919,71 @@ func promptedSystemText(t *testing.T, provider string, body jsonx.Node) string {
 		return memberOf(t, body, "system", "the request").Text()
 	default:
 		return memberOf(t, body, "system_instruction", "the request").Text()
+	}
+}
+
+// TestReplayComparisonEntryPoints checks complete responses through the
+// same comparison used for recorded provider calls, including dispatch
+// to the actual provider-body comparison and the fixed provider table.
+func TestReplayComparisonEntryPoints(t *testing.T) {
+	t.Parallel()
+	const recorded = `{"answer":"wire"}`
+	const actual = `{"model":"reference","usage":{"input_tokens":1,"latency":1.5},"answers":{},"debug":{"llm_attempts":[{"messages":[],"model_request_parameters":{"schema":{},"structured":true},"llm_response":{"answer":"wire"},"debug_info":{"provider":"github.com/zchee/decision-model-sdk-go/adapter/openai.Provider"},"request":{}}]}}`
+	const expected = `{"model":"reference","usage":{"input_tokens":1},"answers":{},"debug":{"llm_attempts":[{"messages":[],"model_request_parameters":{"schema":{},"structured":true},"llm_response":{"answer":"wire"},"debug_info":{"provider":"system_one_adapter.providers.openai.OpenAIProvider"},"request":{}}]}}`
+	tests := map[string]struct {
+		actual, expected, recorded string
+		wantDifference             string
+	}{
+		"success: complete matching response": {
+			actual: actual, expected: expected, recorded: recorded,
+		},
+		"error: actual provider body differs": {
+			actual:   strings.Replace(actual, `"answer":"wire"`, `"answer":"changed"`, 1),
+			expected: expected, recorded: recorded,
+			wantDifference: ".llm_response",
+		},
+		"error: recorded body differs from actual": {
+			actual: actual, expected: expected, recorded: `{"answer":"changed"}`,
+			wantDifference: ".llm_response",
+		},
+		"error: unknown class contains a known vendor name": {
+			actual: actual, recorded: recorded,
+			expected:       strings.Replace(expected, "openai.OpenAIProvider", "openai.UnregisteredProvider", 1),
+			wantDifference: "unknown class",
+		},
+		"error: actual Go provider type is wrong": {
+			actual:   strings.Replace(actual, "openai.Provider", "gemini.Provider", 1),
+			expected: expected, recorded: recorded,
+			wantDifference: ".provider",
+		},
+		"error: full attempt messages differ": {
+			actual:   strings.Replace(actual, `"messages":[]`, `"messages":[{"role":"user","content":"changed"}]`, 1),
+			expected: expected, recorded: recorded,
+			wantDifference: ".messages",
+		},
+		"error: numeric-looking string latency": {
+			actual:   strings.Replace(actual, `"latency":1.5`, `"latency":"1.5"`, 1),
+			expected: expected, recorded: recorded,
+			wantDifference: "$.usage.latency",
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			diffs, err := compareReplayBody([]byte(tt.actual), []byte(tt.expected), []byte(tt.recorded))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tt.wantDifference == "" {
+				if len(diffs) != 0 {
+					t.Fatalf("matching complete response refused: %v", diffs)
+				}
+				return
+			}
+			if !strings.Contains(strings.Join(diffs, "\n"), tt.wantDifference) {
+				t.Errorf("differences = %v, want a refusal containing %q", diffs, tt.wantDifference)
+			}
+		})
 	}
 }
 
@@ -1046,6 +1109,11 @@ func TestReplayComparisonHelpers(t *testing.T) {
 		if len(diffs) == 0 {
 			t.Error("usageDiffs accepted an out-of-bounds latency")
 		}
+		diffs = nil
+		usageDiffs(read(t, `{"input_tokens":1,"output_tokens":2,"latency":"1.5"}`), want, &diffs)
+		if len(diffs) == 0 {
+			t.Error("usageDiffs accepted a string latency")
+		}
 	})
 
 	t.Run("the reference derivation", func(t *testing.T) {
@@ -1059,6 +1127,21 @@ func TestReplayComparisonHelpers(t *testing.T) {
 			},
 			"success: an integer equals the float it is": {
 				expected: `{"created_at":1789727875}`, recorded: `{"created_at":1789727875.0}`, provider: "openai",
+			},
+			"success: a large integer equals its exact float": {
+				expected: `{"v":9007199254740992}`, recorded: `{"v":9007199254740992.0}`, provider: "openai",
+			},
+			"error: a large integer differs from the rounded float": {
+				expected: `{"v":9007199254740993}`, recorded: `{"v":9007199254740992.0}`, provider: "openai",
+				refused: true,
+			},
+			"error: a float differs from the unrounded large integer": {
+				expected: `{"v":9007199254740992.0}`, recorded: `{"v":9007199254740993}`, provider: "openai",
+				refused: true,
+			},
+			"error: adjacent float values differ": {
+				expected: `{"v":1.0000000000000002}`, recorded: `{"v":1.0}`, provider: "openai",
+				refused: true,
 			},
 			"success: gemini's added and dropped members": {
 				expected: `{"id":"","output_text":"x","usage":{"input_tokens":3}}`,
