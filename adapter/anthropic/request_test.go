@@ -117,7 +117,7 @@ func TestNewRejectsNonpositiveMaxTokens(t *testing.T) {
 			clearEnv(t)
 			p, err := New("claude-haiku-4-5", WithMaxTokens(tt.maxTokens))
 			if p != nil || err == nil {
-				t.Fatalf("New(WithMaxTokens(%d)) = %v, %v; want nil and an error", tt.maxTokens, p, err)
+				t.Fatalf("New(WithMaxTokens(%d)) = %T (nil %t), %v; want nil and an error", tt.maxTokens, p, p == nil, err)
 			}
 			if diff := gocmp.Diff("max_tokens must be > 0", err.Error()); diff != "" {
 				t.Errorf("error text (-want +got):\n%s", diff)

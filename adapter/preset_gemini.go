@@ -22,7 +22,7 @@ import (
 
 // geminiPreset is the factory of the provider name "gemini": gemini.New
 // with model and no option, as upstream's build_sync_provider builds a
-// GeminiProvider (providers/__init__.py:50-55). gemini.New reads
+// GeminiProvider (providers/__init__.py:77-82). gemini.New reads
 // GOOGLE_API_KEY, else GEMINI_API_KEY, and GOOGLE_GEMINI_BASE_URL when it
 // is called. It returns a nil interface with New's error, never a nil
 // *gemini.Provider, which the Adapter would cache as a provider.

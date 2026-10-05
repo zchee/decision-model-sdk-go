@@ -306,10 +306,10 @@ func TestResolveModel(t *testing.T) {
 					t.Errorf("provider() type = %v, want %v", typ, tt.wantType)
 				}
 				if again, err := ad.provider(got); err != nil || again != p {
-					t.Errorf("a second provider() = %v, %v; want the provider built first", again, err)
+					t.Errorf("a second provider() = %T (the first %t), %v; want the provider built first", again, again == p, err)
 				}
 				if owned := ad.owned[providerKey{name: got.name, model: got.model}]; owned != p {
-					t.Errorf("owned provider = %v, want the provider built", owned)
+					t.Errorf("owned provider = %T (the one built %t), want the provider built", owned, owned == p)
 				}
 				if err := ad.Close(); err != nil {
 					t.Fatalf("Close: %v", err)

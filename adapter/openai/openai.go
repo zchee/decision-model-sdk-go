@@ -318,6 +318,23 @@ func (p *Provider) Model() string { return p.model }
 // API returns the API the Provider calls, Auto resolved.
 func (p *Provider) API() API { return p.api }
 
+// String returns the model alone, as "openai.Provider(<model>)". It is what
+// %v, %+v and %s print for a Provider value or a pointer to one, so that
+// they print nothing of the headers, which hold the key, or of the base
+// URL, whose userinfo and query may carry a credential, as fmt's
+// field-by-field form would. A nil *Provider prints as <nil>.
+func (p Provider) String() string {
+	return "openai.Provider(" + p.model + ")"
+}
+
+// GoString returns what %#v prints for p, a Provider value or a pointer to
+// one, with the model only: the headers hold the key and the base URL may
+// carry a credential in its userinfo or query, so neither is printed. A nil
+// *Provider prints as <nil>.
+func (p Provider) GoString() string {
+	return "openai.Provider{Model:" + p.model + "}"
+}
+
 // Do performs one request: it writes the body, records it in req.Trace,
 // sends it with Authorization: Bearer, records the 2xx response body and
 // its finish reason in req.Trace before it checks them, and returns the

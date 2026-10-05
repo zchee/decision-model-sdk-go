@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -314,7 +315,7 @@ func TestAuthHeaders(t *testing.T) {
 			p, err := New("test-model", append([]Option{WithHTTPClient(&http.Client{Transport: tr})}, tt.opts...)...)
 			if tt.wantText != "" {
 				if p != nil || err == nil {
-					t.Fatalf("New = %v, %v; want nil and an error", p, err)
+					t.Fatalf("New = %T (nil %t), %v; want nil and an error", p, p == nil, err)
 				}
 				if diff := gocmp.Diff(tt.wantText, err.Error()); diff != "" {
 					t.Errorf("error text (-want +got):\n%s", diff)
@@ -539,7 +540,7 @@ func TestNewRefuses(t *testing.T) {
 			}
 			p, err := New("test-model", tt.opts...)
 			if p != nil || err == nil {
-				t.Fatalf("New = %v, %v; want nil and an error", p, err)
+				t.Fatalf("New = %T (nil %t), %v; want nil and an error", p, p == nil, err)
 			}
 			if diff := gocmp.Diff(tt.want, err.Error()); diff != "" {
 				t.Errorf("error text (-want +got):\n%s", diff)
@@ -1084,8 +1085,8 @@ func TestDoRecordsTheExchange(t *testing.T) {
 }
 
 // TestModelAndClose pins that Model is the model string New was given,
-// whatever the base URL holds (a userinfo and a query among it), and that Close returns nil for an owned and
-// for a borrowed client.
+// whatever the base URL holds (with a userinfo and a query), and that Close
+// returns nil for an owned and for a borrowed client.
 func TestModelAndClose(t *testing.T) {
 	tests := map[string]struct {
 		opts []Option
@@ -1106,6 +1107,89 @@ func TestModelAndClose(t *testing.T) {
 			if err := p.Close(); err != nil {
 				t.Errorf("Close = %v, want nil", err)
 			}
+		})
+	}
+}
+
+// TestProviderPrintsNoCredential pins what a caller sees when it prints a
+// Provider: the model and nothing else. The fmt verbs %v, %+v, %s and %#v
+// of the value and of the pointer, and slog's text and JSON handlers given
+// both with slog.Any, hold no byte of the API key, the auth token or the
+// base URL's user, password and query, each made at run time, which fmt's
+// field-by-field form of the struct would print from the headers. A nil
+// pointer prints as <nil>.
+func TestProviderPrintsNoCredential(t *testing.T) {
+	clearEnv(t)
+	planted := map[string]string{"key": canary(t), "token": canary(t), "user": canary(t), "password": canary(t), "query": canary(t)}
+	p, err := New("test-model", WithAPIKey(planted["key"]), WithAuthToken(planted["token"]), WithBaseURL("https://"+planted["user"]+":"+planted["password"]+"@api.example.test/p?tenant="+planted["query"]))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = p.Close() })
+	const (
+		short    = "anthropic.Provider(test-model)"
+		goSyntax = "anthropic.Provider{Model:test-model}"
+		nilText  = "<nil>"
+	)
+	checkPlanted := func(t *testing.T, where, out string) {
+		t.Helper()
+		for what, value := range planted {
+			if strings.Contains(out, value) {
+				t.Errorf("%s holds the %s", where, what)
+			}
+		}
+	}
+
+	tests := map[string]struct {
+		v    any
+		want map[string]string // by verb
+	}{
+		"success: value prints the model only": {
+			v:    *p,
+			want: map[string]string{"%v": short, "%+v": short, "%s": short, "%#v": goSyntax},
+		},
+		"success: pointer prints the model only": {
+			v:    p,
+			want: map[string]string{"%v": short, "%+v": short, "%s": short, "%#v": goSyntax},
+		},
+		"success: nil pointer prints <nil>": {
+			v:    (*Provider)(nil),
+			want: map[string]string{"%v": nilText, "%+v": nilText, "%s": nilText, "%#v": nilText},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			for verb, want := range tt.want {
+				got := fmt.Sprintf(verb, tt.v)
+				if diff := gocmp.Diff(want, got); diff != "" {
+					t.Errorf("%s mismatch (-want +got):\n%s", verb, diff)
+				}
+				checkPlanted(t, verb, got)
+			}
+		})
+	}
+
+	handlers := map[string]struct {
+		handler func(io.Writer) slog.Handler
+		want    string // a part of the record, "" for none
+	}{
+		"success: slog text handler logs the model only": {
+			handler: func(w io.Writer) slog.Handler { return slog.NewTextHandler(w, nil) },
+			want:    " pointer=" + short + " value=" + short + "\n",
+		},
+		"success: slog JSON handler logs no credential": {
+			handler: func(w io.Writer) slog.Handler { return slog.NewJSONHandler(w, nil) },
+		},
+	}
+	for name, tt := range handlers {
+		t.Run(name, func(t *testing.T) {
+			var buf strings.Builder
+			slog.New(tt.handler(&buf)).Info("provider", slog.Any("pointer", p), slog.Any("value", *p))
+			out := buf.String()
+			if !strings.Contains(out, tt.want) {
+				t.Errorf("the record does not hold %q", tt.want)
+			}
+			checkPlanted(t, "the record", out)
 		})
 	}
 }

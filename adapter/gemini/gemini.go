@@ -235,6 +235,23 @@ func WithTimeout(d time.Duration) Option {
 // Model returns the model name.
 func (p *Provider) Model() string { return p.model }
 
+// String returns the model alone, as "gemini.Provider(<model>)". It is what
+// %v, %+v and %s print for a Provider value or a pointer to one, so that
+// they print nothing of the key or of the base URL, whose userinfo and
+// query may carry a credential, as fmt's field-by-field form would. A nil
+// *Provider prints as <nil>.
+func (p Provider) String() string {
+	return "gemini.Provider(" + p.model + ")"
+}
+
+// GoString returns what %#v prints for p, a Provider value or a pointer to
+// one, with the model only: the key and the base URL, which may carry a
+// credential in its userinfo or query, are not printed. A nil *Provider
+// prints as <nil>.
+func (p Provider) GoString() string {
+	return "gemini.Provider{Model:" + p.model + "}"
+}
+
 // Do performs one request.
 //
 // It records the request body in req.Trace with the API name interactions

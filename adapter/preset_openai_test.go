@@ -90,7 +90,7 @@ func TestOpenAIPreset(t *testing.T) {
 		t.Setenv("OPENAI_BASE_URL", "notaurl")
 		p, err := openaiPreset("gpt-test")
 		if err == nil || p != nil {
-			t.Fatalf("openaiPreset() = %v, %v; want no provider and the base-URL error", p, err)
+			t.Fatalf("openaiPreset() = %T (nil %t), %v; want no provider and the base-URL error", p, p == nil, err)
 		}
 		const want = "openai: the base URL of OPENAI_BASE_URL is not an absolute http or https URL with a host"
 		if err.Error() != want {

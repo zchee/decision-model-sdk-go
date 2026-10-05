@@ -49,7 +49,9 @@ func clearAnthropicEnv(t *testing.T) {
 // the preset, and without a credential a call is refused with 400
 // provider_config and anthropic.New's text before any provider exists, so
 // no request is sent; the failing preset returns no provider at all, not a
-// nil *anthropic.Provider the Adapter would keep.
+// nil *anthropic.Provider the Adapter would keep; and the preset passes New
+// no option, so an invalid ANTHROPIC_BASE_URL fails it with New's own text
+// and nothing is built.
 func TestAnthropicPreset(t *testing.T) {
 	t.Run("success: the preset builds an anthropic Provider", func(t *testing.T) {
 		clearAnthropicEnv(t)
@@ -121,7 +123,20 @@ func TestAnthropicPreset(t *testing.T) {
 		clearAnthropicEnv(t)
 		p, err := anthropicPreset("test-model")
 		if p != nil || err == nil || err.Error() != anthropicNoCredentialText {
-			t.Errorf("anthropicPreset = %v, %v; want a nil provider and anthropic.New's error", p, err)
+			t.Errorf("anthropicPreset = %T (nil %t), %v; want a nil provider and anthropic.New's error", p, p == nil, err)
+		}
+	})
+	t.Run("error: the preset passes no option, so ANTHROPIC_BASE_URL is read", func(t *testing.T) {
+		clearAnthropicEnv(t)
+		t.Setenv("ANTHROPIC_API_KEY", "not-a-key")
+		t.Setenv("ANTHROPIC_BASE_URL", "notaurl")
+		p, err := anthropicPreset("test-model")
+		if err == nil || p != nil {
+			t.Fatalf("anthropicPreset() = %T (nil %t), %v; want no provider and the base-URL error", p, p == nil, err)
+		}
+		const want = "anthropic: ANTHROPIC_BASE_URL: the base URL is not an absolute http or https URL with a host"
+		if err.Error() != want {
+			t.Errorf("anthropicPreset() error = %q, want %q", err, want)
 		}
 	})
 }

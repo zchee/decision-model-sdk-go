@@ -21,7 +21,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -295,10 +297,10 @@ func TestNewRefuses(t *testing.T) {
 			}
 			p, err := New("test-model", tt.opts...)
 			if err == nil {
-				t.Fatalf("New() = %+v, nil; want the error %q", p, tt.want)
+				t.Fatalf("New() = %T (nil %t), nil; want the error %q", p, p == nil, tt.want)
 			}
 			if p != nil {
-				t.Errorf("New() returned a Provider with its error: %+v", p)
+				t.Errorf("New() returned a %T with its error, want nil", p)
 			}
 			if got := err.Error(); got != tt.want {
 				t.Errorf("error = %q, want %q", got, tt.want)
@@ -1094,5 +1096,88 @@ func TestClose(t *testing.T) {
 	}
 	if err := owned.Close(); err != nil {
 		t.Errorf("Close() of an owned Provider = %v, want nil", err)
+	}
+}
+
+// TestProviderPrintsNoCredential pins what a caller sees when it prints a
+// Provider: the model and nothing else. The fmt verbs %v, %+v, %s and %#v
+// of the value and of the pointer, and slog's text and JSON handlers given
+// both with slog.Any, hold no byte of the key or of the base URL's user,
+// password and query, each made at run time, which fmt's field-by-field
+// form of the struct would print from the headers. A nil pointer prints as
+// <nil>.
+func TestProviderPrintsNoCredential(t *testing.T) {
+	clearEnv(t)
+	planted := map[string]string{"key": canary(t), "user": canary(t), "password": canary(t), "query": canary(t)}
+	p, err := New("test-model", WithAPIKey(planted["key"]), WithBaseURL("https://"+planted["user"]+":"+planted["password"]+"@compatible.test/v1?q="+planted["query"]))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = p.Close() })
+	const (
+		short    = "openai.Provider(test-model)"
+		goSyntax = "openai.Provider{Model:test-model}"
+		nilText  = "<nil>"
+	)
+	checkPlanted := func(t *testing.T, where, out string) {
+		t.Helper()
+		for what, value := range planted {
+			if strings.Contains(out, value) {
+				t.Errorf("%s holds the %s", where, what)
+			}
+		}
+	}
+
+	tests := map[string]struct {
+		v    any
+		want map[string]string // by verb
+	}{
+		"success: value prints the model only": {
+			v:    *p,
+			want: map[string]string{"%v": short, "%+v": short, "%s": short, "%#v": goSyntax},
+		},
+		"success: pointer prints the model only": {
+			v:    p,
+			want: map[string]string{"%v": short, "%+v": short, "%s": short, "%#v": goSyntax},
+		},
+		"success: nil pointer prints <nil>": {
+			v:    (*Provider)(nil),
+			want: map[string]string{"%v": nilText, "%+v": nilText, "%s": nilText, "%#v": nilText},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			for verb, want := range tt.want {
+				got := fmt.Sprintf(verb, tt.v)
+				if diff := gocmp.Diff(want, got); diff != "" {
+					t.Errorf("%s mismatch (-want +got):\n%s", verb, diff)
+				}
+				checkPlanted(t, verb, got)
+			}
+		})
+	}
+
+	handlers := map[string]struct {
+		handler func(io.Writer) slog.Handler
+		want    string // a part of the record, "" for none
+	}{
+		"success: slog text handler logs the model only": {
+			handler: func(w io.Writer) slog.Handler { return slog.NewTextHandler(w, nil) },
+			want:    " pointer=" + short + " value=" + short + "\n",
+		},
+		"success: slog JSON handler logs no credential": {
+			handler: func(w io.Writer) slog.Handler { return slog.NewJSONHandler(w, nil) },
+		},
+	}
+	for name, tt := range handlers {
+		t.Run(name, func(t *testing.T) {
+			var buf strings.Builder
+			slog.New(tt.handler(&buf)).Info("provider", slog.Any("pointer", p), slog.Any("value", *p))
+			out := buf.String()
+			if !strings.Contains(out, tt.want) {
+				t.Errorf("the record does not hold %q", tt.want)
+			}
+			checkPlanted(t, "the record", out)
+		})
 	}
 }
