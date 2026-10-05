@@ -921,6 +921,12 @@ func TestUnencodableBodyAnswers424(t *testing.T) {
 // whose Report records two earlier SDK attempts. An error type that prints
 // the key and has no Format method is replaced by the SDK, so errors.As no
 // longer reaches it.
+//
+// The same holds for each of the three real providers, whose base URL
+// carries the canary in its query and whose transport fails with an error
+// whose text holds it: the provider's HTTP client returns an error that
+// prints the whole URL, and no link of the chain keeps it. Each SDK
+// attempt is one HTTP request of the provider.
 func TestErrorChainSurvivesTheSDK(t *testing.T) {
 	tests := map[string]struct {
 		err      func(canary string) error
@@ -983,6 +989,73 @@ func TestErrorChainSurvivesTheSDK(t *testing.T) {
 			})
 		}
 	}
+	transportFailures := map[string]struct {
+		err      func(canary string) error
+		wantType string
+		wantKind ErrorKind
+	}{
+		"timeout": {
+			err: func(canary string) error {
+				return &transportTimeout{text: "dial tcp provider.invalid?key=" + canary + ": i/o timeout"}
+			},
+			wantType: "*decision.TimeoutError",
+			wantKind: KindTimeout,
+		},
+		"connection failure": {
+			err: func(canary string) error {
+				return fmt.Errorf("dial tcp provider.invalid?key=%s: %w", canary, syscall.ECONNREFUSED)
+			},
+			wantType: "*decision.ConnectionError",
+			wantKind: KindConnection,
+		},
+	}
+	for _, provider := range []string{"openai", "anthropic", "gemini"} {
+		for name, tt := range transportFailures {
+			for _, retried := range []bool{false, true} {
+				t.Run(fmt.Sprintf("real %s provider, %s, SDK retries %v", provider, name, retried), func(t *testing.T) {
+					synctest.Test(t, func(t *testing.T) {
+						canary := canaryKey(t)
+						rt := &providerTransport{answer: func(*http.Request, int) (*http.Response, error) { return nil, tt.err(canary) }}
+						p := buildRealProvider(t, provider, rt, vendorKey, "https://provider.invalid/v1?key="+canary)
+						ad, err := New(Probabilities, Structured, WithProvider(provider, p), WithDefaultModel(provider))
+						if err != nil {
+							t.Fatalf("New: %v", err)
+						}
+						policy, attempts := decision.NoRetry(), 1
+						if retried {
+							policy, attempts = decision.DefaultRetry(), 3
+						}
+						c := sdkClient(t, ad, true, decision.WithAPIKey(canary), decision.WithRetry(policy), decision.WithNoTimeout())
+						_, err = c.SystemOne(t.Context(), "state "+canary, noulQuestions(t))
+						if got := fmt.Sprintf("%T", err); got != tt.wantType {
+							t.Fatalf("SystemOne error %s %v, want %s", got, err, tt.wantType)
+						}
+						ae, ok := errors.AsType[*Error](err)
+						if !ok || ae.Kind != tt.wantKind || ae.Report == nil {
+							t.Fatalf("errors.As did not reach the Adapter's Error in %v", err)
+						}
+						for e := err; e != nil; e = errors.Unwrap(e) {
+							for _, verb := range []string{"%v", "%+v", "%#v", "%s"} {
+								if s := fmt.Sprintf(verb, e); strings.Contains(s, canary) {
+									t.Errorf("%s of a link %T prints the canary: %s", verb, e, s)
+								}
+							}
+						}
+						if got := len(rt.requests()); got != attempts {
+							t.Errorf("the provider sent %d HTTP requests, want %d", got, attempts)
+						}
+						r, ok := ReportFromError(err)
+						if !ok || r.Debug.SDKRetryCount != attempts-1 || len(r.Debug.Attempts) != 1 {
+							t.Fatalf("ReportFromError = %v, %v; want one attempt and SDKRetryCount %d", r, ok, attempts-1)
+						}
+						if a := r.Debug.Attempts[0]; a.Info.ErrorType == "" || strings.Contains(a.Info.Error, canary) {
+							t.Errorf("the attempt's error %q of type %q holds the canary or has no type", a.Info.Error, a.Info.ErrorType)
+						}
+					})
+				})
+			}
+		}
+	}
 	t.Run("an error printing the key without Format is replaced", func(t *testing.T) {
 		key := canaryKey(t)
 		rt := rtFunc(func(*http.Request) (*http.Response, error) { return nil, &noKeyFormatError{key: key} })
@@ -1007,6 +1080,13 @@ func TestErrorChainSurvivesTheSDK(t *testing.T) {
 // refusal before it, on a client whose key is a canary that the providers'
 // messages and bodies also hold: the Report travels in the error body,
 // which the SDK keeps whatever its text, or in the Adapter's Error.
+//
+// Each of the three real providers gives every class it can reach: a
+// provider status, a timeout, a connection failure, a non-answer, a body
+// that is not a response of its API, malformed output, a call cancelled or
+// out of time while the request is under way, and a provider the preset
+// cannot build without a key. Its base URL's query, its messages and its
+// non-answer reason hold the canary.
 func TestReportFromErrorEveryClass(t *testing.T) {
 	for name, tt := range classCases() {
 		t.Run(name, func(t *testing.T) {
@@ -1047,6 +1127,124 @@ func TestReportFromErrorEveryClass(t *testing.T) {
 				t.Error("the Report has no attempt")
 			}
 		})
+	}
+	type realWant struct {
+		errType   string
+		status    int
+		errorType string
+		report    bool
+	}
+	realClasses := map[string]struct {
+		answer func(t *testing.T, req *http.Request, canary string, cancel context.CancelFunc) (*http.Response, error)
+		// preset builds the provider with its preset instead of
+		// WithProvider, from an environment without a key.
+		preset bool
+		want   realWant
+	}{
+		"provider status 400": {
+			answer: func(_ *testing.T, req *http.Request, canary string, _ context.CancelFunc) (*http.Response, error) {
+				return providerResponse(req, http.StatusBadRequest, `{"error":{"message":"bad `+canary+`"}}`), nil
+			},
+			want: realWant{errType: "*decision.APIError", status: 400, errorType: "provider_status", report: true},
+		},
+		"provider status 503": {
+			answer: func(_ *testing.T, req *http.Request, canary string, _ context.CancelFunc) (*http.Response, error) {
+				return providerResponse(req, http.StatusServiceUnavailable, `{"error":{"message":"unavailable `+canary+`"}}`), nil
+			},
+			want: realWant{errType: "*decision.APIError", status: 503, errorType: "provider_status", report: true},
+		},
+		"timeout": {
+			answer: func(_ *testing.T, _ *http.Request, canary string, _ context.CancelFunc) (*http.Response, error) {
+				return nil, &transportTimeout{text: "dial tcp provider.invalid?key=" + canary + ": i/o timeout"}
+			},
+			want: realWant{errType: "*decision.TimeoutError", report: true},
+		},
+		"connection failure": {
+			answer: func(_ *testing.T, _ *http.Request, canary string, _ context.CancelFunc) (*http.Response, error) {
+				return nil, fmt.Errorf("dial tcp provider.invalid?key=%s: %w", canary, syscall.ECONNREFUSED)
+			},
+			want: realWant{errType: "*decision.ConnectionError", report: true},
+		},
+		"non_answer": {
+			answer: func(t *testing.T, req *http.Request, canary string, _ context.CancelFunc) (*http.Response, error) {
+				return providerResponse(req, http.StatusOK, providerNonAnswer(t, req, "cut "+canary)), nil
+			},
+			want: realWant{errType: "*decision.APIError", status: 424, errorType: "non_answer", report: true},
+		},
+		"provider_error": {
+			answer: func(_ *testing.T, req *http.Request, canary string, _ context.CancelFunc) (*http.Response, error) {
+				return providerResponse(req, http.StatusOK, `not a response `+canary), nil
+			},
+			want: realWant{errType: "*decision.APIError", status: 424, errorType: "provider_error", report: true},
+		},
+		"malformed output": {
+			answer: func(t *testing.T, req *http.Request, canary string, _ context.CancelFunc) (*http.Response, error) {
+				return providerResponse(req, http.StatusOK, providerAnswer(t, req, "not JSON "+canary)), nil
+			},
+			want: realWant{errType: "*decision.ResponseValidationError", report: true},
+		},
+		"context cancelled": {
+			answer: func(_ *testing.T, req *http.Request, _ string, cancel context.CancelFunc) (*http.Response, error) {
+				cancel()
+				<-req.Context().Done()
+				return nil, req.Context().Err()
+			},
+			want: realWant{errType: "*errors.errorString"},
+		},
+		"deadline passed": {
+			answer: func(_ *testing.T, req *http.Request, _ string, _ context.CancelFunc) (*http.Response, error) {
+				<-req.Context().Done()
+				return nil, req.Context().Err()
+			},
+			want: realWant{errType: "*decision.TimeoutError", report: true},
+		},
+		"provider_config": {
+			preset: true,
+			want:   realWant{errType: "*decision.APIError", status: 400, errorType: "provider_config"},
+		},
+	}
+	for _, provider := range []string{"openai", "anthropic", "gemini"} {
+		for name, tt := range realClasses {
+			t.Run(fmt.Sprintf("real %s provider, %s", provider, name), func(t *testing.T) {
+				synctest.Test(t, func(t *testing.T) {
+					canary := canaryKey(t)
+					ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+					defer cancel()
+					var opts []Option
+					if tt.preset {
+						clearProviderEnv(t)
+						opts = []Option{WithDefaultModel(provider + ":test-model")}
+					} else {
+						rt := &providerTransport{answer: func(req *http.Request, _ int) (*http.Response, error) { return tt.answer(t, req, canary, cancel) }}
+						p := buildRealProvider(t, provider, rt, vendorKey, "https://provider.invalid/v1?key="+canary)
+						opts = []Option{WithProvider(provider, p), WithDefaultModel(provider)}
+					}
+					ad, err := New(Probabilities, Structured, opts...)
+					if err != nil {
+						t.Fatalf("New: %v", err)
+					}
+					c := sdkClient(t, ad, true, decision.WithAPIKey(canary), decision.WithRetry(decision.NoRetry()), decision.WithNoTimeout())
+					_, err = c.SystemOne(ctx, "state "+canary, noulQuestions(t))
+					if got := fmt.Sprintf("%T", err); got != tt.want.errType {
+						t.Fatalf("SystemOne error %s %v, want %s", got, err, tt.want.errType)
+					}
+					if name == "context cancelled" && err != context.Canceled { //nolint:errorlint // the call returns the context's error itself.
+						t.Errorf("SystemOne error = %v, want context.Canceled itself", err)
+					}
+					status, errorType, _, _ := apiErrorParts(err)
+					if status != tt.want.status || errorType != tt.want.errorType {
+						t.Errorf("status %d error_type %q, want %d %q", status, errorType, tt.want.status, tt.want.errorType)
+					}
+					r, ok := ReportFromError(err)
+					if ok != tt.want.report {
+						t.Fatalf("ReportFromError ok = %v, want %v (%v)", ok, tt.want.report, err)
+					}
+					if ok && (len(r.Debug.Attempts) == 0 || r.Debug.Attempts[0].Info.ModelName != "test-model") {
+						t.Errorf("the Report's attempts %+v, want one or more of model test-model", r.Debug.Attempts)
+					}
+				})
+			})
+		}
 	}
 }
 

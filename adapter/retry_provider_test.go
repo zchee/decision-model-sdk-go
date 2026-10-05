@@ -177,6 +177,31 @@ func providerAnswer(t testing.TB, req *http.Request, text string) string {
 	return ""
 }
 
+// providerNonAnswer returns the 2xx body with which the API that req calls,
+// told by its path, ends without an answer for reason, which the provider
+// quotes in its non-answer text: an incomplete response, a finish or stop
+// reason other than the completed ones, or an interaction whose status is
+// reason.
+func providerNonAnswer(t testing.TB, req *http.Request, reason string) string {
+	t.Helper()
+	q, err := jsonx.Marshal(jsonx.String(reason))
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	switch path := req.URL.Path; {
+	case strings.HasSuffix(path, "/responses"):
+		return `{"status":"incomplete","incomplete_details":{"reason":` + string(q) + `},"output":[]}`
+	case strings.HasSuffix(path, "/chat/completions"):
+		return `{"choices":[{"finish_reason":` + string(q) + `,"message":{"role":"assistant","content":"{}"}}]}`
+	case strings.HasSuffix(path, "/v1/messages"):
+		return `{"type":"message","role":"assistant","stop_reason":` + string(q) + `,"content":[{"type":"text","text":"{}"}],"usage":{"input_tokens":11,"output_tokens":7}}`
+	case strings.HasSuffix(path, "/v1beta/interactions"):
+		return `{"status":` + string(q) + `,"steps":[],"usage":{"total_input_tokens":11,"total_output_tokens":7}}`
+	}
+	t.Errorf("no provider API has the path %q", req.URL.Path)
+	return ""
+}
+
 // transportTimeout is the error of a transport whose request timed out: a
 // net.Error whose Timeout is true, with text as its message.
 type transportTimeout struct{ text string }
