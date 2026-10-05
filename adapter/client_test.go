@@ -25,6 +25,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -612,6 +613,15 @@ func TestNewClientTransportIsTheAdapter(t *testing.T) {
 // value cannot pass through. Neither SDK key nor the provider's key appears
 // in the response body, the Report, the error's texts or any record of a
 // logger whose handler resolves every attribute.
+//
+// Each provider runs with its default base URL, with another base URL
+// (which makes OpenAI's provider call Chat Completions instead of
+// Responses), and with two base URLs whose query carries a second canary as
+// a key, as a base URL of an OpenAI-compatible server may: one on another
+// host and one on the vendor's own host, which keeps OpenAI's provider on
+// Responses. Every request goes to that URL's host with that query, and the
+// second canary appears in none of those texts either, since the Report and
+// the error texts write a URL without its query.
 func TestPlaceholderKeyNeverForwarded(t *testing.T) {
 	canary := canaryKey(t)
 	for name, outcome := range map[string]fake.Outcome{
@@ -673,97 +683,121 @@ func TestPlaceholderKeyNeverForwarded(t *testing.T) {
 			return providerResponse(req, http.StatusOK, providerAnswer(t, req, "not JSON")), nil
 		},
 	}
+	defaultHosts := map[string]string{"openai": "api.openai.com", "anthropic": "api.anthropic.com", "gemini": "generativelanguage.googleapis.com"}
+	urlCanary := canaryKey(t)
+	bases := map[string]func(provider string) string{
+		"the default base URL":        func(string) string { return "" },
+		"another base URL":            func(string) string { return "https://provider.invalid/v1" },
+		"a base URL with a key query": func(string) string { return "https://provider.invalid/v1?key=" + urlCanary },
+		"the vendor's host with a key query": func(provider string) string {
+			return "https://" + defaultHosts[provider] + "/v1?key=" + urlCanary
+		},
+	}
 	for _, provider := range []string{"openai", "anthropic", "gemini"} {
 		for name, answer := range answers {
-			for _, own := range []bool{false, true} {
-				t.Run(fmt.Sprintf("real %s provider, %s, own client %v", provider, name, own), func(t *testing.T) {
-					rt := &providerTransport{answer: func(req *http.Request, _ int) (*http.Response, error) { return answer(t, req) }}
-					p := buildRealProvider(t, provider, rt, vendorKey, "")
-					h := &recordHandler{level: slog.LevelDebug}
-					ad, err := New(Probabilities, Structured, WithProvider(provider, p), WithDefaultModel(provider), WithLogger(slog.New(h)))
-					if err != nil {
-						t.Fatalf("New: %v", err)
-					}
-					var opts []decision.ClientOption
-					if own {
-						opts = []decision.ClientOption{decision.WithAPIKey(canary), decision.WithRetry(decision.NoRetry())}
-					}
-					c := sdkClient(t, ad, own, opts...)
-					resp, err := c.SystemOne(t.Context(), "state", noulQuestions(t))
-					if (err == nil) != (name == "an answer") {
-						t.Errorf("SystemOne error = %v", err)
-					}
-					sent := rt.requests()
-					if len(sent) == 0 {
-						t.Fatal("the provider sent no request")
-					}
-					auth := providerAuth[provider]
-					for i, r := range sent {
-						if got, want := r.header.Values(auth.header), []string{auth.value(vendorKey)}; !gocmp.Equal(got, want) {
-							t.Errorf("request %d: %s = %q, want %q", i, auth.header, got, want)
-						}
-						if auth.header != "Authorization" && len(r.header.Values("Authorization")) != 0 {
-							t.Errorf("request %d: the %s provider sent an Authorization header", i, provider)
-						}
-						fields := []string{r.url, string(r.body)}
-						for field, values := range r.header {
-							fields = append(fields, field)
-							if field != auth.header {
-								fields = append(fields, values...)
+			for baseName, baseOf := range bases {
+				for _, own := range []bool{false, true} {
+					t.Run(fmt.Sprintf("real %s provider, %s, %s, own client %v", provider, name, baseName, own), func(t *testing.T) {
+						rt := &providerTransport{answer: func(req *http.Request, _ int) (*http.Response, error) { return answer(t, req) }}
+						base := baseOf(provider)
+						p := buildRealProvider(t, provider, rt, vendorKey, base)
+						wantHost, wantQuery := defaultHosts[provider], ""
+						if base != "" {
+							u, err := url.Parse(base)
+							if err != nil {
+								t.Fatal(err)
 							}
+							wantHost, wantQuery = u.Host, u.RawQuery
 						}
-						for _, s := range append(fields, r.header.Values(auth.header)...) {
-							for _, key := range []string{PlaceholderAPIKey, canary} {
-								if strings.Contains(s, key) {
-									t.Errorf("request %d holds the SDK key %q: %.200s", i, key, s)
+						h := &recordHandler{level: slog.LevelDebug}
+						ad, err := New(Probabilities, Structured, WithProvider(provider, p), WithDefaultModel(provider), WithLogger(slog.New(h)))
+						if err != nil {
+							t.Fatalf("New: %v", err)
+						}
+						var opts []decision.ClientOption
+						if own {
+							opts = []decision.ClientOption{decision.WithAPIKey(canary), decision.WithRetry(decision.NoRetry())}
+						}
+						c := sdkClient(t, ad, own, opts...)
+						resp, err := c.SystemOne(t.Context(), "state", noulQuestions(t))
+						if (err == nil) != (name == "an answer") {
+							t.Errorf("SystemOne error = %v", err)
+						}
+						sent := rt.requests()
+						if len(sent) == 0 {
+							t.Fatal("the provider sent no request")
+						}
+						auth := providerAuth[provider]
+						for i, r := range sent {
+							if got, want := r.header.Values(auth.header), []string{auth.value(vendorKey)}; !gocmp.Equal(got, want) {
+								t.Errorf("request %d: %s = %q, want %q", i, auth.header, got, want)
+							}
+							if auth.header != "Authorization" && len(r.header.Values("Authorization")) != 0 {
+								t.Errorf("request %d: the %s provider sent an Authorization header", i, provider)
+							}
+							if u, err := url.Parse(r.url); err != nil || u.Host != wantHost || u.RawQuery != wantQuery {
+								t.Errorf("request %d went to %s, want host %s and query %q", i, r.url, wantHost, wantQuery)
+							}
+							fields := []string{r.url, string(r.body)}
+							for field, values := range r.header {
+								fields = append(fields, field)
+								if field != auth.header {
+									fields = append(fields, values...)
+								}
+							}
+							for _, s := range append(fields, r.header.Values(auth.header)...) {
+								for _, key := range []string{PlaceholderAPIKey, canary} {
+									if strings.Contains(s, key) {
+										t.Errorf("request %d holds the SDK key %q: %.200s", i, key, s)
+									}
+								}
+							}
+							for _, s := range fields {
+								if strings.Contains(s, vendorKey) {
+									t.Errorf("request %d holds the provider's key outside %s: %.200s", i, auth.header, s)
 								}
 							}
 						}
-						for _, s := range fields {
-							if strings.Contains(s, vendorKey) {
-								t.Errorf("request %d holds the provider's key outside %s: %.200s", i, auth.header, s)
+						texts := []string{}
+						if err != nil {
+							texts = append(texts, err.Error(), fmt.Sprintf("%+v", err), fmt.Sprintf("%#v", err), string(apiErrorBody(err)))
+						}
+						if resp != nil {
+							texts = append(texts, string(resp.Meta().RawBody()))
+						}
+						r, ok := ReportFromError(err)
+						if resp != nil {
+							var rerr error
+							r, rerr = ReportOf(resp)
+							ok = rerr == nil
+						}
+						if !ok {
+							t.Fatal("no Report")
+						}
+						b, merr := r.MarshalJSON()
+						if merr != nil {
+							t.Fatal(merr)
+						}
+						texts = append(texts, string(b))
+						records := h.all()
+						if len(records) == 0 {
+							t.Error("the logger kept no record")
+						}
+						for _, rec := range records {
+							texts = append(texts, rec.Message)
+							for k, v := range rec.Attrs {
+								texts = append(texts, k, v)
 							}
 						}
-					}
-					texts := []string{}
-					if err != nil {
-						texts = append(texts, err.Error(), fmt.Sprintf("%+v", err), fmt.Sprintf("%#v", err), string(apiErrorBody(err)))
-					}
-					if resp != nil {
-						texts = append(texts, string(resp.Meta().RawBody()))
-					}
-					r, ok := ReportFromError(err)
-					if resp != nil {
-						var rerr error
-						r, rerr = ReportOf(resp)
-						ok = rerr == nil
-					}
-					if !ok {
-						t.Fatal("no Report")
-					}
-					b, merr := r.MarshalJSON()
-					if merr != nil {
-						t.Fatal(merr)
-					}
-					texts = append(texts, string(b))
-					records := h.all()
-					if len(records) == 0 {
-						t.Error("the logger kept no record")
-					}
-					for _, rec := range records {
-						texts = append(texts, rec.Message)
-						for k, v := range rec.Attrs {
-							texts = append(texts, k, v)
-						}
-					}
-					for _, s := range texts {
-						for _, key := range []string{PlaceholderAPIKey, canary, vendorKey} {
-							if strings.Contains(s, key) {
-								t.Errorf("a text holds the key %q: %.200s", key, s)
+						for _, s := range texts {
+							for _, key := range []string{PlaceholderAPIKey, canary, vendorKey, urlCanary} {
+								if strings.Contains(s, key) {
+									t.Errorf("a text holds the key %q: %.200s", key, s)
+								}
 							}
 						}
-					}
-				})
+					})
+				}
 			}
 		}
 	}
