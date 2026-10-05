@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package jsonx is the adapter's one user of the JSON library
-// github.com/go-json-experiment/json. It holds:
+// Package jsonx is the adapter's one user of the standard library's v2 JSON
+// packages; it reads and writes JSON with encoding/json/jsontext. It holds:
 //
 //   - the two float spellings upstream writes: PydanticFloat, pydantic-core's
 //     to_json spelling, used in every text that goes into a prompt, and
@@ -30,6 +30,6 @@
 //     one of the same name replaces, and each number as the text spells it;
 //   - semantic equality of two JSON texts for tests, Equal and EqualOrdered.
 //
-// No other package of the module imports the JSON library, so a change of
-// its API is an edit of this package alone.
+// No other package of the module imports those packages, so a change of
+// their API is an edit of this package alone.
 package jsonx

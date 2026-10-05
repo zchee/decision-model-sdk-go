@@ -79,9 +79,9 @@ DEFAULT_COUNT = 1500
 DEFAULT_OUTPUT = Path(__file__).resolve().parent / "state_vectors.tsv"
 
 # The nesting limit of the JSON reader the Go port uses (maxNestingDepth of
-# jsontext in github.com/go-json-experiment/json and in Go 1.27's standard
-# library): it refuses a text that opens more than this many arrays and objects
-# inside one another. json.loads has no fixed limit.
+# encoding/json/jsontext in Go 1.27's standard library): it refuses a text
+# that opens more than this many arrays and objects inside one another.
+# json.loads has no fixed limit.
 READER_DEPTH_LIMIT = 10000
 
 SHORT_ESCAPES = {0x08: "\\b", 0x09: "\\t", 0x0A: "\\n", 0x0C: "\\f", 0x0D: "\\r"}

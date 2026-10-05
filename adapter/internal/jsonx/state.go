@@ -34,11 +34,9 @@ const (
 	// maxReadDepth is the number of arrays and objects the reader opens
 	// inside one another, the root among them; a scalar is not a level of it.
 	// It is the JSON library's own limit (maxNestingDepth in
-	// jsontext/state.go of github.com/go-json-experiment/json
-	// v0.0.0-20260820222146-c27c302e5fc3, and of go1.27.1's
-	// encoding/json/jsontext), checked here when a container is opened so
-	// that it has its own error. A library version with another limit
-	// changes this constant.
+	// encoding/json/jsontext/state.go of go1.27.1), checked here when a
+	// container is opened so that it has its own error. A Go release with
+	// another limit changes this constant.
 	maxReadDepth = 10000
 	// maxIntDigits is CPython's default limit on the digits of an integer
 	// read from text (sys.int_info.default_max_str_digits), the sign not

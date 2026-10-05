@@ -7,6 +7,17 @@ version named in an entry written before that date is a release made under
 the earlier module path, and a tag such an entry names is a tag of that
 time.
 
+On 2026-10-05 the module moved, on the owner's order, from
+`github.com/go-json-experiment/json` to the standard library's v2 JSON
+packages: `internal/jsonx` reads and writes JSON with
+`encoding/json/jsontext`. The entries below that name that library or
+`GOEXPERIMENT=nojsonv2` record the measurements of their time and are left
+as they were. In go1.27.1's default build, where the `jsonv2` experiment is
+on, the library's `jsontext` is an alias of the standard package, so those
+entries measured the standard library's code there; a `nojsonv2` entry
+measured the library's own copy, and the module no longer compiles under
+`nojsonv2`.
+
 A spike here is a measurement made before the code it informs was written:
 a question about Python, a provider, a tool or a service that reading could
 not settle. Each section below gives one question, the result that counts as
