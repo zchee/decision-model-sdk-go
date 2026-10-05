@@ -99,6 +99,42 @@ func replayQuestions(t *testing.T) *decision.Prepared {
 	return prepared
 }
 
+// contextProbeState is upstream's CONTEXT_PROBE_STATE, trailing newline
+// included.
+const contextProbeState = `Catalog facts:
+- marker_fen has state DORMANT.
+- marker_tor has state ACTIVE.
+
+Shipping facts:
+- The parcel's handling class is CLASS_CRYSTAL.
+`
+
+// contextProbeQuestions returns upstream's CONTEXT_PROBE_QUESTIONS
+// prepared for the SDK.
+func contextProbeQuestions(t *testing.T) *decision.Prepared {
+	t.Helper()
+	prepared, err := decision.NewQuestions().
+		Choice("instruction_probe", decision.Choice{
+			Instructions: decision.Text("Return the only marker whose state is ACTIVE."),
+			Options: decision.Options{
+				{Label: "marker_fen", Description: decision.Text("The marker_fen catalog entry.")},
+				{Label: "marker_tor", Description: decision.Text("The marker_tor catalog entry.")},
+			},
+		}).
+		Choice("criteria_probe", decision.Choice{
+			Instructions: decision.Text("Return the correct opaque handling route for the parcel."),
+			Options: decision.Options{
+				{Label: "route_7q", Description: decision.Text("Use when the handling class is CLASS_CRYSTAL.")},
+				{Label: "route_2m", Description: decision.Text("Use when the handling class is CLASS_STEEL.")},
+			},
+		}).
+		Prepare()
+	if err != nil {
+		t.Fatalf("preparing the probe questions: %v", err)
+	}
+	return prepared
+}
+
 // replayCase is one cell of upstream's provider x output mode x answer
 // mode parametrization.
 type replayCase struct {
@@ -313,6 +349,100 @@ func TestReplayReferenceShape(t *testing.T) {
 				t.Errorf("Unconsumed = %d at the test's end, want 0", n)
 			}
 		})
+	}
+}
+
+// TestReplayFollowsInstructionsAndCriteria ports
+// test_live_models_follow_question_instructions_and_criteria
+// (tests/test_client_with_live_apis.py:210-236): each recorded probe
+// exchange replays through the SDK, and each answer is the choice whose
+// model-visible context makes it unambiguous, with a high probability.
+func TestReplayFollowsInstructionsAndCriteria(t *testing.T) {
+	t.Parallel()
+	for _, tc := range replayMatrix() {
+		t.Run(tc.id, func(t *testing.T) {
+			t.Parallel()
+			name := "test_live_models_follow_question_instructions_and_criteria[" + tc.id + "]"
+			c := loadCassette(t, name)
+			resp, tr := replayThroughSDK(t, tc, name, contextProbeState, contextProbeQuestions(t))
+			answers := resp.Answers()
+			tests := map[string]struct{ choice string }{
+				"instruction_probe": {choice: "marker_tor"},
+				"criteria_probe":    {choice: "route_7q"},
+			}
+			for question, tt := range tests {
+				answer, ok := answers.Choice(question)
+				if !ok {
+					t.Errorf("%s is not a choice answer", question)
+					continue
+				}
+				if answer.Choice() != tt.choice {
+					t.Errorf("%s choice = %q, want %q", question, answer.Choice(), tt.choice)
+				}
+				if p, ok := answer.Probability(tt.choice); !ok || p <= 0.9 {
+					t.Errorf("%s P(%s) = %v (present %t), want above 0.9", question, tt.choice, p, ok)
+				}
+			}
+			sent := tr.Requests()
+			if len(sent) != 1 {
+				t.Fatalf("the provider sent %d requests, want 1", len(sent))
+			}
+			if tc.output == Prompted {
+				comparePromptedSystemText(t, tc.provider, sent[0].Body, c.Interactions[0].Request.Body)
+			}
+			if n := tr.Unconsumed(); n != 0 {
+				t.Errorf("Unconsumed = %d at the test's end, want 0", n)
+			}
+		})
+	}
+}
+
+// TestReplayTypeSafeReference ports
+// test_live_typesafe_response_matches_reference_shape
+// (tests/test_client_with_live_apis.py:239-246): the root SDK client over
+// the recorded TypeSafe exchange, serialized and compared exactly with
+// the reference response, which documents the shape the Adapter
+// imitates. The recording spells each question's members in another
+// order than the Go SDK writes (its rating holds type, criteria,
+// instructions), which is why the replay matches request bodies as JSON
+// values.
+func TestReplayTypeSafeReference(t *testing.T) {
+	t.Parallel()
+	c := loadCassette(t, "test_live_typesafe_response_matches_reference_shape")
+	tr := c.Transport()
+	client, err := decision.NewClient(
+		decision.WithAPIKey("not-a-key"),
+		decision.WithBaseURL("https://api.typesafe.ai"),
+		decision.WithRetry(decision.NoRetry()),
+		decision.WithRoundTripper(tr),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+	})
+	resp, err := client.SystemOne(t.Context(), replayState, replayQuestions(t), decision.Model("speed_latest"))
+	if err != nil {
+		t.Fatalf("SystemOne over the recorded exchange failed: %v", err)
+	}
+	body, err := resp.MarshalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected, err := os.ReadFile(filepath.Join("testdata", "expected", "test_live_typesafe_response_matches_reference_shape.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var diffs []string
+	exactDiffs(readJSON(t, body, "the serialized response"), readJSON(t, expected, "the expected file"), "$", &diffs)
+	for _, d := range diffs {
+		t.Error(d)
+	}
+	if n := tr.Unconsumed(); n != 0 {
+		t.Errorf("Unconsumed = %d at the test's end, want 0", n)
 	}
 }
 
