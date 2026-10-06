@@ -18,11 +18,15 @@
 package livetest
 
 import (
+	"bytes"
+	"errors"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -32,6 +36,7 @@ import (
 	"github.com/zchee/decision-model-sdk-go/adapter/anthropic"
 	"github.com/zchee/decision-model-sdk-go/adapter/gemini"
 	"github.com/zchee/decision-model-sdk-go/adapter/internal/cassette"
+	"github.com/zchee/decision-model-sdk-go/adapter/internal/jsonx"
 	"github.com/zchee/decision-model-sdk-go/adapter/llm"
 	"github.com/zchee/decision-model-sdk-go/adapter/openai"
 )
@@ -116,6 +121,15 @@ var ratingCriteria = []string{
 	"The reviewer offers unreserved praise and an emphatic recommendation.",
 }
 
+// genreQuestion is upstream's QUESTIONS["genre"], including each criterion.
+var genreQuestion = decision.Choice{
+	Instructions: decision.Text("Which genre this review is about."),
+	Options: decision.Options{
+		{Label: "fiction", Description: decision.Text("A novel or short story.")},
+		{Label: "nonfiction", Description: decision.Text("A book based on facts, real events, or ideas.")},
+	},
+}
+
 // liveQuestions returns upstream's QUESTIONS
 // (test_client_with_live_apis.py lines 43 to 62) prepared for the SDK.
 func liveQuestions(t *testing.T) *decision.Prepared {
@@ -130,13 +144,7 @@ func liveQuestions(t *testing.T) *decision.Prepared {
 			Instructions: decision.Text("How favorable the reviewer's overall assessment is."),
 			Levels:       levels,
 		}).
-		Choice("genre", decision.Choice{
-			Instructions: decision.Text("Which genre this review is about."),
-			Options: decision.Options{
-				{Label: "fiction", Description: decision.Text("A novel or short story.")},
-				{Label: "nonfiction", Description: decision.Text("A book based on facts, real events, or ideas.")},
-			},
-		}).
+		Choice("genre", genreQuestion).
 		Prepare()
 	if err != nil {
 		t.Fatalf("preparing the questions: %v", err)
@@ -277,11 +285,148 @@ func liveFactory(provider string, rt http.RoundTripper) llm.Factory {
 	}
 }
 
+// schemaCapture keeps only the first outgoing body, never its URL or headers.
+// GetBody reads a copy so the real transport receives the original request.
+type schemaCapture struct {
+	next http.RoundTripper
+	mu   sync.Mutex
+	body []byte
+}
+
+func (c *schemaCapture) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.GetBody == nil {
+		return nil, errors.New("the outgoing request has no body reader")
+	}
+	reader, err := req.GetBody()
+	if err != nil {
+		return nil, err
+	}
+	body, readErr := io.ReadAll(reader)
+	if err := errors.Join(readErr, reader.Close()); err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	if c.body == nil {
+		c.body = body
+	}
+	c.mu.Unlock()
+	return c.next.RoundTrip(req)
+}
+
+func (c *schemaCapture) firstBody() []byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return bytes.Clone(c.body)
+}
+
+// schemaMember requires every named member without printing a request body.
+func schemaMember(t *testing.T, node jsonx.Node, names ...string) jsonx.Node {
+	t.Helper()
+	for _, name := range names {
+		var ok bool
+		node, ok = node.Member(name)
+		if !ok {
+			t.Fatalf("the outgoing schema lacks member %q", name)
+		}
+	}
+	return node
+}
+
+// checkNativeSchemaDescriptions follows the actual genre reference, rather
+// than finding the expected text somewhere else in the provider request.
+func checkNativeSchemaDescriptions(t *testing.T, body []byte) {
+	t.Helper()
+	request, err := jsonx.Read(body)
+	if err != nil {
+		t.Fatal("the outgoing request body is not JSON")
+	}
+	var schema jsonx.Node
+	if config, ok := request.Member("output_config"); ok {
+		schema = schemaMember(t, config, "format", "schema")
+	} else if format, ok := request.Member("response_format"); ok {
+		if wrapped, ok := format.Member("json_schema"); ok {
+			format = wrapped
+		}
+		schema = schemaMember(t, format, "schema")
+	} else {
+		schema = schemaMember(t, request, "text", "format", "schema")
+	}
+	definitions := schemaMember(t, schema, "$defs")
+	reference := schemaMember(t, definitions, "TypeSafeAnswers", "properties", "genre", "$ref")
+	name, ok := strings.CutPrefix(reference.Text(), "#/$defs/")
+	if reference.Kind() != jsonx.KindString || !ok || name == "" {
+		t.Fatal("the outgoing genre schema is not a definition reference")
+	}
+	choice := schemaMember(t, definitions, name)
+	description := schemaMember(t, choice, "description")
+	if description.Kind() != jsonx.KindString || !strings.Contains(description.Text(), genreQuestion.Instructions.Text()) {
+		t.Error("the outgoing genre description lacks the question instructions")
+	}
+	properties := schemaMember(t, choice, "properties")
+	for _, option := range genreQuestion.Options {
+		description := schemaMember(t, properties, option.Label, "description")
+		if description.Kind() != jsonx.KindString || !strings.Contains(description.Text(), option.Description.Text()) {
+			t.Errorf("the outgoing genre option %q lacks its criterion", option.Label)
+		}
+	}
+}
+
+// TestNativeSchemaCapture verifies capture and schema inspection with the
+// committed real exchanges, without enabling a live test or recording mode.
+func TestNativeSchemaCapture(t *testing.T) {
+	tests := map[string]struct{ provider string }{
+		"success: openai":    {provider: "openai"},
+		"success: anthropic": {provider: "anthropic"},
+		"success: gemini":    {provider: "gemini"},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join("..", "testdata", "cassettes", "test_live_responses_match_reference_shape[probabilities-native-"+tc.provider+"].json")
+			fixture, err := cassette.Load(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			replay := fixture.Transport()
+			capture := &schemaCapture{next: replay}
+			for _, interaction := range fixture.Interactions {
+				r := interaction.Request
+				req, err := http.NewRequestWithContext(t.Context(), r.Method, r.URI, bytes.NewReader(r.Body))
+				if err != nil {
+					t.Fatal(err)
+				}
+				resp, err := capture.RoundTrip(req)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := resp.Body.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if replay.Unconsumed() != 0 {
+				t.Fatal("not all recorded exchanges were replayed")
+			}
+			body := capture.firstBody()
+			if !bytes.Equal(body, replay.Requests()[0].Body) {
+				t.Fatal("capture changed the outgoing body")
+			}
+			checkNativeSchemaDescriptions(t, body)
+		})
+	}
+}
+
 // liveSystemOne performs one billed evaluation through the Adapter and
 // the real provider.
-func liveSystemOne(t *testing.T, tc liveCase, cassetteName, state string, prepared *decision.Prepared) *decision.SystemOneResponse {
+func liveSystemOne(t *testing.T, tc liveCase, cassetteName, state string, prepared *decision.Prepared, capture *schemaCapture) *decision.SystemOneResponse {
 	t.Helper()
-	ad, err := adapter.New(tc.answer, tc.output, adapter.WithFactory(tc.provider, liveFactory(tc.provider, recordingTransport(t, cassetteName))))
+	rt := recordingTransport(t, cassetteName)
+	if capture != nil {
+		capture.next = rt
+		if capture.next == nil {
+			capture.next = http.DefaultTransport
+		}
+		rt = capture
+	}
+	ad, err := adapter.New(tc.answer, tc.output, adapter.WithFactory(tc.provider, liveFactory(tc.provider, rt)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +485,14 @@ func TestLiveReferenceShape(t *testing.T) {
 		t.Run(tc.id, func(t *testing.T) {
 			skipUnlessLive(t, tc.keyVars...)
 			name := "test_live_responses_match_reference_shape[" + tc.id + "]"
-			resp := liveSystemOne(t, tc, name, liveState, liveQuestions(t))
+			var capture *schemaCapture
+			if tc.output == adapter.Structured && tc.answer == adapter.Probabilities {
+				capture = &schemaCapture{}
+			}
+			resp := liveSystemOne(t, tc, name, liveState, liveQuestions(t), capture)
+			if capture != nil {
+				checkNativeSchemaDescriptions(t, capture.firstBody())
+			}
 			answers := resp.Answers()
 			checkExpectedProbabilities(t, answers)
 
@@ -412,7 +564,7 @@ func TestLiveFollowsInstructionsAndCriteria(t *testing.T) {
 		t.Run(tc.id, func(t *testing.T) {
 			skipUnlessLive(t, tc.keyVars...)
 			name := "test_live_models_follow_question_instructions_and_criteria[" + tc.id + "]"
-			resp := liveSystemOne(t, tc, name, probeState, probeQuestions(t))
+			resp := liveSystemOne(t, tc, name, probeState, probeQuestions(t), nil)
 			answers := resp.Answers()
 			expected := map[string]string{
 				"instruction_probe": "marker_tor",
