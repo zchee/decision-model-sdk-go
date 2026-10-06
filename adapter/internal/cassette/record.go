@@ -17,9 +17,11 @@ package cassette
 
 import (
 	"bytes"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"net/http"
 	"net/url"
@@ -51,9 +53,10 @@ var recordedRequestHeaders = []string{"content-type"}
 // recorded file diffs like a committed upstream cassette.
 //
 // Every exchange is scrubbed before any byte of it is serialized, so no
-// unscrubbed byte ever reaches the disk: the recorded request keeps no
-// header but the [recordedRequestHeaders] (every [FilteredRequestHeaders]
-// name among them); the recorded URI drops its userinfo and every query
+// unscrubbed header or query parameter reaches the disk: the recorded request
+// keeps only content-type; every other request header name is dropped,
+// including every [FilteredRequestHeaders] name. The recorded URI drops its
+// userinfo and every query
 // parameter [FilteredQueryParameters] names, along with any pair whose
 // name does not decode; and the recorded response keeps only the
 // [AllowedResponseHeaders] headers. The bodies are recorded as sent and
@@ -68,7 +71,7 @@ var recordedRequestHeaders = []string{"content-type"}
 type Recorder struct {
 	next http.RoundTripper
 	dir  string
-	path string
+	name string
 
 	mu           sync.Mutex
 	interactions []jsonx.Value
@@ -78,7 +81,9 @@ type Recorder struct {
 // dir/name. It refuses a nil next, a dir in or under testdata/cassettes
 // or testdata/expected (the committed upstream files, which a recording
 // must never touch), and a name that is not a bare file name. The
-// directory is created at the first recorded exchange.
+// directory is created at the first recorded exchange. Its resolved location
+// is checked before creation and before writing through an opened directory;
+// a symbolic-link cassette name is refused.
 func NewRecorder(next http.RoundTripper, dir, name string) (*Recorder, error) {
 	if next == nil {
 		return nil, errors.New("cassette: a recorder needs the transport it wraps")
@@ -89,7 +94,7 @@ func NewRecorder(next http.RoundTripper, dir, name string) (*Recorder, error) {
 	if name == "" || name == "." || name == ".." || name != filepath.Base(name) {
 		return nil, fmt.Errorf("cassette: the cassette name %q is not a bare file name", name)
 	}
-	return &Recorder{next: next, dir: dir, path: filepath.Join(dir, name)}, nil
+	return &Recorder{next: next, dir: dir, name: name}, nil
 }
 
 // refusedRecordingDir reports whether dir, judged on the path as given,
@@ -138,6 +143,7 @@ func (r *Recorder) RoundTrip(req *http.Request) (*http.Response, error) {
 	defer r.mu.Unlock()
 	r.interactions = append(r.interactions, interaction)
 	if err := r.write(); err != nil {
+		r.interactions = r.interactions[:len(r.interactions)-1]
 		return nil, err
 	}
 	return resp, nil
@@ -156,11 +162,119 @@ func (r *Recorder) write() error {
 	if err != nil {
 		return fmt.Errorf("cassette: serializing the recording: %w", err)
 	}
-	if err := os.MkdirAll(r.dir, 0o750); err != nil {
-		return fmt.Errorf("cassette: %w", err)
+	root, err := r.verifiedRoot()
+	if err != nil {
+		return fmt.Errorf("cassette: opening the recording directory: %w", err)
 	}
-	if err := os.WriteFile(r.path, indented(compact), 0o600); err != nil {
-		return fmt.Errorf("cassette: %w", err)
+	defer root.Close()
+	if info, err := root.Lstat(r.name); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("cassette: checking the cassette name: %w", err)
+	} else if err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("cassette: a symbolic-link cassette name is refused")
+	}
+	tmp := ".recording-" + rand.Text()
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("cassette: creating the recording: %w", err)
+	}
+	defer func() { _ = root.Remove(tmp) }()
+	_, writeErr := f.Write(indented(compact))
+	if err := errors.Join(writeErr, f.Close()); err != nil {
+		return fmt.Errorf("cassette: writing the recording: %w", err)
+	}
+	if err := root.Rename(tmp, r.name); err != nil {
+		return fmt.Errorf("cassette: replacing the recording: %w", err)
+	}
+	return nil
+}
+
+// verifiedRoot resolves the existing ancestor before creating anything, then
+// creates missing directories within that opened ancestor. The completed path
+// must resolve to the directory actually opened, not merely a permitted name.
+func (r *Recorder) verifiedRoot() (*os.Root, error) {
+	abs, err := filepath.Abs(r.dir)
+	if err != nil {
+		return nil, err
+	}
+	ancestor := abs
+	for {
+		if _, err := os.Lstat(ancestor); err == nil {
+			break
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return nil, err
+		}
+		ancestor = filepath.Dir(ancestor)
+	}
+	resolved, err := filepath.EvalSymlinks(ancestor)
+	if err != nil {
+		return nil, err
+	}
+	rel := "."
+	if ancestor != abs {
+		rel = strings.TrimPrefix(abs, strings.TrimRight(ancestor, string(filepath.Separator))+string(filepath.Separator))
+	}
+	if refusedRecordingDir(filepath.Join(resolved, rel)) {
+		return nil, errors.New("recording under a protected fixture directory is refused")
+	}
+	parent, err := openRecordingRoot(resolved)
+	if err != nil {
+		return nil, err
+	}
+	defer parent.Close()
+	if err := parent.MkdirAll(rel, 0o750); err != nil {
+		return nil, err
+	}
+	actual, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return nil, err
+	}
+	if refusedRecordingDir(actual) {
+		return nil, errors.New("recording under a protected fixture directory is refused")
+	}
+	return openRecordingRoot(actual)
+}
+
+// openRecordingRoot walks a resolved absolute path from its volume root.
+// Each opened directory must match its preceding non-symlink entry, so a
+// replaced path component cannot silently redirect OpenRoot into a fixture.
+func openRecordingRoot(actual string) (*os.Root, error) {
+	root, err := os.OpenRoot(filepath.VolumeName(actual) + string(filepath.Separator))
+	if err != nil {
+		return nil, err
+	}
+	for elem := range strings.SplitSeq(strings.TrimPrefix(actual, root.Name()), string(filepath.Separator)) {
+		if elem == "" {
+			continue
+		}
+		info, err := root.Lstat(elem)
+		if err != nil {
+			return nil, errors.Join(err, root.Close())
+		}
+		if !info.IsDir() {
+			return nil, errors.Join(errors.New("a resolved recording ancestor is not a directory"), root.Close())
+		}
+		child, err := root.OpenRoot(elem)
+		_ = root.Close()
+		if err != nil {
+			return nil, err
+		}
+		if err := verifyRecordingRoot(child, info); err != nil {
+			return nil, errors.Join(err, child.Close())
+		}
+		root = child
+	}
+	return root, nil
+}
+
+// verifyRecordingRoot checks the inode opened against the entry inspected
+// before opening it. A root symlink must not silently select another directory.
+func verifyRecordingRoot(root *os.Root, info fs.FileInfo) error {
+	opened, err := root.Stat(".")
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(info, opened) {
+		return errors.New("the recording directory changed while it was opened")
 	}
 	return nil
 }
@@ -271,14 +385,19 @@ func scrubbedQuery(raw string) string {
 // keptHeaders reduces headers to the kept names, recorded lowercase as
 // upstream's cassettes spell them, each with its values in order.
 func keptHeaders(h http.Header, kept []string) jsonx.Value {
-	var members []jsonx.Member
+	canonical := make(http.Header)
 	for _, name := range slices.Sorted(maps.Keys(h)) {
+		key := http.CanonicalHeaderKey(name)
+		canonical[key] = append(canonical[key], h[name]...)
+	}
+	var members []jsonx.Member
+	for _, name := range slices.Sorted(maps.Keys(canonical)) {
 		lower := strings.ToLower(name)
 		if !slices.Contains(kept, lower) {
 			continue
 		}
-		values := make([]jsonx.Value, 0, len(h[name]))
-		for _, value := range h[name] {
+		values := make([]jsonx.Value, 0, len(canonical[name]))
+		for _, value := range canonical[name] {
 			values = append(values, jsonx.String(value))
 		}
 		members = append(members, jsonx.Member{Name: lower, Value: jsonx.Array(values...)})

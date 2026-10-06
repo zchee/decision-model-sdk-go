@@ -17,6 +17,7 @@ package cassette
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -24,7 +25,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
+	gocmp "github.com/google/go-cmp/cmp"
 
 	"github.com/zchee/decision-model-sdk-go/adapter/internal/jsonx"
 )
@@ -191,7 +192,7 @@ func TestRecorderScrubsBeforeWriting(t *testing.T) {
     ]
 }
 `
-	if diff := cmp.Diff(expected, string(data)); diff != "" {
+	if diff := gocmp.Diff(expected, string(data)); diff != "" {
 		t.Errorf("recorded file (-want +got):\n%s", diff)
 	}
 	for _, absent := range []string{madeWord, "madeupword", "%zz"} {
@@ -527,6 +528,419 @@ func TestRecorderErrors(t *testing.T) {
 	}
 }
 
+// TestRecorderProtectedAliases uses only scratch fixture directories, never
+// the committed upstream files. Each refusal must leave the sentinel intact.
+func TestRecorderProtectedAliases(t *testing.T) {
+	for _, fixture := range []string{"cassettes", "expected"} {
+		tests := map[string]struct {
+			alias string
+		}{
+			"error: directory symlink":                         {alias: "directory"},
+			"error: missing directory below a symlink":         {alias: "missing"},
+			"error: leaf symlink":                              {alias: "leaf"},
+			"error: relative dot inside a protected directory": {alias: "relative"},
+		}
+		for name, tt := range tests {
+			t.Run(fixture+"/"+name, func(t *testing.T) {
+				base := t.TempDir()
+				protected := filepath.Join(base, "adapter", "testdata", fixture)
+				if err := os.MkdirAll(protected, 0o750); err != nil {
+					t.Fatal(err)
+				}
+				const sentinel = "protected fixture bytes"
+				file := filepath.Join(protected, "recorded.json")
+				if err := os.WriteFile(file, []byte(sentinel), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				dir := filepath.Join(base, "output")
+				switch tt.alias {
+				case "directory", "missing":
+					if err := os.Symlink(protected, dir); err != nil {
+						t.Fatal(err)
+					}
+					if tt.alias == "missing" {
+						dir = filepath.Join(dir, "nested")
+					}
+				case "leaf":
+					if err := os.Mkdir(dir, 0o750); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Symlink(file, filepath.Join(dir, "recorded.json")); err != nil {
+						t.Fatal(err)
+					}
+				case "relative":
+					t.Chdir(protected)
+					dir = "."
+				}
+				rec, err := NewRecorder(tripFunc(func(*http.Request) (*http.Response, error) { return jsonReply("{}"), nil }), dir, "recorded.json")
+				if err == nil {
+					req, requestErr := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://api.example.test/", nil)
+					if requestErr != nil {
+						t.Fatal(requestErr)
+					}
+					resp, tripErr := rec.RoundTrip(req)
+					err = tripErr
+					if resp != nil {
+						if err := resp.Body.Close(); err != nil {
+							t.Fatal(err)
+						}
+					}
+				}
+				if err == nil {
+					t.Error("the protected target was accepted")
+				}
+				data, readErr := os.ReadFile(file)
+				if readErr != nil {
+					t.Fatal(readErr)
+				}
+				if diff := gocmp.Diff(sentinel, string(data)); diff != "" {
+					t.Errorf("protected bytes changed (-want +got):\n%s", diff)
+				}
+				if tt.alias == "missing" {
+					if _, err := os.Stat(filepath.Join(protected, "nested")); !errors.Is(err, os.ErrNotExist) {
+						t.Errorf("a refused recording created a protected subdirectory: %v", err)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestRecorderReplacesPrivateInode(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	original := filepath.Join(dir, "original.json")
+	const sentinel = "existing file bytes"
+	if err := os.WriteFile(original, []byte(sentinel), 0o644); err != nil { //nolint:gosec // The public original must be replaced by a new private inode.
+		t.Fatal(err)
+	}
+	before, err := os.Stat(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(original, filepath.Join(dir, "recorded.json")); err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://api.example.test/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordOne(t, dir, "recorded.json", req, jsonReply("{}")) //nolint:bodyclose // The recorder closes the synthetic response.
+	data, err := os.ReadFile(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := gocmp.Diff(sentinel, string(data)); diff != "" {
+		t.Errorf("hard-linked original changed (-want +got):\n%s", diff)
+	}
+	after, err := os.Stat(filepath.Join(dir, "recorded.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if os.SameFile(before, after) || after.Mode().Perm() != 0o600 {
+		t.Errorf("recording inode was reused or is not private: same=%t mode=%v", os.SameFile(before, after), after.Mode())
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Errorf("temporary recording remained: %v", entries)
+	}
+}
+
+func TestRecorderCanonicalHeaders(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	rec, err := NewRecorder(tripFunc(func(*http.Request) (*http.Response, error) {
+		reply := jsonReply("{}")
+		reply.Header["content-type"] = []string{"text/plain"}
+		return reply, nil
+	}), dir, "recorded.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://api.example.test/", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header = http.Header{"Content-Type": {"application/json"}, "content-type": {"text/plain"}, "Authorization": {madeWord}}
+		resp, err := rec.RoundTrip(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := resp.Body.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c, err := Load(filepath.Join(dir, "recorded.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Interactions) != 2 {
+		t.Fatalf("interactions = %d, want 2", len(c.Interactions))
+	}
+	for _, interaction := range c.Interactions {
+		want := map[string][]string{"content-type": {"application/json", "text/plain"}}
+		if diff := gocmp.Diff(want, interaction.Request.Headers); diff != "" {
+			t.Errorf("request headers (-want +got):\n%s", diff)
+		}
+		if diff := gocmp.Diff(want, interaction.Response.Headers); diff != "" {
+			t.Errorf("response headers (-want +got):\n%s", diff)
+		}
+	}
+}
+
+func TestRecorderFailedWriteNotRetained(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "recorded.json"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := NewRecorder(tripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonReply("{}"), nil
+	}), dir, "recorded.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range 2 {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://api.example.test/", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := rec.RoundTrip(req)
+		if resp != nil {
+			if err := resp.Body.Close(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if i == 0 {
+			if err == nil || !strings.Contains(err.Error(), "replacing") {
+				t.Fatalf("directory at cassette name should refuse replacement: %v", err)
+			}
+			if len(rec.interactions) != 0 {
+				t.Fatalf("failed exchange was retained: interactions=%d", len(rec.interactions))
+			}
+			if err := os.Remove(filepath.Join(dir, "recorded.json")); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if i == 1 && err != nil {
+			t.Fatalf("the failed interaction poisoned its successor: %v", err)
+		}
+	}
+	c, err := Load(filepath.Join(dir, "recorded.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Interactions) != 1 {
+		t.Errorf("interactions = %d, want only the successful exchange", len(c.Interactions))
+	}
+}
+
+func TestRecorderSerializationError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	rec, err := NewRecorder(tripFunc(func(*http.Request) (*http.Response, error) { return jsonReply("{}"), nil }), dir, "a.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Invalid internal state injects a serializer failure without changing
+	// the serializer or introducing a production fault-injection hook.
+	rec.interactions = []jsonx.Value{jsonx.Raw([]byte("not JSON"))}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://api.example.test/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := rec.RoundTrip(req)
+	if resp != nil {
+		if err := resp.Body.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err == nil || !strings.Contains(err.Error(), "serializing") {
+		t.Fatalf("serializer failure = %v, want a serialization error", err)
+	}
+	if len(rec.interactions) != 1 {
+		t.Errorf("failed exchange retained: %d interactions, want the original injected value only", len(rec.interactions))
+	}
+	if _, err := os.Stat(filepath.Join(dir, "a.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("serializer failure wrote a cassette: %v", err)
+	}
+}
+
+func TestVerifyRecordingRoot(t *testing.T) {
+	t.Parallel()
+	first, second := t.TempDir(), t.TempDir()
+	info, err := os.Stat(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := map[string]struct {
+		dir     string
+		closed  bool
+		wantErr bool
+	}{
+		"success: inspected directory was opened": {dir: first},
+		"error: different directory was opened":   {dir: second, wantErr: true},
+		"error: opened directory is closed":       {dir: first, closed: true, wantErr: true},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			root, err := os.OpenRoot(tt.dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer root.Close()
+			if tt.closed {
+				if err := root.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := verifyRecordingRoot(root, info); (err != nil) != tt.wantErr {
+				t.Errorf("directory identity verification error=%v, want error=%t", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestRecorderFilesystemFailures(t *testing.T) {
+	t.Parallel()
+	tests := map[string]struct {
+		setup func(*testing.T) (string, string)
+	}{
+		"error: final name exceeds filesystem limit": {
+			setup: func(t *testing.T) (string, string) { return t.TempDir(), strings.Repeat("x", 300) },
+		},
+		"error: directory path exceeds filesystem limit": {
+			setup: func(t *testing.T) (string, string) {
+				return filepath.Join(t.TempDir(), strings.Repeat("x", 300)), "a.json"
+			},
+		},
+		"error: dangling ancestor symlink": {
+			setup: func(t *testing.T) (string, string) {
+				dir := filepath.Join(t.TempDir(), "alias")
+				if err := os.Symlink("missing", dir); err != nil {
+					t.Fatal(err)
+				}
+				return filepath.Join(dir, "sub"), "a.json"
+			},
+		},
+		"error: existing output is a file": {
+			setup: func(t *testing.T) (string, string) {
+				file := filepath.Join(t.TempDir(), "file")
+				if err := os.WriteFile(file, nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				return file, "a.json"
+			},
+		},
+		"error: temporary file cannot be created": {
+			setup: func(t *testing.T) (string, string) {
+				dir := t.TempDir()
+				if err := os.Chmod(dir, 0o500); err != nil { //nolint:gosec // Owner-only read/execute permissions make this directory unwritable.
+					t.Fatal(err)
+				}
+				t.Cleanup(func() {
+					if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // Restore owner-only access so the scratch directory can be removed.
+						t.Error(err)
+					}
+				})
+				return dir, "a.json"
+			},
+		},
+		"error: missing output cannot be created": {
+			setup: func(t *testing.T) (string, string) {
+				dir := t.TempDir()
+				if err := os.Chmod(dir, 0o500); err != nil { //nolint:gosec // Owner-only read/execute permissions make this directory unwritable.
+					t.Fatal(err)
+				}
+				t.Cleanup(func() {
+					if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // Restore owner-only access so the scratch directory can be removed.
+						t.Error(err)
+					}
+				})
+				return filepath.Join(dir, "sub"), "a.json"
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			dir, filename := tt.setup(t)
+			rec, err := NewRecorder(tripFunc(func(*http.Request) (*http.Response, error) { return jsonReply("{}"), nil }), dir, filename)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://api.example.test/", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, err := rec.RoundTrip(req)
+			if resp != nil {
+				if err := resp.Body.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err == nil {
+				t.Fatal("an invalid filesystem destination was accepted")
+			}
+			if len(rec.interactions) != 0 {
+				t.Errorf("failed exchange retained: %d interactions", len(rec.interactions))
+			}
+		})
+	}
+}
+
+func TestOpenRecordingRoot(t *testing.T) {
+	t.Parallel()
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(base, "file")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(base, "alias")
+	if err := os.Symlink(base, alias); err != nil {
+		t.Fatal(err)
+	}
+	denied := filepath.Join(base, "denied")
+	if err := os.Mkdir(denied, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(denied, 0o700); err != nil { //nolint:gosec // Restore owner-only access so the scratch directory can be removed.
+			t.Error(err)
+		}
+	})
+	tests := map[string]struct {
+		path    string
+		wantErr bool
+	}{
+		"success: volume root":             {path: string(filepath.Separator)},
+		"success: resolved directory":      {path: base},
+		"error: absent directory":          {path: filepath.Join(base, "absent"), wantErr: true},
+		"error: file instead of directory": {path: file, wantErr: true},
+		"error: unresolved symlink":        {path: alias, wantErr: true},
+		"error: directory permissions":     {path: denied, wantErr: true},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			root, err := openRecordingRoot(tt.path)
+			if root != nil {
+				if err := root.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if (err != nil) != tt.wantErr {
+				t.Errorf("openRecordingRoot(%q) error=%v, want error=%t", tt.path, err, tt.wantErr)
+			}
+		})
+	}
+}
+
 // failingCloser is a response body whose Close fails after a clean read.
 type failingCloser struct{ io.Reader }
 
@@ -593,7 +1007,7 @@ func TestIndentedMatchesPython(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			if diff := cmp.Diff(tt.want, string(indented([]byte(tt.compact)))); diff != "" {
+			if diff := gocmp.Diff(tt.want, string(indented([]byte(tt.compact)))); diff != "" {
 				t.Errorf("indented(%s) (-want +got):\n%s", tt.compact, diff)
 			}
 		})
