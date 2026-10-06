@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -539,6 +540,7 @@ func TestRecorderProtectedAliases(t *testing.T) {
 			"error: missing directory below a symlink":         {alias: "missing"},
 			"error: leaf symlink":                              {alias: "leaf"},
 			"error: relative dot inside a protected directory": {alias: "relative"},
+			"error: mixed-case protected components":           {alias: "case"},
 		}
 		for name, tt := range tests {
 			t.Run(fixture+"/"+name, func(t *testing.T) {
@@ -571,8 +573,13 @@ func TestRecorderProtectedAliases(t *testing.T) {
 				case "relative":
 					t.Chdir(protected)
 					dir = "."
+				case "case":
+					dir = filepath.Join(base, "adapter", "TeStDaTa", strings.ToUpper(fixture))
 				}
 				rec, err := NewRecorder(tripFunc(func(*http.Request) (*http.Response, error) { return jsonReply("{}"), nil }), dir, "recorded.json")
+				if tt.alias == "case" && err == nil {
+					t.Error("NewRecorder accepted mixed-case protected components before the first exchange")
+				}
 				if err == nil {
 					req, requestErr := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://api.example.test/", nil)
 					if requestErr != nil {
@@ -603,6 +610,204 @@ func TestRecorderProtectedAliases(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestRecorderProtectedIdentities exercises a protected fixture alias whose
+// resolved recording spelling has no protected component. A nested recording
+// must also be refused when its opened ancestor has the protected identity.
+func TestRecorderProtectedIdentities(t *testing.T) {
+	t.Parallel()
+	for _, fixture := range []string{"cassettes", "expected"} {
+		tests := map[string]struct {
+			nested bool
+			upper  bool
+		}{
+			"error: opened fixture alias":              {},
+			"error: under opened fixture alias":        {nested: true},
+			"error: mixed-case fixture child identity": {upper: true},
+		}
+		for name, tt := range tests {
+			t.Run(fixture+"/"+name, func(t *testing.T) {
+				base := filepath.Join(t.TempDir(), "adapter", "TeStDaTa")
+				dir := filepath.Join(base, "output")
+				if tt.nested {
+					dir = filepath.Join(dir, "nested")
+				}
+				if err := os.MkdirAll(dir, 0o750); err != nil {
+					t.Fatal(err)
+				}
+				child := fixture
+				if tt.upper {
+					child = strings.ToUpper(fixture)
+				}
+				if err := os.Symlink("output", filepath.Join(base, child)); err != nil {
+					t.Fatal(err)
+				}
+				const sentinel = "protected fixture bytes"
+				file := filepath.Join(dir, "recorded.json")
+				if err := os.WriteFile(file, []byte(sentinel), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				rec, err := NewRecorder(tripFunc(func(*http.Request) (*http.Response, error) { return jsonReply("{}"), nil }), dir, "recorded.json")
+				if err != nil {
+					t.Fatal(err)
+				}
+				req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://api.example.test/", nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				resp, err := rec.RoundTrip(req)
+				if resp != nil {
+					if closeErr := resp.Body.Close(); closeErr != nil {
+						t.Fatal(closeErr)
+					}
+				}
+				if err == nil || !strings.Contains(err.Error(), "aliases a protected fixture") {
+					t.Errorf("RoundTrip() error = %v, want a protected-directory identity refusal", err)
+				}
+				data, err := os.ReadFile(file)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if diff := gocmp.Diff(sentinel, string(data)); diff != "" {
+					t.Errorf("protected bytes changed (-want +got):\n%s", diff)
+				}
+			})
+		}
+	}
+}
+
+func TestRecorderBesideProtectedDirectories(t *testing.T) {
+	t.Parallel()
+	base := filepath.Join(t.TempDir(), "testdata")
+	const sentinel = "protected sibling bytes"
+	for _, fixture := range []string{"cassettes", "expected"} {
+		dir := filepath.Join(base, fixture)
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "recorded.json"), []byte(sentinel), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dir := filepath.Join(base, "cassettes-go")
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://api.example.test/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordOne(t, dir, "recorded.json", req, jsonReply("{}")) //nolint:bodyclose // The recorder closes the synthetic response.
+	if _, err := Load(filepath.Join(dir, "recorded.json")); err != nil {
+		t.Fatalf("allowed sibling recording cannot load: %v", err)
+	}
+	for _, fixture := range []string{"cassettes", "expected"} {
+		data, err := os.ReadFile(filepath.Join(base, fixture, "recorded.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if diff := gocmp.Diff(sentinel, string(data)); diff != "" {
+			t.Errorf("%s protected bytes changed (-want +got):\n%s", fixture, diff)
+		}
+	}
+}
+
+// TestRecordingRootCaseAlias probes the real filesystem rather than assuming
+// that different-case names alias. It calls the directory-opening guard itself
+// because NewRecorder already refuses the spelling on every filesystem.
+func TestRecordingRootCaseAlias(t *testing.T) {
+	for _, fixture := range []string{"cassettes", "expected"} {
+		t.Run(fixture, func(t *testing.T) {
+			base, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			dir := filepath.Join(base, "testdata", fixture)
+			if err := os.MkdirAll(dir, 0o750); err != nil {
+				t.Fatal(err)
+			}
+			const sentinel = "protected case-alias bytes"
+			file := filepath.Join(dir, "recorded.json")
+			if err := os.WriteFile(file, []byte(sentinel), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			lower, err := os.Stat(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			alias := filepath.Join(base, "TeStDaTa", strings.ToUpper(fixture))
+			upper, err := os.Stat(alias)
+			if errors.Is(err, os.ErrNotExist) {
+				t.Skip("filesystem treats the upper-case spelling as a distinct directory")
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !os.SameFile(lower, upper) {
+				t.Skip("filesystem does not alias different-case directory names")
+			}
+			root, err := openRecordingRoot(alias)
+			if root != nil {
+				if closeErr := root.Close(); closeErr != nil {
+					t.Fatal(closeErr)
+				}
+			}
+			if err == nil || !strings.Contains(err.Error(), "aliases a protected fixture") {
+				t.Errorf("openRecordingRoot() error = %v, want the protected directory refused by identity", err)
+			}
+			data, err := os.ReadFile(file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if diff := gocmp.Diff(sentinel, string(data)); diff != "" {
+				t.Errorf("protected bytes changed (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestProtectedRecordingDirs(t *testing.T) {
+	t.Parallel()
+	tests := map[string]struct {
+		closed   bool
+		dangling bool
+		loop     bool
+		wantErr  bool
+	}{
+		"success: no fixture children":      {},
+		"success: dangling fixture child":   {dangling: true},
+		"error: closed directory":           {closed: true, wantErr: true},
+		"error: unresolvable fixture child": {loop: true, wantErr: true},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			if tt.dangling || tt.loop {
+				target := "missing"
+				if tt.loop {
+					target = "cassettes"
+				}
+				if err := os.Symlink(target, filepath.Join(dir, "cassettes")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			root, err := os.OpenRoot(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer root.Close()
+			if tt.closed {
+				if err := root.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			infos, err := protectedRecordingDirs(root)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("protectedRecordingDirs() error = %v, want error = %t", err, tt.wantErr)
+			}
+			if len(infos) != 0 {
+				t.Errorf("protected directory identities = %d, want none", len(infos))
+			}
+		})
 	}
 }
 
@@ -637,9 +842,17 @@ func TestRecorderReplacesPrivateInode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if os.SameFile(before, after) || after.Mode().Perm() != 0o600 {
-		t.Errorf("recording inode was reused or is not private: same=%t mode=%v", os.SameFile(before, after), after.Mode())
+	if os.SameFile(before, after) {
+		t.Error("recording reused the original inode")
 	}
+	t.Run("private permissions", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Windows reports regular-file permissions as 0444 or 0666, not Unix mode 0600")
+		}
+		if after.Mode().Perm() != 0o600 {
+			t.Errorf("recording mode = %v, want 0600", after.Mode())
+		}
+	})
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -808,7 +1021,8 @@ func TestVerifyRecordingRoot(t *testing.T) {
 func TestRecorderFilesystemFailures(t *testing.T) {
 	t.Parallel()
 	tests := map[string]struct {
-		setup func(*testing.T) (string, string)
+		setup       func(*testing.T) (string, string)
+		permissions bool
 	}{
 		"error: final name exceeds filesystem limit": {
 			setup: func(t *testing.T) (string, string) { return t.TempDir(), strings.Repeat("x", 300) },
@@ -836,7 +1050,21 @@ func TestRecorderFilesystemFailures(t *testing.T) {
 				return file, "a.json"
 			},
 		},
+		"error: a protected fixture child cannot resolve": {
+			setup: func(t *testing.T) (string, string) {
+				base := filepath.Join(t.TempDir(), "testdata")
+				dir := filepath.Join(base, "output")
+				if err := os.MkdirAll(dir, 0o750); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink("cassettes", filepath.Join(base, "cassettes")); err != nil {
+					t.Fatal(err)
+				}
+				return dir, "a.json"
+			},
+		},
 		"error: temporary file cannot be created": {
+			permissions: true,
 			setup: func(t *testing.T) (string, string) {
 				dir := t.TempDir()
 				if err := os.Chmod(dir, 0o500); err != nil { //nolint:gosec // Owner-only read/execute permissions make this directory unwritable.
@@ -851,6 +1079,7 @@ func TestRecorderFilesystemFailures(t *testing.T) {
 			},
 		},
 		"error: missing output cannot be created": {
+			permissions: true,
 			setup: func(t *testing.T) (string, string) {
 				dir := t.TempDir()
 				if err := os.Chmod(dir, 0o500); err != nil { //nolint:gosec // Owner-only read/execute permissions make this directory unwritable.
@@ -867,6 +1096,14 @@ func TestRecorderFilesystemFailures(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
+			if tt.permissions {
+				if runtime.GOOS == "windows" {
+					t.Skip("Windows does not enforce Unix directory Chmod permissions")
+				}
+				if os.Geteuid() == 0 {
+					t.Skip("root bypasses directory permission denial")
+				}
+			}
 			dir, filename := tt.setup(t)
 			rec, err := NewRecorder(tripFunc(func(*http.Request) (*http.Response, error) { return jsonReply("{}"), nil }), dir, filename)
 			if err != nil {
@@ -907,27 +1144,38 @@ func TestOpenRecordingRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	denied := filepath.Join(base, "denied")
-	if err := os.Mkdir(denied, 0); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := os.Chmod(denied, 0o700); err != nil { //nolint:gosec // Restore owner-only access so the scratch directory can be removed.
-			t.Error(err)
+	if runtime.GOOS != "windows" && os.Geteuid() != 0 {
+		if err := os.Mkdir(denied, 0); err != nil {
+			t.Fatal(err)
 		}
-	})
+		t.Cleanup(func() {
+			if err := os.Chmod(denied, 0o700); err != nil { //nolint:gosec // Restore owner-only access so the scratch directory can be removed.
+				t.Error(err)
+			}
+		})
+	}
 	tests := map[string]struct {
-		path    string
-		wantErr bool
+		path        string
+		wantErr     bool
+		permissions bool
 	}{
 		"success: volume root":             {path: string(filepath.Separator)},
 		"success: resolved directory":      {path: base},
 		"error: absent directory":          {path: filepath.Join(base, "absent"), wantErr: true},
 		"error: file instead of directory": {path: file, wantErr: true},
 		"error: unresolved symlink":        {path: alias, wantErr: true},
-		"error: directory permissions":     {path: denied, wantErr: true},
+		"error: directory permissions":     {path: denied, wantErr: true, permissions: true},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
+			if tt.permissions {
+				if runtime.GOOS == "windows" {
+					t.Skip("Windows does not enforce Unix directory Chmod permissions")
+				}
+				if os.Geteuid() == 0 {
+					t.Skip("root bypasses directory permission denial")
+				}
+			}
 			root, err := openRecordingRoot(tt.path)
 			if root != nil {
 				if err := root.Close(); err != nil {

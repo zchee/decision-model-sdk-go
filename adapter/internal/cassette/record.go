@@ -79,8 +79,9 @@ type Recorder struct {
 
 // NewRecorder returns a recorder over next that writes the cassette
 // dir/name. It refuses a nil next, a dir in or under testdata/cassettes
-// or testdata/expected (the committed upstream files, which a recording
-// must never touch), and a name that is not a bare file name. The
+// or testdata/expected (case-insensitively, including directory identities
+// aliased by existing protected children), and a name that is not a bare file
+// name. The committed upstream files must never be touched. The
 // directory is created at the first recorded exchange. Its resolved location
 // is checked before creation and before writing through an opened directory;
 // a symbolic-link cassette name is refused.
@@ -98,12 +99,13 @@ func NewRecorder(next http.RoundTripper, dir, name string) (*Recorder, error) {
 }
 
 // refusedRecordingDir reports whether dir, judged on the path as given,
-// lies in or under a directory testdata/cassettes or testdata/expected.
+// lies in or under a directory testdata/cassettes or testdata/expected,
+// with case-insensitive component comparisons on every filesystem.
 // A sibling such as testdata/cassettes-go is allowed.
 func refusedRecordingDir(dir string) bool {
 	elems := strings.Split(filepath.ToSlash(filepath.Clean(dir)), "/")
 	for i := 0; i+1 < len(elems); i++ {
-		if elems[i] == "testdata" && (elems[i+1] == "cassettes" || elems[i+1] == "expected") {
+		if strings.EqualFold(elems[i], "testdata") && (strings.EqualFold(elems[i+1], "cassettes") || strings.EqualFold(elems[i+1], "expected")) {
 			return true
 		}
 	}
@@ -242,6 +244,7 @@ func openRecordingRoot(actual string) (*os.Root, error) {
 	if err != nil {
 		return nil, err
 	}
+	var protected []fs.FileInfo
 	for elem := range strings.SplitSeq(strings.TrimPrefix(actual, root.Name()), string(filepath.Separator)) {
 		if elem == "" {
 			continue
@@ -261,9 +264,49 @@ func openRecordingRoot(actual string) (*os.Root, error) {
 		if err := verifyRecordingRoot(child, info); err != nil {
 			return nil, errors.Join(err, child.Close())
 		}
+		// The verified info identifies the directory actually opened, including
+		// aliases that the resolved component spelling alone cannot recognize.
+		for _, fixture := range protected {
+			if os.SameFile(info, fixture) {
+				return nil, errors.Join(errors.New("the recording directory aliases a protected fixture directory"), child.Close())
+			}
+		}
+		if strings.EqualFold(elem, "testdata") {
+			fixtures, err := protectedRecordingDirs(child)
+			if err != nil {
+				return nil, errors.Join(err, child.Close())
+			}
+			protected = append(protected, fixtures...)
+		}
 		root = child
 	}
 	return root, nil
+}
+
+// protectedRecordingDirs identifies existing fixture children of an opened
+// testdata ancestor, with names matched case-insensitively. Resolving through
+// the root keeps the lookup tied to the verified directory; an escaping link
+// or another unreadable fixture fails closed.
+func protectedRecordingDirs(root *os.Root) ([]fs.FileInfo, error) {
+	entries, err := fs.ReadDir(root.FS(), ".")
+	if err != nil {
+		return nil, err
+	}
+	var protected []fs.FileInfo
+	for _, entry := range entries {
+		if !strings.EqualFold(entry.Name(), "cassettes") && !strings.EqualFold(entry.Name(), "expected") {
+			continue
+		}
+		info, err := root.Stat(entry.Name())
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		protected = append(protected, info)
+	}
+	return protected, nil
 }
 
 // verifyRecordingRoot checks the inode opened against the entry inspected
