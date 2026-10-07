@@ -850,10 +850,48 @@ func TestProviderModelAndClose(t *testing.T) {
 	}
 }
 
-// TestProviderPrintsNoCredential checks all formatting verbs on values,
-// pointers and interfaces, and both slog handlers. Fields remain private
-// except for fmt's invalid value-%p diagnostic, which is detected separately.
-// A nil pointer prints as <nil>.
+// TestDiagnosticRequestCopy checks that only traced requests retain a scrubbed
+// diagnostic copy, without changing outbound bytes or the caller's messages.
+func TestDiagnosticRequestCopy(t *testing.T) {
+	clearEnv(t)
+	const key = "amberwhistle"
+	tests := map[string]struct{ trace bool }{
+		"success: with trace":    {trace: true},
+		"success: without trace": {},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			tr := &transport{reply: `{"status":"completed","steps":[],"usage":{"total_input_tokens":0,"total_output_tokens":0}}`}
+			p, err := New("test-model", WithAPIKey(key), WithBaseURL("https://offline.test"), WithHTTPClient(&http.Client{Transport: tr}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = p.Close() })
+			req := &llm.Request{Messages: []llm.Message{{Role: "user", Content: key}}}
+			if tt.trace {
+				req.Trace = new(llm.Trace)
+			}
+			if result, err := p.Do(t.Context(), req); err != nil || result == nil {
+				t.Fatal("offline request failed")
+			}
+			if len(tr.requests) != 1 || !strings.Contains(string(tr.requests[0].body), key) {
+				t.Fatal("outbound request changed or was not sent")
+			}
+			if req.Messages[0].Content != key {
+				t.Error("caller message changed")
+			}
+			if tt.trace {
+				body, ok := req.Trace.Request()
+				if !ok || strings.Contains(string(body), key) || !strings.Contains(string(body), "***") {
+					t.Error("diagnostic request copy was not scrubbed")
+				}
+			}
+		})
+	}
+}
+
+// TestProviderPrintsNoCredential checks formatting and logging, including
+// reflective fields and invalid verbs that bypass the Provider's methods.
 func TestProviderPrintsNoCredential(t *testing.T) {
 	clearEnv(t)
 	planted := map[string]string{"key": "amberwhistle", "user": "cedarspark", "password": "violetmeadow", "query": "copperfern", "host": "willowharbor"}
@@ -875,6 +913,34 @@ func TestProviderPrintsNoCredential(t *testing.T) {
 			}
 		}
 	}
+
+	t.Run("success: reflective containers", func(t *testing.T) {
+		// Vet rejects invalid %w statically; this dynamic format reproduces
+		// the two misuse paths without disabling the printf analyzer.
+		invalidWrap := string([]byte{'%', 'w'})
+		sprintfInvalidWrap := func(v any) string { return fmt.Sprintf(invalidWrap, v) }
+		var nonError any = *p
+		tests := map[string]struct {
+			output string
+			wrap   bool
+		}{
+			"success: private value":        {output: fmt.Sprintf("%v", struct{ value Provider }{value: *p})},
+			"success: nested private value": {output: fmt.Sprintf("%v", struct{ outer struct{ value Provider } }{outer: struct{ value Provider }{value: *p}})},
+			"success: private slice":        {output: fmt.Sprintf("%v", struct{ values []Provider }{values: []Provider{*p}})},
+			"success: private boxed value":  {output: fmt.Sprintf("%v", struct{ value any }{value: *p})},
+			"error: Sprintf wrap value":     {output: sprintfInvalidWrap(*p), wrap: true},
+			"error: Sprintf wrap pointer":   {output: sprintfInvalidWrap(p), wrap: true},
+			"error: Errorf wrap value":      {output: fmt.Errorf(invalidWrap, nonError).Error(), wrap: true},
+		}
+		for name, tt := range tests {
+			t.Run(name, func(t *testing.T) {
+				checkPlanted(t, name, tt.output)
+				if tt.wrap && !strings.HasPrefix(tt.output, "%!w(") {
+					t.Error("missing fmt invalid-wrap diagnostic")
+				}
+			})
+		}
+	})
 
 	var boxed llm.Provider = p
 	var boxedAny any = *p
@@ -973,9 +1039,10 @@ func TestProviderPrintsNoCredential(t *testing.T) {
 			for verb, format := range formats {
 				t.Run(verb, func(t *testing.T) {
 					out := format.print(tt.v)
+					checkPlanted(t, verb, out)
 					if verb == "p" && tt.value {
-						// A value's %p is fmt's bad-verb path, which bypasses
-						// Format. This detects it; no safety is claimed for it.
+						// fmt reserves value %p, but reflective diagnostics must
+						// still reveal no pointer-held credential state.
 						for item := range strings.SplitSeq(out, "\n") {
 							if !strings.Contains(item, "%!p(gemini.Provider={") || !strings.HasSuffix(item, "})") {
 								t.Error("missing fmt value-pointer diagnostic")

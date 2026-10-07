@@ -110,14 +110,21 @@ var (
 
 // Provider calls one OpenAI model; it is safe for concurrent use.
 // Print %p only on a pointer, where fmt prints its address. On a value,
-// fmt's bad-verb diagnostic bypasses Format and may expose private fields.
+// fmt prints a bad-verb diagnostic. Credential-bearing state is held
+// behind a private pointer so reflective formatting prints only its address.
 type Provider struct {
-	model    string
-	api      API
-	format   PromptedFormat
+	model  string
+	api    API
+	format PromptedFormat
+	state  *requestState
+	client *rest.Client
+}
+
+// requestState is pointer-held because fmt bypasses methods on unexported
+// fields and invalid verbs; a nested pointer prints as an address.
+type requestState struct {
 	endpoint *url.URL
 	header   http.Header
-	client   *rest.Client
 }
 
 // Option configures a Provider.
@@ -201,12 +208,11 @@ func New(model string, opts ...Option) (*Provider, error) {
 		path = "/responses"
 	}
 	return &Provider{
-		model:    model,
-		api:      api,
-		format:   o.format,
-		endpoint: endpoint(base, path),
-		header:   header,
-		client:   rest.New(rest.Config{HTTPClient: o.httpClient, Timeout: o.timeout, BodyScrubber: rest.NewBodyScrubber(key)}),
+		model:  model,
+		api:    api,
+		format: o.format,
+		state:  &requestState{endpoint: endpoint(base, path), header: header},
+		client: rest.New(rest.Config{HTTPClient: o.httpClient, Timeout: o.timeout, BodyScrubber: rest.NewBodyScrubber(key)}),
 	}, nil
 }
 
@@ -348,9 +354,11 @@ func (p Provider) GoString() string {
 // Width, precision and flags are ignored; headers and endpoints are never
 // printed. The fmt package handles %T and %p itself before calling Format.
 func (p Provider) Format(f fmt.State, verb rune) {
-	text := p.String()
+	var text string
 	if verb == 'v' && f.Flag('#') {
 		text = p.GoString()
+	} else {
+		text = p.String()
 	}
 	_, _ = fmt.Fprint(f, text)
 }
@@ -376,8 +384,10 @@ func (p *Provider) Do(ctx context.Context, req *llm.Request) (*llm.Result, error
 		if err != nil {
 			return nil, err
 		}
-		req.Trace.RecordRequest(apiResponses, p.client.ScrubBody(body))
-		data, err := p.client.Post(ctx, p.endpoint, p.header, body)
+		if req.Trace != nil {
+			req.Trace.RecordRequest(apiResponses, p.client.ScrubBody(body))
+		}
+		data, err := p.client.Post(ctx, p.state.endpoint, p.state.header, body)
 		if err != nil {
 			return nil, err
 		}
@@ -387,8 +397,10 @@ func (p *Provider) Do(ctx context.Context, req *llm.Request) (*llm.Result, error
 	if err != nil {
 		return nil, err
 	}
-	req.Trace.RecordRequest(apiChatCompletions, p.client.ScrubBody(body))
-	data, err := p.client.Post(ctx, p.endpoint, p.header, body)
+	if req.Trace != nil {
+		req.Trace.RecordRequest(apiChatCompletions, p.client.ScrubBody(body))
+	}
+	data, err := p.client.Post(ctx, p.state.endpoint, p.state.header, body)
 	if err != nil {
 		return nil, err
 	}

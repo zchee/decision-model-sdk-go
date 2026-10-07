@@ -94,12 +94,19 @@ var errNoKey = errors.New("gemini: no API key: set GOOGLE_API_KEY or GEMINI_API_
 
 // Provider calls one Gemini model; it is safe for concurrent use.
 // Print %p only on a pointer, where fmt prints its address. On a value,
-// fmt's bad-verb diagnostic bypasses Format and may expose private fields.
+// fmt prints a bad-verb diagnostic. Credential-bearing state is held
+// behind a private pointer so reflective formatting prints only its address.
 type Provider struct {
-	model    string
+	model  string
+	state  *requestState
+	client *rest.Client
+}
+
+// requestState is pointer-held because fmt bypasses methods on unexported
+// fields and invalid verbs; a nested pointer prints as an address.
+type requestState struct {
 	key      string
 	endpoint *url.URL
-	client   *rest.Client
 }
 
 // options are the settings Option values write.
@@ -173,10 +180,9 @@ func New(model string, opts ...Option) (*Provider, error) {
 		return nil, errors.New("gemini: the base URL of " + source + " is not an absolute http or https URL with a host")
 	}
 	return &Provider{
-		model:    model,
-		key:      key,
-		endpoint: endpoint(u),
-		client:   rest.New(rest.Config{HTTPClient: o.httpClient, Timeout: o.timeout, BlankErrorBodyIsNone: true, BodyScrubber: rest.NewBodyScrubber(key)}),
+		model:  model,
+		state:  &requestState{key: key, endpoint: endpoint(u)},
+		client: rest.New(rest.Config{HTTPClient: o.httpClient, Timeout: o.timeout, BlankErrorBodyIsNone: true, BodyScrubber: rest.NewBodyScrubber(key)}),
 	}, nil
 }
 
@@ -264,9 +270,11 @@ func (p Provider) GoString() string {
 // Width, precision and flags are ignored; headers and endpoints are never
 // printed. The fmt package handles %T and %p itself before calling Format.
 func (p Provider) Format(f fmt.State, verb rune) {
-	text := p.String()
+	var text string
 	if verb == 'v' && f.Flag('#') {
 		text = p.GoString()
+	} else {
+		text = p.String()
 	}
 	_, _ = fmt.Fprint(f, text)
 }
@@ -282,10 +290,12 @@ func (p *Provider) Do(ctx context.Context, req *llm.Request) (*llm.Result, error
 	if err != nil {
 		return nil, err
 	}
-	req.Trace.RecordRequest(apiName, p.client.ScrubBody(body))
+	if req.Trace != nil {
+		req.Trace.RecordRequest(apiName, p.client.ScrubBody(body))
+	}
 	header := make(http.Header, 1)
-	header.Set(keyHeader, p.key)
-	data, err := p.client.Post(ctx, p.endpoint, header, body)
+	header.Set(keyHeader, p.state.key)
+	data, err := p.client.Post(ctx, p.state.endpoint, header, body)
 	if err != nil {
 		return nil, err
 	}
