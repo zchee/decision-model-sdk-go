@@ -37,15 +37,18 @@ package rest
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"slices"
+	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/zchee/decision-model-sdk-go/adapter/internal/jsonx"
 	"github.com/zchee/decision-model-sdk-go/adapter/llm"
 )
 
@@ -91,6 +94,10 @@ type Config struct {
 	// differs with them: OpenAI's and Anthropic's hand over the empty
 	// string, Gemini's hands over no body.
 	BlankErrorBodyIsNone bool
+	// BodyScrubber replaces exact known credential forms before a response
+	// body is retained. Nil leaves bodies unchanged. Build it with
+	// NewBodyScrubber once when the provider is constructed.
+	BodyScrubber *strings.Replacer
 }
 
 // Client performs the JSON POST of one provider. It is safe for concurrent
@@ -101,6 +108,77 @@ type Client struct {
 	timeout     time.Duration
 	blankIsNone bool
 	maxBody     int64
+	scrubber    *strings.Replacer
+}
+
+// NewBodyScrubber builds exact-known-form replacement for credentials: raw,
+// JSON string content, QueryEscape and PathEscape, with both percent-hex cases.
+// Empty credentials are skipped; overlapping forms match the longest first.
+// The replacement is "***". It performs no decoding or recursive encoding.
+// It returns nil when there are no credentials.
+func NewBodyScrubber(credentials ...string) *strings.Replacer {
+	unique := make(map[string]struct{})
+	for _, credential := range credentials {
+		if credential == "" {
+			continue
+		}
+		// A single String always marshals, including invalid UTF-8 replacement.
+		encoded, _ := jsonx.Marshal(jsonx.String(credential))
+		query, path := url.QueryEscape(credential), url.PathEscape(credential)
+		for _, form := range []string{credential, string(encoded[1 : len(encoded)-1]), query, lowerPercentHex(query), path, lowerPercentHex(path)} {
+			unique[form] = struct{}{}
+		}
+	}
+	if len(unique) == 0 {
+		return nil
+	}
+	forms := make([]string, 0, len(unique))
+	for form := range unique {
+		forms = append(forms, form)
+	}
+	slices.SortFunc(forms, func(a, b string) int {
+		if len(a) != len(b) {
+			return cmp.Compare(len(b), len(a))
+		}
+		return strings.Compare(a, b)
+	})
+	pairs := make([]string, 0, 2*len(forms))
+	for _, form := range forms {
+		pairs = append(pairs, form, "***")
+	}
+	return strings.NewReplacer(pairs...)
+}
+
+// lowerPercentHex changes escape hex digits, never the unescaped text.
+func lowerPercentHex(s string) string {
+	b := []byte(s)
+	for i := 0; i+2 < len(b); i++ {
+		if b[i] != '%' {
+			continue
+		}
+		for j := i + 1; j <= i+2; j++ {
+			if b[j] >= 'A' && b[j] <= 'F' {
+				b[j] += 'a' - 'A'
+			}
+		}
+		i += 2
+	}
+	return string(b)
+}
+
+// ScrubBody replaces exact known credential forms in a diagnostic body.
+// It does not mutate body or decode its contents, and leaves it unchanged when
+// no form matches. Use its result for retention, not for outbound requests.
+func (c *Client) ScrubBody(body []byte) []byte {
+	if c.scrubber == nil || len(body) == 0 {
+		return body
+	}
+	text := string(body)
+	scrubbed := c.scrubber.Replace(text)
+	if scrubbed == text {
+		return body
+	}
+	return []byte(scrubbed)
 }
 
 // New returns a Client configured by cfg.
@@ -110,6 +188,7 @@ func New(cfg Config) *Client {
 		timeout:     cfg.Timeout,
 		blankIsNone: cfg.BlankErrorBodyIsNone,
 		maxBody:     maxBodyBytes,
+		scrubber:    cfg.BodyScrubber,
 	}
 	if c.timeout <= 0 {
 		c.timeout = DefaultTimeout
@@ -171,9 +250,10 @@ func noRedirect(*http.Request, []*http.Request) error { return http.ErrUseLastRe
 //     was not followed included, with the status,
 //     the response headers Retry-After, Retry-After-Ms and
 //     X-Typesafe-Request-Id when present and no other header, and the body
-//     as received: its bytes unchanged, except that a body that is empty or
-//     only white space is nil or empty as Config.BlankErrorBodyIsNone says,
-//     and that a body longer than 64 MiB is cut there;
+//     with exact known credential forms replaced by Config.BodyScrubber;
+//     a body that is empty or only white space is nil or empty as
+//     Config.BlankErrorBodyIsNone says, and a body longer than 64 MiB
+//     is cut there;
 //   - ErrBodyTooLarge for a status of 200 to 299 whose body is longer than
 //     64 MiB;
 //   - an error of a fixed text when no request could be built from u.
@@ -210,8 +290,9 @@ func (c *Client) Post(ctx context.Context, u *url.URL, header http.Header, body 
 		return nil, classify(ctx, rctx, target, phraseBodyTimeout, phraseBody, err)
 	}
 	tooLarge := int64(len(data)) > c.maxBody
+	data = c.ScrubBody(data)
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		if tooLarge {
+		if int64(len(data)) > c.maxBody {
 			data = data[:c.maxBody]
 		}
 		return nil, &llm.StatusError{StatusCode: resp.StatusCode, Header: keepHeaders(resp.Header), Body: c.errorBody(data)}

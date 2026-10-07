@@ -29,8 +29,9 @@
 // only when its option was not given. Do reads none.
 //
 // A response with a status outside 200 to 299 is an *llm.StatusError that
-// keeps the status, the body as received (empty and not nil for a body that
-// is empty or only white space) and, of the response headers, only
+// keeps the status and the body with exact known credential forms replaced
+// (empty and not nil for a body that is empty or only white space) and, of
+// the response headers, only
 // Retry-After, Retry-After-Ms and X-Typesafe-Request-Id: OpenAI's own
 // x-request-id is not kept, so a retry policy's predicate cannot read it.
 package openai
@@ -153,6 +154,11 @@ type options struct {
 // WithTimeout that is not positive, no key, and a base URL that is not an
 // absolute http or https URL with a host. Its errors name the option or the
 // variable, never a value.
+//
+// New builds replacement of the API key's exact known forms once: raw,
+// JSON string content and QueryEscape/PathEscape with both percent-hex cases.
+// Received bodies and diagnostic request copies use "***"; outbound bytes
+// stay unchanged. This is exact replacement, not decoding-aware redaction.
 func New(model string, opts ...Option) (*Provider, error) {
 	o := options{timeout: rest.DefaultTimeout}
 	for _, opt := range opts {
@@ -200,7 +206,7 @@ func New(model string, opts ...Option) (*Provider, error) {
 		format:   o.format,
 		endpoint: endpoint(base, path),
 		header:   header,
-		client:   rest.New(rest.Config{HTTPClient: o.httpClient, Timeout: o.timeout}),
+		client:   rest.New(rest.Config{HTTPClient: o.httpClient, Timeout: o.timeout, BodyScrubber: rest.NewBodyScrubber(key)}),
 	}, nil
 }
 
@@ -370,7 +376,7 @@ func (p *Provider) Do(ctx context.Context, req *llm.Request) (*llm.Result, error
 		if err != nil {
 			return nil, err
 		}
-		req.Trace.RecordRequest(apiResponses, body)
+		req.Trace.RecordRequest(apiResponses, p.client.ScrubBody(body))
 		data, err := p.client.Post(ctx, p.endpoint, p.header, body)
 		if err != nil {
 			return nil, err
@@ -381,7 +387,7 @@ func (p *Provider) Do(ctx context.Context, req *llm.Request) (*llm.Result, error
 	if err != nil {
 		return nil, err
 	}
-	req.Trace.RecordRequest(apiChatCompletions, body)
+	req.Trace.RecordRequest(apiChatCompletions, p.client.ScrubBody(body))
 	data, err := p.client.Post(ctx, p.endpoint, p.header, body)
 	if err != nil {
 		return nil, err

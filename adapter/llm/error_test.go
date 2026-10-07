@@ -22,6 +22,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"syscall"
@@ -29,8 +30,237 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	decision "github.com/zchee/decision-model-sdk-go"
+
+	"github.com/zchee/decision-model-sdk-go/adapter"
+	"github.com/zchee/decision-model-sdk-go/adapter/anthropic"
+	"github.com/zchee/decision-model-sdk-go/adapter/gemini"
+	"github.com/zchee/decision-model-sdk-go/adapter/internal/jsonx"
 	"github.com/zchee/decision-model-sdk-go/adapter/llm"
+	"github.com/zchee/decision-model-sdk-go/adapter/openai"
 )
+
+// diagnosticRoundTrip supplies an offline response without a listener.
+type diagnosticRoundTrip func(*http.Request) (*http.Response, error)
+
+func (f diagnosticRoundTrip) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+func TestProvidersScrubReflectedCredentials(t *testing.T) {
+	const key = "Birch/É +Fern"
+	const token = `Hazel"Brook\Rose`
+	tests := map[string]struct {
+		newProvider func(*http.Client) (llm.Provider, error)
+		credentials []string
+		answer      string
+	}{
+		"success: openai responses": {
+			newProvider: func(c *http.Client) (llm.Provider, error) {
+				return openai.New("diagnostic-model", openai.WithAPIKey(key), openai.WithHTTPClient(c), openai.WithAPI(openai.Responses))
+			},
+			credentials: []string{key},
+			answer:      `{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":%s}]}],"usage":{"input_tokens":1,"output_tokens":1}}`,
+		},
+		"success: openai chat": {
+			newProvider: func(c *http.Client) (llm.Provider, error) {
+				return openai.New("diagnostic-model", openai.WithAPIKey(key), openai.WithHTTPClient(c), openai.WithAPI(openai.ChatCompletions))
+			},
+			credentials: []string{key},
+			answer:      `{"choices":[{"finish_reason":"stop","message":{"content":%s}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`,
+		},
+		"success: anthropic key only": {
+			newProvider: func(c *http.Client) (llm.Provider, error) {
+				return anthropic.New("diagnostic-model", anthropic.WithAPIKey(key), anthropic.WithHTTPClient(c))
+			},
+			credentials: []string{key},
+			answer:      `{"content":[{"type":"text","text":%s}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`,
+		},
+		"success: anthropic key and token": {
+			newProvider: func(c *http.Client) (llm.Provider, error) {
+				return anthropic.New("diagnostic-model", anthropic.WithAPIKey(key), anthropic.WithAuthToken(token), anthropic.WithHTTPClient(c))
+			},
+			credentials: []string{key, token},
+			answer:      `{"content":[{"type":"text","text":%s}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`,
+		},
+		"success: anthropic token only": {
+			newProvider: func(c *http.Client) (llm.Provider, error) {
+				return anthropic.New("diagnostic-model", anthropic.WithAuthToken(token), anthropic.WithHTTPClient(c))
+			},
+			credentials: []string{token},
+			answer:      `{"content":[{"type":"text","text":%s}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`,
+		},
+		"success: gemini key": {
+			newProvider: func(c *http.Client) (llm.Provider, error) {
+				return gemini.New("diagnostic-model", gemini.WithAPIKey(key), gemini.WithHTTPClient(c))
+			},
+			credentials: []string{key},
+			answer:      `{"status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":%s}]}],"usage":{"total_input_tokens":1,"total_output_tokens":1}}`,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			lower := strings.NewReplacer("%2F", "%2f", "%C3", "%c3", "%2B", "%2b", "%5C", "%5c")
+			forms := make([]string, 0, len(tt.credentials)*5)
+			for _, credential := range tt.credentials {
+				query, path := url.QueryEscape(credential), url.PathEscape(credential)
+				// Marshaling the payload supplies the JSON-string form of the raw
+				// credential. Pre-escaping it here would require recursive redaction.
+				forms = append(forms, credential, query, lower.Replace(query), path, lower.Replace(path))
+			}
+			payload := strings.Join(forms, " | ")
+			check := func(t *testing.T, text string) {
+				t.Helper()
+				for _, marker := range []string{"Birch", "Hazel", "CedarHeader"} {
+					if strings.Contains(text, marker) {
+						t.Errorf("diagnostic contains credential marker; length=%d", len(text))
+					}
+				}
+				if !strings.Contains(text, "***") {
+					t.Errorf("replacement absent; length=%d", len(text))
+				}
+			}
+			modes := map[string]struct {
+				status    int
+				nonAnswer bool
+			}{
+				"success: retained answer":          {status: http.StatusOK},
+				"error: reflected status":           {status: http.StatusUnauthorized},
+				"error: reflected transient status": {status: http.StatusInternalServerError},
+				"error: reflected non-answer":       {status: http.StatusOK, nonAnswer: true},
+			}
+			for mode, mt := range modes {
+				t.Run(mode, func(t *testing.T) {
+					var sent []byte
+					count := 0
+					encoded, err := jsonx.Marshal(jsonx.String(payload))
+					if err != nil {
+						t.Fatal("response fixture did not encode")
+					}
+					response := fmt.Sprintf(tt.answer, encoded)
+					if mt.nonAnswer {
+						response = strings.NewReplacer(`"completed"`, string(encoded), `"stop"`, string(encoded), `"end_turn"`, string(encoded)).Replace(response)
+					}
+					if mt.status != http.StatusOK {
+						response = `{"error":{"message":` + string(encoded) + `}}`
+					}
+					rt := diagnosticRoundTrip(func(req *http.Request) (*http.Response, error) {
+						count++
+						var err error
+						sent, err = io.ReadAll(req.Body)
+						if err != nil {
+							return nil, err
+						}
+						return &http.Response{StatusCode: mt.status, Header: http.Header{"Content-Type": {"application/json"}, "Set-Cookie": {"CedarHeader"}}, Body: io.NopCloser(strings.NewReader(response)), Request: req}, nil
+					})
+					p, err := tt.newProvider(&http.Client{Transport: rt})
+					if err != nil {
+						t.Fatal("provider construction failed")
+					}
+					t.Cleanup(func() {
+						if closer, ok := p.(io.Closer); ok {
+							_ = closer.Close()
+						}
+					})
+					trace := &llm.Trace{}
+					result, err := p.Do(t.Context(), &llm.Request{Messages: []llm.Message{{Role: "user", Content: payload}}, Trace: trace})
+					if count != 1 {
+						t.Fatal("offline transport did not run once")
+					}
+					if !strings.Contains(string(sent), "Birch") && !strings.Contains(string(sent), "Hazel") {
+						t.Error("outbound request was scrubbed")
+					}
+					request, ok := trace.Request()
+					if !ok {
+						t.Fatal("request trace absent")
+					}
+					check(t, string(request))
+					if mt.nonAnswer {
+						if err == nil || result != nil {
+							t.Fatal("non-answer was accepted")
+						}
+						check(t, err.Error())
+						body, ok := trace.Response()
+						if !ok {
+							t.Fatal("non-answer trace absent")
+						}
+						check(t, string(body))
+						return
+					}
+					if mt.status == http.StatusOK {
+						if err != nil || result == nil {
+							t.Fatal("successful response not accepted")
+						}
+						check(t, result.Text)
+						body, ok := trace.Response()
+						if !ok {
+							t.Fatal("response trace absent")
+						}
+						check(t, string(body))
+						return
+					}
+					var status *llm.StatusError
+					if !errors.As(err, &status) {
+						t.Fatal("status error absent")
+					}
+					if diff := cmp.Diff(mt.status, status.StatusCode); diff != "" {
+						t.Error("status changed")
+					}
+					check(t, string(status.Body))
+					check(t, status.Error())
+					wrapped := fmt.Errorf("provider: %w", err)
+					check(t, wrapped.Error())
+					var unwrapped *llm.StatusError
+					if !errors.As(wrapped, &unwrapped) || unwrapped != status {
+						t.Fatal("wrapping changed status identity")
+					}
+					handlers := map[string]struct{ newHandler func(io.Writer) slog.Handler }{
+						"text": {newHandler: func(w io.Writer) slog.Handler { return slog.NewTextHandler(w, nil) }},
+						"JSON": {newHandler: func(w io.Writer) slog.Handler { return slog.NewJSONHandler(w, nil) }},
+					}
+					for handlerName, handler := range handlers {
+						t.Run(handlerName, func(t *testing.T) {
+							var out strings.Builder
+							slog.New(handler.newHandler(&out)).LogAttrs(t.Context(), slog.LevelError, "provider error", slog.Any("error", err))
+							check(t, out.String())
+						})
+					}
+					policy := adapter.NoRetry()
+					if mt.status == http.StatusInternalServerError {
+						policy = adapter.DefaultRetry().MaxRetries(1).Backoff(0, 0, 0)
+					}
+					ad, err := adapter.New(adapter.Discrete, adapter.Prompted, adapter.WithProvider("diagnostic", p), adapter.WithDefaultModel("diagnostic"), adapter.WithRetry(policy))
+					if err != nil {
+						t.Fatal("adapter construction failed")
+					}
+					client, err := adapter.NewClient(ad)
+					if err != nil {
+						t.Fatal("adapter client construction failed")
+					}
+					t.Cleanup(func() { _ = client.Close() })
+					questions, err := decision.NewQuestions().Noul("q", decision.Noul{Instructions: decision.Text("Is this valid?")}).Prepare()
+					if err != nil {
+						t.Fatal("question construction failed")
+					}
+					_, err = client.SystemOne(t.Context(), "ordinary state", questions)
+					report, ok := adapter.ReportFromError(err)
+					if !ok {
+						t.Fatal("actual failed SDK call retained no Report")
+					}
+					if mt.status == http.StatusInternalServerError {
+						if len(report.Debug.RetryReasons) != 1 {
+							t.Fatal("retry reason absent")
+						}
+						check(t, report.Debug.RetryReasons[0].Message)
+					}
+					encodedReport, err := report.MarshalJSON()
+					if err != nil {
+						t.Fatal("Report did not encode")
+					}
+					check(t, string(encodedReport))
+				})
+			}
+		})
+	}
+}
 
 // errProviderTimeout is a provider's own timeout error that does not wrap
 // context.DeadlineExceeded, as an HTTP client of a custom provider may

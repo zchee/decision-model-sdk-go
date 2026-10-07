@@ -134,6 +134,11 @@ type Option func(*options)
 //
 // Model returns model as it is given; the name is printed in the text of
 // the Adapter's errors, so it must not hold a key.
+//
+// New builds replacement of the API key's exact known forms once: raw,
+// JSON string content and QueryEscape/PathEscape with both percent-hex cases.
+// Received bodies and diagnostic request copies use "***"; outbound bytes
+// stay unchanged. This is exact replacement, not decoding-aware redaction.
 func New(model string, opts ...Option) (*Provider, error) {
 	var o options
 	for _, opt := range opts {
@@ -171,7 +176,7 @@ func New(model string, opts ...Option) (*Provider, error) {
 		model:    model,
 		key:      key,
 		endpoint: endpoint(u),
-		client:   rest.New(rest.Config{HTTPClient: o.httpClient, Timeout: o.timeout, BlankErrorBodyIsNone: true}),
+		client:   rest.New(rest.Config{HTTPClient: o.httpClient, Timeout: o.timeout, BlankErrorBodyIsNone: true, BodyScrubber: rest.NewBodyScrubber(key)}),
 	}, nil
 }
 
@@ -277,7 +282,7 @@ func (p *Provider) Do(ctx context.Context, req *llm.Request) (*llm.Result, error
 	if err != nil {
 		return nil, err
 	}
-	req.Trace.RecordRequest(apiName, body)
+	req.Trace.RecordRequest(apiName, p.client.ScrubBody(body))
 	header := make(http.Header, 1)
 	header.Set(keyHeader, p.key)
 	data, err := p.client.Post(ctx, p.endpoint, header, body)

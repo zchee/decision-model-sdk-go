@@ -233,6 +233,11 @@ func WithTimeout(d time.Duration) Option {
 // base URL is not an absolute http or https URL with a host, and when
 // neither an API key nor an auth token is found. No error text holds a
 // value New was given or read.
+//
+// New builds replacement of the API key and auth token's exact known forms
+// once: raw, JSON string content and QueryEscape/PathEscape with both
+// percent-hex cases. Received bodies and diagnostic request copies use "***";
+// outbound bytes stay unchanged. No decoding-aware redaction is claimed.
 func New(model string, opts ...Option) (*Provider, error) {
 	o := options{maxTokens: defaultMaxTokens}
 	for _, opt := range opts {
@@ -268,7 +273,7 @@ func New(model string, opts ...Option) (*Provider, error) {
 		maxTokens: o.maxTokens,
 		endpoint:  endpoint,
 		header:    header,
-		client:    rest.New(rest.Config{HTTPClient: o.httpClient, Timeout: o.timeout}),
+		client:    rest.New(rest.Config{HTTPClient: o.httpClient, Timeout: o.timeout, BodyScrubber: rest.NewBodyScrubber(key, token)}),
 	}, nil
 }
 
@@ -350,7 +355,7 @@ func (p *Provider) Do(ctx context.Context, req *llm.Request) (*llm.Result, error
 	if err != nil {
 		return nil, fmt.Errorf("anthropic: the request body could not be written: %w", err)
 	}
-	req.Trace.RecordRequest(apiName, body)
+	req.Trace.RecordRequest(apiName, p.client.ScrubBody(body))
 	data, err := p.client.Post(ctx, p.endpoint, p.header, body)
 	if err != nil {
 		return nil, err

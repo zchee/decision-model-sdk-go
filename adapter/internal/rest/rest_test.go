@@ -107,6 +107,103 @@ func statusError(t *testing.T, c *Client, srv *httptest.Server, status int, body
 	return se
 }
 
+func TestBodyScrubberKnownForms(t *testing.T) {
+	tests := map[string]struct {
+		credentials []string
+		body, want  string
+	}{
+		"success: empty credentials":              {credentials: []string{"", ""}, body: "unchanged", want: "unchanged"},
+		"success: raw and repeated":               {credentials: []string{"BirchFern"}, body: "BirchFern BirchFern", want: "*** ***"},
+		"success: duplicates and longer first":    {credentials: []string{"Birch", "BirchFern", "BirchFern", ""}, body: "BirchFern Birch", want: "*** ***"},
+		"success: JSON string content":            {credentials: []string{`Birch"Fern\Rose`}, body: `Birch\"Fern\\Rose`, want: "***"},
+		"success: query uppercase hex":            {credentials: []string{"Birch/É +Fern"}, body: "Birch%2F%C3%89+%2BFern", want: "***"},
+		"success: query lowercase hex":            {credentials: []string{"Birch/É +Fern"}, body: "Birch%2f%c3%89+%2bFern", want: "***"},
+		"success: path uppercase hex":             {credentials: []string{"Birch/É +Fern"}, body: "Birch%2F%C3%89%20+Fern", want: "***"},
+		"success: path lowercase hex":             {credentials: []string{"Birch/É +Fern"}, body: "Birch%2f%c3%89%20+Fern", want: "***"},
+		"success: nonmatch stays unchanged":       {credentials: []string{"BirchFern"}, body: "ordinary failure", want: "ordinary failure"},
+		"success: empty body":                     {credentials: []string{"BirchFern"}},
+		"success: invalid UTF eight JSON content": {credentials: []string{"Birch\xffFern"}, body: "Birch�Fern", want: "***"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			c := New(Config{BodyScrubber: NewBodyScrubber(tt.credentials...)})
+			t.Cleanup(func() { _ = c.Close() })
+			body := []byte(tt.body)
+			got := c.ScrubBody(body)
+			if diff := cmp.Diff(true, string(got) == tt.want); diff != "" {
+				t.Errorf("exact scrub mismatch; input length=%d output length=%d", len(body), len(got))
+			}
+			if string(body) != tt.body {
+				t.Error("scrubbing mutated the outbound bytes")
+			}
+		})
+	}
+}
+
+func TestPostScrubsBeforeRetention(t *testing.T) {
+	tests := map[string]struct {
+		status     int
+		body, want string
+		limit      int64
+		tooLarge   bool
+	}{
+		"success: status error":                                 {status: http.StatusUnauthorized, body: "BirchFern", want: "***"},
+		"success: successful response":                          {status: http.StatusOK, body: "BirchFern", want: "***"},
+		"success: status cap after shrinking":                   {status: http.StatusUnauthorized, body: "BirchFernwort", want: "***wort", limit: 12},
+		"error: original size still bounds successful response": {status: http.StatusOK, body: "BirchFernBirchFern", limit: 12, tooLarge: true},
+		"success: status cap after expansion":                   {status: http.StatusUnauthorized, body: "ixixix", want: "********", limit: 8},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			const outbound = "BirchFern outbound"
+			called := false
+			rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				called = true
+				body, err := io.ReadAll(req.Body)
+				if err != nil {
+					return nil, err
+				}
+				if string(body) != outbound {
+					t.Error("outbound body was changed")
+				}
+				return &http.Response{StatusCode: tt.status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(tt.body)), Request: req}, nil
+			})
+			c := New(Config{HTTPClient: &http.Client{Transport: rt}, BodyScrubber: NewBodyScrubber("BirchFern", "ix")})
+			if tt.limit != 0 {
+				c.maxBody = tt.limit
+			}
+			if c.maxBody != maxBodyBytes && tt.limit == 0 {
+				t.Fatal("body bound changed")
+			}
+			got, err := c.Post(t.Context(), mustURL(t, "https://offline.test/call"), nil, []byte(outbound))
+			if !called {
+				t.Fatal("synthetic transport was not called")
+			}
+			if tt.tooLarge {
+				if !errors.Is(err, ErrBodyTooLarge) {
+					t.Error("original size bound not enforced")
+				}
+				return
+			}
+			if tt.status != http.StatusOK {
+				var status *llm.StatusError
+				if !errors.As(err, &status) {
+					t.Fatal("expected status error")
+				}
+				if status.StatusCode != tt.status {
+					t.Error("status changed")
+				}
+				got = status.Body
+			} else if err != nil {
+				t.Fatal("successful response failed")
+			}
+			if diff := cmp.Diff(true, string(got) == tt.want); diff != "" {
+				t.Errorf("retained body mismatch; length=%d", len(got))
+			}
+		})
+	}
+}
+
 // TestStatusErrorKeepsStatusAndBody ports the provider half of
 // test_status_errors_map_and_preserve_status_and_body of
 // system-one-adapter-python v0.2.1 (tests/utils/test_error_handling.py:
