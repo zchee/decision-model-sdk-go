@@ -334,10 +334,9 @@ func bodyDiff(body []byte, rec Request) string {
 // read JSON values, member order ignored, and returns the path and a
 // one-line description of the first difference, or "" when it locates
 // none. It never decides a match, and it never quotes a value: the
-// description names the path and the kind of difference only. Numbers of
-// more than fifteen significant digits may compare equal here although
-// jsonx.Equal tells them apart; the caller's message then says the bodies
-// differ without a located member.
+// description names the path and the kind of difference only. Numeric
+// differences use the same exact comparison as jsonx.Equal, so rounding
+// cannot hide the differing member.
 func firstDiff(got, want jsonx.Node, path string) (string, string) {
 	bothNumbers := got.Kind() == jsonx.KindNumber && want.Kind() == jsonx.KindNumber
 	if got.Kind() != want.Kind() && !bothNumbers {
@@ -392,24 +391,11 @@ func firstDiff(got, want jsonx.Node, path string) (string, string) {
 	}
 }
 
-// numbersEqual compares two number literals as Python's == compares the
-// values json.loads makes of them, to the precision of a float64.
+// numbersEqual uses the matcher's exact integer/float comparison to locate
+// a numeric difference. Both nodes already hold valid JSON number literals.
 func numbersEqual(got, want jsonx.Node) bool {
-	if got.IsInt() && want.IsInt() {
-		return normalizeInt(got.Text()) == normalizeInt(want.Text())
-	}
-	g, errG := strconv.ParseFloat(got.Text(), 64)
-	w, errW := strconv.ParseFloat(want.Text(), 64)
-	return errG == nil && errW == nil && g == w
-}
-
-// normalizeInt strips the one normalization JSON integers allow, a minus
-// before zero.
-func normalizeInt(text string) string {
-	if text == "-0" {
-		return "0"
-	}
-	return text
+	equal, err := jsonx.Equal([]byte(got.Text()), []byte(want.Text()))
+	return err == nil && equal
 }
 
 // memberPath appends an object member to a diff path.

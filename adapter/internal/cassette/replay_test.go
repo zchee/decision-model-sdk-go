@@ -21,7 +21,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
+	gocmp "github.com/google/go-cmp/cmp"
 )
 
 // jsonRequest returns one recorded request with a JSON body.
@@ -255,7 +255,7 @@ func TestReplayServesEachInteractionOnce(t *testing.T) {
 		{URL: uri, Body: []byte(`{"n":2}`)},
 		{URL: uri, Body: []byte(`{"n":1}`)},
 	}
-	if diff := cmp.Diff(wantSent, tr.Requests()); diff != "" {
+	if diff := gocmp.Diff(wantSent, tr.Requests()); diff != "" {
 		t.Errorf("Requests (-want +got):\n%s", diff)
 	}
 }
@@ -378,7 +378,7 @@ func TestReplayRebuildsTheRecordedResponse(t *testing.T) {
 		t.Error("Request = nil, want the sent request")
 	}
 	wantSent := []SentRequest{{URL: "https://api.example.test/v1/answers", Body: []byte(`{"a":1}`)}}
-	if diff := cmp.Diff(wantSent, tr.Requests()); diff != "" {
+	if diff := gocmp.Diff(wantSent, tr.Requests()); diff != "" {
 		t.Errorf("Requests (-want +got):\n%s", diff)
 	}
 }
@@ -461,22 +461,64 @@ func TestReplayDeepPathQuoting(t *testing.T) {
 	}
 }
 
+// TestReplayExactNumberMatching checks numeric misses and their exact paths
+// without exposing the differing values in the diagnostic.
 func TestReplayExactNumberMatching(t *testing.T) {
 	t.Parallel()
-	// An integer one past float64 precision is not the float it rounds
-	// to, as Python's == compares an int with a float exactly. The walk
-	// that phrases the difference cannot locate it at float64 precision,
-	// so the message says the bodies differ in a number beyond it.
-	c := &Cassette{Interactions: []Interaction{{
-		Request:  jsonRequest("POST", "https://api.example.test/v1/answers", `{"v":9007199254740992.0}`),
-		Response: jsonResponse(`{"ok":true}`),
-	}}}
-	_, _, err := send(t, c.Transport(), "POST", "https://api.example.test/v1/answers", `{"v":9007199254740993}`)
-	if err == nil {
-		t.Fatal("an integer matched the float it rounds to, want a miss")
+	tests := map[string]struct {
+		sent, recorded string
+	}{
+		"error: integer rounds to recorded float": {
+			sent: "9007199254740993", recorded: "9007199254740992.0",
+		},
+		"error: sent float rounds away recorded integer": {
+			sent: "9007199254740992.0", recorded: "9007199254740993",
+		},
+		"error: negative integer rounds to recorded float": {
+			sent: "-9007199254740993", recorded: "-9007199254740992.0",
+		},
+		"error: exponent float and large integer": {
+			sent: "9007199254740993", recorded: "9.007199254740992e15",
+		},
+		"error: distinct large integers": {
+			sent: "1152921504606846977", recorded: "1152921504606846976",
+		},
+		"error: mixed numbers beyond machine integer range": {
+			sent: "1267650600228229401496703205377", recorded: "1267650600228229401496703205376.0",
+		},
 	}
-	if want := "body (the values differ in a number beyond float64 precision)"; !strings.Contains(err.Error(), want) {
-		t.Errorf("error = %q, want it to contain %q", err, want)
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			const uri = "https://api.example.test/v1/answers"
+			// Equal mixed numbers are visited before the actual difference.
+			recorded := `{"outer":[{"same":9007199254740992.0},{"a b":` + tt.recorded + `}],"note":"unquoted-body-marker"}`
+			sent := `{"outer":[{"same":9007199254740992},{"a b":` + tt.sent + `}],"note":"unquoted-body-marker"}`
+			c := &Cassette{Interactions: []Interaction{{
+				Request:  jsonRequest(http.MethodPost, uri, recorded),
+				Response: jsonResponse(`{"ok":true}`),
+			}}}
+			tr := c.Transport()
+			_, _, err := send(t, tr, http.MethodPost, uri, sent)
+			if err == nil {
+				t.Fatal("different numeric values matched, want a miss")
+			}
+			const want = `cassette: no interaction matches POST https://api.example.test/v1/answers: the nearest candidate differs in body at $.outer[1]["a b"] (the numbers differ)`
+			if diff := gocmp.Diff(want, err.Error()); diff != "" {
+				t.Errorf("numeric mismatch diagnostic (-want +got):\n%s", diff)
+			}
+			for _, value := range []string{tt.sent, tt.recorded, "unquoted-body-marker"} {
+				if strings.Contains(err.Error(), value) {
+					t.Error("numeric mismatch diagnostic quotes a body value")
+				}
+			}
+			if got := tr.Unconsumed(); got != 1 {
+				t.Errorf("Unconsumed after a numeric miss = %d, want 1", got)
+			}
+			if got := tr.Requests(); len(got) != 0 {
+				t.Errorf("matched requests after a numeric miss = %d, want 0", len(got))
+			}
+		})
 	}
 }
 
