@@ -1111,17 +1111,14 @@ func TestModelAndClose(t *testing.T) {
 	}
 }
 
-// TestProviderPrintsNoCredential pins what a caller sees when it prints a
-// Provider: the model and nothing else. The fmt verbs %v, %+v, %s and %#v
-// of the value and of the pointer, and slog's text and JSON handlers given
-// both with slog.Any, hold no byte of the API key, the auth token or the
-// base URL's user, password and query, each made at run time, which fmt's
-// field-by-field form of the struct would print from the headers. A nil
-// pointer prints as <nil>.
+// TestProviderPrintsNoCredential checks all formatting verbs on values,
+// pointers and interfaces, and both slog handlers. Fields remain private
+// except for fmt's invalid value-%p diagnostic, which is detected separately.
+// A nil pointer prints as <nil>.
 func TestProviderPrintsNoCredential(t *testing.T) {
 	clearEnv(t)
-	planted := map[string]string{"key": canary(t), "token": canary(t), "user": canary(t), "password": canary(t), "query": canary(t)}
-	p, err := New("test-model", WithAPIKey(planted["key"]), WithAuthToken(planted["token"]), WithBaseURL("https://"+planted["user"]+":"+planted["password"]+"@api.example.test/p?tenant="+planted["query"]))
+	planted := map[string]string{"key": "amberwhistle", "token": "goldenheather", "user": "cedarspark", "password": "violetmeadow", "query": "copperfern", "host": "willowharbor", "header": "silverorchard"}
+	p, err := New("test-model", WithAPIKey(planted["key"]), WithAuthToken(planted["token"]), WithBaseURL("https://"+planted["user"]+":"+planted["password"]+"@"+planted["host"]+".test/p?tenant="+planted["query"]))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -1140,33 +1137,139 @@ func TestProviderPrintsNoCredential(t *testing.T) {
 		}
 	}
 
+	p.header.Set("X-Private", planted["header"])
+	var boxed llm.Provider = p
+	var boxedAny any = *p
 	tests := map[string]struct {
-		v    any
-		want map[string]string // by verb
+		v          any
+		nilPointer bool
+		value      bool
 	}{
-		"success: value prints the model only": {
-			v:    *p,
-			want: map[string]string{"%v": short, "%+v": short, "%s": short, "%#v": goSyntax},
-		},
-		"success: pointer prints the model only": {
-			v:    p,
-			want: map[string]string{"%v": short, "%+v": short, "%s": short, "%#v": goSyntax},
-		},
-		"success: nil pointer prints <nil>": {
-			v:    (*Provider)(nil),
-			want: map[string]string{"%v": nilText, "%+v": nilText, "%s": nilText, "%#v": nilText},
-		},
+		"success: value":              {v: *p, value: true},
+		"success: pointer":            {v: p},
+		"success: provider interface": {v: boxed},
+		"success: any interface":      {v: boxedAny, value: true},
+		"success: nil pointer":        {v: (*Provider)(nil), nilPointer: true},
+	}
+	// Each format is static so vet checks it, including unsupported verbs.
+	formats := map[string]struct{ print func(any) string }{
+		"v": {print: func(v any) string {
+			return fmt.Sprintf("%v\n%20v\n%-20v\n%020v\n%+20v\n%#20v\n%.3v", v, v, v, v, v, v, v)
+		}},
+		"s": {print: func(v any) string {
+			return fmt.Sprintf("%s\n%20s\n%-20s\n%020s\n%+20s\n%#20s\n%.3s", v, v, v, v, v, v, v)
+		}},
+		"q": {print: func(v any) string {
+			return fmt.Sprintf("%q\n%20q\n%-20q\n%020q\n%+20q\n%#20q\n%.3q", v, v, v, v, v, v, v)
+		}},
+		"x": {print: func(v any) string {
+			return fmt.Sprintf("%x\n%20x\n%-20x\n%020x\n%+20x\n%#20x\n%.3x", v, v, v, v, v, v, v)
+		}},
+		"X": {print: func(v any) string {
+			return fmt.Sprintf("%X\n%20X\n%-20X\n%020X\n%+20X\n%#20X\n%.3X", v, v, v, v, v, v, v)
+		}},
+		"d": {print: func(v any) string {
+			return fmt.Sprintf("%d\n%20d\n%-20d\n%020d\n%+20d\n%#20d\n%.3d", v, v, v, v, v, v, v)
+		}},
+		"t": {print: func(v any) string {
+			return fmt.Sprintf("%t\n%20t\n%-20t\n%020t\n%+20t\n%#20t\n%.3t", v, v, v, v, v, v, v)
+		}},
+		"o": {print: func(v any) string {
+			return fmt.Sprintf("%o\n%20o\n%-20o\n%020o\n%+20o\n%#20o\n%.3o", v, v, v, v, v, v, v)
+		}},
+		"O": {print: func(v any) string {
+			return fmt.Sprintf("%O\n%20O\n%-20O\n%020O\n%+20O\n%#20O\n%.3O", v, v, v, v, v, v, v)
+		}},
+		"b": {print: func(v any) string {
+			return fmt.Sprintf("%b\n%20b\n%-20b\n%020b\n%+20b\n%#20b\n%.3b", v, v, v, v, v, v, v)
+		}},
+		"c": {print: func(v any) string {
+			return fmt.Sprintf("%c\n%20c\n%-20c\n%020c\n%+20c\n%#20c\n%.3c", v, v, v, v, v, v, v)
+		}},
+		"U": {print: func(v any) string {
+			return fmt.Sprintf("%U\n%20U\n%-20U\n%020U\n%+20U\n%#20U\n%.3U", v, v, v, v, v, v, v)
+		}},
+		"e": {print: func(v any) string {
+			return fmt.Sprintf("%e\n%20e\n%-20e\n%020e\n%+20e\n%#20e\n%.3e", v, v, v, v, v, v, v)
+		}},
+		"E": {print: func(v any) string {
+			return fmt.Sprintf("%E\n%20E\n%-20E\n%020E\n%+20E\n%#20E\n%.3E", v, v, v, v, v, v, v)
+		}},
+		"f": {print: func(v any) string {
+			return fmt.Sprintf("%f\n%20f\n%-20f\n%020f\n%+20f\n%#20f\n%.3f", v, v, v, v, v, v, v)
+		}},
+		"F": {print: func(v any) string {
+			return fmt.Sprintf("%F\n%20F\n%-20F\n%020F\n%+20F\n%#20F\n%.3F", v, v, v, v, v, v, v)
+		}},
+		"g": {print: func(v any) string {
+			return fmt.Sprintf("%g\n%20g\n%-20g\n%020g\n%+20g\n%#20g\n%.3g", v, v, v, v, v, v, v)
+		}},
+		"G": {print: func(v any) string {
+			return fmt.Sprintf("%G\n%20G\n%-20G\n%020G\n%+20G\n%#20G\n%.3G", v, v, v, v, v, v, v)
+		}},
+		"z": {print: func(v any) string {
+			return fmt.Sprintf("%z\n%20z\n%-20z\n%020z\n%+20z\n%#20z\n%.3z", v, v, v, v, v, v, v)
+		}},
+		"p": {print: func(v any) string {
+			return fmt.Sprintf("%p\n%20p\n%-20p\n%020p\n%+20p\n%#20p\n%.3p", v, v, v, v, v, v, v)
+		}},
+		"T": {print: func(v any) string {
+			return fmt.Sprintf("%T\n%20T\n%-20T\n%020T\n%+20T\n%#20T\n%.3T", v, v, v, v, v, v, v)
+		}},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			for verb, want := range tt.want {
-				got := fmt.Sprintf(verb, tt.v)
-				if diff := gocmp.Diff(want, got); diff != "" {
-					t.Errorf("%s mismatch (-want +got):\n%s", verb, diff)
+			for modifier, out := range map[string]string{"plus": fmt.Sprintf("%+v", tt.v), "sharp": fmt.Sprintf("%#v", tt.v)} {
+				want := short
+				if modifier == "sharp" {
+					want = goSyntax
 				}
-				checkPlanted(t, verb, got)
+				if tt.nilPointer {
+					want = nilText
+				}
+				checkPlanted(t, modifier, out)
+				if diff := gocmp.Diff(want, out); diff != "" {
+					t.Errorf("%s mismatch (-want +got):\n%s", modifier, diff)
+				}
+			}
+			for verb, format := range formats {
+				t.Run(verb, func(t *testing.T) {
+					out := format.print(tt.v)
+					if verb == "p" && tt.value {
+						// A value's %p is fmt's bad-verb path, which bypasses
+						// Format. This detects it; no safety is claimed for it.
+						for item := range strings.SplitSeq(out, "\n") {
+							if !strings.Contains(item, "%!p(anthropic.Provider={") || !strings.HasSuffix(item, "})") {
+								t.Error("missing fmt value-pointer diagnostic")
+							}
+						}
+						return
+					}
+					checkPlanted(t, verb, out)
+					if verb == "p" || verb == "T" {
+						return
+					}
+					want := []string{short, short, short, short, short, short, short}
+					if verb == "v" {
+						want[5] = goSyntax
+					}
+					if tt.nilPointer {
+						for i := range want {
+							want[i] = nilText
+						}
+					}
+					if diff := gocmp.Diff(want, strings.Split(out, "\n")); diff != "" {
+						t.Errorf("plain/width/left/zero/plus/sharp/precision mismatch (-want +got):\n%s", diff)
+					}
+				})
 			}
 		})
+	}
+	for name, out := range map[string]string{
+		"slice":  fmt.Sprintf("%v", []any{*p, boxed}),
+		"struct": fmt.Sprintf("%#v", struct{ Value Provider }{Value: *p}),
+	} {
+		checkPlanted(t, name, out)
 	}
 
 	handlers := map[string]struct {
@@ -1175,7 +1278,7 @@ func TestProviderPrintsNoCredential(t *testing.T) {
 	}{
 		"success: slog text handler logs the model only": {
 			handler: func(w io.Writer) slog.Handler { return slog.NewTextHandler(w, nil) },
-			want:    " pointer=" + short + " value=" + short + "\n",
+			want:    " pointer=" + short + " value=" + short + " interface=" + short + "\n",
 		},
 		"success: slog JSON handler logs no credential": {
 			handler: func(w io.Writer) slog.Handler { return slog.NewJSONHandler(w, nil) },
@@ -1184,7 +1287,7 @@ func TestProviderPrintsNoCredential(t *testing.T) {
 	for name, tt := range handlers {
 		t.Run(name, func(t *testing.T) {
 			var buf strings.Builder
-			slog.New(tt.handler(&buf)).Info("provider", slog.Any("pointer", p), slog.Any("value", *p))
+			slog.New(tt.handler(&buf)).LogAttrs(t.Context(), slog.LevelInfo, "provider", slog.Any("pointer", p), slog.Any("value", *p), slog.Any("interface", boxed))
 			out := buf.String()
 			if !strings.Contains(out, tt.want) {
 				t.Errorf("the record does not hold %q", tt.want)

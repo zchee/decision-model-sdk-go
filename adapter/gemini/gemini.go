@@ -42,6 +42,7 @@ package gemini
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
@@ -92,6 +93,8 @@ const (
 var errNoKey = errors.New("gemini: no API key: set GOOGLE_API_KEY or GEMINI_API_KEY, or pass WithAPIKey")
 
 // Provider calls one Gemini model; it is safe for concurrent use.
+// Print %p only on a pointer, where fmt prints its address. On a value,
+// fmt's bad-verb diagnostic bypasses Format and may expose private fields.
 type Provider struct {
 	model    string
 	key      string
@@ -250,6 +253,17 @@ func (p Provider) String() string {
 // prints as <nil>.
 func (p Provider) GoString() string {
 	return "gemini.Provider{Model:" + p.model + "}"
+}
+
+// Format prints String for every verb except %#v, which prints GoString.
+// Width, precision and flags are ignored; headers and endpoints are never
+// printed. The fmt package handles %T and %p itself before calling Format.
+func (p Provider) Format(f fmt.State, verb rune) {
+	text := p.String()
+	if verb == 'v' && f.Flag('#') {
+		text = p.GoString()
+	}
+	_, _ = fmt.Fprint(f, text)
 }
 
 // Do performs one request.

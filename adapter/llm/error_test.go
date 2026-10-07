@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -288,72 +289,197 @@ func TestStatusErrorGoString(t *testing.T) {
 	}
 }
 
-// TestStatusErrorFormat checks what the fmt verbs print for a StatusError:
-// a value prints its status code and nothing of its header or body, which
-// may carry a cookie, a credential or any text; a pointer, which is an
-// error, prints its Error text for %v, %+v and %s, with the body and no
-// header value; a nil pointer prints as <nil>.
+// TestStatusErrorFormat checks every verb on values, pointers and interfaces.
+// The v, s and q verbs print the bounded Error text; other verbs print the
+// status only, with GoString for %#v. No verb prints headers or the body tail.
 func TestStatusErrorFormat(t *testing.T) {
 	const (
-		headerCanary = "canary-header-7f3a"
-		bodyCanary   = "canary-body-91c2"
+		headerCanary = "silverorchard"
+		cookieCanary = "peachthistle"
+		bodyCanary   = "saffroncloud"
+		tailCanary   = "rosemarydrift"
+		short        = "llm.StatusError(401)"
+		goSyntax     = "llm.StatusError{StatusCode:401}"
 	)
+	boundedBody := strings.Repeat("é", 200-len(bodyCanary)) + bodyCanary
 	full := llm.StatusError{
 		StatusCode: http.StatusUnauthorized,
-		Header: http.Header{
-			"Set-Cookie":    {"session=" + headerCanary},
-			"Authorization": {"Bearer " + headerCanary},
-		},
-		Body: []byte(bodyCanary),
+		Header:     http.Header{"Set-Cookie": {cookieCanary}, "Authorization": {headerCanary}},
+		Body:       []byte(boundedBody + tailCanary),
 	}
-	const (
-		short    = "llm.StatusError(401)"
-		goSyntax = "llm.StatusError{StatusCode:401}"
-		errText  = "401 " + bodyCanary
-	)
+	errText := "401 " + boundedBody + "…"
 	if diff := cmp.Diff(errText, (&full).Error()); diff != "" {
 		t.Fatalf("Error() mismatch (-want +got):\n%s", diff)
 	}
 	if diff := cmp.Diff(short, full.String()); diff != "" {
 		t.Errorf("String() mismatch (-want +got):\n%s", diff)
 	}
-
+	checkPlanted := func(t *testing.T, out string) {
+		t.Helper()
+		for name, canary := range map[string]string{"header": headerCanary, "cookie": cookieCanary, "body tail": tailCanary} {
+			if strings.Contains(out, canary) {
+				t.Errorf("output prints %s", name)
+			}
+		}
+	}
+	var boxedError error = &full
+	var boxedAny any = full
 	tests := map[string]struct {
-		v        any
-		want     map[string]string // by verb
-		wantBody bool              // the body is printed, by design
+		v          any
+		nilPointer bool
+		value      bool
 	}{
-		"success: value prints the status only": {
-			v:    full,
-			want: map[string]string{"%v": short, "%+v": short, "%s": short, "%#v": goSyntax},
-		},
-		"success: pointer prints its Error text": {
-			v:        &full,
-			want:     map[string]string{"%v": errText, "%+v": errText, "%s": errText, "%#v": goSyntax},
-			wantBody: true,
-		},
-		"success: nil pointer": {
-			v:    (*llm.StatusError)(nil),
-			want: map[string]string{"%v": "<nil>", "%+v": "<nil>", "%s": "<nil>", "%#v": "<nil>"},
-		},
-		"success: value inside a slice": {
-			v:    []any{full},
-			want: map[string]string{"%v": "[" + short + "]", "%+v": "[" + short + "]", "%s": "[" + short + "]", "%#v": "[]interface {}{" + goSyntax + "}"},
-		},
+		"success: value":           {v: full, value: true},
+		"success: pointer":         {v: &full},
+		"success: error interface": {v: boxedError},
+		"success: any interface":   {v: boxedAny, value: true},
+		"success: nil pointer":     {v: (*llm.StatusError)(nil), nilPointer: true},
+	}
+	// Each format is static so vet checks it, including unsupported verbs.
+	formats := map[string]struct{ print func(any) string }{
+		"v": {print: func(v any) string {
+			return fmt.Sprintf("%v\n%20v\n%-20v\n%020v\n%+20v\n%#20v\n%.3v", v, v, v, v, v, v, v)
+		}},
+		"s": {print: func(v any) string {
+			return fmt.Sprintf("%s\n%20s\n%-20s\n%020s\n%+20s\n%#20s\n%.3s", v, v, v, v, v, v, v)
+		}},
+		"q": {print: func(v any) string {
+			return fmt.Sprintf("%q\n%20q\n%-20q\n%020q\n%+20q\n%#20q\n%.3q", v, v, v, v, v, v, v)
+		}},
+		"x": {print: func(v any) string {
+			return fmt.Sprintf("%x\n%20x\n%-20x\n%020x\n%+20x\n%#20x\n%.3x", v, v, v, v, v, v, v)
+		}},
+		"X": {print: func(v any) string {
+			return fmt.Sprintf("%X\n%20X\n%-20X\n%020X\n%+20X\n%#20X\n%.3X", v, v, v, v, v, v, v)
+		}},
+		"d": {print: func(v any) string {
+			return fmt.Sprintf("%d\n%20d\n%-20d\n%020d\n%+20d\n%#20d\n%.3d", v, v, v, v, v, v, v)
+		}},
+		"t": {print: func(v any) string {
+			return fmt.Sprintf("%t\n%20t\n%-20t\n%020t\n%+20t\n%#20t\n%.3t", v, v, v, v, v, v, v)
+		}},
+		"o": {print: func(v any) string {
+			return fmt.Sprintf("%o\n%20o\n%-20o\n%020o\n%+20o\n%#20o\n%.3o", v, v, v, v, v, v, v)
+		}},
+		"O": {print: func(v any) string {
+			return fmt.Sprintf("%O\n%20O\n%-20O\n%020O\n%+20O\n%#20O\n%.3O", v, v, v, v, v, v, v)
+		}},
+		"b": {print: func(v any) string {
+			return fmt.Sprintf("%b\n%20b\n%-20b\n%020b\n%+20b\n%#20b\n%.3b", v, v, v, v, v, v, v)
+		}},
+		"c": {print: func(v any) string {
+			return fmt.Sprintf("%c\n%20c\n%-20c\n%020c\n%+20c\n%#20c\n%.3c", v, v, v, v, v, v, v)
+		}},
+		"U": {print: func(v any) string {
+			return fmt.Sprintf("%U\n%20U\n%-20U\n%020U\n%+20U\n%#20U\n%.3U", v, v, v, v, v, v, v)
+		}},
+		"e": {print: func(v any) string {
+			return fmt.Sprintf("%e\n%20e\n%-20e\n%020e\n%+20e\n%#20e\n%.3e", v, v, v, v, v, v, v)
+		}},
+		"E": {print: func(v any) string {
+			return fmt.Sprintf("%E\n%20E\n%-20E\n%020E\n%+20E\n%#20E\n%.3E", v, v, v, v, v, v, v)
+		}},
+		"f": {print: func(v any) string {
+			return fmt.Sprintf("%f\n%20f\n%-20f\n%020f\n%+20f\n%#20f\n%.3f", v, v, v, v, v, v, v)
+		}},
+		"F": {print: func(v any) string {
+			return fmt.Sprintf("%F\n%20F\n%-20F\n%020F\n%+20F\n%#20F\n%.3F", v, v, v, v, v, v, v)
+		}},
+		"g": {print: func(v any) string {
+			return fmt.Sprintf("%g\n%20g\n%-20g\n%020g\n%+20g\n%#20g\n%.3g", v, v, v, v, v, v, v)
+		}},
+		"G": {print: func(v any) string {
+			return fmt.Sprintf("%G\n%20G\n%-20G\n%020G\n%+20G\n%#20G\n%.3G", v, v, v, v, v, v, v)
+		}},
+		"z": {print: func(v any) string {
+			return fmt.Sprintf("%z\n%20z\n%-20z\n%020z\n%+20z\n%#20z\n%.3z", v, v, v, v, v, v, v)
+		}},
+		"p": {print: func(v any) string {
+			return fmt.Sprintf("%p\n%20p\n%-20p\n%020p\n%+20p\n%#20p\n%.3p", v, v, v, v, v, v, v)
+		}},
+		"T": {print: func(v any) string {
+			return fmt.Sprintf("%T\n%20T\n%-20T\n%020T\n%+20T\n%#20T\n%.3T", v, v, v, v, v, v, v)
+		}},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			for verb, want := range tt.want {
-				got := fmt.Sprintf(verb, tt.v)
-				if diff := cmp.Diff(want, got); diff != "" {
-					t.Errorf("%s mismatch (-want +got):\n%s", verb, diff)
+			for modifier, out := range map[string]string{"plus": fmt.Sprintf("%+v", tt.v), "sharp": fmt.Sprintf("%#v", tt.v)} {
+				want := errText
+				if modifier == "sharp" {
+					want = goSyntax
 				}
-				if strings.Contains(got, headerCanary) {
-					t.Errorf("%s = %q prints a header value", verb, got)
+				if tt.nilPointer {
+					want = "<nil>"
 				}
-				if !tt.wantBody && strings.Contains(got, bodyCanary) {
-					t.Errorf("%s = %q prints a body byte", verb, got)
+				checkPlanted(t, out)
+				if diff := cmp.Diff(want, out); diff != "" {
+					t.Errorf("%s mismatch (-want +got):\n%s", modifier, diff)
 				}
+			}
+			for verb, format := range formats {
+				t.Run(verb, func(t *testing.T) {
+					out := format.print(tt.v)
+					if verb == "p" && tt.value {
+						// A value's %p is fmt's bad-verb path, which bypasses
+						// Format. This detects it; no safety is claimed for it.
+						for item := range strings.SplitSeq(out, "\n") {
+							if !strings.Contains(item, "%!p(llm.StatusError={") || !strings.HasSuffix(item, "})") {
+								t.Error("missing fmt value-pointer diagnostic")
+							}
+						}
+						return
+					}
+					checkPlanted(t, out)
+					if verb == "p" || verb == "T" {
+						return
+					}
+					text := short
+					if verb == "v" || verb == "s" || verb == "q" {
+						text = errText
+					}
+					want := []string{text, text, text, text, text, text, text}
+					if verb == "v" {
+						want[5] = goSyntax
+					}
+					if tt.nilPointer {
+						for i := range want {
+							want[i] = "<nil>"
+						}
+					}
+					if diff := cmp.Diff(want, strings.Split(out, "\n")); diff != "" {
+						t.Errorf("plain/width/left/zero/plus/sharp/precision mismatch (-want +got):\n%s", diff)
+					}
+				})
+			}
+		})
+	}
+	containers := map[string]struct{ got, want string }{
+		"success: value inside a slice":          {got: fmt.Sprintf("%v", []any{full}), want: "[" + errText + "]"},
+		"success: plus value inside a slice":     {got: fmt.Sprintf("%+v", []any{full}), want: "[" + errText + "]"},
+		"success: string value inside a slice":   {got: fmt.Sprintf("%s", []any{full}), want: "[" + errText + "]"},
+		"success: GoString value inside a slice": {got: fmt.Sprintf("%#v", []any{full}), want: "[]interface {}{" + goSyntax + "}"},
+		"success: wrapped error":                 {got: fmt.Errorf("provider: %w", boxedError).Error(), want: "provider: " + errText},
+	}
+	for name, tt := range containers {
+		t.Run(name, func(t *testing.T) {
+			checkPlanted(t, tt.got)
+			if diff := cmp.Diff(tt.want, tt.got); diff != "" {
+				t.Errorf("text mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+	handlers := map[string]struct{ handler func(io.Writer) slog.Handler }{
+		"success: slog text error attributes": {handler: func(w io.Writer) slog.Handler { return slog.NewTextHandler(w, nil) }},
+		"success: slog JSON error attributes": {handler: func(w io.Writer) slog.Handler { return slog.NewJSONHandler(w, nil) }},
+	}
+	for name, tt := range handlers {
+		t.Run(name, func(t *testing.T) {
+			var buf strings.Builder
+			slog.New(tt.handler(&buf)).LogAttrs(t.Context(), slog.LevelInfo, "error", slog.Any("pointer", &full), slog.Any("error", boxedError), slog.Any("any", any(&full)))
+			out := buf.String()
+			checkPlanted(t, out)
+			if strings.Count(out, errText) != 3 {
+				t.Error("each error attribute must print the bounded Error text")
 			}
 		})
 	}

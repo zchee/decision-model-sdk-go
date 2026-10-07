@@ -17,6 +17,7 @@ package llm
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strconv"
 )
@@ -29,6 +30,8 @@ const maxErrorBodyChars = 200
 // StatusError is a provider's non-2xx response. It ports the TypeSafeAPIError
 // that upstream's map_provider_error builds from a provider status error
 // (error_handling.py:67-69).
+// Print %p only on a pointer, where fmt prints its address. On a value,
+// fmt's bad-verb diagnostic bypasses Format and may expose Header and Body.
 type StatusError struct {
 	// StatusCode is the response's HTTP status code.
 	StatusCode int
@@ -70,11 +73,9 @@ func (e *StatusError) Error() string {
 	return string(append(b, body...))
 }
 
-// String returns the status code alone, as "llm.StatusError(<status>)". It
-// is what %v, %+v and %s print for a StatusError value, which is not an
-// error, so that they print no header value and no body byte as fmt's
-// field-by-field form would. A *StatusError is an error, and the same verbs
-// print its Error text.
+// String returns the status code alone, as "llm.StatusError(<status>)".
+// Format uses it for verbs other than v, s and q, which print Error's bounded
+// body text, and %#v, which prints GoString. No verb prints header values.
 func (e StatusError) String() string {
 	return "llm.StatusError(" + strconv.Itoa(e.StatusCode) + ")"
 }
@@ -85,6 +86,25 @@ func (e StatusError) String() string {
 // *StatusError prints as <nil>.
 func (e StatusError) GoString() string {
 	return "llm.StatusError{StatusCode:" + strconv.Itoa(e.StatusCode) + "}"
+}
+
+// Format prints Error's bounded body text for v, s and q, GoString for %#v,
+// and String for every other verb. It never prints header values. Width,
+// precision and flags are ignored. The fmt package handles %T and %p itself
+// before calling Format. A nil *StatusError prints as <nil>.
+func (e StatusError) Format(f fmt.State, verb rune) {
+	text := e.String()
+	switch verb {
+	case 'v':
+		if f.Flag('#') {
+			text = e.GoString()
+		} else {
+			text = (&e).Error()
+		}
+	case 's', 'q':
+		text = (&e).Error()
+	}
+	_, _ = fmt.Fprint(f, text)
 }
 
 // TimeoutError is a provider request that timed out. It ports the
