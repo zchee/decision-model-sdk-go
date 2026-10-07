@@ -16,6 +16,7 @@ package llm_test
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -480,6 +481,179 @@ func TestErrorText(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestStatusErrorMarshalJSON(t *testing.T) {
+	tests := map[string]struct {
+		body string
+		want string
+	}{
+		"success: quote":              {body: `"`, want: `"401 \""`},
+		"success: backslash":          {body: `\`, want: `"401 \\"`},
+		"success: printable ASCII":    {body: " /<>\x7f", want: "\"401  /<>\x7f\""},
+		"success: valid UTF-8":        {body: "é日本😀�" + string(rune(0x2028)) + string(rune(0x2029)), want: `"401 é日本😀�` + string(rune(0x2028)) + string(rune(0x2029)) + `"`},
+		"success: invalid UTF-8 byte": {body: "a\xffb", want: `"401 a�b"`},
+		"success: truncated UTF-8":    {body: "\xe2\x82", want: `"401 ��"`},
+		"success: invalid overlong":   {body: "\xc0\xaf", want: `"401 ��"`},
+		"success: nil body":           {want: `"401 status code (no body)"`},
+		"success: bounded body":       {body: strings.Repeat("é", 200) + "BirchTail", want: `"401 ` + strings.Repeat("é", 200) + `…"`},
+	}
+	for r := range 0x20 {
+		tests[fmt.Sprintf("success: control %02x", r)] = struct{ body, want string }{
+			body: string(rune(r)), want: fmt.Sprintf(`"401 \u%04x"`, r),
+		}
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			full := llm.StatusError{StatusCode: 401, Header: http.Header{"Authorization": {"CedarHeader"}}, Body: []byte(tt.body)}
+			forms := map[string]struct{ value any }{
+				"value": {value: full}, "pointer": {value: &full},
+				"boxed value": {value: any(full)}, "boxed pointer": {value: any(&full)},
+			}
+			for form, ft := range forms {
+				t.Run(form, func(t *testing.T) {
+					marshaler, ok := ft.value.(interface{ MarshalJSON() ([]byte, error) })
+					if !ok {
+						t.Fatal("status error does not marshal its bounded text")
+					}
+					encoded, err := marshaler.MarshalJSON()
+					if err != nil {
+						t.Fatal(err)
+					}
+					if diff := cmp.Diff(tt.want, string(encoded)); diff != "" {
+						t.Errorf("JSON escaping mismatch (-want +got):\n%s", diff)
+					}
+					node, err := jsonx.Read(encoded)
+					if err != nil || node.Kind() != jsonx.KindString {
+						t.Fatal("bounded error is not a valid JSON string")
+					}
+					if diff := cmp.Diff(string([]rune((&full).Error())), node.Text()); diff != "" {
+						t.Errorf("Error text round trip mismatch (-want +got):\n%s", diff)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestStatusErrorStructuredLogging(t *testing.T) {
+	const headerCanary, tailCanary = "CedarHeader", "BirchTail"
+	bounded := strings.Repeat("é", 200)
+	full := llm.StatusError{StatusCode: 401, Header: http.Header{"Authorization": {headerCanary}}, Body: []byte(bounded + tailCanary)}
+	want := (&full).Error()
+	tests := map[string]struct {
+		value any
+		field bool
+		slice bool
+	}{
+		"success: value":          {value: full},
+		"success: pointer":        {value: &full},
+		"success: boxed value":    {value: any(full)},
+		"success: boxed pointer":  {value: any(&full)},
+		"success: error":          {value: error(&full)},
+		"success: public value":   {value: struct{ Error llm.StatusError }{Error: full}, field: true},
+		"success: public pointer": {value: struct{ Error *llm.StatusError }{Error: &full}, field: true},
+		"success: public boxed":   {value: struct{ Error any }{Error: full}, field: true},
+		"success: value slice":    {value: []llm.StatusError{full}, slice: true},
+		"success: pointer slice":  {value: []*llm.StatusError{&full}, slice: true},
+		"success: boxed slice":    {value: []any{full}, slice: true},
+	}
+	handlers := map[string]struct {
+		newHandler func(io.Writer) slog.Handler
+		json       bool
+	}{
+		"text": {newHandler: func(w io.Writer) slog.Handler { return slog.NewTextHandler(w, nil) }},
+		"JSON": {newHandler: func(w io.Writer) slog.Handler { return slog.NewJSONHandler(w, nil) }, json: true},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if !tt.field && !tt.slice {
+				resolved := slog.AnyValue(tt.value).Resolve()
+				if resolved.Kind() != slog.KindString || resolved.String() != want {
+					t.Error("status error must resolve to the bounded string value")
+				}
+			}
+			for handlerName, handler := range handlers {
+				t.Run(handlerName, func(t *testing.T) {
+					var out strings.Builder
+					slog.New(handler.newHandler(&out)).LogAttrs(t.Context(), slog.LevelError, "status", slog.Any("error", tt.value))
+					text := out.String()
+					for _, marker := range []string{headerCanary, tailCanary, base64.StdEncoding.EncodeToString(full.Body), base64.StdEncoding.EncodeToString([]byte(tailCanary))} {
+						if strings.Contains(text, marker) {
+							t.Error("structured log exposes header or body tail")
+						}
+					}
+					if !handler.json {
+						if strings.Count(text, want) != 1 {
+							t.Error("text handler must print the bounded Error text once")
+						}
+						return
+					}
+					node, err := jsonx.Read([]byte(text))
+					if err != nil {
+						t.Fatal("JSON handler output does not parse")
+					}
+					value, ok := node.Member("error")
+					if !ok {
+						t.Fatal("JSON error attribute absent")
+					}
+					if tt.field {
+						value, ok = value.Member("Error")
+						if !ok {
+							t.Fatal("public error field absent")
+						}
+					}
+					if tt.slice {
+						if value.Kind() != jsonx.KindArray || value.Len() != 1 {
+							t.Fatal("error slice shape changed")
+						}
+						value = value.Index(0)
+					}
+					if value.Kind() != jsonx.KindString {
+						t.Fatal("nested status error must encode as a string")
+					}
+					if diff := cmp.Diff(want, value.Text()); diff != "" {
+						t.Errorf("JSON handler error mismatch (-want +got):\n%s", diff)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestStatusErrorFormattingLimitations(t *testing.T) {
+	full := llm.StatusError{StatusCode: 401, Header: http.Header{"Authorization": {"CedarHeader"}}, Body: []byte("BirchBody")}
+	var boxed any = full
+	// Vet rejects this misuse statically. A dynamic format opens the same
+	// bad-verb path, which bypasses the error's formatting methods.
+	invalidWrap := string([]byte{'%', 'w'})
+	sprintfInvalidWrap := func(v any) string { return fmt.Sprintf(invalidWrap, v) }
+	tests := map[string]struct{ output string }{
+		"error: Sprintf wrap value":   {output: sprintfInvalidWrap(full)},
+		"error: Sprintf wrap pointer": {output: sprintfInvalidWrap(&full)},
+		"error: Errorf wrap value":    {output: fmt.Errorf(invalidWrap, boxed).Error()},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if !strings.HasPrefix(tt.output, "%!w(") || !strings.HasSuffix(tt.output, ")") {
+				t.Error("missing fmt invalid-wrap diagnostic")
+			}
+			// This is the accepted limitation documented on StatusError:
+			// only the diagnostic form is asserted, not field safety.
+		})
+	}
+	t.Run("error: private value field exposes stored fields", func(t *testing.T) {
+		out := fmt.Sprintf("%v", struct{ err llm.StatusError }{err: full})
+		if !strings.Contains(out, "CedarHeader") || !strings.Contains(out, fmt.Sprintf("%d", full.Body)) {
+			t.Error("private value field did not follow the documented reflective path")
+		}
+	})
+	t.Run("success: private pointer field exposes no stored fields", func(t *testing.T) {
+		out := fmt.Sprintf("%v", struct{ err *llm.StatusError }{err: &full})
+		if strings.Contains(out, "CedarHeader") || strings.Contains(out, "BirchBody") || strings.Contains(out, fmt.Sprintf("%d", full.Body)) {
+			t.Error("private pointer field prints stored header or body")
+		}
+	})
 }
 
 // TestStatusErrorGoString checks that %#v of a StatusError, as a value and

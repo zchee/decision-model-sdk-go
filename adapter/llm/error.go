@@ -18,8 +18,10 @@ package llm
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
+	"unicode/utf8"
 )
 
 // maxErrorBodyChars is how many characters of a response body
@@ -32,6 +34,12 @@ const maxErrorBodyChars = 200
 // (error_handling.py:67-69).
 // Print %p only on a pointer, where fmt prints its address. On a value,
 // fmt's bad-verb diagnostic bypasses Format and may expose Header and Body.
+// The same limitation applies to invalid %w uses: Sprintf with %w, or Errorf
+// with a value rather than a pointer. Go vet reports these misuses when it
+// knows the format and type; dynamic formats may escape that check.
+// A value in a caller struct's unexported field also bypasses Format under
+// %v and exposes Header and Body. Store the pointer or Error text there.
+// JSON and structured logging use the bounded Error text, never Header.
 type StatusError struct {
 	// StatusCode is the response's HTTP status code.
 	StatusCode int
@@ -93,7 +101,7 @@ func (e StatusError) GoString() string {
 // precision and flags are ignored. The fmt package handles %T and %p itself
 // before calling Format. A nil *StatusError prints as <nil>.
 func (e StatusError) Format(f fmt.State, verb rune) {
-	text := e.String()
+	var text string
 	switch verb {
 	case 'v':
 		if f.Flag('#') {
@@ -103,8 +111,40 @@ func (e StatusError) Format(f fmt.State, verb rune) {
 		}
 	case 's', 'q':
 		text = (&e).Error()
+	default:
+		text = e.String()
 	}
 	_, _ = fmt.Fprint(f, text)
+}
+
+// MarshalJSON returns the bounded Error text as a JSON string, without
+// headers or the body tail. Invalid UTF-8 bytes are replaced by U+FFFD.
+// It always returns a nil error.
+func (e StatusError) MarshalJSON() ([]byte, error) {
+	text := (&e).Error()
+	out := make([]byte, 0, len(text)+2)
+	out = append(out, '"')
+	for _, r := range text {
+		switch {
+		case r == '"' || r == '\\':
+			out = append(out, '\\', byte(r))
+		case r < 0x20:
+			out = append(out, '\\', 'u', '0', '0')
+			if r < 0x10 {
+				out = append(out, '0')
+			}
+			out = strconv.AppendInt(out, int64(r), 16)
+		default:
+			out = utf8.AppendRune(out, r)
+		}
+	}
+	return append(out, '"'), nil
+}
+
+// LogValue returns the bounded Error text as a string value, without
+// headers or the body tail.
+func (e StatusError) LogValue() slog.Value {
+	return slog.StringValue((&e).Error())
 }
 
 // TimeoutError is a provider request that timed out. It ports the
