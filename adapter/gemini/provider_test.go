@@ -890,6 +890,17 @@ func TestDiagnosticRequestCopy(t *testing.T) {
 	}
 }
 
+// privateDirectiveOutputs reproduces unsupported directives on private fields.
+// Vet rejects these directives statically on concrete structs, so only this
+// helper builds the directive table at runtime; the printf analyzer stays on.
+func privateDirectiveOutputs(value any) map[rune]string {
+	outputs := make(map[rune]string, 14)
+	for _, verb := range [...]rune{'s', 'q', 't', 'O', 'c', 'U', 'e', 'E', 'f', 'F', 'g', 'G', 'z', 'Z'} {
+		outputs[verb] = fmt.Sprintf(string([]rune{'%', verb}), value)
+	}
+	return outputs
+}
+
 // TestProviderPrintsNoCredential checks formatting and logging, including
 // reflective fields and invalid verbs that bypass the Provider's methods.
 func TestProviderPrintsNoCredential(t *testing.T) {
@@ -924,19 +935,43 @@ func TestProviderPrintsNoCredential(t *testing.T) {
 			output string
 			wrap   bool
 		}{
-			"success: private value":        {output: fmt.Sprintf("%v", struct{ value Provider }{value: *p})},
-			"success: nested private value": {output: fmt.Sprintf("%v", struct{ outer struct{ value Provider } }{outer: struct{ value Provider }{value: *p}})},
-			"success: private slice":        {output: fmt.Sprintf("%v", struct{ values []Provider }{values: []Provider{*p}})},
-			"success: private boxed value":  {output: fmt.Sprintf("%v", struct{ value any }{value: *p})},
-			"error: Sprintf wrap value":     {output: sprintfInvalidWrap(*p), wrap: true},
-			"error: Sprintf wrap pointer":   {output: sprintfInvalidWrap(p), wrap: true},
-			"error: Errorf wrap value":      {output: fmt.Errorf(invalidWrap, nonError).Error(), wrap: true},
+			"success: private value":              {output: fmt.Sprintf("%v", struct{ value Provider }{value: *p})},
+			"success: nested private value":       {output: fmt.Sprintf("%v", struct{ outer struct{ value Provider } }{outer: struct{ value Provider }{value: *p}})},
+			"success: private slice":              {output: fmt.Sprintf("%v", struct{ values []Provider }{values: []Provider{*p}})},
+			"success: private boxed value":        {output: fmt.Sprintf("%v", struct{ value any }{value: *p})},
+			"success: plus private value":         {output: fmt.Sprintf("%+v", struct{ value Provider }{value: *p})},
+			"success: plus nested private value":  {output: fmt.Sprintf("%+v", struct{ outer struct{ value Provider } }{outer: struct{ value Provider }{value: *p}})},
+			"success: plus private slice":         {output: fmt.Sprintf("%+v", struct{ values []Provider }{values: []Provider{*p}})},
+			"success: plus private boxed value":   {output: fmt.Sprintf("%+v", struct{ value any }{value: *p})},
+			"success: sharp private value":        {output: fmt.Sprintf("%#v", struct{ value Provider }{value: *p})},
+			"success: sharp nested private value": {output: fmt.Sprintf("%#v", struct{ outer struct{ value Provider } }{outer: struct{ value Provider }{value: *p}})},
+			"success: sharp private slice":        {output: fmt.Sprintf("%#v", struct{ values []Provider }{values: []Provider{*p}})},
+			"success: sharp private boxed value":  {output: fmt.Sprintf("%#v", struct{ value any }{value: *p})},
+			"error: Sprintf wrap value":           {output: sprintfInvalidWrap(*p), wrap: true},
+			"error: Sprintf wrap pointer":         {output: sprintfInvalidWrap(p), wrap: true},
+			"error: Errorf wrap value":            {output: fmt.Errorf(invalidWrap, nonError).Error(), wrap: true},
 		}
 		for name, tt := range tests {
 			t.Run(name, func(t *testing.T) {
 				checkPlanted(t, name, tt.output)
 				if tt.wrap && !strings.HasPrefix(tt.output, "%!w(") {
 					t.Error("missing fmt invalid-wrap diagnostic")
+				}
+			})
+		}
+	})
+
+	t.Run("success: private directives", func(t *testing.T) {
+		tests := map[string]struct{ value any }{
+			"value":  {value: struct{ value Provider }{value: *p}},
+			"nested": {value: struct{ outer struct{ value Provider } }{outer: struct{ value Provider }{value: *p}}},
+			"slice":  {value: struct{ values []Provider }{values: []Provider{*p}}},
+			"boxed":  {value: struct{ value any }{value: *p}},
+		}
+		for name, tt := range tests {
+			t.Run(name, func(t *testing.T) {
+				for verb, out := range privateDirectiveOutputs(tt.value) {
+					t.Run(string(verb), func(t *testing.T) { checkPlanted(t, string(verb), out) })
 				}
 			})
 		}
@@ -1050,7 +1085,6 @@ func TestProviderPrintsNoCredential(t *testing.T) {
 						}
 						return
 					}
-					checkPlanted(t, verb, out)
 					if verb == "p" || verb == "T" {
 						return
 					}

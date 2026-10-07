@@ -121,9 +121,14 @@ type Provider struct {
 	client    *rest.Client
 }
 
-// requestState is pointer-held because fmt bypasses methods on unexported
-// fields and invalid verbs; a nested pointer prints as an address.
+// requestState keeps two pointer levels because fmt's bad-verb path reprints
+// a nested pointer with %v at depth zero. The credential pointer one level
+// down then prints only as an address.
 type requestState struct {
+	credentials *requestCredentials
+}
+
+type requestCredentials struct {
 	endpoint *url.URL
 	header   http.Header
 }
@@ -278,7 +283,7 @@ func New(model string, opts ...Option) (*Provider, error) {
 	return &Provider{
 		model:     model,
 		maxTokens: o.maxTokens,
-		state:     &requestState{endpoint: endpoint, header: header},
+		state:     &requestState{credentials: &requestCredentials{endpoint: endpoint, header: header}},
 		client:    rest.New(rest.Config{HTTPClient: o.httpClient, Timeout: o.timeout, BodyScrubber: rest.NewBodyScrubber(key, token)}),
 	}, nil
 }
@@ -366,7 +371,7 @@ func (p *Provider) Do(ctx context.Context, req *llm.Request) (*llm.Result, error
 	if req.Trace != nil {
 		req.Trace.RecordRequest(apiName, p.client.ScrubBody(body))
 	}
-	data, err := p.client.Post(ctx, p.state.endpoint, p.state.header, body)
+	data, err := p.client.Post(ctx, p.state.credentials.endpoint, p.state.credentials.header, body)
 	if err != nil {
 		return nil, err
 	}
