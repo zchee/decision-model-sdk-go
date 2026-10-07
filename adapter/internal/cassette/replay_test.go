@@ -16,6 +16,7 @@
 package cassette
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -257,6 +258,79 @@ func TestReplayServesEachInteractionOnce(t *testing.T) {
 	}
 	if diff := gocmp.Diff(wantSent, tr.Requests()); diff != "" {
 		t.Errorf("Requests (-want +got):\n%s", diff)
+	}
+}
+
+// TestReplayImmutableBorrowing checks shared nested storage without mutating
+// it, and verifies that replacing copied outer elements is independent.
+func TestReplayImmutableBorrowing(t *testing.T) {
+	t.Parallel()
+	const uri = "https://api.example.test/v1/answers"
+	const requestBody, responseBody = `{"n":1}`, `{"ok":true}`
+	request := jsonRequest(http.MethodPost, uri, requestBody)
+	request.Headers = map[string][]string{"content-type": {"application/json"}}
+	response := jsonResponse(responseBody)
+	c := &Cassette{Interactions: []Interaction{{Request: request, Response: response}}}
+	tr, other := c.Transport(), c.Transport()
+	if &tr.pending[0] == &c.Interactions[0] || &tr.pending[0] == &other.pending[0] {
+		t.Fatal("transport interaction structs share outer storage")
+	}
+	tests := map[string]struct{ shared bool }{
+		"success: request body borrowed": {
+			shared: &tr.pending[0].Request.Body[0] == &request.Body[0],
+		},
+		"success: response body borrowed": {
+			shared: &tr.pending[0].Response.Body[0] == &response.Body[0],
+		},
+		"success: request header map borrowed": {
+			shared: fmt.Sprintf("%p", tr.pending[0].Request.Headers) == fmt.Sprintf("%p", request.Headers),
+		},
+		"success: response header map borrowed": {
+			shared: fmt.Sprintf("%p", tr.pending[0].Response.Headers) == fmt.Sprintf("%p", response.Headers),
+		},
+		"success: request header values borrowed": {
+			shared: &tr.pending[0].Request.Headers["content-type"][0] == &request.Headers["content-type"][0],
+		},
+		"success: response header values borrowed": {
+			shared: &tr.pending[0].Response.Headers["content-type"][0] == &response.Headers["content-type"][0],
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if diff := gocmp.Diff(true, tt.shared); diff != "" {
+				t.Errorf("nested storage is not borrowed (-want +got):\n%s", diff)
+			}
+		})
+	}
+	// Replacing the outer struct does not write through any borrowed storage.
+	c.Interactions[0] = Interaction{}
+	if diff := gocmp.Diff([]SentRequest(nil), tr.Requests()); diff != "" {
+		t.Errorf("requests before replay (-want +got):\n%s", diff)
+	}
+	_, body, err := send(t, tr, http.MethodPost, uri, requestBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := gocmp.Diff(responseBody, string(body)); diff != "" {
+		t.Errorf("response after outer replacement (-want +got):\n%s", diff)
+	}
+	if tr.Unconsumed() != 0 || other.Unconsumed() != 1 {
+		t.Error("transports share consumption state")
+	}
+	first, second := tr.Requests(), tr.Requests()
+	if len(first) != 1 || len(second) != 1 {
+		t.Fatal("matched request absent")
+	}
+	if &first[0] == &tr.sent[0] || &first[0] == &second[0] {
+		t.Error("request snapshots share outer storage")
+	}
+	if &first[0].Body[0] != &tr.sent[0].Body[0] || &first[0].Body[0] != &second[0].Body[0] {
+		t.Error("request snapshots do not borrow retained body bytes")
+	}
+	first[0] = SentRequest{URL: "replacement", Body: []byte("replacement")}
+	want := []SentRequest{{URL: uri, Body: []byte(requestBody)}}
+	if diff := gocmp.Diff(want, tr.Requests()); diff != "" {
+		t.Errorf("retained request after snapshot replacement (-want +got):\n%s", diff)
 	}
 }
 

@@ -54,7 +54,11 @@ type Transport struct {
 }
 
 // Transport returns a replayer over the cassette's interactions, each
-// still unconsumed.
+// still unconsumed. The interaction slice and its structs are copied, but
+// their body bytes, header maps and header-value slices are borrowed.
+// Treat that nested data as immutable for the lifetime of the transport and
+// its responses. Replacing or reordering Interactions elements is independent
+// of the transport; changing their borrowed nested data is not.
 func (c *Cassette) Transport() *Transport {
 	return &Transport{pending: slices.Clone(c.Interactions), consumed: make([]bool, len(c.Interactions))}
 }
@@ -73,6 +77,10 @@ func (t *Transport) Unconsumed() int {
 }
 
 // Requests returns the matched requests in the order they were served.
+// The returned slice and SentRequest values are independent copies, but
+// their Body bytes are borrowed from the transport and must remain immutable.
+// Replacing a returned element or its fields does not change retained requests;
+// writing through its Body slice would change the shared bytes.
 func (t *Transport) Requests() []SentRequest {
 	t.mu.Lock()
 	defer t.mu.Unlock()
