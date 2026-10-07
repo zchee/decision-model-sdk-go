@@ -140,6 +140,35 @@ func TestBodyScrubberKnownForms(t *testing.T) {
 	}
 }
 
+func TestBodyScrubberDistinctForms(t *testing.T) {
+	const canary = `Birch"Fern\Rose /+É`
+	tests := map[string]struct{ body string }{
+		"success: distinct raw":             {body: canary},
+		"success: distinct JSON":            {body: `Birch\"Fern\\Rose /+É`},
+		"success: distinct uppercase query": {body: "Birch%22Fern%5CRose+%2F%2B%C3%89"},
+		"success: distinct lowercase query": {body: "Birch%22Fern%5cRose+%2f%2b%c3%89"},
+		"success: distinct uppercase path":  {body: "Birch%22Fern%5CRose%20%2F+%C3%89"},
+		"success: distinct lowercase path":  {body: "Birch%22Fern%5cRose%20%2f+%c3%89"},
+	}
+	unique := make(map[string]struct{}, len(tests))
+	for _, tt := range tests {
+		unique[tt.body] = struct{}{}
+	}
+	if len(unique) != len(tests) {
+		t.Fatal("credential form fixtures are not distinct")
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			c := New(Config{BodyScrubber: NewBodyScrubber(canary)})
+			t.Cleanup(func() { _ = c.Close() })
+			got := c.ScrubBody([]byte(tt.body))
+			if diff := cmp.Diff(true, string(got) == "***"); diff != "" {
+				t.Errorf("distinct credential form retained; length=%d", len(got))
+			}
+		})
+	}
+}
+
 func TestPostScrubsBeforeRetention(t *testing.T) {
 	tests := map[string]struct {
 		status     int

@@ -57,6 +57,7 @@ import (
 const DefaultTimeout = 600 * time.Second
 
 // maxBodyBytes is how many bytes of a response body a Client reads: 64 MiB.
+// It caps bytes read from the wire; a scrubbed body may differ in length.
 const maxBodyBytes = 64 << 20
 
 // keptHeaders are the response headers an *llm.StatusError keeps, in the
