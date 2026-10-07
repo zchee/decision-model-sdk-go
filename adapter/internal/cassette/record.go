@@ -57,7 +57,8 @@ var recordedRequestHeaders = []string{"content-type"}
 // keeps only content-type; every other request header name is dropped,
 // including every [FilteredRequestHeaders] name. The recorded URI drops its
 // userinfo and every query
-// parameter [FilteredQueryParameters] names, along with any pair whose
+// parameter [FilteredQueryParameters] names, along with common credential
+// names matched case-insensitively and any pair whose
 // name does not decode; and the recorded response keeps only the
 // [AllowedResponseHeaders] headers. The bodies are recorded as sent and
 // received. A request without a body is recorded as the empty string,
@@ -401,10 +402,10 @@ func recordedURI(u *url.URL) string {
 	return r.String()
 }
 
-// scrubbedQuery removes every query pair whose name
-// [FilteredQueryParameters] lists from a raw query, keeping the remaining
-// pairs in their order and spelling. A pair whose name does not decode
-// could hide anything, so the scrub drops it rather than keep bytes it
+// scrubbedQuery removes the names [FilteredQueryParameters] lists and,
+// case-insensitively, common credential names after one name decode. It keeps
+// the remaining pairs in their order and spelling. A pair whose name does not
+// decode could hide anything, so the scrub drops it rather than keep bytes it
 // cannot judge.
 func scrubbedQuery(raw string) string {
 	if raw == "" {
@@ -418,6 +419,10 @@ func scrubbedQuery(raw string) string {
 		name, _, _ := strings.Cut(segment, "=")
 		decoded, err := url.QueryUnescape(name)
 		if err != nil || slices.Contains(FilteredQueryParameters, decoded) {
+			continue
+		}
+		switch strings.ToLower(decoded) {
+		case "key", "api_key", "api-key", "apikey", "token", "access_token", "access-token", "accesstoken", "auth_token", "auth-token", "authtoken", "authorization", "password", "secret", "client_secret", "client-secret", "clientsecret":
 			continue
 		}
 		kept = append(kept, segment)
