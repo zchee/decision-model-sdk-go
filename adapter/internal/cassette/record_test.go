@@ -613,6 +613,84 @@ func TestRecorderProtectedAliases(t *testing.T) {
 	}
 }
 
+// TestRecorderMissingProtectedChild checks refusal before any directory is
+// created through an alias of the fixture parent, leaving its siblings intact.
+func TestRecorderMissingProtectedChild(t *testing.T) {
+	t.Parallel()
+	tests := map[string]struct {
+		family string
+	}{
+		"error: missing cassette child": {family: "cassettes"},
+		"error: missing expected child": {family: "expected"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			base := t.TempDir()
+			parent := filepath.Join(base, "testdata")
+			if err := os.Mkdir(parent, 0o750); err != nil {
+				t.Fatal(err)
+			}
+			const sentinel = "unchanged sibling bytes"
+			sibling := filepath.Join(parent, "sibling.json")
+			if err := os.WriteFile(sibling, []byte(sentinel), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			alias := filepath.Join(base, "output")
+			if err := os.Symlink(parent, alias); err != nil {
+				if runtime.GOOS == "windows" && errors.Is(err, os.ErrPermission) {
+					t.Skip("Windows denies directory-symlink creation")
+				}
+				t.Fatal(err)
+			}
+			target := filepath.Join(parent, tt.family)
+			if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("protected child is not absent before recording: %v", err)
+			}
+			rec, err := NewRecorder(tripFunc(func(*http.Request) (*http.Response, error) {
+				return jsonReply(`{"ok":true}`), nil
+			}), filepath.Join(alias, tt.family, "nested"), "recorded.json")
+			if err != nil {
+				t.Fatalf("NewRecorder() before resolving the alias: %v", err)
+			}
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://example.test/offline", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, rejection := rec.RoundTrip(req)
+			if resp != nil {
+				if err := resp.Body.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if rejection == nil {
+				t.Error("RoundTrip() accepted the protected target")
+			}
+			if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("protected child was created before refusal: %v", err)
+			}
+			data, err := os.ReadFile(sibling)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if diff := gocmp.Diff(sentinel, string(data)); diff != "" {
+				t.Errorf("sibling bytes changed (-want +got):\n%s", diff)
+			}
+			entries, err := os.ReadDir(parent)
+			if err != nil {
+				t.Fatal(err)
+			}
+			names := make([]string, 0, len(entries))
+			for _, entry := range entries {
+				names = append(names, entry.Name())
+			}
+			if diff := gocmp.Diff([]string{"sibling.json"}, names); diff != "" {
+				t.Errorf("fixture parent entries changed (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 // TestRecorderProtectedIdentities exercises a protected fixture alias whose
 // resolved recording spelling has no protected component. A nested recording
 // must also be refused when its opened ancestor has the protected identity.
