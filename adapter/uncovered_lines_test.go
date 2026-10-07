@@ -38,6 +38,11 @@ type coverageBlock struct {
 	file, bounds string
 }
 
+var conditionalCoverageBlocks = map[coverageBlock]bool{
+	{file: "adapter/seam.go", bounds: "617.3,618.1"}: true,
+	{file: "adapter/seam.go", bounds: "652.3,653.1"}: true,
+}
+
 type coverageReason struct {
 	block     coverageBlock
 	low, high uint64
@@ -210,6 +215,9 @@ func readCoverageReasons(text string) ([]coverageReason, error) {
 		if lowErr != nil || highErr != nil || high < 1 || low > high || (ranged && low == high) {
 			return nil, fmt.Errorf("invalid uncovered count %q", cells[2])
 		}
+		if ranged && (cells[2] != "0-1" || !conditionalCoverageBlocks[block]) {
+			return nil, fmt.Errorf("conditional uncovered range is not allowed for %v", block)
+		}
 		if seen[block] || strings.Trim(cells[3], " -") == "" {
 			return nil, fmt.Errorf("duplicate block or blank reason for %v", block)
 		}
@@ -284,23 +292,28 @@ func TestCoverageProfileValidation(t *testing.T) {
 // TestCoverageReasonsValidation exercises missing, stale and invalid reasons.
 func TestCoverageReasonsValidation(t *testing.T) {
 	block := coverageBlock{file: "adapter/evaluate.go", bounds: "1.1,2.1"}
+	guard := coverageBlock{file: "adapter/seam.go", bounds: "617.3,618.1"}
 	const header = "| File | Block | Uncovered | Reason |\n| --- | --- | --- | --- |\n"
 	const row = "| `adapter/evaluate.go` | `1.1,2.1` | 1 | Defensive encoding error. |\n"
+	const guardRow = "| `adapter/seam.go` | `617.3,618.1` | 0-1 | Dynamic logging-level guard. |\n"
 	tests := map[string]struct {
 		doc     string
 		counts  map[coverageBlock]uint64
 		refused bool
 	}{
-		"success: precise reason":            {doc: header + row, counts: map[coverageBlock]uint64{block: 0}},
-		"success: conditional block covered": {doc: header + strings.Replace(row, "| 1 |", "| 0-1 |", 1), counts: map[coverageBlock]uint64{block: 1}},
-		"error: missing reason":              {doc: header + row, counts: map[coverageBlock]uint64{block: 0, {file: "adapter/model.go", bounds: "1.1,2.1"}: 0}, refused: true},
-		"error: stale covered block":         {doc: header + row, counts: map[coverageBlock]uint64{block: 1}, refused: true},
-		"error: stale absent block":          {doc: header + row, counts: map[coverageBlock]uint64{}, refused: true},
-		"error: duplicate reason":            {doc: header + row + row, refused: true},
-		"error: blank reason":                {doc: header + strings.Replace(row, "Defensive encoding error.", "", 1), refused: true},
-		"error: blank table":                 {doc: header, refused: true},
-		"error: inverted count range":        {doc: header + strings.Replace(row, "| 1 |", "| 2-1 |", 1), refused: true},
-		"error: excluded reason":             {doc: header + strings.Replace(row, "adapter/evaluate.go", "adapter/internal/fake/fake.go", 1), refused: true},
+		"success: precise reason":                       {doc: header + row, counts: map[coverageBlock]uint64{block: 0}},
+		"success: conditional block covered":            {doc: header + guardRow, counts: map[coverageBlock]uint64{guard: 1}},
+		"success: conditional guard uncovered":          {doc: header + guardRow, counts: map[coverageBlock]uint64{guard: 0}},
+		"error: conditional range on a non-guard block": {doc: header + strings.Replace(row, "| 1 |", "| 0-1 |", 1), counts: map[coverageBlock]uint64{block: 1}, refused: true},
+		"error: conditional range wider than 0-1":       {doc: header + strings.Replace(guardRow, "| 0-1 |", "| 0-2 |", 1), counts: map[coverageBlock]uint64{guard: 1}, refused: true},
+		"error: missing reason":                         {doc: header + row, counts: map[coverageBlock]uint64{block: 0, {file: "adapter/model.go", bounds: "1.1,2.1"}: 0}, refused: true},
+		"error: stale covered block":                    {doc: header + row, counts: map[coverageBlock]uint64{block: 1}, refused: true},
+		"error: stale absent block":                     {doc: header + row, counts: map[coverageBlock]uint64{}, refused: true},
+		"error: duplicate reason":                       {doc: header + row + row, refused: true},
+		"error: blank reason":                           {doc: header + strings.Replace(row, "Defensive encoding error.", "", 1), refused: true},
+		"error: blank table":                            {doc: header, refused: true},
+		"error: inverted count range":                   {doc: header + strings.Replace(row, "| 1 |", "| 2-1 |", 1), refused: true},
+		"error: excluded reason":                        {doc: header + strings.Replace(row, "adapter/evaluate.go", "adapter/internal/fake/fake.go", 1), refused: true},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
