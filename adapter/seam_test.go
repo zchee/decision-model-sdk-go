@@ -183,9 +183,12 @@ func TestImportViolation(t *testing.T) {
 		rel, imp string
 		// extra is added to rel's allowedImports entry.
 		extra []string
+		omit  []string
 		test  bool
 		want  string
 	}{
+		"internal/jsonx omits encoding/json/v2 from its allowed entry":  {rel: "internal/jsonx", imp: "encoding/json/v2", omit: []string{"encoding/json/v2"}, want: v2Refused},
+		"a test file of internal/jsonx omits encoding/json/jsontext":    {rel: "internal/jsonx", imp: "encoding/json/jsontext", omit: []string{"encoding/json/jsontext"}, test: true, want: v2Refused},
 		"internal/jsonx imports encoding/json/jsontext":                 {rel: "internal/jsonx", imp: "encoding/json/jsontext"},
 		"internal/jsonx imports encoding/json/v2":                       {rel: "internal/jsonx", imp: "encoding/json/v2"},
 		"a test file of internal/jsonx imports encoding/json/jsontext":  {rel: "internal/jsonx", imp: "encoding/json/jsontext", test: true},
@@ -210,6 +213,7 @@ func TestImportViolation(t *testing.T) {
 				t.Fatalf("package %s is not in allowedImports", tt.rel)
 			}
 			allowed = append(slices.Clone(allowed), tt.extra...)
+			allowed = slices.DeleteFunc(allowed, func(imp string) bool { return slices.Contains(tt.omit, imp) })
 			if got := importViolation(tt.rel, tt.imp, allowed, tt.test); got != tt.want {
 				t.Errorf("importViolation(%q, %q, %q, %v) = %q, want %q", tt.rel, tt.imp, allowed, tt.test, got, tt.want)
 			}

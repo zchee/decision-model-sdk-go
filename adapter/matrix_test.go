@@ -16,6 +16,8 @@ package adapter
 
 import (
 	"bytes"
+	"context"
+	"flag"
 	"maps"
 	"os"
 	"os/exec"
@@ -25,6 +27,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 const (
@@ -45,6 +48,8 @@ const (
 var matrixStatuses = map[string]bool{"planned": true, "ported": true, "deviation": true}
 
 var (
+	matrixFinal = flag.Bool("matrix-final", false, "require a completed port matrix and replay every listed cassette")
+
 	functionRowID = regexp.MustCompile(`^[A-Z]{2}[0-9]+$`)
 	cassetteRowID = regexp.MustCompile(`^C[0-9]+$`)
 	upstreamCell  = regexp.MustCompile("^`(tests/[A-Za-z0-9_/]+\\.py::test_[A-Za-z0-9_]+)`$")
@@ -101,6 +106,9 @@ func TestPortTestMatrix(t *testing.T) {
 		if !matrixStatuses[r.status] {
 			t.Errorf("%s: row %s has status %q; want planned, ported or deviation", matrixPath, r.id, r.status)
 		}
+		if *matrixFinal && r.status == "planned" {
+			t.Errorf("%s: final matrix row %s is still planned", matrixPath, r.id)
+		}
 	}
 	for fn := range functions {
 		if _, ok := rowOf[fn]; !ok {
@@ -128,6 +136,28 @@ func TestPortTestMatrix(t *testing.T) {
 		}
 	}
 	checkPortedTestsExist(t, ported)
+	if *matrixFinal {
+		consumers := make(map[string]string)
+		for _, tc := range replayMatrix() {
+			consumers["test_live_responses_match_reference_shape["+tc.id+"].json"] = "TestReplayReferenceShape"
+			consumers["test_live_models_follow_question_instructions_and_criteria["+tc.id+"].json"] = "TestReplayFollowsInstructionsAndCriteria"
+		}
+		consumers["test_live_typesafe_response_matches_reference_shape.json"] = "TestReplayTypeSafeReference"
+		for _, r := range cassetteRows {
+			consumer, known := consumers[r.file]
+			if !known || !slices.Contains(goTestNames(r.goTest), qualifiedTest{pkg: "adapter", test: consumer}) {
+				t.Errorf("%s: cassette %s is not mapped to its actual replay consumer", matrixPath, r.file)
+			}
+		}
+		// These tests assert request counts and Unconsumed, not just file loading.
+		for name, replay := range map[string]func(*testing.T){
+			"TestReplayReferenceShape":                 TestReplayReferenceShape,
+			"TestReplayFollowsInstructionsAndCriteria": TestReplayFollowsInstructionsAndCriteria,
+			"TestReplayTypeSafeReference":              TestReplayTypeSafeReference,
+		} {
+			t.Run(name, replay)
+		}
+	}
 }
 
 // portedRow is a row whose status is ported, with its Go test cell.
@@ -156,11 +186,26 @@ func checkPortedTestsExist(t *testing.T, rows []portedRow) {
 	}
 	for _, pkg := range slices.Sorted(maps.Keys(want)) {
 		dir := "." + strings.TrimPrefix(pkg, "adapter")
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 		//nolint:gosec // G204: the go command with the test's own fixed arguments and a package path the matrix names.
-		cmd := exec.CommandContext(t.Context(), goTool(t), "test", "-tags=live", "-list", ".*", dir)
+		cmd := exec.CommandContext(ctx, goTool(t), "test", "-race", "-timeout=2m", "-tags=live", "-list", ".*", dir)
+		removed := []string{
+			"OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_ORG_ID", "OPENAI_PROJECT_ID",
+			"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
+			"GOOGLE_API_KEY", "GEMINI_API_KEY", "GOOGLE_GEMINI_BASE_URL",
+			"DECISION_MODEL_API_KEY", "DECISION_MODEL_BASE_URL", "DECISION_MODEL_DEFAULT_MODEL",
+			"ADAPTER_LIVE_TESTS", "ADAPTER_LIVE_RECORD",
+		}
+		for _, entry := range os.Environ() {
+			key, _, _ := strings.Cut(entry, "=")
+			if !slices.Contains(removed, strings.ToUpper(key)) {
+				cmd.Env = append(cmd.Env, entry)
+			}
+		}
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 		out, err := cmd.Output()
+		cancel()
 		if err != nil {
 			t.Errorf("%s: go test -list for package %s, which ported rows name: %v\n%s", matrixPath, pkg, err, stderr.String())
 			continue
@@ -275,6 +320,9 @@ func checkCassetteRows(t *testing.T, rows []cassetteRow, ids map[string]bool) {
 		}
 		if !matrixStatuses[r.status] {
 			t.Errorf("%s: row %s has status %q; want planned, ported or deviation", matrixPath, r.id, r.status)
+		}
+		if *matrixFinal && r.status == "planned" {
+			t.Errorf("%s: final matrix row %s is still planned", matrixPath, r.id)
 		}
 	}
 	for f := range cassettes {

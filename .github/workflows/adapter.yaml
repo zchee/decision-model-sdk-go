@@ -154,6 +154,12 @@ jobs:
           go vet -tags live ./...
           go test -tags live -list '.*' ./livetest/ >/dev/null
 
+      - name: Uncovered blocks have precise reasons
+        run: go test -race -count=1 -run '^TestUncoveredLinesListed$' . -args -coverprofile-in=coverage.out
+
+      - name: Port matrix is complete and cassettes are consumed
+        run: go test -race -count=1 -run '^TestPortTestMatrix$' . -args -matrix-final
+
       # OIDC authentication, as in ci.yaml; the flag keeps this module's
       # uploads apart from the root's.
       - uses: codecov/codecov-action@v7

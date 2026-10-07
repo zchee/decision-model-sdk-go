@@ -20,7 +20,9 @@ package. The cassette table names the 25 files of
 [`../testdata/cassettes/`](../testdata/cassettes) and, where its last cell but
 one says `yes`, the file of the same name in
 [`../testdata/expected/`](../testdata/expected); the test checks that each
-exists.
+exists. With `-args -matrix-final`, no function or cassette row may remain
+`planned`, each cassette must name its actual replay consumer, and the three
+replay tests run to verify that their recorded exchanges are consumed.
 
 ## Status values
 
@@ -131,31 +133,31 @@ subtest name is the bracketed id.
 
 | ID | Cassette | Go test | Expected file | Status |
 | --- | --- | --- | --- | --- |
-| C1 | `test_live_responses_match_reference_shape[probabilities-native-openai].json` | `adapter.TestReplayReferenceShape` | yes | planned |
-| C2 | `test_live_responses_match_reference_shape[probabilities-native-anthropic].json` | `adapter.TestReplayReferenceShape` | yes | planned |
-| C3 | `test_live_responses_match_reference_shape[probabilities-native-gemini].json` | `adapter.TestReplayReferenceShape` | yes | planned |
-| C4 | `test_live_responses_match_reference_shape[probabilities-prompted-openai].json` | `adapter.TestReplayReferenceShape` | yes | planned |
-| C5 | `test_live_responses_match_reference_shape[probabilities-prompted-anthropic].json` | `adapter.TestReplayReferenceShape` | yes | planned |
-| C6 | `test_live_responses_match_reference_shape[probabilities-prompted-gemini].json` | `adapter.TestReplayReferenceShape` | yes | planned |
-| C7 | `test_live_responses_match_reference_shape[discrete-native-openai].json` | `adapter.TestReplayReferenceShape` | yes | planned |
-| C8 | `test_live_responses_match_reference_shape[discrete-native-anthropic].json` | `adapter.TestReplayReferenceShape` | yes | planned |
-| C9 | `test_live_responses_match_reference_shape[discrete-native-gemini].json` | `adapter.TestReplayReferenceShape` | yes | planned |
-| C10 | `test_live_responses_match_reference_shape[discrete-prompted-openai].json` | `adapter.TestReplayReferenceShape` | yes | planned |
-| C11 | `test_live_responses_match_reference_shape[discrete-prompted-anthropic].json` | `adapter.TestReplayReferenceShape` | yes | planned |
-| C12 | `test_live_responses_match_reference_shape[discrete-prompted-gemini].json` | `adapter.TestReplayReferenceShape` | yes | planned |
-| C13 | `test_live_models_follow_question_instructions_and_criteria[probabilities-native-openai].json` | `adapter.TestReplayFollowsInstructionsAndCriteria` | no | planned |
-| C14 | `test_live_models_follow_question_instructions_and_criteria[probabilities-native-anthropic].json` | `adapter.TestReplayFollowsInstructionsAndCriteria` | no | planned |
-| C15 | `test_live_models_follow_question_instructions_and_criteria[probabilities-native-gemini].json` | `adapter.TestReplayFollowsInstructionsAndCriteria` | no | planned |
-| C16 | `test_live_models_follow_question_instructions_and_criteria[probabilities-prompted-openai].json` | `adapter.TestReplayFollowsInstructionsAndCriteria` | no | planned |
-| C17 | `test_live_models_follow_question_instructions_and_criteria[probabilities-prompted-anthropic].json` | `adapter.TestReplayFollowsInstructionsAndCriteria` | no | planned |
-| C18 | `test_live_models_follow_question_instructions_and_criteria[probabilities-prompted-gemini].json` | `adapter.TestReplayFollowsInstructionsAndCriteria` | no | planned |
-| C19 | `test_live_models_follow_question_instructions_and_criteria[discrete-native-openai].json` | `adapter.TestReplayFollowsInstructionsAndCriteria` | no | planned |
-| C20 | `test_live_models_follow_question_instructions_and_criteria[discrete-native-anthropic].json` | `adapter.TestReplayFollowsInstructionsAndCriteria` | no | planned |
-| C21 | `test_live_models_follow_question_instructions_and_criteria[discrete-native-gemini].json` | `adapter.TestReplayFollowsInstructionsAndCriteria` | no | planned |
-| C22 | `test_live_models_follow_question_instructions_and_criteria[discrete-prompted-openai].json` | `adapter.TestReplayFollowsInstructionsAndCriteria` | no | planned |
-| C23 | `test_live_models_follow_question_instructions_and_criteria[discrete-prompted-anthropic].json` | `adapter.TestReplayFollowsInstructionsAndCriteria` | no | planned |
-| C24 | `test_live_models_follow_question_instructions_and_criteria[discrete-prompted-gemini].json` | `adapter.TestReplayFollowsInstructionsAndCriteria` | no | planned |
-| C25 | `test_live_typesafe_response_matches_reference_shape.json` | `adapter.TestReplayTypeSafeReference` | yes | planned |
+| C1 | `test_live_responses_match_reference_shape[probabilities-native-openai].json` | `adapter.TestReplayReferenceShape` | yes | ported |
+| C2 | `test_live_responses_match_reference_shape[probabilities-native-anthropic].json` | `adapter.TestReplayReferenceShape` | yes | ported |
+| C3 | `test_live_responses_match_reference_shape[probabilities-native-gemini].json` | `adapter.TestReplayReferenceShape` | yes | ported |
+| C4 | `test_live_responses_match_reference_shape[probabilities-prompted-openai].json` | `adapter.TestReplayReferenceShape` | yes | ported |
+| C5 | `test_live_responses_match_reference_shape[probabilities-prompted-anthropic].json` | `adapter.TestReplayReferenceShape` | yes | ported |
+| C6 | `test_live_responses_match_reference_shape[probabilities-prompted-gemini].json` | `adapter.TestReplayReferenceShape` | yes | ported |
+| C7 | `test_live_responses_match_reference_shape[discrete-native-openai].json` | `adapter.TestReplayReferenceShape` | yes | ported |
+| C8 | `test_live_responses_match_reference_shape[discrete-native-anthropic].json` | `adapter.TestReplayReferenceShape` | yes | ported |
+| C9 | `test_live_responses_match_reference_shape[discrete-native-gemini].json` | `adapter.TestReplayReferenceShape` | yes | ported |
+| C10 | `test_live_responses_match_reference_shape[discrete-prompted-openai].json` | `adapter.TestReplayReferenceShape` | yes | ported |
+| C11 | `test_live_responses_match_reference_shape[discrete-prompted-anthropic].json` | `adapter.TestReplayReferenceShape` | yes | ported |
+| C12 | `test_live_responses_match_reference_shape[discrete-prompted-gemini].json` | `adapter.TestReplayReferenceShape` | yes | ported |
+| C13 | `test_live_models_follow_question_instructions_and_criteria[probabilities-native-openai].json` | `adapter.TestReplayFollowsInstructionsAndCriteria` | no | ported |
+| C14 | `test_live_models_follow_question_instructions_and_criteria[probabilities-native-anthropic].json` | `adapter.TestReplayFollowsInstructionsAndCriteria` | no | ported |
+| C15 | `test_live_models_follow_question_instructions_and_criteria[probabilities-native-gemini].json` | `adapter.TestReplayFollowsInstructionsAndCriteria` | no | ported |
+| C16 | `test_live_models_follow_question_instructions_and_criteria[probabilities-prompted-openai].json` | `adapter.TestReplayFollowsInstructionsAndCriteria` | no | ported |
+| C17 | `test_live_models_follow_question_instructions_and_criteria[probabilities-prompted-anthropic].json` | `adapter.TestReplayFollowsInstructionsAndCriteria` | no | ported |
+| C18 | `test_live_models_follow_question_instructions_and_criteria[probabilities-prompted-gemini].json` | `adapter.TestReplayFollowsInstructionsAndCriteria` | no | ported |
+| C19 | `test_live_models_follow_question_instructions_and_criteria[discrete-native-openai].json` | `adapter.TestReplayFollowsInstructionsAndCriteria` | no | ported |
+| C20 | `test_live_models_follow_question_instructions_and_criteria[discrete-native-anthropic].json` | `adapter.TestReplayFollowsInstructionsAndCriteria` | no | ported |
+| C21 | `test_live_models_follow_question_instructions_and_criteria[discrete-native-gemini].json` | `adapter.TestReplayFollowsInstructionsAndCriteria` | no | ported |
+| C22 | `test_live_models_follow_question_instructions_and_criteria[discrete-prompted-openai].json` | `adapter.TestReplayFollowsInstructionsAndCriteria` | no | ported |
+| C23 | `test_live_models_follow_question_instructions_and_criteria[discrete-prompted-anthropic].json` | `adapter.TestReplayFollowsInstructionsAndCriteria` | no | ported |
+| C24 | `test_live_models_follow_question_instructions_and_criteria[discrete-prompted-gemini].json` | `adapter.TestReplayFollowsInstructionsAndCriteria` | no | ported |
+| C25 | `test_live_typesafe_response_matches_reference_shape.json` | `adapter.TestReplayTypeSafeReference` | yes | ported |
 
 Also read by the port: upstream's `tests/conftest.py` (the scrub lists and the
 request matcher, ported by `internal/cassette`) and `tests/http.py` (a test
