@@ -17,13 +17,17 @@ package adapter
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	gocmp "github.com/google/go-cmp/cmp"
 
 	decision "github.com/zchee/decision-model-sdk-go"
 
@@ -49,7 +53,7 @@ var providerEnv = [...]string{
 // clearProviderEnv sets every variable of providerEnv to the empty string
 // for the rest of the test, which each of the three providers takes as not
 // set, so that the environment the tests run in reaches no provider.
-func clearProviderEnv(t *testing.T) {
+func clearProviderEnv(t testing.TB) {
 	t.Helper()
 	for _, name := range providerEnv {
 		t.Setenv(name, "")
@@ -86,8 +90,11 @@ var realProviders = map[string]func(client *http.Client, key, baseURL string) (l
 
 // buildRealProvider returns the provider name of realProviders over rt, the
 // environment cleared first, closed when the test ends.
-func buildRealProvider(t *testing.T, name string, rt http.RoundTripper, key, baseURL string) llm.Provider {
+func buildRealProvider(t testing.TB, name string, rt http.RoundTripper, key, baseURL string) llm.Provider {
 	t.Helper()
+	if rt == nil {
+		t.Fatalf("building the %s provider: nil RoundTripper is refused", name)
+	}
 	clearProviderEnv(t)
 	p, err := realProviders[name](&http.Client{Transport: rt}, key, baseURL)
 	if err != nil {
@@ -99,6 +106,48 @@ func buildRealProvider(t *testing.T, name string, rt http.RoundTripper, key, bas
 		}
 	})
 	return p
+}
+
+type providerHelperFatal struct{}
+
+type providerHelperProbe struct {
+	testing.TB
+	message string
+}
+
+func (p *providerHelperProbe) Fatalf(format string, args ...any) {
+	p.message = fmt.Sprintf(format, args...)
+	// A fatal helper must stop execution, not return into provider construction.
+	panic(providerHelperFatal{})
+}
+
+// TestBuildRealProviderRefusesNilTransport isolates the helper's fatal path.
+// Only construction is attempted, so a missing guard cannot dial.
+func TestBuildRealProviderRefusesNilTransport(t *testing.T) {
+	tests := map[string]struct{ provider string }{
+		"error: openai nil transport":    {provider: "openai"},
+		"error: anthropic nil transport": {provider: "anthropic"},
+		"error: gemini nil transport":    {provider: "gemini"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			probe := &providerHelperProbe{TB: t}
+			func() {
+				defer func() {
+					if failure := recover(); failure != nil {
+						if _, ok := failure.(providerHelperFatal); !ok {
+							panic(failure)
+						}
+					}
+				}()
+				buildRealProvider(probe, tt.provider, nil, vendorKey, "")
+			}()
+			want := fmt.Sprintf("building the %s provider: nil RoundTripper is refused", tt.provider)
+			if diff := gocmp.Diff(want, probe.message); diff != "" {
+				t.Fatalf("the helper did not refuse before provider construction (-want +got):\n%s", diff)
+			}
+		})
+	}
 }
 
 // providerRequest is one request a providerTransport received.
@@ -139,7 +188,7 @@ func (p *providerTransport) RoundTrip(req *http.Request) (*http.Response, error)
 func (p *providerTransport) requests() []providerRequest {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return append([]providerRequest(nil), p.reqs...)
+	return slices.Clone(p.reqs)
 }
 
 // providerAuth is, for each of realProviders, the request header that
@@ -237,7 +286,8 @@ func providerResponse(req *http.Request, status int, body string) *http.Response
 // test_retry_policy_controls_http_attempts, has twelve cases: six provider
 // classes, a synchronous and an asynchronous one for each vendor, times
 // the retry budgets 0 and 1. This module has no asynchronous providers, so
-// its six cases are the three providers times the same two budgets.
+// its six vendor cases are the three providers times the same two budgets.
+// Two additional cases select OpenAI Chat Completions explicitly by endpoint.
 // Upstream switches the vendor SDKs' own retries off; these providers have
 // none to switch off, since each call is one HTTP request, so the count of
 // HTTP requests is the count of the Adapter's attempts.
@@ -245,20 +295,24 @@ func TestRetryPolicyControlsHTTPAttempts(t *testing.T) {
 	tests := map[string]struct {
 		provider string
 		retries  int
+		baseURL  string
+		wantAPI  string
 	}{
-		"openai, no retry":     {provider: "openai", retries: 0},
-		"openai, one retry":    {provider: "openai", retries: 1},
-		"anthropic, no retry":  {provider: "anthropic", retries: 0},
-		"anthropic, one retry": {provider: "anthropic", retries: 1},
-		"gemini, no retry":     {provider: "gemini", retries: 0},
-		"gemini, one retry":    {provider: "gemini", retries: 1},
+		"openai, no retry":       {provider: "openai", retries: 0},
+		"openai, one retry":      {provider: "openai", retries: 1},
+		"openai chat, no retry":  {provider: "openai", retries: 0, baseURL: "https://provider.invalid/v1", wantAPI: "chat_completions"},
+		"openai chat, one retry": {provider: "openai", retries: 1, baseURL: "https://provider.invalid/v1", wantAPI: "chat_completions"},
+		"anthropic, no retry":    {provider: "anthropic", retries: 0},
+		"anthropic, one retry":   {provider: "anthropic", retries: 1},
+		"gemini, no retry":       {provider: "gemini", retries: 0},
+		"gemini, one retry":      {provider: "gemini", retries: 1},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			rt := &providerTransport{answer: func(req *http.Request, _ int) (*http.Response, error) {
 				return providerResponse(req, http.StatusServiceUnavailable, `{"error":{"message":"unavailable"}}`), nil
 			}}
-			p := buildRealProvider(t, tt.provider, rt, vendorKey, "")
+			p := buildRealProvider(t, tt.provider, rt, vendorKey, tt.baseURL)
 			// Upstream's RetryPolicy(max_retries=n, backoff_initial=0): the
 			// default policy of typesafe-sdk-python with no wait.
 			policy := DefaultRetry().MaxRetries(tt.retries).Backoff(0, 5*time.Second, 0.25)
@@ -287,6 +341,9 @@ func TestRetryPolicyControlsHTTPAttempts(t *testing.T) {
 				t.Fatalf("the Report has %d attempts for %d HTTP requests", got, len(sent))
 			}
 			for i, a := range r.Debug.Attempts {
+				if tt.wantAPI != "" && a.Info.API != tt.wantAPI {
+					t.Errorf("attempt %d: API = %q, want %q", i, a.Info.API, tt.wantAPI)
+				}
 				if equal, err := jsonx.Equal(a.Request, sent[i].body); err != nil || !equal {
 					t.Errorf("attempt %d: the recorded request %s is not the body sent %s (%v)", i, a.Request, sent[i].body, err)
 				}

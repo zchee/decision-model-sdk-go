@@ -485,8 +485,9 @@ func TestErrorText(t *testing.T) {
 
 func TestStatusErrorMarshalJSON(t *testing.T) {
 	tests := map[string]struct {
-		body string
-		want string
+		body    string
+		want    string
+		nilBody bool
 	}{
 		"success: quote":              {body: `"`, want: `"401 \""`},
 		"success: backslash":          {body: `\`, want: `"401 \\"`},
@@ -495,17 +496,27 @@ func TestStatusErrorMarshalJSON(t *testing.T) {
 		"success: invalid UTF-8 byte": {body: "a\xffb", want: `"401 a�b"`},
 		"success: truncated UTF-8":    {body: "\xe2\x82", want: `"401 ��"`},
 		"success: invalid overlong":   {body: "\xc0\xaf", want: `"401 ��"`},
-		"success: nil body":           {want: `"401 status code (no body)"`},
+		"success: empty body":         {want: `"401 status code (no body)"`},
+		"success: nil body":           {nilBody: true, want: `"401 status code (no body)"`},
 		"success: bounded body":       {body: strings.Repeat("é", 200) + "BirchTail", want: `"401 ` + strings.Repeat("é", 200) + `…"`},
 	}
 	for r := range 0x20 {
-		tests[fmt.Sprintf("success: control %02x", r)] = struct{ body, want string }{
+		tests[fmt.Sprintf("success: control %02x", r)] = struct {
+			body, want string
+			nilBody    bool
+		}{
 			body: string(rune(r)), want: fmt.Sprintf(`"401 \u%04x"`, r),
 		}
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			full := llm.StatusError{StatusCode: 401, Header: http.Header{"Authorization": {"CedarHeader"}}, Body: []byte(tt.body)}
+			if tt.nilBody {
+				full.Body = nil
+			}
+			if (full.Body == nil) != tt.nilBody {
+				t.Fatal("the test body does not have the requested nilness")
+			}
 			forms := map[string]struct{ value any }{
 				"value": {value: full}, "pointer": {value: &full},
 				"boxed value": {value: any(full)}, "boxed pointer": {value: any(&full)},

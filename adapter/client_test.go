@@ -682,6 +682,9 @@ func TestPlaceholderKeyNeverForwarded(t *testing.T) {
 		"malformed output": func(t *testing.T, req *http.Request) (*http.Response, error) {
 			return providerResponse(req, http.StatusOK, providerAnswer(t, req, "not JSON")), nil
 		},
+		"a provider non-answer": func(t *testing.T, req *http.Request) (*http.Response, error) {
+			return providerResponse(req, http.StatusOK, providerNonAnswer(t, req, "max_output_tokens")), nil
+		},
 	}
 	defaultHosts := map[string]string{"openai": "api.openai.com", "anthropic": "api.anthropic.com", "gemini": "generativelanguage.googleapis.com"}
 	urlCanary := canaryKey(t)
@@ -710,13 +713,17 @@ func TestPlaceholderKeyNeverForwarded(t *testing.T) {
 							wantHost, wantQuery = u.Host, u.RawQuery
 						}
 						h := &recordHandler{level: slog.LevelDebug}
-						ad, err := New(Probabilities, Structured, WithProvider(provider, p), WithDefaultModel(provider), WithLogger(slog.New(h)))
+						malformedRetries := 0
+						if name == "a provider non-answer" {
+							malformedRetries = 2
+						}
+						ad, err := New(Probabilities, Structured, WithProvider(provider, p), WithDefaultModel(provider), WithLogger(slog.New(h)), WithMalformedRetries(malformedRetries))
 						if err != nil {
 							t.Fatalf("New: %v", err)
 						}
 						var opts []decision.ClientOption
 						if own {
-							opts = []decision.ClientOption{decision.WithAPIKey(canary), decision.WithRetry(decision.NoRetry())}
+							opts = []decision.ClientOption{decision.WithAPIKey(canary), decision.WithRetry(decision.NoRetry()), decision.WithLogger(slog.New(h))}
 						}
 						c := sdkClient(t, ad, own, opts...)
 						resp, err := c.SystemOne(t.Context(), "state", noulQuestions(t))
@@ -726,6 +733,9 @@ func TestPlaceholderKeyNeverForwarded(t *testing.T) {
 						sent := rt.requests()
 						if len(sent) == 0 {
 							t.Fatal("the provider sent no request")
+						}
+						if name == "a provider non-answer" && len(sent) != 1 {
+							t.Errorf("non-answer sent %d requests despite being terminal, want 1", len(sent))
 						}
 						auth := providerAuth[provider]
 						for i, r := range sent {
@@ -774,6 +784,9 @@ func TestPlaceholderKeyNeverForwarded(t *testing.T) {
 						if !ok {
 							t.Fatal("no Report")
 						}
+						if name == "a provider non-answer" && (r.Usage.MalformedRetries != 0 || r.Usage.Retries != 0 || len(r.Debug.Attempts) != 1) {
+							t.Error("the non-answer was retried or recorded as a corrective attempt")
+						}
 						b, merr := r.MarshalJSON()
 						if merr != nil {
 							t.Fatal(merr)
@@ -782,6 +795,17 @@ func TestPlaceholderKeyNeverForwarded(t *testing.T) {
 						records := h.all()
 						if len(records) == 0 {
 							t.Error("the logger kept no record")
+						}
+						if own {
+							requestLogged := false
+							for _, rec := range records {
+								if rec.Message == "request" && rec.Attrs["headers.Authorization"] == "***" {
+									requestLogged = true
+								}
+							}
+							if !requestLogged {
+								t.Error("caller-owned client produced no resolved, masked request record")
+							}
 						}
 						for _, rec := range records {
 							texts = append(texts, rec.Message)
