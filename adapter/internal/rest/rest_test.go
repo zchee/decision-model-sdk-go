@@ -1106,8 +1106,8 @@ func TestRequestThatCannotBeBuilt(t *testing.T) {
 }
 
 // TestEnv checks the environment lookup with made-up names and values: a
-// variable that is set gives its value, one that is set and empty gives ""
-// and true, and one that is not set, or an empty name, gives "" and false.
+// variable that is set gives its value, and one that is set and empty, one
+// that is not set, or an empty name gives "".
 func TestEnv(t *testing.T) {
 	const (
 		setName   = "REST_TEST_MADE_UP_VARIABLE"
@@ -1123,20 +1123,18 @@ func TestEnv(t *testing.T) {
 	}
 
 	tests := map[string]struct {
-		name    string
-		want    string
-		wantSet bool
+		name string
+		want string
 	}{
-		"success: set":           {name: setName, want: "made-up words", wantSet: true},
-		"success: set and empty": {name: emptyName, want: "", wantSet: true},
-		"success: not set":       {name: unsetName, want: "", wantSet: false},
-		"success: empty name":    {name: "", want: "", wantSet: false},
+		"success: set":           {name: setName, want: "made-up words"},
+		"success: set and empty": {name: emptyName, want: ""},
+		"success: not set":       {name: unsetName, want: ""},
+		"success: empty name":    {name: "", want: ""},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, set := Env(tt.name)
-			if got != tt.want || set != tt.wantSet {
-				t.Errorf("Env(%q) = %q, %t; want %q, %t", tt.name, got, set, tt.want, tt.wantSet)
+			if got := Env(tt.name); got != tt.want {
+				t.Errorf("Env(%q) = %q, want %q", tt.name, got, tt.want)
 			}
 		})
 	}

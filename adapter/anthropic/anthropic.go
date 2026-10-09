@@ -267,7 +267,7 @@ func New(model string, opts ...Option) (*Provider, error) {
 	}
 	key, token := o.apiKey, o.authToken
 	if key == "" && token == "" {
-		key, token = envCredential(envAPIKey), envCredential(envAuthToken)
+		key, token = strings.TrimSpace(rest.Env(envAPIKey)), strings.TrimSpace(rest.Env(envAuthToken))
 	}
 	if key == "" && token == "" {
 		return nil, errors.New(noCredentialText)
@@ -288,14 +288,6 @@ func New(model string, opts ...Option) (*Provider, error) {
 	}, nil
 }
 
-// envCredential returns the value of the credential variable name, trimmed
-// of surrounding white space: "" when it is not set or holds only white
-// space.
-func envCredential(name string) string {
-	v, _ := rest.Env(name)
-	return strings.TrimSpace(v)
-}
-
 // endpointURL returns the URL of the Messages operation under the base URL
 // opt, or ANTHROPIC_BASE_URL when opt is empty, or the default when both
 // are: the base path, its trailing slashes removed, then /v1/messages; the
@@ -303,7 +295,7 @@ func envCredential(name string) string {
 func endpointURL(opt string) (*url.URL, error) {
 	raw, refusal := opt, optionURLText
 	if raw == "" {
-		raw, _ = rest.Env(envBaseURL)
+		raw = rest.Env(envBaseURL)
 		refusal = envURLText
 	}
 	if raw == "" {

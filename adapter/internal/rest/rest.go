@@ -384,20 +384,16 @@ func redact(u *url.URL) string {
 	return (&url.URL{Scheme: u.Scheme, Host: u.Host, Path: u.Path}).String()
 }
 
-// Env returns the value of the environment variable name and whether it is
-// set, as os.LookupEnv does. It is the one read of the environment a
-// provider makes, when it is built; it prints and logs nothing.
+// Env returns the value of the environment variable name, "" when it is not
+// set, as os.Getenv does. It is the one read of the environment a provider
+// makes, when it is built; it prints and logs nothing.
 //
-// An empty name is reported as not set without asking the operating system.
-// A variable that is set to the empty string is reported as set, with the
-// empty value. Whether such a variable counts is the provider's rule,
-// because the vendors' Python SDKs differ: Anthropic's and Gemini's take an
-// empty value as none; OpenAI's takes an empty OPENAI_API_KEY as none and
-// an empty OPENAI_BASE_URL, OPENAI_ORG_ID or OPENAI_PROJECT_ID as the value
-// (openai 3.17.0, the version system-one-adapter-python v0.2.1 locks).
-func Env(name string) (value string, set bool) {
+// An empty name gives "" without asking the operating system. A variable
+// set to the empty string gives "", the same as one that is not set; every
+// provider of this module counts both as not given.
+func Env(name string) string {
 	if name == "" {
-		return "", false
+		return ""
 	}
-	return os.LookupEnv(name)
+	return os.Getenv(name)
 }

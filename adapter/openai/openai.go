@@ -228,8 +228,7 @@ func setting(opt *string, name string) string {
 	if opt != nil && *opt != "" {
 		return *opt
 	}
-	v, _ := rest.Env(name)
-	return v
+	return rest.Env(name)
 }
 
 // baseURL returns the base URL New uses: the option's, else

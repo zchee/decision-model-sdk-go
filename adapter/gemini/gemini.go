@@ -164,17 +164,17 @@ func New(model string, opts ...Option) (*Provider, error) {
 	}
 	key := strings.TrimSpace(o.key)
 	if key == "" {
-		key = strings.TrimSpace(envValue(envGoogleKey))
+		key = strings.TrimSpace(rest.Env(envGoogleKey))
 	}
 	if key == "" {
-		key = strings.TrimSpace(envValue(envGeminiKey))
+		key = strings.TrimSpace(rest.Env(envGeminiKey))
 	}
 	if key == "" {
 		return nil, errNoKey
 	}
 	base, source := o.baseURL, "WithBaseURL"
 	if base == "" {
-		base, source = envValue(envBaseURL), envBaseURL
+		base, source = rest.Env(envBaseURL), envBaseURL
 	}
 	if base == "" {
 		base = defaultBaseURL
@@ -189,13 +189,6 @@ func New(model string, opts ...Option) (*Provider, error) {
 		state:  &requestState{credentials: &requestCredentials{key: key, endpoint: endpoint(u)}},
 		client: rest.New(rest.Config{HTTPClient: o.httpClient, Timeout: o.timeout, BlankErrorBodyIsNone: true, BodyScrubber: rest.NewBodyScrubber(key)}),
 	}, nil
-}
-
-// envValue returns the value of the environment variable name, "" when it
-// is not set.
-func envValue(name string) string {
-	v, _ := rest.Env(name)
-	return v
 }
 
 // endpoint returns the Interactions URL under base: base's path without
