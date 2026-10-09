@@ -351,10 +351,6 @@ func firstDiff(got, want jsonx.Node, path string) (string, string) {
 		return path, fmt.Sprintf("kind %s is not the recorded %s", kindName(got), kindName(want))
 	}
 	switch want.Kind() {
-	case jsonx.KindNull:
-		return "", ""
-	case jsonx.KindTrue, jsonx.KindFalse:
-		return "", ""
 	case jsonx.KindNumber:
 		if numbersEqual(got, want) {
 			return "", ""
