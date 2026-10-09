@@ -383,32 +383,22 @@ func (p Provider) Format(f fmt.State, verb rune) {
 // keeps of the response headers only Retry-After, Retry-After-Ms and
 // X-Typesafe-Request-Id.
 func (p *Provider) Do(ctx context.Context, req *llm.Request) (*llm.Result, error) {
+	name, body, result := apiChatCompletions, func() ([]byte, error) { return chatBody(p.model, req, p.format) }, chatResult
 	if p.api == Responses {
-		body, err := responsesBody(p.model, req)
-		if err != nil {
-			return nil, err
-		}
-		if req.Trace != nil {
-			req.Trace.RecordRequest(apiResponses, p.client.ScrubBody(body))
-		}
-		data, err := p.client.Post(ctx, p.state.credentials.endpoint, p.state.credentials.header, body)
-		if err != nil {
-			return nil, err
-		}
-		return responsesResult(data, req.Trace)
+		name, body, result = apiResponses, func() ([]byte, error) { return responsesBody(p.model, req) }, responsesResult
 	}
-	body, err := chatBody(p.model, req, p.format)
+	payload, err := body()
 	if err != nil {
 		return nil, err
 	}
 	if req.Trace != nil {
-		req.Trace.RecordRequest(apiChatCompletions, p.client.ScrubBody(body))
+		req.Trace.RecordRequest(name, p.client.ScrubBody(payload))
 	}
-	data, err := p.client.Post(ctx, p.state.credentials.endpoint, p.state.credentials.header, body)
+	data, err := p.client.Post(ctx, p.state.credentials.endpoint, p.state.credentials.header, payload)
 	if err != nil {
 		return nil, err
 	}
-	return chatResult(data, req.Trace)
+	return result(data, req.Trace)
 }
 
 // Close closes the idle connections of an owned client and does nothing to
