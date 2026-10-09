@@ -9,6 +9,9 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Opt-in live checks select OpenAI Chat Completions explicitly and validate
+  Anthropic key-only and token-only requests by credential header names; a
+  presence-only guard refuses both-exported credentials, including empty values.
 - The implemented adapter API, three in-process provider implementations,
   replay tests and canonical [port test matrix](docs/port-test-matrix.md)
   replace the initial version-only module description. The module remains
@@ -85,6 +88,9 @@ Subsequent separately signed changes:
   advisory applicability and deferred work; it is not live or release approval.
 
 ### Changed
+
+- New cassette recordings replace provider-assigned body identifiers at known
+  JSON request/response paths with "x"; wire bodies and replay remain unchanged.
 
 - The adapter no longer requires `github.com/go-json-experiment/json` and does
   not build with `GOEXPERIMENT=nojsonv2`; this is a deliberate standard-library

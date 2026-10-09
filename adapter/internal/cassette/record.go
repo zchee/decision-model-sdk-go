@@ -60,8 +60,10 @@ var recordedRequestHeaders = []string{"content-type"}
 // parameter [FilteredQueryParameters] names, along with common credential
 // names matched case-insensitively and any pair whose
 // name does not decode; and the recorded response keeps only the
-// [AllowedResponseHeaders] headers. The bodies are recorded as sent and
-// received. A request without a body is recorded as the empty string,
+// [AllowedResponseHeaders] headers. JSON bodies replace provider-assigned
+// identifiers at known request and response paths with "x" in the recorded
+// copy only; all other body members remain unchanged. A request without a
+// body is recorded as the empty string,
 // which [Load] reads back, where upstream records null, which it refuses.
 //
 // The whole cassette is rewritten after each exchange, so the file always
@@ -344,7 +346,7 @@ func recordedInteraction(req *http.Request, reqBody []byte, resp *http.Response,
 // the body, and the kept headers, in the member order upstream's
 // cassettes use.
 func requestValue(req *http.Request, body []byte) (jsonx.Value, error) {
-	bodyValue, err := recordedBody(body)
+	bodyValue, err := recordedBody(body, false)
 	if err != nil {
 		return jsonx.Value{}, err
 	}
@@ -359,7 +361,7 @@ func requestValue(req *http.Request, body []byte) (jsonx.Value, error) {
 // responseValue builds the recorded response: the status, the kept
 // headers, and the body under body.string.
 func responseValue(resp *http.Response, body []byte) (jsonx.Value, error) {
-	bodyValue, err := recordedBody(body)
+	bodyValue, err := recordedBody(body, true)
 	if err != nil {
 		return jsonx.Value{}, err
 	}
@@ -374,11 +376,10 @@ func responseValue(resp *http.Response, body []byte) (jsonx.Value, error) {
 	), nil
 }
 
-// recordedBody returns a body's recorded form: a body that parses as a
-// JSON object or array decoded, in the float spelling of a response body,
-// any other body as the string of its bytes, and no body as the empty
-// string.
-func recordedBody(body []byte) (jsonx.Value, error) {
+// recordedBody returns a body's recorded form: JSON objects have assigned
+// identifiers scrubbed before decoding; arrays retain their shape and scalar
+// and non-JSON bodies remain strings of their bytes.
+func recordedBody(body []byte, response bool) (jsonx.Value, error) {
 	if len(body) == 0 {
 		return jsonx.String(""), nil
 	}
@@ -386,11 +387,74 @@ func recordedBody(body []byte) (jsonx.Value, error) {
 	if err != nil || (node.Kind() != jsonx.KindObject && node.Kind() != jsonx.KindArray) {
 		return jsonx.String(string(body)), nil
 	}
-	value, err := node.Value(jsonx.Repr)
+	value, err := recordedBodyObject(node, response, "")
 	if err != nil {
 		return jsonx.Value{}, fmt.Errorf("cassette: re-encoding a recorded body: %w", err)
 	}
 	return value, nil
+}
+
+// recordedBodyObject rebuilds only the root and its provider-item arrays;
+// unrelated nested objects keep their identifiers and original member order.
+func recordedBodyObject(node jsonx.Node, response bool, group string) (jsonx.Value, error) {
+	if node.Kind() != jsonx.KindObject {
+		return node.Value(jsonx.Repr)
+	}
+	members := make([]jsonx.Member, 0, node.Len())
+	for i := range node.Len() {
+		name, child := node.Name(i), node.Index(i)
+		var value jsonx.Value
+		var err error
+		switch {
+		case name == "id" && response:
+			value, err = recordedBodyID(child, "")
+		case name == "id" && group == "input":
+			value, err = recordedBodyID(child, "msg_")
+		case group == "" && !response && name == "previous_response_id":
+			value, err = recordedBodyID(child, "resp_")
+		case group == "" && !response && name == "previous_interaction_id":
+			value, err = recordedBodyID(child, "")
+		case group == "" && child.Kind() == jsonx.KindArray && ((response && (name == "output" || name == "steps")) || (!response && name == "input")):
+			elems := make([]jsonx.Value, 0, child.Len())
+			for j := range child.Len() {
+				var elem jsonx.Value
+				elem, err = recordedBodyObject(child.Index(j), response, name)
+				if err != nil {
+					break
+				}
+				elems = append(elems, elem)
+			}
+			value = jsonx.Array(elems...)
+		default:
+			value, err = child.Value(jsonx.Repr)
+		}
+		if err != nil {
+			return jsonx.Value{}, err
+		}
+		members = append(members, jsonx.Member{Name: name, Value: value})
+	}
+	return jsonx.Object(members...), nil
+}
+
+// recordedBodyID accepts only a nonempty ASCII identifier after prefix.
+// Unknown spellings remain visible to the recording-inspection guard.
+func recordedBodyID(node jsonx.Node, prefix string) (jsonx.Value, error) {
+	if node.Kind() == jsonx.KindString {
+		if suffix, ok := strings.CutPrefix(node.Text(), prefix); ok && suffix != "" {
+			identifier := true
+			for i := range len(suffix) {
+				c := suffix[i]
+				if (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' && c != '-' {
+					identifier = false
+					break
+				}
+			}
+			if identifier {
+				return jsonx.String("x"), nil
+			}
+		}
+	}
+	return node.Value(jsonx.Repr)
 }
 
 // recordedURI renders a request URL for the cassette: the userinfo

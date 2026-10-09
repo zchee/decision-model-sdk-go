@@ -224,8 +224,10 @@ undecodable names are dropped. Benign raw spelling and order are preserved.
 Only content-type headers are retained. Unknown, signed or double-encoded
 query conventions are not universally sanitized.
 
-**Recorder bodies are captured before REST scrubbing.** Reflected
-credentials can therefore remain in cassette request/response bodies.
+**Recorder bodies are captured before REST scrubbing.** New recordings
+replace provider-assigned identifiers at known JSON request/response paths
+with "x" without changing outbound requests, returned responses or replay.
+Reflected credentials can therefore remain in cassette request/response bodies.
 Every new recording requires separate inspection, keyscan and maintainer approval
 before addition; replay success does not waive these controls. The next
 live-recording gate owns this inspection, not ordinary offline tests.
