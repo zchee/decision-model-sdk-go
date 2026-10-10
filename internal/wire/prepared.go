@@ -29,6 +29,9 @@ type PreparedQuestion struct {
 	Name string
 	// Kind is the question's kind.
 	Kind Kind
+	// Raw reports a question written by [Builder.Raw], which has no Options
+	// or Levels table whatever its kind.
+	Raw bool
 	// Options lists a choice question's option labels in the order they were
 	// added. It is nil for the other kinds.
 	Options []string
@@ -306,6 +309,7 @@ func (b *Builder) Raw(name, typ string, fields map[string]any, leaf Leaf) error 
 	if err := b.begin(name, typ, ParseKind(typ)); err != nil {
 		return err
 	}
+	b.entries[len(b.entries)-1].Raw = true
 	var err error
 	base := len(b.keys)
 	for _, key := range sortedKeys(&b.keys, fields) {

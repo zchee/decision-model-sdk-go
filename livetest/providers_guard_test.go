@@ -26,10 +26,12 @@ import (
 	gocmp "github.com/google/go-cmp/cmp"
 
 	decision "github.com/zchee/decision-model-sdk-go"
+	"github.com/zchee/decision-model-sdk-go/provider"
 )
 
 // TestLiveProviderCatalog pins every provider the live harness can call: its
-// name, its whole Provider and how it answers the SDK's wire. Decisions API
+// name, its whole Provider (a dialect provider's is its preset, which the
+// provider package's tests pin) and how it answers the SDK's wire. Decisions API
 // reads DECISIONS_API_KEY, never DECISIONAPI_API_KEY, which belongs to a
 // vendor the harness does not call; that one is only scrubbed.
 func TestLiveProviderCatalog(t *testing.T) {
@@ -48,12 +50,8 @@ func TestLiveProviderCatalog(t *testing.T) {
 		{Name: "perplexity", P: decision.Provider{ //nolint:gosec // G101: APIKeyEnv holds the name of a variable, not a key.
 			Name: "Perplexity", BaseURL: "https://api.perplexity.ai", SystemOnePath: "/v1/decisions", APIKeyEnv: "PERPLEXITY_API_KEY",
 		}, Kind: kindSystemOne},
-		{Name: "decisions-api", P: decision.Provider{
-			Name: "Decisions API", BaseURL: "https://decisions-api.dev", SystemOnePath: "/v1/systemone", APIKeyEnv: "DECISIONS_API_KEY",
-		}, Kind: kindEnvelope},
-		{Name: "openai", P: decision.Provider{ //nolint:gosec // G101: APIKeyEnv holds the name of a variable, not a key.
-			Name: "OpenAI", BaseURL: "https://api.openai.com", SystemOnePath: "/v1/decisions", APIKeyEnv: "OPENAI_API_KEY", DefaultModel: "gpt-6-luna",
-		}, Kind: kindRefused},
+		{Name: "decisions-api", P: provider.DecisionsAPI(), Kind: kindDialect},
+		{Name: "openai", P: provider.OpenAI(), Kind: kindDialect},
 	}
 	var got []entry
 	for _, lp := range liveProviders {

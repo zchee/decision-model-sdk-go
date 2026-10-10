@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	gocmp "github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 
 	decision "github.com/zchee/decision-model-sdk-go"
 	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
@@ -28,7 +29,7 @@ import (
 
 // presetKeyEnvs is every variable a preset reads; each test clears all of
 // them, so a developer's exported key never reaches a test.
-var presetKeyEnvs = []string{"TYPESAFE_API_KEY", "CODIV_API_KEY", "PERPLEXITY_API_KEY"}
+var presetKeyEnvs = []string{"TYPESAFE_API_KEY", "CODIV_API_KEY", "PERPLEXITY_API_KEY", "DECISIONS_API_KEY", "OPENAI_API_KEY"}
 
 // setEnv clears every variable a client may read, then sets the variables
 // in set; t.Setenv restores them all when the test ends. The generic
@@ -48,11 +49,14 @@ func setEnv(t *testing.T, set map[string]string) {
 }
 
 // TestPresets pins each preset's whole Provider: the vendor's base URL, its
-// paths, the variable its key is read from, and no default model.
+// paths, the variable its key is read from, its default model (OpenAI's
+// alone), and whether it carries a dialect, which only the two vendors whose
+// wire is not System One's do.
 func TestPresets(t *testing.T) {
 	tests := map[string]struct {
-		got  decision.Provider
-		want decision.Provider
+		got         decision.Provider
+		want        decision.Provider
+		wantDialect bool
 	}{
 		"success: TypeSafe": {
 			got: provider.TypeSafe(),
@@ -75,11 +79,35 @@ func TestPresets(t *testing.T) {
 				SystemOnePath: "/v1/decisions", APIKeyEnv: "PERPLEXITY_API_KEY",
 			},
 		},
+		"success: Decisions API": {
+			got: provider.DecisionsAPI(),
+			want: decision.Provider{
+				Name: "Decisions API", BaseURL: "https://decisions-api.dev",
+				SystemOnePath: "/v1/systemone", APIKeyEnv: "DECISIONS_API_KEY",
+			},
+			wantDialect: true,
+		},
+		"success: OpenAI": {
+			got: provider.OpenAI(),
+			want: decision.Provider{ //nolint:gosec // G101: APIKeyEnv holds the name of a variable, not a key.
+				Name: "OpenAI", BaseURL: "https://api.openai.com",
+				SystemOnePath: "/v1/decisions", APIKeyEnv: "OPENAI_API_KEY", DefaultModel: "gpt-6-luna",
+			},
+			wantDialect: true,
+		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if diff := gocmp.Diff(tt.want, tt.got); diff != "" {
+			if diff := gocmp.Diff(tt.want, tt.got, cmpopts.IgnoreFields(decision.Provider{}, "Dialect")); diff != "" {
 				t.Errorf("preset (-want +got):\n%s", diff)
+			}
+			if got := tt.got.Dialect != nil; got != tt.wantDialect {
+				t.Errorf("preset has a Dialect = %t, want %t", got, tt.wantDialect)
+			}
+			// A Provider stays comparable with its dialect: == on two
+			// copies must not panic.
+			if again := tt.got; again != tt.got {
+				t.Error("the preset does not compare equal to a copy of itself")
 			}
 		})
 	}

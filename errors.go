@@ -30,8 +30,8 @@ import (
 
 // Error is implemented by every error the SDK returns, and only by them:
 // [*APIError], [*ConnectionError], [*TimeoutError],
-// [*ResponseValidationError], [*ResponseTooLargeError], [*ConfigError] and
-// [*InvalidRequestError]. Each is a distinct type that [errors.As] matches,
+// [*ResponseValidationError], [*ResponseTooLargeError], [*ConfigError],
+// [*InvalidRequestError] and [*DialectError]. Each is a distinct type that [errors.As] matches,
 // and errors.As with a *decision.Error target matches any of them, as the
 // Python SDK's TypeSafeError base class does. The one exception is a
 // cancellation: a call whose context is cancelled returns ctx.Err()
@@ -235,8 +235,9 @@ type APIError struct {
 	// headers as they arrived and redacts them only in its logs.
 	Header http.Header
 	// Body is the response body as it arrived, or nil when it was empty or
-	// over the size limit. It is shared, not copied, and must not be
-	// modified.
+	// over the size limit; a provider's [Dialect] does not translate it, so
+	// it keeps the vendor's members. It is shared, not copied, and must not
+	// be modified.
 	Body []byte
 	// Endpoint is the request's method and URL without credentials, query
 	// or fragment, such as "GET https://api.typesafe.ai/v1/models", or
@@ -251,7 +252,8 @@ type APIError struct {
 	Message string
 	// ErrorType is the server's machine-readable name for the failure, from
 	// the body's detail.error_type, or empty. It is the server's text as it
-	// arrived.
+	// arrived, or, when the body names none, the System One name a
+	// provider's [Dialect] gives the vendor's failure ([Translated]).
 	ErrorType string
 }
 
@@ -334,8 +336,11 @@ type ResponseValidationError struct {
 	// value "***", as [APIError.Header] describes; the values of the other
 	// headers are the response's own and must not be modified.
 	Header http.Header
-	// Body is the response body as it arrived. It is shared, not copied,
-	// and must not be modified.
+	// Body is the response body as it arrived, or, on the client of a
+	// provider with a [Dialect], the body the dialect translated it into
+	// when the failure is the decoder's; a failure of the translation
+	// itself holds the body as it arrived. It is shared, not copied, and
+	// must not be modified.
 	Body []byte
 	// Endpoint is the request's method and URL without credentials, query
 	// or fragment, or empty when it is not known.

@@ -15,6 +15,7 @@
 package decision_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -307,4 +308,64 @@ func ExampleText() {
 	// Output:
 	// "payments or invoices"
 	// {"summary":"payments","examples":["charged twice"]}
+}
+
+// envelopeDialect is the Dialect of a stand-in vendor that takes the System
+// One request as it is and answers {"answer": <the System One response>}.
+// It keeps no state: the ResponseFunc needs nothing of the call.
+type envelopeDialect struct{}
+
+// Request sends the SDK's body as it is (out is nil) and unwraps each
+// response.
+func (envelopeDialect) Request([]byte, []decision.PreparedQuestion) ([]byte, decision.ResponseFunc, error) {
+	return nil, unwrapAnswer, nil
+}
+
+// unwrapAnswer returns the System One response inside a 2xx body, a slice of
+// the body itself; a failure status is left to the SDK, with no error type of
+// the vendor's to name.
+func unwrapAnswer(status int, _ http.Header, body []byte) (decision.Translated, error) {
+	if status < 200 || status > 299 {
+		return decision.Translated{}, nil
+	}
+	inner, ok := bytes.CutPrefix(body, []byte(`{"answer":`))
+	if ok {
+		inner, ok = bytes.CutSuffix(inner, []byte(`}`))
+	}
+	if !ok {
+		return decision.Translated{}, &decision.ResponsePathError{Path: "answer", Err: errors.New("missing")}
+	}
+	return decision.Translated{Body: inner}, nil
+}
+
+func ExampleDialect() {
+	vendor := decision.Provider{
+		Name:          "Envelope",
+		BaseURL:       "https://vendor.example.com",
+		SystemOnePath: "/v1/decide",
+		APIKeyEnv:     "ENVELOPE_API_KEY",
+		DefaultModel:  "jev-latest",
+		Dialect:       envelopeDialect{},
+	}
+	client, err := decision.NewClient(
+		decision.WithProvider(vendor),
+		decision.WithAPIKey("example-key"),
+		decision.WithRoundTripper(cannedAPI{status: http.StatusOK, body: `{"answer":` + answersBody + `}`}),
+	)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer client.Close()
+
+	review, err := decision.Ask[Review](context.Background(), client, "Great product, fast shipping.")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Printf("spam %.2f\n", review.Spam.Noul())
+	fmt.Printf("tone %s (%.1f)\n", review.Tone.Choice(), review.Tone.Confidence())
+	// Output:
+	// spam 0.02
+	// tone friendly (0.9)
 }

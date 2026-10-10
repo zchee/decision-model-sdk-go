@@ -50,7 +50,7 @@ func TestPreparedTables(t *testing.T) {
 				{Name: "tone", Kind: wire.KindChoice, Options: []string{"calm", "angry"}},
 				{Name: "urgency", Kind: wire.KindScore, Levels: []wire.Content{{Text: "can wait"}, {JSON: []byte(`{"when":"today"}`)}}},
 				// A raw question has no tables, whatever its type.
-				{Name: "spam", Kind: wire.KindChoice},
+				{Name: "spam", Kind: wire.KindChoice, Raw: true},
 			},
 		},
 		"success: the hint is capped": {

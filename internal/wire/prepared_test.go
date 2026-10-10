@@ -90,12 +90,12 @@ func TestBuilder(t *testing.T) {
 				return b.Raw("r", "future", map[string]any{"weight": 3, "criteria": map[string]any{"b": nil, "a": "x"}, "instructions": "Spam?"}, nil)
 			},
 			want:        `{"r":{"type":"future","criteria":{"a":"x","b":null},"instructions":"Spam?","weight":3}}`,
-			wantEntries: []PreparedQuestion{{Name: "r", Kind: KindUnknown}},
+			wantEntries: []PreparedQuestion{{Name: "r", Kind: KindUnknown, Raw: true}},
 		},
 		"success: a raw question of a known type takes its kind": {
 			build:       func(b *Builder) error { return b.Raw("r", "score", map[string]any{"criteria": []string{"good"}}, nil) },
 			want:        `{"r":{"type":"score","criteria":["good"]}}`,
-			wantEntries: []PreparedQuestion{{Name: "r", Kind: KindScore}},
+			wantEntries: []PreparedQuestion{{Name: "r", Kind: KindScore, Raw: true}},
 		},
 		"success: several questions and a capped level hint": {
 			build: func(b *Builder) error {

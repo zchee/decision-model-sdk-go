@@ -22,8 +22,14 @@
 // variable its key is read from. A vendor-named variable is read only by
 // its own preset, so a key kept for one vendor is sent to that vendor's host
 // alone; with a preset, the generic DECISION_MODEL_ variables are not read.
-// No preset here carries a default model: name one with [decision.WithModel]
-// or with [decision.Model] on each call.
+// Only [OpenAI] carries a default model; with any other preset, name one
+// with [decision.WithModel] or with [decision.Model] on each call.
+//
+// [TypeSafe], [Codiv] and [Perplexity] speak System One. [DecisionsAPI] and
+// [OpenAI] do not, and each carries a [decision.Dialect] that rewrites every
+// call between the SDK's wire and the vendor's, so that a call reads the same
+// on every preset; each one's documentation says what its wire cannot
+// express.
 //
 // The vendors differ in what they do with a top-level request member they do
 // not know, such as one [decision.ExtraBody] adds: each preset's

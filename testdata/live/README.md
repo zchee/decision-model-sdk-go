@@ -45,9 +45,11 @@ committed beside these files.
 ## Provider recordings
 
 `livetest.TestLiveProviders` records what each provider of
-`DECISION_MODEL_LIVE_PROVIDERS` returns to the SDK's own System One
-request, under `providers/<name>/`, through the same scrubber. It runs
-alone, since the other live tests need the generic variables:
+`DECISION_MODEL_LIVE_PROVIDERS` returns to the SDK's calls through its
+preset, under `providers/<name>/`, through the same scrubber. Every body is
+the one the vendor sent: for Decisions API and OpenAI, whose presets carry a
+dialect, the body before the dialect translated it. It runs alone, since
+the other live tests need the generic variables:
 
 ```sh
 DECISION_MODEL_LIVE_TESTS=1 \
@@ -75,10 +77,13 @@ whose masked echo a recording may keep.
 | --- | --- | --- |
 | `typesafe`, `codiv` | `models.json`, `questions.json`, `typed-response.json`, `wrong-key.json` | the listing (200); the answers to the questions of `TestLiveQuestions` and to `Ask[liveTicket]` (200); the refusal of a wrong key on the listing (401) |
 | `perplexity` | `questions.json`, `typed-response.json`, `wrong-key.json` | as above, with no listing: the wrong key is sent on `POST /v1/decisions` (401) |
-| `decisions-api` | `questions.json`, `typed-response.json`, `wrong-key.json` | the 200 envelope around the answers, which the SDK's decoder refuses (`*ResponseValidationError` at `model`); the wrong key on `POST /v1/systemone` (401). Decisions API validates a noul's criteria more strictly than TypeSafe AI and refuses criteria without both the `true` and the `false` key (400), so `questions.json` answers `liveTicket`'s three questions, whose noul has no criteria, instead of `TestLiveQuestions`' |
-| `openai` | `refused.json`, `wrong-key.json` | the 400 refusal of the System One request; the answer to the wrong key on `POST /v1/decisions`, 400 or 401, whichever OpenAI checks first |
+| `decisions-api` | `questions.json`, `typed-response.json`, `wrong-key.json` | the 200 envelope around the answers, which the preset's dialect unwraps (`data.result`); the wrong key on `POST /v1/systemone` (401). Decisions API validates a noul's criteria more strictly than TypeSafe AI and refuses criteria without both the `true` and the `false` key (400), so `questions.json` answers `liveTicket`'s three questions, whose noul has no criteria, instead of `TestLiveQuestions`' |
+| `openai` | `dialect-request.json`, `dialect-response.json`, `refused.json`, `wrong-key.json` | the request the preset's dialect writes for `liveTicket`'s questions and a state of the ticket, and OpenAI's 200 answer to it, both kept from the discovery run (2026-10-10) the dialect was written from, and not recorded again: `TestLiveProviders` checks OpenAI's answers without recording them; the 400 refusal of the System One request, which the SDK no longer sends OpenAI; the answer to the wrong key on `POST /v1/decisions` (401) |
 
-A provider without a directory has not been recorded yet. Each body is
+OpenAI's answers are checked live and never recorded: its
+`dialect-request.json` and `dialect-response.json` are the record, and the
+unit tests of the OpenAI dialect pin their values. A provider without a
+directory has not been recorded yet. Each body is
 kept exactly as the provider sent it, a trailing newline included:
 Perplexity's 401 body ends with one.
 

@@ -30,7 +30,9 @@ package codec
 //     of internal/h2gate, of internal/wire, of internal/engine or of a new
 //     package below internal/testsupport; sonic/decoder imported by a test
 //     file of internal/testsupport;
-//     encoding/json/v2 imported by an internal/codec file;
+//     encoding/json/v2 imported by an internal/codec file; jsontext imported
+//     by a non-test file outside the provider package, or sonic or
+//     encoding/json by a non-test file of the provider package;
 //     internal/testsupport imported by a non-test file of the root package;
 //     unsafe or sonic imported by a package below internal/codec, which the
 //     exemptions of internal/codec do not cover; "C" imported by a root or an
@@ -311,7 +313,7 @@ func TestSeamImports(t *testing.T) {
 			applies: func(f goFile) bool { return !under(f.dir, "internal/testsupport") },
 			forbids: func(_ goFile, p string) bool { return under(p, "golang.org/x/net") },
 		},
-		"no JSON library outside internal/codec except encoding/json in test files, and sonic's root package in root test files; internal/codec adds encoding/json only": {
+		"no JSON library outside internal/codec except encoding/json in test files, and sonic's root package in root test files; internal/codec adds encoding/json only; the provider package's dialects use encoding/json/v2 and jsontext only": {
 			// internal/testsupport, naive included, is test tooling: fixture
 			// loaders and the benchmark comparator may decode JSON with any
 			// library.
@@ -324,6 +326,13 @@ func TestSeamImports(t *testing.T) {
 					// sonic is the codec; encoding/json only for the
 					// json.Number type of sonic's ast.Visitor.
 					return !under(p, sonicPath) && p != "encoding/json"
+				}
+				if f.dir == "provider" && (p == "encoding/json/v2" || p == "encoding/json/jsontext") {
+					// The dialects translate a vendor's wire with the
+					// standard library's streaming codec, so sonic stays
+					// the root package's only codec and the pinned hot path
+					// of a client without a dialect does not change.
+					return false
 				}
 				// A test may compare the SDK's types against encoding/json,
 				// the encoder a caller's own code goes through; a root test

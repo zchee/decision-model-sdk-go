@@ -60,6 +60,15 @@ type Provider struct {
 	// call ([Model]) nor the client ([WithModel]) names one, or empty for
 	// none. A non-empty model must not be blank and must be valid UTF-8.
 	DefaultModel string
+
+	// Dialect translates each System One call between the SDK's wire and
+	// the vendor's ([Dialect]), or is nil for a vendor that speaks System
+	// One. With a Dialect, a response's [ResponseMeta.RawBody] is the
+	// translated body, while the record at [LevelTrace] holds the body the
+	// vendor sent. Providers compare with == only while their Dialects do:
+	// a Dialect of a type that cannot be compared, such as a func or a
+	// struct holding a slice, makes == on the Provider panic.
+	Dialect Dialect
 }
 
 // WithProvider sets the vendor the client talks to: its base URL, its paths,
@@ -74,6 +83,10 @@ type Provider struct {
 //     without WithAPIKey the client is not built, so a key kept for the
 //     vendor's host is never sent to another.
 //   - The model is [WithModel]'s, else p.DefaultModel, else none.
+//
+// A provider with a Dialect has every System One call written in the
+// vendor's wire and its response read back as System One; a stand-in at a
+// WithBaseURL beside it receives the vendor's wire too.
 //
 // p is checked when the client is built: an empty Name, APIKeyEnv or
 // SystemOnePath, a path that does not start with "/" or that carries a

@@ -42,12 +42,10 @@ type providerKind int
 const (
 	// kindSystemOne answers in the System One response shape.
 	kindSystemOne providerKind = iota
-	// kindEnvelope accepts the request and wraps the System One answer in
-	// an envelope of its own, which the SDK's decoder refuses.
-	kindEnvelope
-	// kindRefused refuses the request with status 400: its wire is not
-	// System One's.
-	kindRefused
+	// kindDialect speaks a wire of its own, which its preset's
+	// decision.Dialect translates, so that a call reads as on a System One
+	// provider; the recorded bodies are the vendor's own.
+	kindDialect
 )
 
 // liveProvider is a provider TestLiveProviders can call, under the name
@@ -60,30 +58,16 @@ type liveProvider struct {
 }
 
 // liveProviders is every provider the live harness knows, in the order it
-// calls them. TypeSafe AI, Codiv and Perplexity are the provider package's
-// presets. Decisions API and OpenAI are written here as literals: their
-// presets land in the provider package together with the translation of
-// their wire, which the SDK does not have yet, so the harness records what
-// each returns to the SDK's System One request. Decisions API's variable is
+// calls them, each the provider package's preset. Decisions API and OpenAI
+// carry the dialect that translates their wire. Decisions API's variable is
 // DECISIONS_API_KEY, apart from DECISIONAPI_API_KEY, which holds the key of
 // another vendor (decisionapi.net) that the harness does not call.
 var liveProviders = []liveProvider{
 	{name: "typesafe", p: provider.TypeSafe(), kind: kindSystemOne},
 	{name: "codiv", p: provider.Codiv(), kind: kindSystemOne},
 	{name: "perplexity", p: provider.Perplexity(), kind: kindSystemOne},
-	{name: "decisions-api", p: decision.Provider{
-		Name:          "Decisions API",
-		BaseURL:       "https://decisions-api.dev",
-		SystemOnePath: "/v1/systemone",
-		APIKeyEnv:     "DECISIONS_API_KEY",
-	}, kind: kindEnvelope},
-	{name: "openai", p: decision.Provider{ //nolint:gosec // G101: APIKeyEnv holds the name of a variable, not a key.
-		Name:          "OpenAI",
-		BaseURL:       "https://api.openai.com",
-		SystemOnePath: "/v1/decisions",
-		APIKeyEnv:     "OPENAI_API_KEY",
-		DefaultModel:  "gpt-6-luna",
-	}, kind: kindRefused},
+	{name: "decisions-api", p: provider.DecisionsAPI(), kind: kindDialect},
+	{name: "openai", p: provider.OpenAI(), kind: kindDialect},
 }
 
 // scrubOnlyKeyEnvs name the variables that may hold a key of a vendor the
@@ -198,16 +182,26 @@ func keyEnvNames() []string {
 	return append(names, scrubOnlyKeyEnvs...)
 }
 
-// recordedProviderBodies are the bodies TestLiveProviders records per
-// provider (-record) under testdata/live/providers/<name>: the listing where
-// the provider has one, the answers to the System One call and to the typed
-// call where the decoder reads them or refuses the envelope around them, the
-// refusal of a provider whose wire is not System One's, and the answer to a
-// key the provider did not issue.
+// recordedProviderBodies are the files under testdata/live/providers/<name>,
+// in name order: the bodies TestLiveProviders records per provider (-record),
+// each as the vendor sent it (the listing where the provider has one, the
+// answers to the System One call and to the typed call, and the answer to a
+// key the provider did not issue), and the files kept from earlier
+// recordings. OpenAI's answers are not recorded: its dialect-request.json and
+// dialect-response.json are the request its dialect writes and the answer to
+// it, kept from the discovery run its dialect was written from, and
+// refused.json is its 400 to the System One wire, which the SDK no longer
+// sends it.
 var recordedProviderBodies = map[string][]string{
 	"typesafe":      {"models.json", "questions.json", "typed-response.json", "wrong-key.json"},
 	"codiv":         {"models.json", "questions.json", "typed-response.json", "wrong-key.json"},
 	"perplexity":    {"questions.json", "typed-response.json", "wrong-key.json"},
 	"decisions-api": {"questions.json", "typed-response.json", "wrong-key.json"},
-	"openai":        {"refused.json", "wrong-key.json"},
+	"openai":        {"dialect-request.json", "dialect-response.json", "refused.json", "wrong-key.json"},
+}
+
+// recordsProviderBody reports whether TestLiveProviders records the body
+// name for provider: whether it is one of recordedProviderBodies' files.
+func recordsProviderBody(provider, name string) bool {
+	return slices.Contains(recordedProviderBodies[provider], name)
 }

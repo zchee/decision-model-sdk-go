@@ -15,8 +15,10 @@
 package decision
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -246,6 +248,11 @@ func (c *Client) systemOne(ctx context.Context, state any, qs *Prepared, opts []
 		Body:     body,
 		GetBody:  body.GetBody,
 	}
+	if cfg.Dialect != nil {
+		if err := applyDialect(cfg, &rq, body, qs); err != nil {
+			return nil, err
+		}
+	}
 	resp := (*SystemOneResponse)(&call.Resp)
 	r, err := c.send(ctx, &rq, s.retry, resp.respMeta(), func(r engine.HeaderRedactor) error {
 		return decodeSystemOneInto(ctx, cfg.Logger, resp.respMeta(), c.eng().SystemOneEndpoint(), r, qs, model, resp.result(), spare)
@@ -384,7 +391,11 @@ func (c *Client) attempt(ctx context.Context, rq *engine.Request, attempt int) (
 		Header:     h,
 		Host:       u.Host,
 	}
-	if rq.GetBody != nil {
+	switch {
+	case rq.Raw != nil:
+		// A dialect's body: the call released its encoded body.
+		r.Body, r.GetBody, r.ContentLength = io.NopCloser(bytes.NewReader(rq.Raw)), rq.GetBody, int64(len(rq.Raw))
+	case rq.GetBody != nil:
 		rc, err := rq.Body.Open()
 		if err != nil {
 			// The call holds its reference until it returns: unreachable.
@@ -424,6 +435,9 @@ func (c *Client) attempt(ctx context.Context, rq *engine.Request, attempt int) (
 	}
 	meta.Body = raw
 	c.logResponse(ctx, rq, attempt, start, &meta, red)
+	if rq.Respond != nil {
+		return translateResponse(rq, meta, red, success)
+	}
 	if !success {
 		return meta, red, newAPIError(&meta, rq.Endpoint, red)
 	}
@@ -488,15 +502,20 @@ func (c *Client) logRequest(ctx context.Context, rq *engine.Request, h http.Head
 	if !logger.Enabled(ctx, slog.LevelDebug) {
 		return
 	}
-	n := 0
-	if rq.GetBody != nil {
-		n = rq.Body.Len()
+	// A dialect's body replaces the encoded one, which the call released:
+	// its buffer may hold another call's body by now.
+	var sent []byte
+	switch {
+	case rq.Raw != nil:
+		sent = rq.Raw
+	case rq.GetBody != nil:
+		sent = rq.Body.Bytes()
 	}
 	logger.LogAttrs(ctx, slog.LevelDebug, "request", slog.String("method", rq.Method), slog.String("endpoint", rq.LogURL),
-		slog.Int("attempt", attempt), slog.Any("headers", engine.NewRedactedHeaders(h, c.cfg().Redactor())), slog.Int("body_bytes", n))
-	if n > 0 && logger.Enabled(ctx, LevelTrace) {
+		slog.Int("attempt", attempt), slog.Any("headers", engine.NewRedactedHeaders(h, c.cfg().Redactor())), slog.Int("body_bytes", len(sent)))
+	if len(sent) > 0 && logger.Enabled(ctx, LevelTrace) {
 		logger.LogAttrs(ctx, LevelTrace, "request body", slog.String("method", rq.Method), slog.String("endpoint", rq.LogURL),
-			slog.String("body", string(rq.Body.Bytes())))
+			slog.String("body", string(sent)))
 	}
 }
 

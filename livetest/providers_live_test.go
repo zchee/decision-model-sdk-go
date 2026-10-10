@@ -43,16 +43,20 @@ import (
 //
 //   - models: the listing (200), or, for a provider without one, the
 //     *ConfigError that List returns before sending.
-//   - questions: the three questions of TestLiveQuestions. A System One
-//     provider answers 200 and the answers are checked as there; Decisions
-//     API answers 200 with an envelope the decoder refuses, so the test
-//     expects a *ResponseValidationError and records its body; OpenAI
-//     refuses the request with 400, recorded as refused.json.
-//   - typed: Ask[liveTicket], with the same three outcomes.
+//   - questions: a System One provider is asked the three questions of
+//     TestLiveQuestions; a dialect provider (Decisions API, OpenAI) is asked
+//     liveTicket's, whose yes/no question has no outcomes, which Decisions
+//     API requires both of and OpenAI's wire has no place for. Each answers
+//     200 and the answers are checked as there.
+//   - typed: Ask[liveTicket], answered 200 and checked.
 //   - wrong key: a key the provider did not issue, on the listing where one
-//     exists and on the System One call otherwise: 401, except that OpenAI
-//     may check the request before the key and answer 400; the test records
-//     and logs whichever arrives.
+//     exists and on the System One call otherwise: 401.
+//
+// What is recorded is each body as the vendor sent it: the response's
+// RawBody on a System One provider, and the LevelTrace record of the
+// response on a dialect provider, whose RawBody is the translated body. A
+// body is recorded only where recordedProviderBodies lists it: OpenAI's
+// answers are not.
 func TestLiveProviders(t *testing.T) {
 	env, err := providerEnvFrom(os.Getenv)
 	if err != nil {
@@ -109,67 +113,28 @@ func liveProviderRun(t *testing.T, sp selectedProvider, secrets []string) {
 
 	t.Run("questions", func(t *testing.T) {
 		qs := liveQuestionSet(t)
-		if sp.kind == kindEnvelope {
-			// Decisions API validates a noul's criteria more strictly than
-			// TypeSafe AI: it refuses criteria that do not carry both the
-			// true and the false key (400), and liveQuestionSet's raw noul
-			// carries only true. It is asked liveTicket's three questions,
-			// whose noul has no criteria, as the typed call asks them.
-			var err error
-			if qs, err = decision.PreparedFor[liveTicket](); err != nil {
-				t.Fatal(err)
-			}
+		if sp.kind == kindDialect {
+			qs = plainNoulSet(t)
 		}
 		lc.begin()
 		resp, err := lc.c.SystemOne(t.Context(), ticketState, qs)
 		lc.done(t, sp.name+" system one")
-		switch sp.kind {
-		case kindSystemOne:
-			if err != nil {
-				t.Fatalf("SystemOne() error = %s", describeErr(err, secrets))
-			}
-			recordBody(t, dir, "questions.json", resp.Meta().RawBody(), secrets...)
-			checkLiveAnswers(t, resp)
-		case kindEnvelope:
-			ve := wantEnvelope(t, err, secrets)
-			if ve.FieldPath != "model" {
-				t.Errorf("FieldPath = %q, want %q: the envelope has no top-level model", ve.FieldPath, "model")
-			}
-			recordBody(t, dir, "questions.json", ve.Body, secrets...)
-		case kindRefused:
-			apiErr := wantAPIError(t, err, secrets)
-			if apiErr.StatusCode != http.StatusBadRequest {
-				t.Errorf("StatusCode = %d, want 400: the provider refuses the System One wire; nothing recorded", apiErr.StatusCode)
-				return
-			}
-			recordBody(t, dir, "refused.json", apiErr.Body, secrets...)
+		if err != nil {
+			t.Fatalf("SystemOne() error = %s", describeErr(err, secrets))
 		}
+		recordVendorBody(t, lc, sp, dir, "questions.json", resp.Meta().RawBody(), secrets)
+		checkLiveAnswers(t, resp)
 	})
 
 	t.Run("typed", func(t *testing.T) {
 		lc.begin()
 		ticket, err := decision.Ask[liveTicket](t.Context(), lc.c, ticketState)
 		lc.done(t, sp.name+" ask")
-		switch sp.kind {
-		case kindSystemOne:
-			if err != nil {
-				t.Fatalf("Ask() error = %s", describeErr(err, secrets))
-			}
-			checkLiveTicket(t, ticket)
-			bodyRec, ok := lc.lastRecord("response body")
-			if !ok {
-				t.Fatal("no LevelTrace response body record")
-			}
-			body, _ := bodyRec.Attr("body")
-			recordBody(t, dir, "typed-response.json", []byte(body.String()), secrets...)
-		case kindEnvelope:
-			ve := wantEnvelope(t, err, secrets)
-			recordBody(t, dir, "typed-response.json", ve.Body, secrets...)
-		case kindRefused:
-			if apiErr := wantAPIError(t, err, secrets); apiErr.StatusCode != http.StatusBadRequest {
-				t.Errorf("StatusCode = %d, want 400: the provider refuses the System One wire", apiErr.StatusCode)
-			}
+		if err != nil {
+			t.Fatalf("Ask() error = %s", describeErr(err, secrets))
 		}
+		checkLiveTicket(t, ticket)
+		recordVendorBody(t, lc, sp, dir, "typed-response.json", nil, secrets)
 	})
 
 	t.Run("wrong key", func(t *testing.T) {
@@ -177,24 +142,23 @@ func liveProviderRun(t *testing.T, sp selectedProvider, secrets []string) {
 		wrong.begin()
 		var err error
 		endpoint := "system one"
-		if sp.p.ModelsPath != "" {
+		switch {
+		case sp.p.ModelsPath != "":
 			endpoint = "models"
 			_, err = wrong.c.Models().List(t.Context())
-		} else {
+		case sp.kind == kindDialect:
+			_, err = wrong.c.SystemOne(t.Context(), "hello", plainNoulSet(t))
+		default:
 			_, err = wrong.c.SystemOne(t.Context(), "hello", liveQuestionSet(t))
 		}
 		wrong.done(t, sp.name+" wrong key "+endpoint)
 		apiErr := wantAPIError(t, err, secrets)
-		switch {
-		case apiErr.StatusCode == http.StatusUnauthorized:
-			if !apiErr.IsAuthentication() {
-				t.Errorf("IsAuthentication() = false on a 401")
-			}
-		case sp.kind == kindRefused && apiErr.StatusCode == http.StatusBadRequest:
-			t.Logf("%s answered the wrong key with 400: it checks the request before the key", sp.name)
-		default:
+		if apiErr.StatusCode != http.StatusUnauthorized {
 			t.Errorf("StatusCode = %d, want 401; nothing recorded", apiErr.StatusCode)
 			return
+		}
+		if !apiErr.IsAuthentication() {
+			t.Errorf("IsAuthentication() = false on a 401")
 		}
 		t.Logf("%s wrong key on %s: status %d", sp.name, endpoint, apiErr.StatusCode)
 		recordBody(t, dir, "wrong-key.json", apiErr.Body, secrets...)
@@ -214,21 +178,36 @@ func wantAPIError(t *testing.T, err error, secrets []string) *decision.APIError 
 	return apiErr
 }
 
-// wantEnvelope returns err as the *ResponseValidationError of a 200 whose
-// body wraps the answers in an envelope, and fails the test, so that nothing
-// is recorded, otherwise.
-func wantEnvelope(t *testing.T, err error, secrets []string) *decision.ResponseValidationError {
+// plainNoulSet returns liveTicket's three questions, whose yes/no question
+// has no outcomes: the set a dialect provider is asked.
+func plainNoulSet(t *testing.T) *decision.Prepared {
 	t.Helper()
-	ve, ok := errors.AsType[*decision.ResponseValidationError](err)
-	if !ok {
-		t.Fatalf("error = %s, want a *ResponseValidationError for the envelope", describeErr(err, secrets))
+	qs, err := decision.PreparedFor[liveTicket]()
+	if err != nil {
+		t.Fatal(err)
 	}
-	checkNoSecret(t, ve.Error(), secrets)
-	if ve.StatusCode != http.StatusOK {
-		t.Fatalf("StatusCode = %d, want 200; nothing recorded", ve.StatusCode)
+	return qs
+}
+
+// recordVendorBody records name for sp, when recordedProviderBodies lists
+// it, as the vendor sent it: raw, the response's RawBody, on a System One
+// provider, and the last LevelTrace response record on a dialect provider or
+// when raw is nil.
+func recordVendorBody(t *testing.T, lc *liveClient, sp selectedProvider, dir, name string, raw []byte, secrets []string) {
+	t.Helper()
+	if !recordsProviderBody(sp.name, name) {
+		t.Logf("%s: %s is not recorded", sp.name, name)
+		return
 	}
-	t.Logf("%s", describeErr(ve, secrets))
-	return ve
+	if raw == nil || sp.kind == kindDialect {
+		rec, ok := lc.lastRecord("response body")
+		if !ok {
+			t.Fatal("no LevelTrace response body record")
+		}
+		body, _ := rec.Attr("body")
+		raw = []byte(body.String())
+	}
+	recordBody(t, dir, name, raw, secrets...)
 }
 
 // describeErr renders err for the test's log without a server's text that

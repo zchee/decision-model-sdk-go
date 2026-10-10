@@ -44,9 +44,12 @@ func (u Usage) MarshalJSON() ([]byte, error) { return wire.AppendUsage(nil, &u.w
 
 // ResponseMeta is the HTTP side of a response, the Python SDK's
 // raw_http_response: the status, the header and the body exactly as they
-// arrived. The header and the body are shared with the response, not
-// copied, and must not be modified. A response that did not come from a
-// request, such as one read back from JSON, has an empty ResponseMeta.
+// arrived, except that on the client of a provider with a [Dialect] the body
+// is the System One body the dialect translated the vendor's into (the
+// record at [LevelTrace] holds the vendor's). The header and the body are
+// shared with the response, not copied, and must not be modified. A
+// response that did not come from a request, such as one read back from
+// JSON, has an empty ResponseMeta.
 //
 // It is HTTP metadata, not part of the response's payload: a response's
 // MarshalJSON leaves it out, and it has no MarshalJSON of its own.
@@ -66,9 +69,10 @@ func (m ResponseMeta) StatusCode() int { return m.m.Status }
 // logging it.
 func (m ResponseMeta) Header() http.Header { return m.m.Header }
 
-// RawBody returns the body exactly as it was received, or nil when there is
-// no HTTP response. It holds what the decoded response leaves out: members
-// and answer types this version does not model.
+// RawBody returns the body exactly as it was received, or the translated
+// body on the client of a provider with a [Dialect], or nil when there is no
+// HTTP response. It holds what the decoded response leaves out: members and
+// answer types this version does not model.
 func (m ResponseMeta) RawBody() []byte { return m.m.Body }
 
 // RequestID returns the server's identifier for the request, from the

@@ -23,6 +23,23 @@ All notable changes to decision-model-sdk-go are recorded here. The format follo
   without a listing fail with a `*ConfigError` naming the provider before
   anything is sent.
 
+- `decision.Dialect` lets a `Provider` speak a vendor's wire: once per
+  call it rewrites the System One request (`Request`, which sees the
+  encoded body and `Prepared.Questions()`) and returns a `ResponseFunc`
+  that reads each attempt's response back as System One (`Translated`).
+  A call the dialect cannot write fails before anything is sent with a
+  `*DialectError` (`NewDialectError` for a dialect outside the package),
+  and a 2xx it cannot read with a `*ResponseValidationError` whose
+  `FieldPath` is the `Path` of the `*ResponsePathError` it returned.
+  `Provider.Dialect`, `PreparedQuestion` and `Prepared.Questions()` are
+  new.
+- Two presets with a dialect: `provider.DecisionsAPI()`
+  (`DECISIONS_API_KEY`, which unwraps the `data.result` of Decisions API's
+  envelope) and `provider.OpenAI()` (`OPENAI_API_KEY`, `POST
+  /v1/decisions`, default model `gpt-6-luna`, which rewrites the request
+  and the answers between System One's wire and OpenAI's and refuses raw
+  questions, JSON instructions or levels and yes/no outcomes). Neither
+  serves a model listing.
 - The live tests gain `TestLiveProviders`, which calls the providers that
   `DECISION_MODEL_LIVE_PROVIDERS` names (`typesafe`, `codiv`,
   `perplexity`, `decisions-api`, `openai`), each with its own key
@@ -37,6 +54,16 @@ All notable changes to decision-model-sdk-go are recorded here. The format follo
   id of the INFO `response` record, read `x-request-id` when
   `x-typesafe-request-id` is absent, so a vendor that sends only the
   former has an id. The headers are not modified.
+- On the client of a provider with a dialect, `Meta().RawBody()` and the
+  `Body` of a decoder's `*ResponseValidationError` hold the translated
+  System One body, while the `LevelTrace` response record and an
+  `*APIError`'s `Body` keep the body as the vendor sent it; an
+  `*APIError` whose body names no `detail.error_type` takes the
+  `ErrorType` the dialect gives its status. A client without a dialect is
+  unchanged.
+- `TestLiveProviders` calls Decisions API and OpenAI through their
+  presets and expects decoded answers; it records each body as the vendor
+  sent it, and no longer records OpenAI's refusal of the System One wire.
 
 ## [0.1.0] - 2026-10-03
 

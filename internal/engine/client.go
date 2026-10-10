@@ -20,6 +20,7 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -95,6 +96,12 @@ type Config[R any] struct {
 	// math/rand/v2's Float64. No option sets it: tests write it, before the
 	// client's first call, to pin the jitter of a whole call.
 	Random func() float64
+
+	// Dialect is the root package's Dialect of the client's provider, which
+	// this package cannot name, or nil for a provider that speaks System One
+	// and for a client without a provider. A System One call asserts it only
+	// when it is not nil.
+	Dialect any
 
 	// redact is the client's Redactor method value, which NewClient stores
 	// once, before the client's first request, so that every response of
@@ -178,10 +185,26 @@ func (c *Client[R]) Attempts() *atomic.Uint64 { return &c.attempts }
 // against.
 type Prepared struct {
 	w wire.Prepared
+
+	// once builds view, the root package's read-only view of the questions
+	// ([Prepared.View]), on its first use: building it when the set is
+	// prepared would cost every set allocations that only a client with a
+	// dialect reads.
+	once sync.Once
+	view any
 }
 
 // Wire returns the question set's bytes and tables.
 func (p *Prepared) Wire() *wire.Prepared { return &p.w }
+
+// View returns what build makes of the set's tables: the root package's view
+// of the questions, which this package cannot name. build runs once, on the
+// first call, and every call returns its result, so concurrent callers share
+// one view.
+func (p *Prepared) View(build func(*wire.Prepared) any) any {
+	p.once.Do(func() { p.view = build(&p.w) })
+	return p.view
+}
 
 // Response is the state behind the root package's SystemOneResponse: the
 // decoded result and the HTTP metadata of the response it came in.
@@ -297,6 +320,25 @@ type Request struct {
 	// request with a body; GetBody is made once per call.
 	Body    codec.Body
 	GetBody func() (io.ReadCloser, error)
+	// Raw, when not nil, is the body every attempt sends instead of Body: the
+	// vendor's request a dialect wrote from the encoded body, which the call
+	// has then released. GetBody then reads Raw.
+	Raw []byte
+	// Respond, when not nil, is the dialect's translation of a response, run
+	// once per attempt on every response read whole, after it is logged and
+	// before its status decides the outcome.
+	Respond func(status int, header http.Header, body []byte) (Translated, error)
+}
+
+// Translated is what a dialect's translation of one response returns: the
+// root package's Translated, which converts to and from it.
+type Translated struct {
+	// Body is the translated body of a 2xx response; nil keeps the body as
+	// it arrived.
+	Body []byte
+	// ErrorType is the System One error_type of a response outside 2xx, or
+	// "" for none.
+	ErrorType string
 }
 
 // AttemptHeader returns the header map of attempt. The first attempt sends

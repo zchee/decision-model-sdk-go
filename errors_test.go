@@ -395,11 +395,11 @@ func TestErrorRenderings(t *testing.T) {
 	}
 }
 
-// sdkErrors holds a nil pointer of each of the seven types: the compiler
+// sdkErrors holds a nil pointer of each of the eight types: the compiler
 // checks that every one implements [Error], and the tests read their types.
 var sdkErrors = [...]Error{
 	(*APIError)(nil), (*ConnectionError)(nil), (*TimeoutError)(nil), (*ResponseValidationError)(nil),
-	(*ResponseTooLargeError)(nil), (*ConfigError)(nil), (*InvalidRequestError)(nil),
+	(*ResponseTooLargeError)(nil), (*ConfigError)(nil), (*InvalidRequestError)(nil), (*DialectError)(nil),
 }
 
 // errorView is everything a caller can read from an SDK error: its text, its
@@ -527,8 +527,8 @@ func responseValidationError(status int, header http.Header, err error) *Respons
 // leaves of it: errors are values, so where Python rebuilds an exception from
 // its args and copies and unpickles it, a Go error is matched with errors.As
 // through any wrapping, copied by value with the same rendering, accessors and
-// Unwrap chain, read from another goroutine as it is, and each of the seven
-// types is a [Error] that errors.As tells apart from the other six.
+// Unwrap chain, read from another goroutine as it is, and each of the eight
+// types is a [Error] that errors.As tells apart from the other seven.
 //
 // The rows, by upstream row: 1 TypeSafeError is "*ConfigError"; 2
 // TypeSafeAPIConnectionError is "*ConnectionError"; 3 to 11 are the status
@@ -584,6 +584,14 @@ func TestErrorsAsRoundTrip(t *testing.T) {
 		"success: *InvalidRequestError": {
 			err:  newInvalidRequestError("bad state", errSentinel),
 			want: errorView{Type: errorTypeName[*InvalidRequestError](), Text: "bad state", Unwrapped: []error{errSentinel}},
+		},
+		"success: *DialectError": {
+			err:  NewDialectError("OpenAI", "a raw question"),
+			want: errorView{Type: errorTypeName[*DialectError](), Text: "The OpenAI dialect cannot send this request: a raw question"},
+		},
+		"success: *DialectError wrapping a dialect's error": {
+			err:  &DialectError{Provider: "Stand-in", Reason: errSentinel.Error(), err: errSentinel},
+			want: errorView{Type: errorTypeName[*DialectError](), Text: "The Stand-in dialect cannot send this request: " + errSentinel.Error(), Unwrapped: []error{errSentinel}},
 		},
 		"success: row 3, an API error of 500 without a body": {
 			err:  apiError(500, "", headers(), ""),

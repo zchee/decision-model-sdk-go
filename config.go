@@ -353,7 +353,7 @@ func (o *options) resolve(getenv func(string) string) (*config, error) {
 	systemOnePath, modelsPath := engine.SystemOnePath, engine.ModelsPath
 	if p := o.provider; p != nil {
 		systemOnePath, modelsPath = p.SystemOnePath, p.ModelsPath
-		c.Provider = p.Name
+		c.Provider, c.Dialect = p.Name, p.Dialect
 	}
 	// A provider without a listing has no models URL; its log name stays "".
 	if models != nil {
