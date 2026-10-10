@@ -44,13 +44,13 @@ import (
 // the id and an APIError's reports none; the envelope's data.requestId, the
 // same id, is dropped with the envelope.
 //
-// It refuses, with status 400, a yes/no question whose criteria lack the
-// true or the false outcome: give a [decision.Noul] both Yes and No, or
-// neither. It has no listing, so ModelsPath is empty and
-// [decision.Models.List] on its client fails with a [*decision.ConfigError]
-// before anything is sent; it names models as vendor/model, such as
-// typesafe/jev-1.13, and also takes jev-latest. It ignores a top-level
-// member it does not know, such as one [decision.ExtraBody] adds.
+// It refuses, with status 400, a yes/no question that describes its Yes
+// outcome without its No outcome, with a message asking for both. It has no
+// listing, so ModelsPath is empty and [decision.Models.List] on its client
+// fails with a [*decision.ConfigError] before anything is sent; it names
+// models as vendor/model, such as typesafe/jev-1.13, and also takes
+// jev-latest. It ignores a top-level member it does not know, such as one
+// [decision.ExtraBody] adds.
 func DecisionsAPI() decision.Provider {
 	return decision.Provider{
 		Name:          "Decisions API",

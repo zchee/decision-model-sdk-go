@@ -384,27 +384,170 @@ the cause's place.
 `WithProvider` builds a client for one vendor without `WithBaseURL` and
 the `DECISION_MODEL_` variables: a `decision.Provider` names the vendor's
 base URL, its paths, the variable its key is read from and, optionally, a
-default model. The `provider` package holds three presets, each reading
-its key from the vendor's own variable and from no other:
+default model and a dialect. The `provider` package holds five presets,
+each reading its key from the vendor's own variable and from no other:
 
-| Preset | Base URL and System One path | Key variable | Model listing |
-| --- | --- | --- | --- |
-| `provider.TypeSafe()` | `https://api.typesafe.ai/v1/systemone` | `TYPESAFE_API_KEY` | `GET /v1/models` |
-| `provider.Codiv()` | `https://api.codiv.ai/v1/systemone` | `CODIV_API_KEY` | `GET /v1/models` |
-| `provider.Perplexity()` | `https://api.perplexity.ai/v1/decisions` | `PERPLEXITY_API_KEY` | none: `List` fails before sending |
+| Preset | Base URL and System One path | Key variable | Listing path | Default model | Wire |
+| --- | --- | --- | --- | --- | --- |
+| `provider.TypeSafe()` | `https://api.typesafe.ai/v1/systemone` | `TYPESAFE_API_KEY` | `GET /v1/models` | none | System One |
+| `provider.Codiv()` | `https://api.codiv.ai/v1/systemone` | `CODIV_API_KEY` | `GET /v1/models` | none | System One |
+| `provider.Perplexity()` | `https://api.perplexity.ai/v1/decisions` | `PERPLEXITY_API_KEY` | none | none | System One |
+| `provider.DecisionsAPI()` | `https://decisions-api.dev/v1/systemone` | `DECISIONS_API_KEY` | none | none | dialect: the answers come wrapped in a `{"code", "data": {"result"}}` envelope, which the dialect unwraps |
+| `provider.OpenAI()` | `https://api.openai.com/v1/decisions` | `OPENAI_API_KEY` | none | `gpt-6-luna` | dialect: the request and the answers are rewritten both ways |
+
+A preset without a listing path has none because the vendor serves no
+listing in the System One shape (Perplexity's and OpenAI's `GET /v1/models`
+list other models in another shape); on its client, `Models().List` and
+`WarmUp` fail with a `*ConfigError` before anything is sent.
 
 With a provider, `DECISION_MODEL_API_KEY`, `DECISION_MODEL_BASE_URL` and
 `DECISION_MODEL_DEFAULT_MODEL` are not read; `WithAPIKey` and `WithModel`
 win over the provider's settings, and `WithBaseURL` is accepted beside a
 provider only together with `WithAPIKey`, so a vendor's key is never sent
-to another host. None of the presets names a model. These providers are
-the vendors of the System One API the client calls; the adapter module's
-providers are the language models its local stand-in drives.
+to another host. Only the OpenAI preset carries a default model; with any
+other, name the model with `WithModel` or with `Model` on each call. These
+providers are the vendors of the System One API the client calls; the
+adapter module's providers are the language models its local stand-in
+drives.
+
+<!-- example: providers/main.go -->
+```go
+// Copyright 2026 The decision-model-sdk-go Authors.
+// SPDX-License-Identifier: Apache-2.0
+
+// Command providers asks the same question of two vendors through the
+// provider package's presets: Codiv, which speaks System One, with the model
+// named on the client, and OpenAI, whose preset carries a dialect for its
+// own wire and a default model. Each client reads its key from its vendor's
+// own variable, CODIV_API_KEY and OPENAI_API_KEY, and from no other.
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	decision "github.com/zchee/decision-model-sdk-go"
+	"github.com/zchee/decision-model-sdk-go/provider"
+)
+
+func main() {
+	if err := run(context.Background()); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run(ctx context.Context) error {
+	questions, err := decision.NewQuestions().
+		Choice("category", decision.Choice{
+			Instructions: decision.Text("What is this ticket about?"),
+			Options:      decision.Options{{Label: "billing"}, {Label: "technical"}, {Label: "other"}},
+		}).
+		Prepare()
+	if err != nil {
+		return err
+	}
+	state := map[string]any{"document": "I was charged twice. Please fix this ASAP."}
+
+	// A System One vendor: no preset names a model for it, so the client does.
+	codiv, err := decision.NewClient(decision.WithProvider(provider.Codiv()), decision.WithModel("openjev-latest"))
+	if err != nil {
+		return err
+	}
+	defer codiv.Close()
+	if err := ask(ctx, "Codiv", codiv, state, questions); err != nil {
+		return err
+	}
+
+	// A vendor with a wire of its own: the preset's dialect rewrites the call
+	// and reads the answer back, and its default model, gpt-6-luna, is asked.
+	openai, err := decision.NewClient(decision.WithProvider(provider.OpenAI()))
+	if err != nil {
+		return err
+	}
+	defer openai.Close()
+	return ask(ctx, "OpenAI", openai, state, questions)
+}
+
+// ask asks client the questions about state and prints the answer under the
+// vendor's name.
+func ask(ctx context.Context, vendor string, client *decision.Client, state any, questions *decision.Prepared) error {
+	response, err := client.SystemOne(ctx, state, questions)
+	if err != nil {
+		return err
+	}
+	category, _ := response.Answers().Choice("category")
+	fmt.Printf("%s (%s): %s\n", vendor, response.Model(), category.Choice())
+	return nil
+}
+```
+
+### What a dialect changes
+
+A dialect runs once per call, after the SDK has encoded the System One
+request and before anything is sent, and once on every response the call
+reads whole. Calls read the same on every preset (`SystemOne`, `Ask[T]`,
+`DecodeAs[T]`, the retries, the deadlines and the size limit), with these
+differences:
+
+- `Meta().RawBody()` holds the System One body the dialect translated the
+  vendor's into; the `LevelTrace` response record holds the vendor's body
+  as it arrived.
+- A 2xx the dialect cannot translate is a `*ResponseValidationError` that
+  carries the vendor's body and, as its `FieldPath`, the path of the
+  failure in that body, such as `answers[1].name`.
+- An error response keeps the vendor's body in `*APIError`, and its
+  message is read from it. Only `ErrorType` is filled in, when the body
+  names none, with the name the dialect gives the status. The Decisions
+  API and OpenAI presets give `authentication_error` for 401 and
+  `api_usage_error` for 400 (and 404 on OpenAI, its answer to an unknown
+  model), and no other status gets one; a dialect of your own may give
+  any.
+- `RequestID()` reads `x-request-id` when `x-typesafe-request-id` is
+  absent. Decisions API sends it on a success only, so its error responses
+  carry no request id.
+
+The OpenAI preset refuses a call its wire cannot express before anything
+is sent, with a `*DialectError`:
+
+- a question added with `Questions.Raw`;
+- instructions given as `JSON` content;
+- a yes/no question with a `Yes` or a `No` outcome;
+- a choice option described with `JSON` content;
+- a score level given as `JSON` content;
+- an `ExtraBody` member named `input`, the member that carries the state.
+
+For OpenAI, a choice's option descriptions and a score's levels must be
+plain text; the other presets take JSON content there too. Its default
+model is `gpt-6-luna`, the only model its decisions endpoint
+was checked with. Decisions API refuses, with status 400, a yes/no question
+that describes its `Yes` outcome without its `No` outcome; its message asks
+for both.
+
+A `Provider` literal can carry a dialect of its own: see the `Dialect`
+documentation and its example, `ExampleDialect`. A nil or empty body
+returned from its `Request` means the SDK's own body is sent unchanged.
+
+### Not supported
+
+- TypeLLM (`https://api.typellm.ai/v1/generate`) answered named questions
+  with a bare value each (true or false, a string, a number), with no
+  probabilities and no confidence; it refused the top-level members that
+  ask for probabilities, and a score asked from 0 to 2 came back as 5.0.
+  Per-question forms (levels, a minimum and a maximum, probabilities per
+  question) were not verified: they were sent once, in a call the service
+  refused for a top-level member, so how it treats them is unknown. What
+  was observed gives no probabilities, confidence or legend for a dialect
+  to build a System One answer from.
+- DecisionsApi (`https://decisionapi.net/v1/systemone`, a vendor apart from
+  Decisions API) refused every call made with the real key with 402,
+  insufficient credits (a wrong or missing key got 401), so its answers
+  could not be observed. It is out of scope until they can be.
 
 ## More examples
 
 [`docs/examples.md`](docs/examples.md) shows every program under
-[`examples/`](examples): the four above, and the client and call options,
+[`examples/`](examples): the five above, and the client and call options,
 custom transports, and one client shared by goroutines. Each Go block in
 this README and in `docs/` is one of those programs, byte for byte, and CI
 checks that it is.
@@ -435,10 +578,12 @@ differences:
 - The client reads `DECISION_MODEL_API_KEY`, `DECISION_MODEL_BASE_URL` and
   `DECISION_MODEL_DEFAULT_MODEL`, never the Python SDK's `TYPESAFE_` names
   (except `TYPESAFE_API_KEY` under `provider.TypeSafe()`, see
-  [Providers](#providers)), and has no default base URL
-  (`https://api.typesafe.ai` there) and no default model (`jev-latest`
-  there): the SDK serves any vendor's decision model, so a default would
-  silently send a key to one vendor or ask its model.
+  [Providers](#providers)). A client built without `WithProvider` has no
+  default base URL (`https://api.typesafe.ai` there) and no default model
+  (`jev-latest` there): the SDK serves any vendor's decision model, so a
+  default would silently send a key to one vendor or ask its model. With
+  a provider, the provider supplies the base URL, and the OpenAI preset a
+  default model.
 
 [`docs/deviations.md`](docs/deviations.md) is the full table, each row
 naming the Python behaviour, the Go behaviour and why, and the upstream
@@ -461,18 +606,22 @@ program that used it changes four things:
   (`field has no decision tag`).
 - The environment: `DECISION_MODEL_API_KEY`, `DECISION_MODEL_BASE_URL` and
   `DECISION_MODEL_DEFAULT_MODEL` replace the variables of the old names.
-- The base URL and the model: there is no default for either, so a client
-  names its vendor's base URL (`WithBaseURL` or the variable) and a model
-  (`WithModel`, the variable, or `Model` on each call).
+- The base URL and the model: a client built without `WithProvider` has
+  no default for either, so it names its vendor's base URL (`WithBaseURL`
+  or the variable) and a model (`WithModel`, the variable, or `Model` on
+  each call). With `WithProvider` the provider supplies the base URL, and
+  the OpenAI preset a default model.
 
 ## Tests
 
 `go test ./...` runs every test offline, the examples included (against
-a local stand-in for the API). The tests against the live API are opt-in:
-they compile only with the build tag `live`, and each fails before it
-calls the API unless `DECISION_MODEL_LIVE_TESTS=1`, `DECISION_MODEL_API_KEY`,
-`DECISION_MODEL_BASE_URL` and `DECISION_MODEL_DEFAULT_MODEL` are set: the
-tests name no vendor's API or model in code. For TypeSafe AI's API:
+a local stand-in for the API), except `examples/providers`, which calls
+each vendor's own host and is compiled only. The tests against the live
+API are opt-in: they compile only with the build tag `live`. Each test
+against one API fails before it calls the API unless
+`DECISION_MODEL_LIVE_TESTS=1`, `DECISION_MODEL_API_KEY`,
+`DECISION_MODEL_BASE_URL` and `DECISION_MODEL_DEFAULT_MODEL` are set:
+those tests name no vendor's API or model in code. For TypeSafe AI's API:
 
 ```sh
 DECISION_MODEL_LIVE_TESTS=1 DECISION_MODEL_API_KEY=... \
@@ -484,6 +633,13 @@ DECISION_MODEL_LIVE_TESTS=1 DECISION_MODEL_API_KEY=... \
 The key is read from the environment and is never printed. The API bills
 each System One call; CI does not run these tests
 ([`docs/support.md`](docs/support.md#live-tests) says where they run).
+
+`TestLiveProviders` calls the presets instead, and only those named in
+`DECISION_MODEL_LIVE_PROVIDERS` (a comma-separated list such as
+`codiv,openai`), each asked the model in `DECISION_MODEL_LIVE_MODEL_<NAME>`
+(OpenAI's may stay unset for its default), with the key read from that
+preset's own variable and never from the generic ones; run it alone, as
+[`docs/support.md`](docs/support.md#live-tests) shows.
 
 ## CI, coverage and benchmarks
 

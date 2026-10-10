@@ -15,31 +15,41 @@ All notable changes to decision-model-sdk-go are recorded here. The format follo
   `DECISION_MODEL_BASE_URL` and `DECISION_MODEL_DEFAULT_MODEL` are not
   read; `WithAPIKey` and `WithModel` still win; `WithBaseURL` beside a
   provider is accepted only with `WithAPIKey`.
-- The `provider` package holds three presets: `provider.TypeSafe()`
-  (`TYPESAFE_API_KEY`), `provider.Codiv()` (`CODIV_API_KEY`) and
-  `provider.Perplexity()` (`PERPLEXITY_API_KEY`, `POST /v1/decisions`, no
-  model listing).
+- The `provider` package holds five presets, each reading its key from
+  the vendor's own variable: `provider.TypeSafe()` (`TYPESAFE_API_KEY`),
+  `provider.Codiv()` (`CODIV_API_KEY`) and `provider.Perplexity()`
+  (`PERPLEXITY_API_KEY`, `POST /v1/decisions`), which speak System One,
+  and `provider.DecisionsAPI()` (`DECISIONS_API_KEY`) and
+  `provider.OpenAI()` (`OPENAI_API_KEY`, `POST /v1/decisions`, default
+  model `gpt-6-luna`), which carry a dialect: Decisions API's unwraps the
+  `data.result` of its envelope, and OpenAI's rewrites the request and
+  the answers between System One's wire and OpenAI's. The Perplexity,
+  Decisions API and OpenAI presets have no model-listing path, so `List`
+  on their clients fails before sending.
 - `Models.List`, and so `Client.WarmUp`, on the client of a provider
   without a listing fail with a `*ConfigError` naming the provider before
   anything is sent.
-
-- `decision.Dialect` lets a `Provider` speak a vendor's wire: once per
-  call it rewrites the System One request (`Request`, which sees the
-  encoded body and `Prepared.Questions()`) and returns a `ResponseFunc`
-  that reads each attempt's response back as System One (`Translated`).
-  A call the dialect cannot write fails before anything is sent with a
-  `*DialectError` (`NewDialectError` for a dialect outside the package),
-  and a 2xx it cannot read with a `*ResponseValidationError` whose
-  `FieldPath` is the `Path` of the `*ResponsePathError` it returned.
-  `Provider.Dialect`, `PreparedQuestion` and `Prepared.Questions()` are
-  new.
-- Two presets with a dialect: `provider.DecisionsAPI()`
-  (`DECISIONS_API_KEY`, which unwraps the `data.result` of Decisions API's
-  envelope) and `provider.OpenAI()` (`OPENAI_API_KEY`, `POST
-  /v1/decisions`, default model `gpt-6-luna`, which rewrites the request
-  and the answers between System One's wire and OpenAI's and refuses raw
-  questions, JSON instructions or levels and yes/no outcomes). Neither
-  serves a model listing.
+- `decision.Dialect` lets a `Provider` speak a vendor's wire
+  (`Provider.Dialect`): once per call it rewrites the encoded System One
+  request (`Request`, which also reads the questions as
+  `PreparedQuestion`s from the new `(*Prepared).Questions`; a nil or empty
+  body sends the SDK's own) and returns a `ResponseFunc` that reads each
+  attempt's response back as System One (`Translated`). A call the dialect
+  cannot write fails before anything is sent with a `*DialectError`
+  (`NewDialectError` for a dialect outside the package), and a 2xx it
+  cannot read with a `*ResponseValidationError` whose `FieldPath` is the
+  `Path` of the `*ResponsePathError` it returned.
+- The OpenAI preset refuses, before anything is sent, a call its wire
+  cannot express: a question added with `Questions.Raw`, instructions, an
+  option description or a score level given as JSON content, a yes/no
+  question with an outcome, and an `ExtraBody` member named `input`.
+- `examples/providers` asks one question of a System One preset and of
+  the OpenAI preset. The README's Providers section lists the presets and
+  what a dialect changes, and documents two endpoints as not supported:
+  TypeLLM's `/v1/generate`, which answered with bare values and no
+  probabilities, and decisionapi.net's `/v1/systemone`, whose answers
+  could not be observed (every call with the real key was refused with
+  402).
 - The live tests gain `TestLiveProviders`, which calls the providers that
   `DECISION_MODEL_LIVE_PROVIDERS` names (`typesafe`, `codiv`,
   `perplexity`, `decisions-api`, `openai`), each with its own key

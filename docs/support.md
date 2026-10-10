@@ -35,8 +35,9 @@ Off the matrix there are two outcomes:
   build fails with the D1 identifier described below.
 
 The support window is the set of Go releases that the newest tag of
-`github.com/bytedance/sonic` supports. sonic is the SDK's only JSON codec, and
-its JIT path compiles only for
+`github.com/bytedance/sonic` supports. sonic is the root package's only JSON
+codec (the dialects of the `provider` package use the standard library's
+`encoding/json/jsontext`), and its JIT path compiles only for
 `(amd64 && go1.17 && !go1.28) || (arm64 && go1.20 && !go1.28)` (the build line
 of `sonic.go` in v1.15.4). Everywhere else sonic silently falls back to
 `encoding/json` and prints a warning at init; within the Go releases `go.mod`
@@ -189,7 +190,9 @@ the vendor and the model the tests call.
 `go test -list '.*' -tags live ./...` lists them without the variables,
 which is how CI's port test matrix check finds them. The untagged tests of
 the same package run in CI: the guard, the recorder's credential scrubber,
-and the example programs against a local stand-in for the API.
+and the example programs against a local stand-in for the API, except
+`examples/providers`, which calls each vendor's own host and is compiled
+only.
 
 `TestLiveProviders` calls the vendors that serve the API through
 `decision.WithProvider` and reads its own variables instead of the

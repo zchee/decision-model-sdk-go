@@ -32,9 +32,10 @@ import (
 	"github.com/zchee/decision-model-sdk-go/internal/testsupport"
 )
 
-// exampleOutputs holds, for each program under examples/, the pattern its
-// standard output must match whatever the answers' values are. Every
-// program under examples/ must have a row, and every row a program.
+// exampleOutputs holds, for each program under examples/ that the tests
+// run, the pattern its standard output must match whatever the answers'
+// values are. Every program under examples/ must have a row or be one of
+// presetExamples, and every row must be a program.
 var exampleOutputs = map[string]*regexp.Regexp{
 	"concurrency": regexp.MustCompile(`^("[^"]*"\s+(positive|neutral|negative)\n){3}\d+ attempts on \d+ connection\(s\)\n$`),
 	"logging":     regexp.MustCompile(`^greeting: \d\.\d\d\n$`),
@@ -44,6 +45,14 @@ var exampleOutputs = map[string]*regexp.Regexp{
 	"transport":   regexp.MustCompile(`^\d+ model\(s\)\nquestion: \d\.\d\d after 1 request\(s\)\n$`),
 	"typed":       regexp.MustCompile(`^billing: \d\.\d\d\ntone: (calm|frustrated|angry) \(confidence \d\.\d\d\)\nurgency: \d\.\d\d\n(spam: \d\.\d\d\n)?request \S+: tone (calm|frustrated|angry)\n$`),
 }
+
+// presetExamples are the programs under examples/ that call a vendor
+// through a provider preset: each sends to the vendor's own host with the
+// key read from the vendor's own variable, so neither the stand-in nor the
+// DECISION_MODEL_ variables the tests set reach it, and a run would bill the
+// vendor with whatever key the environment holds. The tests run none of
+// them; go vet ./... compiles them.
+var presetExamples = []string{"providers"}
 
 // environWithout returns the process environment without the variables
 // whose name starts with prefix, then extra.
@@ -84,10 +93,10 @@ func runExample(t *testing.T, name string, env, secrets []string) (stdout, stder
 	return stdout, stderr
 }
 
-// checkExamples runs every program under examples/ with env and checks its
-// output: the exampleOutputs pattern on standard output, and, for the
-// logging example, records that show the Authorization header as *** and
-// one INFO record per call.
+// checkExamples runs every program under examples/ but presetExamples with
+// env and checks its output: the exampleOutputs pattern on standard output,
+// and, for the logging example, records that show the Authorization header
+// as *** and one INFO record per call.
 func checkExamples(t *testing.T, env, secrets []string) {
 	t.Helper()
 	entries, err := os.ReadDir(filepath.Join("..", "examples"))
@@ -100,10 +109,14 @@ func checkExamples(t *testing.T, env, secrets []string) {
 			dirs = append(dirs, e.Name())
 		}
 	}
-	if diff := gocmp.Diff(slices.Sorted(maps.Keys(exampleOutputs)), dirs); diff != "" {
-		t.Fatalf("examples/ and exampleOutputs differ (-exampleOutputs +examples/):\n%s", diff)
+	known := slices.Sorted(slices.Values(slices.Concat(slices.Collect(maps.Keys(exampleOutputs)), presetExamples)))
+	if diff := gocmp.Diff(known, dirs); diff != "" {
+		t.Fatalf("examples/ and exampleOutputs with presetExamples differ (-known +examples/):\n%s", diff)
 	}
 	for _, name := range dirs {
+		if slices.Contains(presetExamples, name) {
+			continue
+		}
 		t.Run(name, func(t *testing.T) {
 			stdout, stderr := runExample(t, name, env, secrets)
 			if !exampleOutputs[name].MatchString(stdout) {
@@ -123,13 +136,14 @@ func checkExamples(t *testing.T, env, secrets []string) {
 // fakeExampleKey is the key the examples send to the fake API.
 const fakeExampleKey = "fake-example-key-0000000000"
 
-// TestExamplesOffline runs every program under examples/ against
-// testsupport.FakeAPI, an in-process stand-in for the API, with the
-// environment the programs read: DECISION_MODEL_API_KEY,
+// TestExamplesOffline runs every program under examples/ but
+// presetExamples against testsupport.FakeAPI, an in-process stand-in for the
+// API, with the environment the programs read: DECISION_MODEL_API_KEY,
 // DECISION_MODEL_BASE_URL and DECISION_MODEL_DEFAULT_MODEL (the fake API's
-// stand-in model), and no other DECISION_MODEL_ variable. Each must exit 0 and print what its
-// exampleOutputs pattern describes; none may print the key. The live variant,
-// TestExamples, runs them against the API itself (-tags live).
+// stand-in model), and no other DECISION_MODEL_ variable. Each must exit 0
+// and print what its exampleOutputs pattern describes; none may print the
+// key. The live variant, TestExamples, runs them against the API itself
+// (-tags live).
 func TestExamplesOffline(t *testing.T) {
 	api := &testsupport.FakeAPI{}
 	srv := httptest.NewServer(api)

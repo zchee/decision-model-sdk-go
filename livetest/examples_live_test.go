@@ -21,9 +21,10 @@ import (
 	"testing"
 )
 
-// TestExamples runs every program under examples/ against the live API (the
-// README's and docs' Go blocks are those programs, and they call the API, as
-// upstream's test_markdown runs its Markdown examples live). The programs read
+// TestExamples runs every program under examples/ but presetExamples, which
+// call a vendor's own host, against the live API (the README's and docs' Go
+// blocks are those programs, and they call the API, as upstream's
+// test_markdown runs its Markdown examples live). The programs read
 // DECISION_MODEL_API_KEY, DECISION_MODEL_BASE_URL and
 // DECISION_MODEL_DEFAULT_MODEL from the environment they inherit;
 // the key is on no command line, and output that held it would fail the test
