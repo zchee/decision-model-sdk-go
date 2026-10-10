@@ -32,9 +32,20 @@
 // inside the test, never in TestMain, so go test -list -tags live lists the
 // tests without the variables. CI does not run them.
 //
+// TestLiveProviders calls the vendors that serve the API through
+// decision.WithProvider instead, and reads its own variables:
+// DECISION_MODEL_LIVE_TESTS=1, DECISION_MODEL_LIVE_PROVIDERS (a
+// comma-separated list of typesafe, codiv, perplexity, decisions-api and
+// openai), and for each listed provider its own key variable and
+// DECISION_MODEL_LIVE_MODEL_<NAME> (the name in upper case, "-" written
+// "_"), which a provider with a default model may leave unset. It needs none
+// of the three generic variables, so it runs alone, with
+// -run '^TestLiveProviders$'.
+//
 // With -args -record the tests also write the bodies the API returned to
-// testdata/live, after removing every credential from them; a body that
-// still holds anything shaped like a credential is refused, not written.
+// testdata/live, and TestLiveProviders to testdata/live/providers/<name>,
+// after removing every credential from them; a body that still holds
+// anything shaped like a credential is refused, not written.
 // The untagged tests of this package check that guard and that scrubber on
 // every go test run, and run the programs under examples/ against a local
 // stand-in for the API (TestExamplesOffline); TestExamples, tagged, runs

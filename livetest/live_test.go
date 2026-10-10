@@ -41,7 +41,8 @@ import (
 )
 
 // record makes the live tests write the bodies the API returned to
-// testdata/live, each scrubbed of credentials first (writeFixture).
+// testdata/live, and TestLiveProviders to testdata/live/providers/<name>,
+// each scrubbed of credentials first (writeFixture).
 var record = flag.Bool("record", false, "write the live response bodies to testdata/live, credentials removed")
 
 // liveTimeout is each attempt's deadline, as upstream's live client sets it
@@ -171,7 +172,7 @@ func (lc *liveClient) done(t *testing.T, label string) {
 		n, _ := rec.Attr("body_bytes")
 		framing = fmt.Sprintf("content_length=%s content_encoding=%s body_bytes=%s", attrOr(cl, hasCL), attrOr(ce, hasCE), n)
 	}
-	t.Logf("K22 %s: %s %s", label, lc.times.line(total), framing)
+	t.Logf("first-response timings %s: %s %s", label, lc.times.line(total), framing)
 }
 
 // attrOr renders a record attribute, or "absent".
@@ -192,10 +193,14 @@ func (lc *liveClient) lastRecord(msg string) (testsupport.LogRecord, bool) {
 	return testsupport.LogRecord{}, false
 }
 
-// recordBody writes body to testdata/live/name under -record, scrubbed of
-// every credential, and otherwise only reports whether the recorder would
-// refuse it.
-func recordBody(t *testing.T, name string, body []byte, secrets ...string) {
+// liveDir is the directory of the live recordings, relative to this
+// package's directory, where go test runs it.
+var liveDir = filepath.Join("..", "testdata", "live")
+
+// recordBody writes body to dir/name under -record, scrubbed of every
+// credential, and otherwise only reports whether the recorder would refuse
+// it. dir is liveDir or a directory under it.
+func recordBody(t *testing.T, dir, name string, body []byte, secrets ...string) {
 	t.Helper()
 	if !*record {
 		if _, err := scrub(body, secrets...); err != nil {
@@ -203,10 +208,10 @@ func recordBody(t *testing.T, name string, body []byte, secrets ...string) {
 		}
 		return
 	}
-	if err := writeFixture(filepath.Join("..", "testdata", "live"), name, body, secrets...); err != nil {
+	if err := writeFixture(dir, name, body, secrets...); err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("recorded testdata/live/%s (%d bytes)", name, len(body))
+	t.Logf("recorded %s (%d bytes)", filepath.ToSlash(filepath.Join(strings.TrimPrefix(dir, ".."+string(filepath.Separator)), name)), len(body))
 }
 
 // probabilitySum returns the sum of a Seq2's values.
@@ -240,7 +245,7 @@ func TestLiveModels(t *testing.T) {
 	for i, m := range models {
 		t.Logf("model %d: name=%q release_date=%q description=%d bytes", i, m.Name(), m.ReleaseDate(), len(m.Description()))
 	}
-	recordBody(t, "models.json", resp.Meta().RawBody(), env.apiKey)
+	recordBody(t, liveDir, "models.json", resp.Meta().RawBody(), env.apiKey)
 	for i := range 3 {
 		lc.begin()
 		if _, err := lc.c.Models().List(t.Context()); err != nil {
@@ -260,6 +265,21 @@ func TestLiveModels(t *testing.T) {
 func TestLiveQuestions(t *testing.T) {
 	env := requireLive(t)
 	lc := newLiveClient(t)
+	qs := liveQuestionSet(t)
+	lc.begin()
+	resp, err := lc.c.SystemOne(t.Context(), ticketState, qs)
+	lc.done(t, "system one cold")
+	if err != nil {
+		t.Fatalf("SystemOne() error = %v", err)
+	}
+	recordBody(t, liveDir, "questions.json", resp.Meta().RawBody(), env.apiKey)
+	checkLiveAnswers(t, resp)
+}
+
+// liveQuestionSet is the question set of upstream's test_live_questions: a
+// raw noul with structured criteria, a typed choice and a typed score.
+func liveQuestionSet(tb testing.TB) *decision.Prepared {
+	tb.Helper()
 	qs, err := decision.NewQuestions().
 		Raw("billing", decision.RawQuestion{Type: "noul", Fields: map[string]any{
 			"instructions": "Is this ticket about billing?",
@@ -277,16 +297,16 @@ func TestLiveQuestions(t *testing.T) {
 		}).
 		Prepare()
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
-	lc.begin()
-	resp, err := lc.c.SystemOne(t.Context(), ticketState, qs)
-	lc.done(t, "system one cold")
-	if err != nil {
-		t.Fatalf("SystemOne() error = %v", err)
-	}
-	recordBody(t, "questions.json", resp.Meta().RawBody(), env.apiKey)
+	return qs
+}
 
+// checkLiveAnswers checks the response to liveQuestionSet as upstream's
+// test_live_questions does: a model and a request id, answers in range,
+// probabilities summing to 1 within 0.1, and the score's legend as sent.
+func checkLiveAnswers(t *testing.T, resp *decision.SystemOneResponse) {
+	t.Helper()
 	if resp.Model() == "" {
 		t.Error("Model() is empty")
 	}
@@ -388,15 +408,7 @@ func TestLiveTypedResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Ask() error = %v", err)
 	}
-	if n := ticket.Billing.Noul(); !ticket.Billing.Present() || n < 0 || n > 1 {
-		t.Errorf("Billing = %v, want a noul answer in [0, 1]", n)
-	}
-	if c := ticket.Tone.Choice(); !slices.Contains([]string{"calm", "frustrated", "angry"}, c) {
-		t.Errorf("Tone = %q, want calm, frustrated or angry", c)
-	}
-	if s := ticket.Urgency.Score(); s < 0 || s > 2 {
-		t.Errorf("Urgency = %v, want a score in [0, 2]", s)
-	}
+	checkLiveTicket(t, ticket)
 	info, ok := lc.lastRecord("response")
 	if id, has := info.Attr("request_id"); !ok || !has || id.String() == "" {
 		t.Error("the INFO response record carries no request id")
@@ -407,7 +419,7 @@ func TestLiveTypedResponse(t *testing.T) {
 	}
 	bodyAttr, _ := bodyRec.Attr("body")
 	body := []byte(bodyAttr.String())
-	recordBody(t, "typed-response.json", body, env.apiKey)
+	recordBody(t, liveDir, "typed-response.json", body, env.apiKey)
 
 	var stored decision.SystemOneResponse
 	if err := stored.UnmarshalJSON(body); err != nil {
@@ -438,6 +450,20 @@ func TestLiveTypedResponse(t *testing.T) {
 	}
 	if diff := gocmp.Diff(viewScore(ticket.Urgency), viewScore(urgency)); diff != "" {
 		t.Errorf("urgency, typed vs Answers() (-typed +answers):\n%s", diff)
+	}
+}
+
+// checkLiveTicket checks the typed answers of liveTicket are in range.
+func checkLiveTicket(t *testing.T, ticket liveTicket) {
+	t.Helper()
+	if n := ticket.Billing.Noul(); !ticket.Billing.Present() || n < 0 || n > 1 {
+		t.Errorf("Billing = %v, want a noul answer in [0, 1]", n)
+	}
+	if c := ticket.Tone.Choice(); !slices.Contains([]string{"calm", "frustrated", "angry"}, c) {
+		t.Errorf("Tone = %q, want calm, frustrated or angry", c)
+	}
+	if s := ticket.Urgency.Score(); s < 0 || s > 2 {
+		t.Errorf("Urgency = %v, want a score in [0, 2]", s)
 	}
 }
 
@@ -524,7 +550,7 @@ func TestLiveUnauthenticated(t *testing.T) {
 				}
 				t.Logf("%s %s: %s", name, endpoint, apiErr)
 				if endpoint == "models" {
-					recordBody(t, tc.record, apiErr.Body, env.apiKey, wrongLiveKey)
+					recordBody(t, liveDir, tc.record, apiErr.Body, env.apiKey, wrongLiveKey)
 				}
 			})
 		}

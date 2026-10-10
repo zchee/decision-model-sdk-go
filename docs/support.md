@@ -191,6 +191,31 @@ which is how CI's port test matrix check finds them. The untagged tests of
 the same package run in CI: the guard, the recorder's credential scrubber,
 and the example programs against a local stand-in for the API.
 
+`TestLiveProviders` calls the vendors that serve the API through
+`decision.WithProvider` and reads its own variables instead of the
+generic ones: `DECISION_MODEL_LIVE_TESTS=1`,
+`DECISION_MODEL_LIVE_PROVIDERS` (a comma-separated list of `typesafe`,
+`codiv`, `perplexity`, `decisions-api` and `openai`; each is billed, so
+none is called unless listed), and per listed provider its own key
+variable (`TYPESAFE_API_KEY`, `CODIV_API_KEY`, `PERPLEXITY_API_KEY`,
+`DECISIONS_API_KEY`, `OPENAI_API_KEY`), exported in the shell and never
+written on the command line, and `DECISION_MODEL_LIVE_MODEL_<NAME>`, the
+name in upper case with `-` written `_`, such as
+`DECISION_MODEL_LIVE_MODEL_DECISIONS_API`; OpenAI may leave its model
+unset for its default, `gpt-6-luna`. A listed
+provider without its key or model fails the test before anything is
+sent, naming the variable. The other live tests fail without the generic
+variables, so run it alone:
+
+```sh
+DECISION_MODEL_LIVE_TESTS=1 DECISION_MODEL_LIVE_PROVIDERS=codiv \
+	DECISION_MODEL_LIVE_MODEL_CODIV=openjev-latest \
+	go test -tags live -count=1 -v -run '^TestLiveProviders$' ./livetest/
+```
+
+[`testdata/live`](../testdata/live/README.md) lists what it records per
+provider with `-args -record`.
+
 `TestLiveUnauthenticated` asserts the API's two refusals: 403 for a
 request without a credential and 401 for a key the API did not issue, both
 with the error type `authentication_error`, which

@@ -183,7 +183,7 @@ func testNames(out string) []string {
 // live test without the variables, and running them fails every one of them
 // with the guard's message, none passing. The live tests are the ones -tags
 // live adds to the list, so a new one is covered without an edit here; the
-// four of the upstream port must be among them.
+// four of the upstream port and TestLiveProviders must be among them.
 func TestLiveTestsFailWithoutEnv(t *testing.T) {
 	env := environWithout("DECISION_MODEL_")
 	untagged, err := runGo(t, env, "test", "-list", ".*", ".")
@@ -200,7 +200,7 @@ func TestLiveTestsFailWithoutEnv(t *testing.T) {
 			live = append(live, name)
 		}
 	}
-	for _, want := range []string{"TestLiveModels", "TestLiveQuestions", "TestLiveTypedResponse", "TestLiveUnauthenticated"} {
+	for _, want := range []string{"TestLiveModels", "TestLiveQuestions", "TestLiveTypedResponse", "TestLiveUnauthenticated", "TestLiveProviders"} {
 		if !slices.Contains(live, want) {
 			t.Errorf("go test -tags live -list does not name %s; live tests found: %v", want, live)
 		}
@@ -402,13 +402,19 @@ var recordedBodies = []string{
 }
 
 // TestRecordedBodiesHoldNoCredentials checks what reached testdata/live:
-// exactly the recorded bodies, each a JSON object as the API sent it (no
-// trailing newline added), with no credential shape in it (credentialShapes:
-// no ts_ token, no member named like a credential header, no bearer
-// credential). When the environment holds DECISION_MODEL_API_KEY, as on the
-// machine that recorded them, the key's bytes must not occur either; the
-// check prints nothing of it.
-// internal/codec's TestLiveBodiesOneScan decodes every one of them.
+// exactly the recorded bodies, each a JSON object kept exactly as the API
+// sent it, a vendor's trailing newline included (jsonObjectAsSent), with no
+// credential shape in it (credentialShapes:
+// no token with a vendor's key prefix, no member named like a credential
+// header, no bearer credential). Under testdata/live/providers it checks each
+// provider TestLiveProviders recorded: every directory is a known provider's,
+// holding exactly that provider's files (recordedProviderBodies); a provider
+// without a directory has not been recorded yet. When the environment holds
+// DECISION_MODEL_API_KEY or a provider's key variable, as on the machine that
+// recorded them, no key's bytes and no masked echo of a key may occur
+// either; the check prints nothing of them.
+// internal/codec's TestLiveBodiesOneScan decodes every one of the top-level
+// bodies.
 func TestRecordedBodiesHoldNoCredentials(t *testing.T) {
 	dir := filepath.Join("..", "testdata", "live")
 	entries, err := os.ReadDir(dir)
@@ -424,17 +430,101 @@ func TestRecordedBodiesHoldNoCredentials(t *testing.T) {
 	if diff := gocmp.Diff(recordedBodies, onDisk); diff != "" {
 		t.Fatalf("testdata/live/*.json (-want +got):\n%s", diff)
 	}
-	key := strings.TrimSpace(os.Getenv(decision.APIKeyEnv))
+	var secrets []string
+	for _, name := range keyEnvNames() {
+		secrets = append(secrets, strings.TrimSpace(os.Getenv(name)))
+	}
+	secrets = append(secrets, wrongLiveKey)
 	for _, name := range onDisk {
-		data, err := os.ReadFile(filepath.Join(dir, name))
+		checkRecordedBody(t, filepath.Join(dir, name), name, secrets)
+	}
+
+	providersDir := filepath.Join(dir, "providers")
+	providers, err := os.ReadDir(providersDir)
+	if errors.Is(err, os.ErrNotExist) {
+		t.Logf("testdata/live/providers does not exist: no provider has been recorded")
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorded := map[string]bool{}
+	for _, p := range providers {
+		want, known := recordedProviderBodies[p.Name()]
+		if !p.IsDir() || !known {
+			t.Errorf("testdata/live/providers/%s is not the directory of a provider the harness calls", p.Name())
+			continue
+		}
+		recorded[p.Name()] = true
+		files, err := os.ReadDir(filepath.Join(providersDir, p.Name()))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if found := credentialFindings(data, key, wrongLiveKey); len(found) > 0 {
-			t.Errorf("%s holds %s", name, strings.Join(found, ", "))
+		var got []string
+		for _, f := range files {
+			got = append(got, f.Name())
 		}
-		if len(data) < 2 || data[0] != '{' || data[len(data)-1] != '}' {
-			t.Errorf("%s is not a JSON object as the API sent it: %d bytes from %q to %q", name, len(data), data[:min(len(data), 1)], data[max(len(data)-1, 0):])
+		if diff := gocmp.Diff(want, got); diff != "" {
+			t.Errorf("testdata/live/providers/%s (-want +got):\n%s", p.Name(), diff)
 		}
+		for _, name := range got {
+			checkRecordedBody(t, filepath.Join(providersDir, p.Name(), name), "providers/"+p.Name()+"/"+name, secrets)
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(recordedProviderBodies)) {
+		if !recorded[name] {
+			t.Logf("provider %s has not been recorded yet", name)
+		}
+	}
+}
+
+// checkRecordedBody checks one recorded body: no credential, and a JSON
+// object as the API sent it.
+func checkRecordedBody(t *testing.T, path, name string, secrets []string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found := credentialFindings(data, secrets...); len(found) > 0 {
+		t.Errorf("%s holds %s", name, strings.Join(found, ", "))
+	}
+	if !jsonObjectAsSent(data) {
+		t.Errorf("%s is not a JSON object as the API sent it: %d bytes from %q to %q", name, len(data), data[:min(len(data), 1)], data[max(len(data)-2, 0):])
+	}
+}
+
+// jsonObjectAsSent reports whether data is what a recording keeps: a JSON
+// object, first byte '{' and last byte '}', followed by at most one "\n".
+// The recorder writes a body exactly as the API sent it, and one vendor
+// (Perplexity, in its 401) ends its body with a newline; a second newline,
+// or anything else after the object, is not a body as sent.
+func jsonObjectAsSent(data []byte) bool {
+	data = bytes.TrimSuffix(data, []byte("\n"))
+	return len(data) >= 2 && data[0] == '{' && data[len(data)-1] == '}'
+}
+
+// TestJSONObjectAsSent pins jsonObjectAsSent's rule on the endings a
+// recorded body may and may not have.
+func TestJSONObjectAsSent(t *testing.T) {
+	tests := map[string]struct {
+		body string
+		want bool
+	}{
+		"success: an object":                       {body: `{"a":1}`, want: true},
+		"success: an object and one newline":       {body: "{\"a\":1}\n", want: true},
+		"error: an object and two newlines":        {body: "{\"a\":1}\n\n"},
+		"error: an object and a carriage return":   {body: "{\"a\":1}\r\n"},
+		"error: an array":                          {body: `[1]`},
+		"error: a lone newline":                    {body: "\n"},
+		"error: empty":                             {body: ""},
+		"error: an object after a leading newline": {body: "\n{\"a\":1}"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := jsonObjectAsSent([]byte(tt.body)); got != tt.want {
+				t.Errorf("jsonObjectAsSent(%q) = %t, want %t", tt.body, got, tt.want)
+			}
+		})
 	}
 }

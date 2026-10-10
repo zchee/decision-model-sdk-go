@@ -23,6 +23,14 @@ All notable changes to decision-model-sdk-go are recorded here. The format follo
   without a listing fail with a `*ConfigError` naming the provider before
   anything is sent.
 
+- The live tests gain `TestLiveProviders`, which calls the providers that
+  `DECISION_MODEL_LIVE_PROVIDERS` names (`typesafe`, `codiv`,
+  `perplexity`, `decisions-api`, `openai`), each with its own key
+  variable and `DECISION_MODEL_LIVE_MODEL_<NAME>`, and records what each
+  returns under `testdata/live/providers/<name>` with `-args -record`.
+  The recorder also refuses a body holding a token with the key prefixes
+  `apikey_`, `sk-`, `sk_` or `pplx-`, or a masked echo of a key it holds.
+
 ### Changed
 
 - `RequestID` of the error types and of `ResponseMeta`, and the request
