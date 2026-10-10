@@ -182,7 +182,7 @@ func (o *callOptions) settings(ctx context.Context, cfg *config, base http.Heade
 func (o *callOptions) systemOneModel(cfg *config) (string, error) {
 	if o.model == nil {
 		if cfg.Model == "" && !o.extraNames("model") {
-			return "", newConfigError("No model was named. Pass Model on the call, or set WithModel on the client or the " + DefaultModelEnv + " environment variable.")
+			return "", noModelError(cfg)
 		}
 		return cfg.Model, nil
 	}
@@ -190,6 +190,16 @@ func (o *callOptions) systemOneModel(cfg *config) (string, error) {
 		return "", newConfigError("The model passed to Model is empty; leave Model out to use the client's model.")
 	}
 	return *o.model, nil
+}
+
+// noModelError is the error of a System One call that names no model on a
+// client that has none. A provider's client never reads [DefaultModelEnv], so
+// its message does not name the variable.
+func noModelError(cfg *config) error {
+	if cfg.Provider != "" {
+		return newConfigError("No model was named. Pass Model on the call, or set WithModel on the client.")
+	}
+	return newConfigError("No model was named. Pass Model on the call, or set WithModel on the client or the " + DefaultModelEnv + " environment variable.")
 }
 
 // extraNames reports whether an [ExtraBody] member of the call is named key.

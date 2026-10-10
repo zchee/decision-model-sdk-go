@@ -47,7 +47,8 @@ import (
 // API key and a base URL, and a client without a model sends only the System
 // One calls that name theirs with [Model]. An option always wins over the
 // environment, even when its value is unusable: the environment is not
-// consulted for a setting an option gave.
+// consulted for a setting an option gave. [WithProvider] replaces the
+// generic variables with the provider's own settings.
 type ClientOption func(*options)
 
 // options is what a list of [ClientOption] values recorded, before any of it is
@@ -56,6 +57,7 @@ type options struct {
 	apiKey           *string
 	baseURL          *string
 	model            *string
+	provider         *Provider
 	timeout          *time.Duration
 	noTimeout        bool
 	connectTimeout   *time.Duration
@@ -79,7 +81,8 @@ type headerOption struct {
 }
 
 // WithAPIKey sets the API key, sent as Authorization: Bearer <key>. Without
-// it the key is read from [APIKeyEnv].
+// it the key is read from [APIKeyEnv], or from the variable a [WithProvider]
+// provider names.
 //
 // The key is trimmed of leading and trailing whitespace as Python's
 // str.strip() trims it; what is left must be printable ASCII without
@@ -93,7 +96,8 @@ func WithAPIKey(key string) ClientOption {
 // WithBaseURL sets the API base URL, such as https://api.typesafe.ai for
 // TypeSafe AI's API. Without it the URL is read from [BaseURLEnv]; when that
 // is unset too, [NewClient] fails, since the API is served by more than one
-// vendor and the SDK does not pick one.
+// vendor and the SDK does not pick one. Beside [WithProvider] it replaces the
+// provider's base URL, and only together with [WithAPIKey].
 //
 // Trailing slashes are removed, and a path the URL keeps is a prefix of the
 // API paths: https://example.test/prefix/ sends to
@@ -108,9 +112,10 @@ func WithBaseURL(rawURL string) ClientOption {
 }
 
 // WithModel sets the model a request names when the call names none. Without
-// it the model is read from [DefaultModelEnv]; when that is unset too, the
-// client has no model, and a System One call that names none with [Model]
-// fails with a [*ConfigError] before anything is sent.
+// it the model is read from [DefaultModelEnv], or is the DefaultModel of a
+// [WithProvider] provider; when that is unset too, the client has no model,
+// and a System One call that names none with [Model] fails with a
+// [*ConfigError] before anything is sent.
 //
 // The model is sent as given, without trimming. An empty or blank model is
 // refused rather than sent, where typesafe-sdk-python would send it.
@@ -207,8 +212,9 @@ func WithLogger(logger *slog.Logger) ClientOption {
 }
 
 // WithLogEndpointHost sets whether log records name the full endpoint URL.
-// The default is true; with false they name only the API path, /v1/systemone
-// or /v1/models, without the scheme, the host or the base URL's path prefix.
+// The default is true; with false they name only the API path, such as
+// /v1/systemone or /v1/models (a [WithProvider] provider's own paths), without
+// the scheme, the host or the base URL's path prefix.
 // An error's text, written by the network stack (a dial or DNS error), still
 // names the host, in the error and in the record that logs it.
 func WithLogEndpointHost(log bool) ClientOption {
@@ -245,20 +251,37 @@ type config = engine.Config[RetryPolicy]
 // resolve checks what o recorded, fills every setting o left unset from the
 // environment that getenv reads (NewClient passes [os.Getenv]) and then from
 // the defaults, and returns the resulting configuration. The first setting
-// that cannot be used is reported as a *ConfigError, in the order key, base
-// URL, model, timeouts, retry policy, response limit, User-Agent product,
-// headers, transport. The transport is built last, once every other setting
-// is known to be usable.
+// that cannot be used is reported as a *ConfigError, in the order provider,
+// key, base URL, model, timeouts, retry policy, response limit, User-Agent
+// product, headers, transport. The transport is built last, once every other
+// setting is known to be usable.
+//
+// With a provider ([WithProvider]) the generic variables are not read: the key
+// comes from the provider's variable, the base URL and the paths from the
+// provider, and the model from the provider when WithModel is not given. A
+// WithBaseURL beside the provider is refused without WithAPIKey before any
+// variable is read, so the provider's key never goes to another host.
 func (o *options) resolve(getenv func(string) string) (*config, error) {
-	key, err := resolveAPIKey(o.apiKey, getenv)
+	keyEnv := APIKeyEnv
+	if p := o.provider; p != nil {
+		if rule := providerRule(p); rule != "" {
+			return nil, newConfigError("The Provider passed to WithProvider " + rule + ".")
+		}
+		if o.baseURL != nil && o.apiKey == nil {
+			return nil, newConfigError("WithBaseURL and WithProvider can be used together only with WithAPIKey: the key in the " +
+				engine.SafeName(p.APIKeyEnv) + " environment variable is sent to the provider " + engine.SafeName(p.Name) + "'s base URL alone.")
+		}
+		keyEnv = p.APIKeyEnv
+	}
+	key, err := resolveAPIKey(o.apiKey, keyEnv, getenv)
 	if err != nil {
 		return nil, err
 	}
-	systemOne, models, err := resolveEndpoints(o.baseURL, getenv)
+	systemOne, models, err := resolveEndpoints(o.baseURL, o.provider, getenv)
 	if err != nil {
 		return nil, err
 	}
-	model, err := resolveModel(o.model, getenv)
+	model, err := resolveModel(o.model, o.provider, getenv)
 	if err != nil {
 		return nil, err
 	}
@@ -317,7 +340,6 @@ func (o *options) resolve(getenv func(string) string) (*config, error) {
 		SystemOneURL:     systemOne,
 		ModelsURL:        models,
 		SystemOneLog:     systemOne.String(),
-		ModelsLog:        models.String(),
 		Model:            model,
 		Timeout:          timeout,
 		ConnectTimeout:   connectTimeout,
@@ -328,33 +350,42 @@ func (o *options) resolve(getenv func(string) string) (*config, error) {
 		Transport:        tr,
 		Retry:            retry,
 	}
+	systemOnePath, modelsPath := engine.SystemOnePath, engine.ModelsPath
+	if p := o.provider; p != nil {
+		systemOnePath, modelsPath = p.SystemOnePath, p.ModelsPath
+		c.Provider = p.Name
+	}
+	// A provider without a listing has no models URL; its log name stays "".
+	if models != nil {
+		c.ModelsLog = models.String()
+	}
 	if o.hideEndpointHost {
-		c.SystemOneLog, c.ModelsLog = engine.SystemOnePath, engine.ModelsPath
+		c.SystemOneLog, c.ModelsLog = systemOnePath, modelsPath
 	}
 	return c, nil
 }
 
-// resolveAPIKey returns the API key from explicit, or from [APIKeyEnv] when
-// explicit is nil, trimmed and checked as py:_core/config.py:26-33 checks
-// it. An explicit key that is blank is the missing-key error; the environment
-// is not consulted for it. No message repeats the key; each names where the
-// key came from.
-func resolveAPIKey(explicit *string, getenv func(string) string) (string, error) {
+// resolveAPIKey returns the API key from explicit, or from the variable env
+// names ([APIKeyEnv], or a provider's APIKeyEnv) when explicit is nil, trimmed
+// and checked as py:_core/config.py:26-33 checks it. An explicit key that is
+// blank is the missing-key error; the environment is not consulted for it. No
+// message repeats the key; each names where the key came from.
+func resolveAPIKey(explicit *string, env string, getenv func(string) string) (string, error) {
 	var key string
 	if explicit != nil {
 		key = strings.TrimFunc(*explicit, isPythonSpace)
 		if key == "" {
-			return "", newConfigError("The API key passed to WithAPIKey is empty; the " + APIKeyEnv + " environment variable is not read when WithAPIKey is given.")
+			return "", newConfigError("The API key passed to WithAPIKey is empty; the " + engine.SafeName(env) + " environment variable is not read when WithAPIKey is given.")
 		}
 	} else {
-		key = envValue(getenv, APIKeyEnv)
+		key = envValue(getenv, env)
 		if key == "" {
-			return "", newConfigError("No API key was provided. Pass WithAPIKey or set the " + APIKeyEnv + " environment variable.")
+			return "", newConfigError("No API key was provided. Pass WithAPIKey or set the " + engine.SafeName(env) + " environment variable.")
 		}
 	}
 	for i := range len(key) {
 		if c := key[i]; c < '!' || c > '~' {
-			source := "in the " + APIKeyEnv + " environment variable"
+			source := "in the " + engine.SafeName(env) + " environment variable"
 			if explicit != nil {
 				source = "passed to WithAPIKey"
 			}
@@ -365,14 +396,22 @@ func resolveAPIKey(explicit *string, getenv func(string) string) (string, error)
 }
 
 // resolveEndpoints returns the System One and models endpoint URLs under the
-// base URL from explicit, or from [BaseURLEnv] when explicit is nil. Without
-// either it fails as a missing API key does: there is no default, because
-// the API is served by more than one vendor and a default would send the key
-// to one of them without the caller saying so.
-func resolveEndpoints(explicit *string, getenv func(string) string) (systemOne, models *url.URL, err error) {
+// base URL from explicit, or from p when explicit is nil and p is not, or
+// from [BaseURLEnv] when both are nil. Without any it fails as a missing API
+// key does: there is no default, because the API is served by more than one
+// vendor and a default would send the key to one of them without the caller
+// saying so. The paths are p's, or the two fixed ones without p; models is
+// nil when p has no ModelsPath.
+func resolveEndpoints(explicit *string, p *Provider, getenv func(string) string) (systemOne, models *url.URL, err error) {
 	var raw, source string
+	systemOnePath, modelsPath := engine.SystemOnePath, engine.ModelsPath
+	if p != nil {
+		systemOnePath, modelsPath = p.SystemOnePath, p.ModelsPath
+	}
 	if explicit != nil {
 		raw, source = *explicit, "The base URL passed to WithBaseURL"
+	} else if p != nil {
+		raw, source = p.BaseURL, "The BaseURL of the provider "+engine.SafeName(p.Name)
 	} else if v := envValue(getenv, BaseURLEnv); v != "" {
 		raw, source = v, "The base URL in the "+BaseURLEnv+" environment variable"
 	} else {
@@ -388,10 +427,13 @@ func resolveEndpoints(explicit *string, getenv func(string) string) (systemOne, 
 	// The API paths are appended to the text, as Python appends them
 	// (py:_core/transport.py:134), so the caller's own escaping of the prefix
 	// is kept. A valid base followed by a fixed path always parses.
-	if systemOne, err = url.Parse(raw + engine.SystemOnePath); err != nil {
+	if systemOne, err = url.Parse(raw + systemOnePath); err != nil {
 		return nil, nil, newConfigError(source + " is not a valid URL.")
 	}
-	if models, err = url.Parse(raw + engine.ModelsPath); err != nil {
+	if modelsPath == "" {
+		return systemOne, nil, nil
+	}
+	if models, err = url.Parse(raw + modelsPath); err != nil {
 		return nil, nil, newConfigError(source + " is not a valid URL.")
 	}
 	return systemOne, models, nil
@@ -458,19 +500,28 @@ func dropDefaultPort(raw string) string {
 	return scheme + "://" + host + rest[len(authority):]
 }
 
-// resolveModel returns the model from explicit, or from [DefaultModelEnv]
-// when explicit is nil, or "" when that is unset: the client then has no
-// model, and each System One call must name its own. There is no default,
-// because a default would ask one vendor's model of whichever vendor the base
-// URL names. An explicit model is taken as given, as Python takes it, except
-// that a blank one is refused rather than sent.
-func resolveModel(explicit *string, getenv func(string) string) (string, error) {
+// resolveModel returns the model from explicit, or, when explicit is nil,
+// p's DefaultModel when p is not nil and from [DefaultModelEnv] when it is,
+// or "" when that is unset: the client then has no model, and each System One
+// call must name its own. There is no default without p, because a default
+// would ask one vendor's model of whichever vendor the base URL names; a
+// provider's default model is the caller naming the vendor. The generic
+// variable is not read with p, so a model set for another vendor never
+// reaches this one. An explicit model is taken as given, as Python takes it,
+// except that a blank one is refused rather than sent.
+func resolveModel(explicit *string, p *Provider, getenv func(string) string) (string, error) {
 	var model, source string
 	if explicit != nil {
 		if strings.TrimFunc(*explicit, isPythonSpace) == "" {
+			if p != nil {
+				return "", newConfigError("The model passed to WithModel is empty; leave WithModel out to use the provider's default model, or name the model on each call with Model.")
+			}
 			return "", newConfigError("The model passed to WithModel is empty; leave WithModel out to use " + DefaultModelEnv + ", or name the model on each call with Model.")
 		}
 		model, source = *explicit, "model passed to WithModel"
+	} else if p != nil {
+		// providerRule has checked the provider's model.
+		return p.DefaultModel, nil
 	} else if v := envValue(getenv, DefaultModelEnv); v != "" {
 		model, source = v, "model in the "+DefaultModelEnv+" environment variable"
 	} else {

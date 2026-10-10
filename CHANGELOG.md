@@ -4,6 +4,32 @@ All notable changes to decision-model-sdk-go are recorded here. The format follo
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `decision.Provider` and `decision.WithProvider` build a client for one
+  vendor from its base URL, its System One and list-models paths, the
+  environment variable its key is read from and an optional default
+  model. With a provider, `DECISION_MODEL_API_KEY`,
+  `DECISION_MODEL_BASE_URL` and `DECISION_MODEL_DEFAULT_MODEL` are not
+  read; `WithAPIKey` and `WithModel` still win; `WithBaseURL` beside a
+  provider is accepted only with `WithAPIKey`.
+- The `provider` package holds three presets: `provider.TypeSafe()`
+  (`TYPESAFE_API_KEY`), `provider.Codiv()` (`CODIV_API_KEY`) and
+  `provider.Perplexity()` (`PERPLEXITY_API_KEY`, `POST /v1/decisions`, no
+  model listing).
+- `Models.List`, and so `Client.WarmUp`, on the client of a provider
+  without a listing fail with a `*ConfigError` naming the provider before
+  anything is sent.
+
+### Changed
+
+- `RequestID` of the error types and of `ResponseMeta`, and the request
+  id of the INFO `response` record, read `x-request-id` when
+  `x-typesafe-request-id` is absent, so a vendor that sends only the
+  former has an id. The headers are not modified.
+
 ## [0.1.0] - 2026-10-03
 
 The first release under the module path
@@ -245,6 +271,7 @@ ones:
   was rewritten on 2026-09-27 to remove them, so the module and a clone
   carry none of them.
 
+[Unreleased]: https://github.com/zchee/decision-model-sdk-go/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/zchee/decision-model-sdk-go/releases/tag/v0.1.0
 [typesafe-sdk-go 0.1.1]: https://github.com/zchee/decision-model-sdk-go/compare/6e5bed2bb6e0065cf4f3cf5f06b9ca809315be86...4d8e724309e782417fbd0b38b52b743946e5c779
 [typesafe-sdk-go 0.1.0]: https://github.com/zchee/decision-model-sdk-go/tree/6e5bed2bb6e0065cf4f3cf5f06b9ca809315be86

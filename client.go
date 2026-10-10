@@ -80,6 +80,13 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	return buildClient(&o, cfg)
+}
+
+// buildClient builds the client of cfg, which o resolved: it prepares the
+// encoder for o's WithPretouch types and names the endpoints for the errors.
+// A provider without a listing has no models endpoint, named "".
+func buildClient(o *options, cfg *config) (*Client, error) {
 	for i, t := range o.pretouch {
 		if err := codec.Pretouch(t); err != nil {
 			name := "nil"
@@ -90,7 +97,11 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 				", cannot be prepared for the JSON encoder: "+engine.SafeMessage(err.Error())+".", err)
 		}
 	}
-	return (*Client)(engine.NewClient(cfg, cfg.Redactor, endpointOf(http.MethodPost, cfg.SystemOneURL), endpointOf(http.MethodGet, cfg.ModelsURL))), nil
+	var modelsEndpoint string
+	if cfg.ModelsURL != nil {
+		modelsEndpoint = endpointOf(http.MethodGet, cfg.ModelsURL)
+	}
+	return (*Client)(engine.NewClient(cfg, cfg.Redactor, endpointOf(http.MethodPost, cfg.SystemOneURL), modelsEndpoint)), nil
 }
 
 // Close releases the client's network resources: it closes the idle
@@ -158,7 +169,9 @@ func (c *Client) Stats() Stats {
 
 // WarmUp lists the models once, so that the connection, and the HTTP/2
 // session a burst of calls then shares, is ready before the first call that
-// matters. It returns the error of that call.
+// matters. It returns the error of that call: on the client of a provider
+// that serves no listing ([Provider].ModelsPath empty), the [*ConfigError] of
+// [Models.List], and nothing is sent.
 func (c *Client) WarmUp(ctx context.Context) error {
 	_, err := c.Models().List(ctx)
 	return err
@@ -263,10 +276,12 @@ type Models struct {
 // Models returns the client's list-models endpoint.
 func (c *Client) Models() Models { return Models{c} }
 
-// List lists the models the account can use: GET /v1/models. Of the call
-// options it takes [Timeout], [Header] and [Retry]; [Model] and [ExtraBody]
-// are refused with a [*ConfigError]. Its errors are those of
-// [Client.SystemOne].
+// List lists the models the account can use: GET /v1/models, or the
+// ModelsPath of a [WithProvider] provider. Of the call options it takes
+// [Timeout], [Header] and [Retry]; [Model] and [ExtraBody] are refused with a
+// [*ConfigError]. Its errors are those of [Client.SystemOne]. On the client
+// of a provider that serves no listing (ModelsPath empty) it fails with a
+// [*ConfigError] naming the provider, before anything is sent.
 func (m Models) List(ctx context.Context, opts ...CallOption) (*ModelsResponse, error) {
 	c := m.c
 	if err := c.usable(); err != nil {
@@ -280,6 +295,9 @@ func (m Models) List(ctx context.Context, opts ...CallOption) (*ModelsResponse, 
 		return nil, err
 	}
 	cfg := c.cfg()
+	if cfg.ModelsURL == nil {
+		return nil, newConfigError("The provider " + engine.SafeName(cfg.Provider) + " lists no models: its Provider has no ModelsPath, so List sends nothing.")
+	}
 	s, err := o.settings(ctx, cfg, cfg.ModelsHeader)
 	if err != nil {
 		return nil, err

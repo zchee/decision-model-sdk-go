@@ -379,6 +379,28 @@ A transport error's text shows its credentials as `***`; when the text of
 its cause printed a credential, a stand-in holding the redacted text takes
 the cause's place.
 
+## Providers
+
+`WithProvider` builds a client for one vendor without `WithBaseURL` and
+the `DECISION_MODEL_` variables: a `decision.Provider` names the vendor's
+base URL, its paths, the variable its key is read from and, optionally, a
+default model. The `provider` package holds three presets, each reading
+its key from the vendor's own variable and from no other:
+
+| Preset | Base URL and System One path | Key variable | Model listing |
+| --- | --- | --- | --- |
+| `provider.TypeSafe()` | `https://api.typesafe.ai/v1/systemone` | `TYPESAFE_API_KEY` | `GET /v1/models` |
+| `provider.Codiv()` | `https://api.codiv.ai/v1/systemone` | `CODIV_API_KEY` | `GET /v1/models` |
+| `provider.Perplexity()` | `https://api.perplexity.ai/v1/decisions` | `PERPLEXITY_API_KEY` | none: `List` fails before sending |
+
+With a provider, `DECISION_MODEL_API_KEY`, `DECISION_MODEL_BASE_URL` and
+`DECISION_MODEL_DEFAULT_MODEL` are not read; `WithAPIKey` and `WithModel`
+win over the provider's settings, and `WithBaseURL` is accepted beside a
+provider only together with `WithAPIKey`, so a vendor's key is never sent
+to another host. None of the presets names a model. These providers are
+the vendors of the System One API the client calls; the adapter module's
+providers are the language models its local stand-in drives.
+
 ## More examples
 
 [`docs/examples.md`](docs/examples.md) shows every program under
@@ -411,11 +433,12 @@ differences:
 - `TYPESAFE_LOG_LEVEL` is not read; bodies are logged at
   `decision.LevelTrace` only.
 - The client reads `DECISION_MODEL_API_KEY`, `DECISION_MODEL_BASE_URL` and
-  `DECISION_MODEL_DEFAULT_MODEL`, never the Python SDK's `TYPESAFE_` names,
-  and has no default base URL (`https://api.typesafe.ai` there) and no
-  default model (`jev-latest` there): the SDK serves any vendor's decision
-  model, so a default would silently send a key to one vendor or ask its
-  model.
+  `DECISION_MODEL_DEFAULT_MODEL`, never the Python SDK's `TYPESAFE_` names
+  (except `TYPESAFE_API_KEY` under `provider.TypeSafe()`, see
+  [Providers](#providers)), and has no default base URL
+  (`https://api.typesafe.ai` there) and no default model (`jev-latest`
+  there): the SDK serves any vendor's decision model, so a default would
+  silently send a key to one vendor or ask its model.
 
 [`docs/deviations.md`](docs/deviations.md) is the full table, each row
 naming the Python behaviour, the Go behaviour and why, and the upstream

@@ -100,6 +100,21 @@ func TestResponseMetaRequestID(t *testing.T) {
 		"missing: nil header": {
 			header: nil,
 		},
+		"success: x-request-id alone": {
+			header: http.Header{FallbackRequestIDHeader: {"req_x"}}, want: "req_x", wantOK: true,
+		},
+		"success: a repeated x-request-id is joined with a comma and a space": {
+			header: http.Header{FallbackRequestIDHeader: {"req_x1", "req_x2"}}, want: "req_x1, req_x2", wantOK: true,
+		},
+		"success: x-typesafe-request-id without values falls back to x-request-id": {
+			header: http.Header{RequestIDHeader: {}, FallbackRequestIDHeader: {"req_x"}}, want: "req_x", wantOK: true,
+		},
+		"success: x-typesafe-request-id wins over x-request-id": {
+			header: http.Header{RequestIDHeader: {"req_ts"}, FallbackRequestIDHeader: {"req_x"}}, want: "req_ts", wantOK: true,
+		},
+		"success: an empty x-typesafe-request-id value wins over x-request-id": {
+			header: http.Header{RequestIDHeader: {""}, FallbackRequestIDHeader: {"req_x"}}, want: "", wantOK: true,
+		},
 		"missing: a non-canonical key is not looked up": {
 			// A header map built by hand without canonicalisation is not
 			// what net/http produces; the lookup does not guess.

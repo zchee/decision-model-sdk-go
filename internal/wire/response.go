@@ -23,6 +23,23 @@ import (
 // the server's identifier for a request (x-typesafe-request-id on the wire).
 const RequestIDHeader = "X-Typesafe-Request-Id"
 
+// FallbackRequestIDHeader is the canonical form of the response header read
+// for the request's identifier when [RequestIDHeader] is absent
+// (x-request-id on the wire): the vendors that serve the API without
+// TypeSafe AI's header name send their identifier under it.
+const FallbackRequestIDHeader = "X-Request-Id"
+
+// RequestIDValues returns the values of the header that carries the
+// server's identifier for the request in h: [RequestIDHeader]'s, or
+// [FallbackRequestIDHeader]'s when the first is absent, or nil. The slice is
+// h's own and must not be modified.
+func RequestIDValues(h http.Header) []string {
+	if values := h[RequestIDHeader]; len(values) > 0 {
+		return values
+	}
+	return h[FallbackRequestIDHeader]
+}
+
 // Usage is the token usage a response reported. The API may leave either
 // count out; an absent count has its Has flag false and its value zero, which
 // is never the same as a reported zero.
@@ -79,17 +96,17 @@ type ResponseMeta struct {
 }
 
 // RequestID returns the server's identifier for the request, from the
-// x-typesafe-request-id header, and whether the header was present. A header
+// x-typesafe-request-id header, or from x-request-id when that is absent
+// ([RequestIDValues]), and whether either header was present. A header
 // repeated in the response yields its values joined with ", " in the order
 // they arrived, as the Python SDK's request_id reads them (httpx's
 // Headers.get, py:_core/errors.py:115); a single value is returned as is,
-// without allocating. The value is the server's text as it arrived: a caller
-// that puts it into a log line or an error message escapes and cuts it
-// first.
+// without allocating. The header is read, never modified. The value is the
+// server's text as it arrived: a caller that puts it into a log line or an
+// error message escapes and cuts it first.
 func (m *ResponseMeta) RequestID() (string, bool) {
-	values := m.Header[RequestIDHeader]
-	if len(values) == 0 {
-		return "", false
-	}
-	return strings.Join(values, ", "), true
+	values := RequestIDValues(m.Header)
+	// Join returns "" for no value and the value itself for one, without
+	// allocating; the second result tells the two empty cases apart.
+	return strings.Join(values, ", "), len(values) > 0
 }

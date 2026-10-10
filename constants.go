@@ -25,6 +25,13 @@ import (
 // more than one: typesafe-sdk-python's TYPESAFE_API_KEY, TYPESAFE_BASE_URL
 // and TYPESAFE_DEFAULT_MODEL are not read, not even as a fallback, so a key
 // set for one vendor is never sent to another.
+//
+// The one exception is a [Provider] given with [WithProvider]: its APIKeyEnv
+// names a vendor's own variable, such as TYPESAFE_API_KEY for the TypeSafe AI
+// preset of the provider package, and the client then reads that variable in
+// place of APIKeyEnv and none of the three below. The variable is read only by
+// the client of that provider, whose base URL is the vendor's, so a key still
+// reaches one host.
 const (
 	// APIKeyEnv names the variable holding the API key.
 	APIKeyEnv = "DECISION_MODEL_API_KEY"
@@ -40,7 +47,9 @@ const (
 // The settings a client uses when neither an option nor the environment
 // gives one. There is no default base URL and no default model: the API is
 // served by more than one vendor, and either default would pick one of them
-// for a caller who named none.
+// for a caller who named none. The one exception is a [Provider]'s BaseURL
+// and DefaultModel: a provider is the caller naming the vendor, so its base
+// URL and its default model are the caller's choice too.
 const (
 	// DefaultTimeout is the deadline of each attempt of a request.
 	DefaultTimeout = 10 * time.Second

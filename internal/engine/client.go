@@ -47,14 +47,21 @@ type Config[R any] struct {
 	APIKey string
 
 	// SystemOneURL and ModelsURL are the two endpoints, shared read-only by
-	// every request.
+	// every request. ModelsURL is nil for a provider that serves no listing.
 	SystemOneURL *url.URL
 	ModelsURL    *url.URL
 
 	// SystemOneLog and ModelsLog are how log records name the endpoints:
 	// the URL, or the API path alone under WithLogEndpointHost(false).
+	// ModelsLog is empty when ModelsURL is nil.
 	SystemOneLog string
 	ModelsLog    string
+
+	// Provider is the name of the provider WithProvider gave, or empty
+	// without one. The error of a list-models call on a provider without a
+	// listing names it; the error of a System One call without a model only
+	// checks whether it is set.
+	Provider string
 
 	// Model is the model a request names when the call names none.
 	Model string

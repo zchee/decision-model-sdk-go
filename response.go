@@ -72,10 +72,10 @@ func (m ResponseMeta) Header() http.Header { return m.m.Header }
 func (m ResponseMeta) RawBody() []byte { return m.m.Body }
 
 // RequestID returns the server's identifier for the request, from the
-// x-typesafe-request-id response header, and whether the header was
-// present; a repeated header's values are joined with ", ". It is the
-// server's text as it arrived. The Python SDK raises where this reports
-// false.
+// x-typesafe-request-id response header, or from x-request-id when that is
+// absent, and whether either header was present; a repeated header's values
+// are joined with ", ". It is the server's text as it arrived. The Python SDK
+// raises where this reports false.
 func (m ResponseMeta) RequestID() (string, bool) { return m.m.RequestID() }
 
 // SystemOneResponse is the response to a System One call: the model that

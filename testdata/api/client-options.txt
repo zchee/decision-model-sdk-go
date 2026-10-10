@@ -15,6 +15,7 @@ func WithMaxResponseBytes(int64) ClientOption
 func WithModel(string) ClientOption
 func WithNoTimeout() ClientOption
 func WithPretouch(...reflect.Type) ClientOption
+func WithProvider(Provider) ClientOption
 func WithProxy(func(*net/http.Request) (*net/url.URL, error)) ClientOption
 func WithRetry(RetryPolicy) ClientOption
 func WithRootCAs(*crypto/x509.CertPool) ClientOption

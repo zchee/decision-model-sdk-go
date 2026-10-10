@@ -18,8 +18,16 @@
 //
 // A [Client] asks questions about a state and returns the answers: a
 // question set built with [NewQuestions] and sent by [Client.SystemOne],
-// or one declared by a struct's tags and asked by [Ask]. The repository's
-// examples directory holds complete programs, docs/deviations.md lists
-// where the port behaves differently from the Python SDK, and
-// docs/support.md the supported Go releases and platforms.
+// or one declared by a struct's tags and asked by [Ask].
+//
+// A client is built for one vendor: from [WithBaseURL] and [WithAPIKey], or
+// from the DECISION_MODEL_ variables ([APIKeyEnv]), or from a [Provider]
+// given with [WithProvider], which names the vendor's base URL, its paths,
+// the variable its key is read from and, optionally, its default model. The
+// provider package holds a Provider for each vendor the SDK has been checked
+// against. The SDK picks no vendor, key or model on its own.
+//
+// The repository's examples directory holds complete programs,
+// docs/deviations.md lists where the port behaves differently from the
+// Python SDK, and docs/support.md the supported Go releases and platforms.
 package decision

@@ -331,16 +331,36 @@ func TestRedactHeader(t *testing.T) {
 // TestHeaderRedactorRequestID pins the request id a log record shows in the
 // INFO "response" record: for every header, redactor and key length,
 // HeaderRedactor.RequestID returns what the error types' RequestID returns
-// from the header the same redactor stored, without copying the header.
+// from the header the same redactor stored, without copying the header,
+// whether the id comes from x-typesafe-request-id or, without a value
+// there, from x-request-id.
 func TestHeaderRedactorRequestID(t *testing.T) {
 	const key = "ts_live_QzXjWvKpYbNmHgFd"
 	tests := map[string]struct {
 		r      HeaderRedactor
 		values []string // the x-typesafe-request-id values, nil for none
-		want   string
-		wantOK bool
+		// fallback is the x-request-id values, nil for none: read only when
+		// the x-typesafe-request-id header has no value.
+		fallback []string
+		want     string
+		wantOK   bool
 	}{
 		"success: no request id": {r: NewHeaderRedactor(key)},
+		"success: an x-request-id alone": {
+			r: NewHeaderRedactor(key), fallback: []string{"req_x"}, want: "req_x", wantOK: true,
+		},
+		"success: a repeated x-request-id, joined": {
+			r: NewHeaderRedactor(key), fallback: []string{"req_x1", "req_x2"}, want: "req_x1, req_x2", wantOK: true,
+		},
+		"success: an x-request-id that holds the key": {
+			r: NewHeaderRedactor(key), fallback: []string{"req " + key}, want: Redacted, wantOK: true,
+		},
+		"success: an x-typesafe-request-id without values falls back to x-request-id": {
+			r: NewHeaderRedactor(key), values: []string{}, fallback: []string{"req_x"}, want: "req_x", wantOK: true,
+		},
+		"success: x-typesafe-request-id wins over x-request-id": {
+			r: NewHeaderRedactor(key), values: []string{"req_ts"}, fallback: []string{"req " + key}, want: "req_ts", wantOK: true,
+		},
 		"success: an id without the key": {
 			r: NewHeaderRedactor(key), values: []string{"req_123"}, want: "req_123", wantOK: true,
 		},
@@ -366,6 +386,9 @@ func TestHeaderRedactorRequestID(t *testing.T) {
 			if tt.values != nil {
 				h["X-Typesafe-Request-Id"] = slices.Clone(tt.values)
 			}
+			if tt.fallback != nil {
+				h["X-Request-Id"] = slices.Clone(tt.fallback)
+			}
 			id, ok := tt.r.RequestID(h)
 			if id != tt.want || ok != tt.wantOK {
 				t.Errorf("requestID = %q, %t, want %q, %t", id, ok, tt.want, tt.wantOK)
@@ -376,6 +399,9 @@ func TestHeaderRedactorRequestID(t *testing.T) {
 			}
 			if tt.values != nil && !slices.Equal(h["X-Typesafe-Request-Id"], tt.values) {
 				t.Errorf("the header's values changed to %q", h["X-Typesafe-Request-Id"])
+			}
+			if tt.fallback != nil && !slices.Equal(h["X-Request-Id"], tt.fallback) {
+				t.Errorf("the x-request-id values changed to %q", h["X-Request-Id"])
 			}
 		})
 	}

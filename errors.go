@@ -228,11 +228,11 @@ type APIError struct {
 	// password, as it is or as the URL escapes it, or its Basic token, 8
 	// bytes or longer ([WithProxy]); a shorter one, or a word of the
 	// password, is shown, as a shorter key is. Every other header,
-	// Retry-After, Retry-After-Ms and X-Typesafe-Request-Id included, is as
-	// the server sent it, so [APIError.RetryAfter] and [APIError.RequestID]
-	// read it. The values of those other headers are the response's own and
-	// must not be modified. typesafe-sdk-python keeps the headers as they
-	// arrived and redacts them only in its logs.
+	// Retry-After, Retry-After-Ms, X-Typesafe-Request-Id and X-Request-Id
+	// included, is as the server sent it, so [APIError.RetryAfter] and
+	// [APIError.RequestID] read it. The values of those other headers are the
+	// response's own and must not be modified. typesafe-sdk-python keeps the
+	// headers as they arrived and redacts them only in its logs.
 	Header http.Header
 	// Body is the response body as it arrived, or nil when it was empty or
 	// over the size limit. It is shared, not copied, and must not be
@@ -261,9 +261,10 @@ func (e *APIError) Error() string {
 }
 
 // RequestID returns the server's identifier for the request, from the
-// x-typesafe-request-id response header, and whether the header was
-// present; a repeated header's values are joined with ", ". It is the
-// server's text as it arrived.
+// x-typesafe-request-id response header, or from x-request-id when that is
+// absent, and whether either header was present; a repeated header's values
+// are joined with ", ". It is the server's text as it arrived. The header
+// is read, never modified.
 func (e *APIError) RequestID() (string, bool) { return requestID(e.Header) }
 
 // RetryAfter returns how long the server asked the caller to wait before
@@ -584,10 +585,11 @@ func renderResponseError(endpoint string, status int, message string, h http.Hea
 	return string(b)
 }
 
-// requestID returns the x-typesafe-request-id header of h.
+// requestID returns the request id in h: its x-typesafe-request-id header,
+// or its x-request-id header when that is absent ([wire.RequestIDValues]).
 func requestID(h http.Header) (string, bool) {
-	meta := wire.ResponseMeta{Header: h}
-	return meta.RequestID()
+	values := wire.RequestIDValues(h)
+	return strings.Join(values, ", "), len(values) > 0
 }
 
 // endpointOf renders a request's endpoint as the errors name it: the method,

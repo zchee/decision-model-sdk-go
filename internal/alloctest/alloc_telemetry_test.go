@@ -126,7 +126,9 @@ var sinkID string
 // wire.ResponseMeta.RequestID costs: that joins them into one string, and
 // engine.HeaderRedactor.RequestID builds one string too, of "***" ones when
 // a value holds the key. The header's name is not lower-cased, as the
-// engine's credential check would be. A client whose transport chose a proxy
+// engine's credential check would be. An id under x-request-id alone, read
+// when x-typesafe-request-id is absent, costs what the same id costs under
+// x-typesafe-request-id. A client whose transport chose a proxy
 // reads its credential set here too, the one success-path read of the set:
 // one value costs no allocation, with or without the proxy's password.
 func TestAllocRequestID(t *testing.T) {
@@ -138,9 +140,10 @@ func TestAllocRequestID(t *testing.T) {
 	proxies.Record(&url.URL{Scheme: "http", User: url.UserPassword("proxy-user", "hunter2-proxy"), Host: "127.0.0.1:3128"})
 	withProxies := r.WithProxies(proxies)
 	tests := map[string]struct {
-		values  []string // the x-typesafe-request-id values, nil for none
-		asMeta  bool     // the count is wire.ResponseMeta.RequestID's, not 0
-		proxies bool     // the redactor holds a proxy's credential
+		values   []string // the request id values, nil for none
+		fallback bool     // the values are x-request-id's, with no x-typesafe-request-id
+		asMeta   bool     // the count is wire.ResponseMeta.RequestID's, not 0
+		proxies  bool     // the redactor holds a proxy's credential
 	}{
 		"success: no request id":                                  {},
 		"success: an id without the key":                          {values: []string{"req_123"}},
@@ -149,6 +152,8 @@ func TestAllocRequestID(t *testing.T) {
 		"success: a repeated id, one holding the key":             {values: []string{"req_1", key, "req_3"}, asMeta: true},
 		"success: an id without a credential, a proxy's set held": {values: []string{"req_123"}, proxies: true},
 		"success: an id that holds a proxy's password":            {values: []string{"req hunter2-proxy"}, proxies: true},
+		"success: only an x-request-id":                           {values: []string{"req_123"}, fallback: true},
+		"success: only a repeated x-request-id":                   {values: []string{"req_1", "req_2"}, fallback: true, asMeta: true},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -157,7 +162,10 @@ func TestAllocRequestID(t *testing.T) {
 				red = withProxies
 			}
 			h := http.Header{"Content-Type": {"application/json"}, "Set-Cookie": {"a=1"}}
-			if tt.values != nil {
+			switch {
+			case tt.values != nil && tt.fallback:
+				h["X-Request-Id"] = tt.values
+			case tt.values != nil:
 				h["X-Typesafe-Request-Id"] = tt.values
 			}
 			var want float64

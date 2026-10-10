@@ -133,6 +133,13 @@ type Prepared struct, incomparable
 method (*Prepared) Len() int
 method (*Prepared) Names() iter.Seq[string]
 func PreparedFor[T any]() (*Prepared, error)
+type Provider struct, comparable
+type Provider struct, Name string
+type Provider struct, BaseURL string
+type Provider struct, SystemOnePath string
+type Provider struct, ModelsPath string
+type Provider struct, APIKeyEnv string
+type Provider struct, DefaultModel string
 type Questions struct, incomparable
 method (*Questions) Choice(string, Choice) *Questions
 method (*Questions) Noul(string, Noul) *Questions
@@ -224,6 +231,7 @@ func WithMaxResponseBytes(int64) ClientOption
 func WithModel(string) ClientOption
 func WithNoTimeout() ClientOption
 func WithPretouch(...reflect.Type) ClientOption
+func WithProvider(Provider) ClientOption
 func WithProxy(func(*net/http.Request) (*net/url.URL, error)) ClientOption
 func WithRetry(RetryPolicy) ClientOption
 func WithRootCAs(*crypto/x509.CertPool) ClientOption
