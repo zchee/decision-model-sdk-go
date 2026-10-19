@@ -313,7 +313,7 @@ func TestSeamImports(t *testing.T) {
 			applies: func(f goFile) bool { return !under(f.dir, "internal/testsupport") },
 			forbids: func(_ goFile, p string) bool { return under(p, "golang.org/x/net") },
 		},
-		"no JSON library outside internal/codec except encoding/json in test files, and sonic's root package in root test files; internal/codec adds encoding/json only; the provider package's dialects use encoding/json/v2 and jsontext only": {
+		"no JSON library outside internal/codec except encoding/json in test files, and sonic's root package in root test files; internal/codec adds encoding/json only; the provider package's dialects use encoding/json/v2 and jsontext only; livetest's test files add jsontext for the recorded-body guard": {
 			// internal/testsupport, naive included, is test tooling: fixture
 			// loaders and the benchmark comparator may decode JSON with any
 			// library.
@@ -335,9 +335,16 @@ func TestSeamImports(t *testing.T) {
 					return false
 				}
 				// A test may compare the SDK's types against encoding/json,
-				// the encoder a caller's own code goes through; a root test
+				// the encoder a caller's own code goes through, and
+				// livetest's guard scans the decoded member names of a
+				// recorded body with jsontext, the standard streaming
+				// decoder the provider dialects use; neither reaches the
+				// root package, so sonic stays its only codec. A root test
 				// may also encode and decode its own JSON with sonic's root
 				// package.
+				if f.dir == "livetest" && f.test && p == "encoding/json/jsontext" {
+					return false
+				}
 				return !f.test || (p != "encoding/json" && (p != sonicPath || !sonicTests(f)))
 			},
 		},

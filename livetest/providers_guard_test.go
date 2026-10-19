@@ -311,6 +311,22 @@ func TestProviderCredentialShapes(t *testing.T) {
 			body: `{"headers":{"\u0061uthorization":"Basic abc"}}`,
 			want: []string{"a credential header as a member"},
 		},
+		"error: an escaped user_id member inside an object in a top-level array": {
+			body: `[{"\u0075ser_id":"u"}]`,
+			want: []string{"an account identifier as a user_id member"},
+		},
+		"error: an escaped user_id member after empty containers": {
+			body: `{"a":{},"b":[],"\u0075ser_id":"u"}`,
+			want: []string{"an account identifier as a user_id member"},
+		},
+		"error: an escaped user_id member after a string holding invalid UTF-8": {
+			body: "{\"note\":\"\xff\",\"\\u0075ser_id\":\"u\"}",
+			want: []string{"an account identifier as a user_id member"},
+		},
+		"error: an escaped user_id member after a number that overflows float64": {
+			body: `{"n":1e1000,"\u0075ser_id":"u"}`,
+			want: []string{"an account identifier as a user_id member"},
+		},
 		"success: an escaped user_id as a string value": {
 			body: `{"note":"\u0075ser_id","list":["user_id"]}`,
 		},

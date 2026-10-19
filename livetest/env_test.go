@@ -16,7 +16,7 @@ package livetest
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"net/url"
@@ -180,9 +180,10 @@ func maskedEcho(secret string) *regexp.Regexp {
 // credential shape it matches once allowedTokens are set aside. The shapes
 // are matched on the raw bytes and, for member names, on the decoded names
 // too, so an escaped spelling does not slip through. A shape is reported at
-// most once. The decoded pass stops at the first syntax error, past which
-// only the raw bytes are matched, so a body that is not JSON is matched on
-// its raw bytes alone.
+// most once. The decoded pass reads b with the standard streaming decoder
+// (jsontext), which neither a duplicate name nor invalid UTF-8 stops; it
+// ends at the first syntax error, past which only the raw bytes are
+// matched, so a body that is not JSON is matched on its raw bytes alone.
 func credentialFindings(b []byte, secrets ...string) []string {
 	var out []string
 	for i, s := range secrets {
@@ -202,41 +203,29 @@ func credentialFindings(b []byte, secrets ...string) []string {
 			out = append(out, shape.name)
 		}
 	}
-	// The decoded pass keeps, for each object or array still open, whether
-	// it is an object and how many names and values it has read: a string
-	// read in an object after an even count is a member name. encoding/json
-	// unescapes the name, keeps a duplicate name and replaces invalid UTF-8,
-	// so none of those ends the pass before a later name.
-	type level struct {
-		object bool
-		n      int
-	}
-	var open []level
-	dec := json.NewDecoder(bytes.NewReader(b))
+	// The decoder's stack tells a member name from a string value: once a
+	// string is read, the level it was read in counts it, so in an object an
+	// odd count means the string was a name. A string read outside any
+	// object or array is at a level of kind KindInvalid and is a value.
+	// The decoder unescapes the name, keeps a duplicate name and replaces
+	// invalid UTF-8, so none of those ends the pass before a later name.
+	dec := jsontext.NewDecoder(bytes.NewReader(b), jsontext.AllowDuplicateNames(true), jsontext.AllowInvalidUTF8(true))
 	for {
-		tok, err := dec.Token()
+		tok, err := dec.ReadToken()
 		if err != nil {
 			break
 		}
-		switch tok {
-		case json.Delim('{'), json.Delim('['):
-			open = append(open, level{object: tok == json.Delim('{')})
+		if tok.Kind() != '"' {
 			continue
-		case json.Delim('}'), json.Delim(']'):
-			open = open[:max(len(open)-1, 0)]
-		default:
-			if name, ok := tok.(string); ok && len(open) > 0 && open[len(open)-1].object && open[len(open)-1].n%2 == 0 {
-				for _, shape := range memberNameShapes {
-					if shape.re.MatchString(name) && !slices.Contains(out, shape.name) {
-						out = append(out, shape.name)
-					}
-				}
-			}
 		}
-		// The token, or the object or array it closed, is a name or a value
-		// of the object it was read in.
-		if len(open) > 0 && open[len(open)-1].object {
-			open[len(open)-1].n++
+		if kind, n := dec.StackIndex(dec.StackDepth()); kind != '{' || n%2 == 0 {
+			continue
+		}
+		name := tok.String()
+		for _, shape := range memberNameShapes {
+			if shape.re.MatchString(name) && !slices.Contains(out, shape.name) {
+				out = append(out, shape.name)
+			}
 		}
 	}
 	return out
