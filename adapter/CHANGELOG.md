@@ -89,6 +89,10 @@ Subsequent separately signed changes:
 
 ### Changed
 
+- `go.mod` requires the root module at `v0.2.0`, the release that adds
+  `decision.Provider`, `WithProvider`, the seven presets and the two wire
+  dialects; the adapter's own API is unchanged, and `golang.org/x/arch` and
+  `golang.org/x/sys` follow the root's requirements.
 - New cassette recordings replace provider-assigned body identifiers at known
   JSON request/response paths with "x"; wire bodies and replay remain unchanged.
 

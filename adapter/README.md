@@ -8,7 +8,7 @@ the decision-model service with an LLM on cost, speed and intelligence,
 without changing the questions or the root SDK's answer interface.
 
 **Status: unreleased.** The API and offline replay tests are implemented;
-live acceptance and release remain separate gates. The root SDK's `v0.1.0`
+live acceptance and release remain separate gates. The root SDK's `v0.2.0`
 tag is not an adapter release. This independent nested module uses
 `adapter/vX.Y.Z` release tags, created only when its release is approved.
 
@@ -29,7 +29,7 @@ go get github.com/zchee/decision-model-sdk-go/adapter@<commit>
 ```
 
 Import the root module as `decision` and the nested module as `adapter`.
-`go.mod` requires `github.com/zchee/decision-model-sdk-go v0.1.0`; this is a
+`go.mod` requires `github.com/zchee/decision-model-sdk-go v0.2.0`; this is a
 minimum-version selection requirement, not a dependency lock. Repository
 gates also test against the root checkout. The adapter no longer requires
 `github.com/go-json-experiment/json` and deliberately does not build with

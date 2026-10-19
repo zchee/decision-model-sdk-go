@@ -4,7 +4,7 @@ go 1.27
 
 require (
 	github.com/google/go-cmp v0.7.0
-	github.com/zchee/decision-model-sdk-go v0.1.0
+	github.com/zchee/decision-model-sdk-go v0.2.0
 )
 
 require (
@@ -15,6 +15,6 @@ require (
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/arch v0.31.0 // indirect
-	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/arch v0.32.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
 )
