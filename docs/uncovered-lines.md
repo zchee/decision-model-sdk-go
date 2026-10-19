@@ -41,6 +41,8 @@ Each reason starts with its class:
 | `client.go` | `(*Client).attempt` | `return wire.ResponseMeta{}, engine.HeaderRedactor{}, newConnectionError(err.Error(), err, false)` | 1 | Defensive: `Body.Open` fails only after the body's last reference is dropped, and the call holds one until it returns. |
 | `config.go` | `resolveEndpoints` | `return nil, nil, newConfigError(source + " is not a valid URL.")` | 2 | Defensive: `baseURLRule` has parsed the base, and a valid base followed by a fixed path always parses. |
 | `config.go` | `dropDefaultPort` | `return raw` | 2 | Defensive: `baseURLRule` admits only http and https URLs with a host, so the text always holds `://` and one of the two schemes. |
+| `dialect.go` | `(*DialectError).decisionError` | `{}` | 1 | Defensive: the unexported marker method that seals the `Error` interface; nothing calls it. |
+| `dialect.go` | `applyDialect` | `return nil` | 1 | Defensive: its one caller runs it only when `cfg.Dialect` is not nil, and `cfg.Dialect` is set only from `Provider.Dialect`, of type `Dialect`, so the assertion never yields nil. |
 | `errors.go` | `(*ConfigError).decisionError` | `{}` | 1 | Defensive: the unexported marker method that seals the `Error` interface; nothing calls it. |
 | `errors.go` | `(*InvalidRequestError).decisionError` | `{}` | 1 | Defensive: the unexported marker method that seals the `Error` interface; nothing calls it. |
 | `errors.go` | `(*APIError).decisionError` | `{}` | 1 | Defensive: the unexported marker method that seals the `Error` interface; nothing calls it. |
@@ -49,6 +51,10 @@ Each reason starts with its class:
 | `errors.go` | `(*ConnectionError).decisionError` | `{}` | 1 | Defensive: the unexported marker method that seals the `Error` interface; nothing calls it. |
 | `errors.go` | `(*TimeoutError).decisionError` | `{}` | 1 | Defensive: the unexported marker method that seals the `Error` interface; nothing calls it. |
 | `errors.go` | `parsePythonFloat` | `return 0, false` | 1 | Defensive: the scan above admits only text that `strconv.ParseFloat` parses, and `ErrRange` is accepted. |
+| `provider/json.go` | `bodyError` | `return err` | 1 | Defensive: every caller passes an error of the jsontext decoder, which is never a `*decision.ResponsePathError`. |
+| `provider/json.go` | `members` | `return bodyError(err)` | 1 | Defensive: `PeekKind` has seen `{`, and jsontext fails to read an opening brace only past its nesting limit of 10000, while the dialects open objects at a depth of 3 at most. |
+| `provider/json.go` | `elements` | `return bodyError(err)` | 1 | Defensive: `PeekKind` has seen `[`, and jsontext fails to read an opening bracket only past its nesting limit of 10000, while the dialects open arrays at a depth of 1 at most. |
+| `provider/openai.go` | `openAIRequest` | `return err` | 1 | Defensive: `Compact` allows repeated names and invalid UTF-8, and it formats a value the decoder has read, nested less deeply than in the body, so it cannot fail. |
 | `retry.go` | `(*retryState).wait` | `return waitError(ctx)` | 0-1 | Race: a context that ends at the instant the backoff timer fires. |
 | `text.go` | `(*pathText).fixed` | `return` | 1 | Gap: a field path that is already cut when more of the SDK's own text follows. |
 | `text.go` | `(*pathText).fixed` | `t.b = append(t.b, "\u2026"...)` | 1 | Gap: a field path whose own text, not a name, crosses the path limit. |
