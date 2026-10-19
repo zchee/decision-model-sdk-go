@@ -198,13 +198,17 @@ only.
 `decision.WithProvider` and reads its own variables instead of the
 generic ones: `DECISION_MODEL_LIVE_TESTS=1`,
 `DECISION_MODEL_LIVE_PROVIDERS` (a comma-separated list of `typesafe`,
-`codiv`, `perplexity`, `decisions-api` and `openai`; each is billed, so
-none is called unless listed), and per listed provider its own key
+`codiv`, `perplexity`, `decisions-api`, `openai`, `openrouter` and
+`openrouter-decisions`; each is billed, so none is called unless
+listed), and per listed provider its own key
 variable (`TYPESAFE_API_KEY`, `CODIV_API_KEY`, `PERPLEXITY_API_KEY`,
-`DECISIONS_API_KEY`, `OPENAI_API_KEY`), exported in the shell and never
+`DECISIONS_API_KEY`, `OPENAI_API_KEY`, and `OPENROUTER_API_KEY` for both
+OpenRouter endpoints), exported in the shell and never
 written on the command line, and `DECISION_MODEL_LIVE_MODEL_<NAME>`, the
 name in upper case with `-` written `_`, such as
-`DECISION_MODEL_LIVE_MODEL_DECISIONS_API`; OpenAI may leave its model
+`DECISION_MODEL_LIVE_MODEL_DECISIONS_API` or
+`DECISION_MODEL_LIVE_MODEL_OPENROUTER_DECISIONS` (OpenRouter's models are
+named with their vendor, `typesafe/jev-1.13`); OpenAI may leave its model
 unset for its default, `gpt-6-luna`. A listed
 provider without its key or model fails the test before anything is
 sent, naming the variable. The other live tests fail without the generic

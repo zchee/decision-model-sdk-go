@@ -29,7 +29,7 @@ import (
 
 // presetKeyEnvs is every variable a preset reads; each test clears all of
 // them, so a developer's exported key never reaches a test.
-var presetKeyEnvs = []string{"TYPESAFE_API_KEY", "CODIV_API_KEY", "PERPLEXITY_API_KEY", "DECISIONS_API_KEY", "OPENAI_API_KEY"}
+var presetKeyEnvs = []string{"TYPESAFE_API_KEY", "CODIV_API_KEY", "PERPLEXITY_API_KEY", "DECISIONS_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY"}
 
 // setEnv clears every variable a client may read, then sets the variables
 // in set; t.Setenv restores them all when the test ends. The generic
@@ -77,6 +77,20 @@ func TestPresets(t *testing.T) {
 			want: decision.Provider{ //nolint:gosec // G101: APIKeyEnv holds the name of a variable, not a key.
 				Name: "Perplexity", BaseURL: "https://api.perplexity.ai",
 				SystemOnePath: "/v1/decisions", APIKeyEnv: "PERPLEXITY_API_KEY",
+			},
+		},
+		"success: OpenRouter": {
+			got: provider.OpenRouter(),
+			want: decision.Provider{ //nolint:gosec // G101: APIKeyEnv holds the name of a variable, not a key.
+				Name: "OpenRouter", BaseURL: "https://openrouter.ai",
+				SystemOnePath: "/api/v1/systemone", APIKeyEnv: "OPENROUTER_API_KEY",
+			},
+		},
+		"success: OpenRouter Decisions": {
+			got: provider.OpenRouterDecisions(),
+			want: decision.Provider{ //nolint:gosec // G101: APIKeyEnv holds the name of a variable, not a key.
+				Name: "OpenRouter Decisions", BaseURL: "https://openrouter.ai",
+				SystemOnePath: "/api/alpha/decisions", APIKeyEnv: "OPENROUTER_API_KEY",
 			},
 		},
 		"success: Decisions API": {
@@ -138,6 +152,14 @@ func TestPresetClients(t *testing.T) {
 		"success: Perplexity": {
 			preset: provider.Perplexity(), env: "PERPLEXITY_API_KEY",
 			wantSystemOne: "https://api.perplexity.ai/v1/decisions",
+		},
+		"success: OpenRouter": {
+			preset: provider.OpenRouter(), env: "OPENROUTER_API_KEY",
+			wantSystemOne: "https://openrouter.ai/api/v1/systemone",
+		},
+		"success: OpenRouter Decisions": {
+			preset: provider.OpenRouterDecisions(), env: "OPENROUTER_API_KEY",
+			wantSystemOne: "https://openrouter.ai/api/alpha/decisions",
 		},
 	}
 	for name, tt := range tests {

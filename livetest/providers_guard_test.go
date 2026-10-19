@@ -31,14 +31,18 @@ import (
 
 // TestLiveProviderCatalog pins every provider the live harness can call: its
 // name, its whole Provider (a dialect provider's is its preset, which the
-// provider package's tests pin) and how it answers the SDK's wire. Decisions API
-// reads DECISIONS_API_KEY, never DECISIONAPI_API_KEY, which belongs to a
-// vendor the harness does not call; that one is only scrubbed.
+// provider package's tests pin), how it answers the SDK's wire, which
+// question set it is asked and whether its responses name the request.
+// Decisions API reads DECISIONS_API_KEY, never DECISIONAPI_API_KEY, which
+// belongs to a vendor the harness does not call; that one is only scrubbed.
+// Both OpenRouter endpoints read OPENROUTER_API_KEY.
 func TestLiveProviderCatalog(t *testing.T) {
 	type entry struct {
-		Name string
-		P    decision.Provider
-		Kind providerKind
+		Name        string
+		P           decision.Provider
+		Kind        providerKind
+		PlainNoul   bool
+		NoRequestID bool
 	}
 	want := []entry{
 		{Name: "typesafe", P: decision.Provider{ //nolint:gosec // G101: APIKeyEnv holds the name of a variable, not a key.
@@ -50,12 +54,18 @@ func TestLiveProviderCatalog(t *testing.T) {
 		{Name: "perplexity", P: decision.Provider{ //nolint:gosec // G101: APIKeyEnv holds the name of a variable, not a key.
 			Name: "Perplexity", BaseURL: "https://api.perplexity.ai", SystemOnePath: "/v1/decisions", APIKeyEnv: "PERPLEXITY_API_KEY",
 		}, Kind: kindSystemOne},
-		{Name: "decisions-api", P: provider.DecisionsAPI(), Kind: kindDialect},
-		{Name: "openai", P: provider.OpenAI(), Kind: kindDialect},
+		{Name: "decisions-api", P: provider.DecisionsAPI(), Kind: kindDialect, PlainNoul: true},
+		{Name: "openai", P: provider.OpenAI(), Kind: kindDialect, PlainNoul: true},
+		{Name: "openrouter", P: decision.Provider{ //nolint:gosec // G101: APIKeyEnv holds the name of a variable, not a key.
+			Name: "OpenRouter", BaseURL: "https://openrouter.ai", SystemOnePath: "/api/v1/systemone", APIKeyEnv: "OPENROUTER_API_KEY",
+		}, Kind: kindSystemOne, PlainNoul: true, NoRequestID: true},
+		{Name: "openrouter-decisions", P: decision.Provider{ //nolint:gosec // G101: APIKeyEnv holds the name of a variable, not a key.
+			Name: "OpenRouter Decisions", BaseURL: "https://openrouter.ai", SystemOnePath: "/api/alpha/decisions", APIKeyEnv: "OPENROUTER_API_KEY",
+		}, Kind: kindSystemOne, PlainNoul: true, NoRequestID: true},
 	}
 	var got []entry
 	for _, lp := range liveProviders {
-		got = append(got, entry{Name: lp.name, P: lp.p, Kind: lp.kind})
+		got = append(got, entry{Name: lp.name, P: lp.p, Kind: lp.kind, PlainNoul: lp.plainNoul, NoRequestID: lp.noRequestID})
 	}
 	if diff := gocmp.Diff(want, got); diff != "" {
 		t.Errorf("liveProviders (-want +got):\n%s", diff)
@@ -69,7 +79,24 @@ func TestLiveProviderCatalog(t *testing.T) {
 	if got := modelEnvName("decisions-api"); got != "DECISION_MODEL_LIVE_MODEL_DECISIONS_API" {
 		t.Errorf("modelEnvName(decisions-api) = %q, want DECISION_MODEL_LIVE_MODEL_DECISIONS_API", got)
 	}
+	if got := modelEnvName("openrouter-decisions"); got != "DECISION_MODEL_LIVE_MODEL_OPENROUTER_DECISIONS" {
+		t.Errorf("modelEnvName(openrouter-decisions) = %q, want DECISION_MODEL_LIVE_MODEL_OPENROUTER_DECISIONS", got)
+	}
+	names := keyEnvNames()
+	if n := len(names) - len(slices.Compact(slices.Sorted(slices.Values(names)))); n != 0 {
+		t.Errorf("keyEnvNames() repeats %d variables, want each once", n)
+	}
+	if n := strings.Count(strings.Join(names, " "), "OPENROUTER_API_KEY"); n != 1 {
+		t.Errorf("keyEnvNames() names OPENROUTER_API_KEY %d times, want once for the two endpoints", n)
+	}
 }
+
+// syntheticOpenRouterKey has the shape of an OpenRouter key, sk-or-v1- and
+// 64 hex digits, and is no key. The prefix and the digits are two literals
+// so that the source holds no run of bytes with the whole shape, which a
+// secret scanner on the remote refuses to accept in a push; the constant
+// the compiler joins is what the rows below need.
+const syntheticOpenRouterKey = "sk-or-v1-" + "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 // TestLiveProviderEnvGuard checks TestLiveProviders' guard: without the
 // switch, a provider list, and each named provider's key and model (unless
@@ -80,9 +107,10 @@ func TestLiveProviderCatalog(t *testing.T) {
 // variables, are collected for the scrubber.
 func TestLiveProviderEnvGuard(t *testing.T) {
 	const (
-		codivKey  = "sk-codiv-synthetic-key-0123456789"
-		openAIKey = "sk-openai-synthetic-key-0123456789"
-		otherKey  = "sk_decisionapi-synthetic-key-0123456789"
+		codivKey      = "sk-codiv-synthetic-key-0123456789"
+		openAIKey     = "sk-openai-synthetic-key-0123456789"
+		otherKey      = "sk_decisionapi-synthetic-key-0123456789"
+		openRouterKey = syntheticOpenRouterKey
 	)
 	base := func(over map[string]string) map[string]string {
 		env := map[string]string{liveTestsEnv: "1", liveProvidersEnv: "codiv", "CODIV_API_KEY": codivKey, "DECISION_MODEL_LIVE_MODEL_CODIV": "openjev-latest"}
@@ -113,7 +141,7 @@ func TestLiveProviderEnvGuard(t *testing.T) {
 		},
 		"error: an unknown provider": {
 			env:     base(map[string]string{liveProvidersEnv: "codiv,typellm"}),
-			wantErr: []string{liveProvidersEnv + ` names "typellm", which is not one of typesafe, codiv, perplexity, decisions-api, openai`},
+			wantErr: []string{liveProvidersEnv + ` names "typellm", which is not one of typesafe, codiv, perplexity, decisions-api, openai, openrouter, openrouter-decisions`},
 		},
 		"error: a provider named twice": {
 			env:     base(map[string]string{liveProvidersEnv: "codiv, codiv"}),
@@ -146,6 +174,18 @@ func TestLiveProviderEnvGuard(t *testing.T) {
 			want:        got{Names: []string{"openai"}, Models: []string{"gpt-6-sol"}, ModelSet: []bool{true}},
 			wantSecrets: []string{codivKey, openAIKey},
 		},
+		"error: both OpenRouter endpoints need the shared key and each its model": {
+			env:     map[string]string{liveTestsEnv: "1", liveProvidersEnv: "openrouter,openrouter-decisions"},
+			wantErr: []string{"OPENROUTER_API_KEY is unset or blank", "DECISION_MODEL_LIVE_MODEL_OPENROUTER is unset or blank", "DECISION_MODEL_LIVE_MODEL_OPENROUTER_DECISIONS is unset or blank"},
+		},
+		"success: both OpenRouter endpoints, one key collected once": {
+			env: base(map[string]string{
+				liveProvidersEnv: "openrouter,openrouter-decisions", "OPENROUTER_API_KEY": openRouterKey,
+				"DECISION_MODEL_LIVE_MODEL_OPENROUTER": "typesafe/jev-1.13", "DECISION_MODEL_LIVE_MODEL_OPENROUTER_DECISIONS": "jev-1.13",
+			}),
+			want:        got{Names: []string{"openrouter", "openrouter-decisions"}, Models: []string{"typesafe/jev-1.13", "jev-1.13"}, ModelSet: []bool{true, true}},
+			wantSecrets: []string{codivKey, openRouterKey},
+		},
 		"success: several providers in the order named, every set key collected": {
 			env: base(map[string]string{
 				liveProvidersEnv: " openai , codiv ", "OPENAI_API_KEY": openAIKey,
@@ -170,7 +210,7 @@ func TestLiveProviderEnvGuard(t *testing.T) {
 				if n := strings.Count(err.Error(), liveTestsEnv+" is not 1"); n > 1 {
 					t.Errorf("the switch's message appears %d times, want at most once", n)
 				}
-				for _, key := range []string{codivKey, openAIKey, otherKey} {
+				for _, key := range []string{codivKey, openAIKey, otherKey, openRouterKey} {
 					if strings.Contains(err.Error(), key) {
 						t.Errorf("providerEnvFrom() error repeats a key")
 					}
@@ -197,10 +237,11 @@ func TestLiveProviderEnvGuard(t *testing.T) {
 }
 
 // TestProviderCredentialShapes feeds the scrubber's shapes synthetic tokens
-// with each vendor's key prefix (each must be found), the two Perplexity
-// model ids (neither may be), and masked echoes: of a key the recorder
-// knows (found, without the key in the finding) and of the wrong key the
-// tests send on purpose (not found). A refused body reaches no file.
+// with each vendor's key prefix (each must be found; OpenRouter's sk-or-v1-
+// is found by the sk- shape), the two Perplexity model ids (neither may be),
+// and masked echoes: of a key the recorder knows (found, without the key in
+// the finding) and of the wrong key the tests send on purpose (not found). A
+// refused body reaches no file.
 func TestProviderCredentialShapes(t *testing.T) {
 	const realKey = "sk-proj-synthetic-key-abcdefghij-wxyz"
 	// longKey is as long as the longest real key (TypeSafe AI's are 107
@@ -219,6 +260,7 @@ func TestProviderCredentialShapes(t *testing.T) {
 		"error: an sk- token":           {body: `{"echo":"sk-proj-0123456789"}`, want: []string{"a token with the API key prefix sk-"}},
 		"error: an sk_ token":           {body: `{"echo":"sk_live_0123456789"}`, want: []string{"a token with the API key prefix sk_"}},
 		"error: a pplx- token":          {body: `{"echo":"pplx-0123456789abcdef"}`, want: []string{"a token with the API key prefix pplx-"}},
+		"error: an sk-or-v1- token":     {body: `{"echo":"` + syntheticOpenRouterKey + `"}`, want: []string{"a token with the API key prefix sk-"}},
 		"success: a short sk- word":     {body: `{"note":"sk-learn"}`},
 		"success: risk-assessment-tool": {body: `{"note":"risk-assessment-tool"}`},
 		"success: the two Perplexity model ids": {
@@ -239,6 +281,45 @@ func TestProviderCredentialShapes(t *testing.T) {
 		"error: a masked echo of a known key": {
 			body:    `{"error":{"message":"Incorrect API key provided: sk-proj****************wxyz."}}`,
 			secrets: []string{realKey},
+			want:    []string{"a masked echo of secret 1 of 1"},
+		},
+		"error: a user_id member at the top level": {
+			body: `{"error":{"message":"Invalid input","code":400},"user_id":"user_0123abcd"}`,
+			want: []string{"an account identifier as a user_id member"},
+		},
+		"error: a user_id member inside an object": {
+			body: `{"error":{"message":"Invalid input","code":400,"metadata":{"user_id" : "u"}}}`,
+			want: []string{"an account identifier as a user_id member"},
+		},
+		"error: a user_id member spelled with a Unicode escape at the top level": {
+			body: `{"error":{"message":"Invalid input","code":400},"\u0075ser_id":"user_0123abcd"}`,
+			want: []string{"an account identifier as a user_id member"},
+		},
+		"error: a user_id member spelled with a Unicode escape inside an object": {
+			body: `{"error":{"message":"Invalid input","code":400,"metadata":{"user\u005fid" : "u"}}}`,
+			want: []string{"an account identifier as a user_id member"},
+		},
+		"error: a user_id member spelled with a Unicode escape after a duplicate name": {
+			body: `{"code":400,"code":401,"\u0055SER_ID":"u"}`,
+			want: []string{"an account identifier as a user_id member"},
+		},
+		"error: a user_id member in both spellings is reported once": {
+			body: `{"user_id":"u","metadata":{"\u0075ser_id":"u"}}`,
+			want: []string{"an account identifier as a user_id member"},
+		},
+		"error: a credential header member spelled with a Unicode escape": {
+			body: `{"headers":{"\u0061uthorization":"Basic abc"}}`,
+			want: []string{"a credential header as a member"},
+		},
+		"success: an escaped user_id as a string value": {
+			body: `{"note":"\u0075ser_id","list":["user_id"]}`,
+		},
+		"success: user_id inside a string": {
+			body: `{"error":{"message":"the member user_id is required","code":400}}`,
+		},
+		"error: a masked echo of an OpenRouter key": {
+			body:    `{"error":{"message":"No auth credentials found for sk-or-v1-****************cdef."}}`,
+			secrets: []string{syntheticOpenRouterKey},
 			want:    []string{"a masked echo of secret 1 of 1"},
 		},
 		"success: a masked echo of the wrong key the tests send": {

@@ -44,10 +44,14 @@ import (
 //   - models: the listing (200), or, for a provider without one, the
 //     *ConfigError that List returns before sending.
 //   - questions: a System One provider is asked the three questions of
-//     TestLiveQuestions; a dialect provider (Decisions API, OpenAI) is asked
-//     liveTicket's, whose yes/no question has no outcomes, which Decisions
-//     API requires both of and OpenAI's wire has no place for. Each answers
-//     200 and the answers are checked as there.
+//     TestLiveQuestions; a provider with plainNoul (Decisions API, OpenAI,
+//     both OpenRouter endpoints) is asked liveTicket's, whose yes/no
+//     question has no outcomes, which Decisions API requires both of,
+//     OpenAI's wire has no place for and OpenRouter refuses one of without
+//     the other. Each answers 200 and the answers are checked as there,
+//     except that a provider with noRequestID (OpenRouter, whose responses
+//     name the call in x-generation-id alone) is not expected to carry a
+//     request id.
 //   - typed: Ask[liveTicket], answered 200 and checked.
 //   - wrong key: a key the provider did not issue, on the listing where one
 //     exists and on the System One call otherwise: 401.
@@ -113,7 +117,7 @@ func liveProviderRun(t *testing.T, sp selectedProvider, secrets []string) {
 
 	t.Run("questions", func(t *testing.T) {
 		qs := liveQuestionSet(t)
-		if sp.kind == kindDialect {
+		if sp.plainNoul {
 			qs = plainNoulSet(t)
 		}
 		lc.begin()
@@ -123,7 +127,7 @@ func liveProviderRun(t *testing.T, sp selectedProvider, secrets []string) {
 			t.Fatalf("SystemOne() error = %s", describeErr(err, secrets))
 		}
 		recordVendorBody(t, lc, sp, dir, "questions.json", resp.Meta().RawBody(), secrets)
-		checkLiveAnswers(t, resp)
+		checkLiveAnswers(t, resp, !sp.noRequestID)
 	})
 
 	t.Run("typed", func(t *testing.T) {
@@ -146,7 +150,7 @@ func liveProviderRun(t *testing.T, sp selectedProvider, secrets []string) {
 		case sp.p.ModelsPath != "":
 			endpoint = "models"
 			_, err = wrong.c.Models().List(t.Context())
-		case sp.kind == kindDialect:
+		case sp.plainNoul:
 			_, err = wrong.c.SystemOne(t.Context(), "hello", plainNoulSet(t))
 		default:
 			_, err = wrong.c.SystemOne(t.Context(), "hello", liveQuestionSet(t))
@@ -179,7 +183,7 @@ func wantAPIError(t *testing.T, err error, secrets []string) *decision.APIError 
 }
 
 // plainNoulSet returns liveTicket's three questions, whose yes/no question
-// has no outcomes: the set a dialect provider is asked.
+// has no outcomes: the set a provider with plainNoul is asked.
 func plainNoulSet(t *testing.T) *decision.Prepared {
 	t.Helper()
 	qs, err := decision.PreparedFor[liveTicket]()

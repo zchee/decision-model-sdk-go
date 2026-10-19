@@ -55,19 +55,34 @@ type liveProvider struct {
 	name string
 	p    decision.Provider
 	kind providerKind
+	// plainNoul reports whether the provider is asked liveTicket's three
+	// questions, whose yes/no question has no outcomes, in place of the set
+	// TestLiveQuestions asks, whose yes/no question names the outcome true
+	// alone: Decisions API requires both outcomes, OpenAI's wire has no place
+	// for one, and OpenRouter refuses a noul that has criteria.true without
+	// criteria.false with status 400, its message asking for criteria.false.
+	plainNoul bool
+	// noRequestID reports whether the provider's responses carry no
+	// identifier of the request in a header the SDK reads, so that the tests
+	// do not expect one. OpenRouter sends x-generation-id, equal to the
+	// body's id, and x-provider-name instead.
+	noRequestID bool
 }
 
 // liveProviders is every provider the live harness knows, in the order it
 // calls them, each the provider package's preset. Decisions API and OpenAI
 // carry the dialect that translates their wire. Decisions API's variable is
 // DECISIONS_API_KEY, apart from DECISIONAPI_API_KEY, which holds the key of
-// another vendor (decisionapi.net) that the harness does not call.
+// another vendor (decisionapi.net) that the harness does not call. Both
+// OpenRouter endpoints read OPENROUTER_API_KEY.
 var liveProviders = []liveProvider{
 	{name: "typesafe", p: provider.TypeSafe(), kind: kindSystemOne},
 	{name: "codiv", p: provider.Codiv(), kind: kindSystemOne},
 	{name: "perplexity", p: provider.Perplexity(), kind: kindSystemOne},
-	{name: "decisions-api", p: provider.DecisionsAPI(), kind: kindDialect},
-	{name: "openai", p: provider.OpenAI(), kind: kindDialect},
+	{name: "decisions-api", p: provider.DecisionsAPI(), kind: kindDialect, plainNoul: true},
+	{name: "openai", p: provider.OpenAI(), kind: kindDialect, plainNoul: true},
+	{name: "openrouter", p: provider.OpenRouter(), kind: kindSystemOne, plainNoul: true, noRequestID: true},
+	{name: "openrouter-decisions", p: provider.OpenRouterDecisions(), kind: kindSystemOne, plainNoul: true, noRequestID: true},
 }
 
 // scrubOnlyKeyEnvs name the variables that may hold a key of a vendor the
@@ -172,14 +187,27 @@ func providerEnvFrom(getenv func(string) string) (providerEnv, error) {
 	return env, nil
 }
 
-// keyEnvNames returns every variable whose value the recorder scrubs: each
-// provider's key variable, then scrubOnlyKeyEnvs.
+// keyEnvNames returns every variable whose value the recorder scrubs, each
+// once: each provider's key variable, then scrubOnlyKeyEnvs. Two providers
+// may read one variable, as the two OpenRouter endpoints do.
 func keyEnvNames() []string {
 	names := make([]string, 0, len(liveProviders)+len(scrubOnlyKeyEnvs))
+	for _, name := range slices.Concat(providerKeyEnvs(), scrubOnlyKeyEnvs) {
+		if !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// providerKeyEnvs returns each provider's key variable, in the order of
+// liveProviders, a shared variable once for each provider that reads it.
+func providerKeyEnvs() []string {
+	names := make([]string, 0, len(liveProviders))
 	for _, lp := range liveProviders {
 		names = append(names, lp.p.APIKeyEnv)
 	}
-	return append(names, scrubOnlyKeyEnvs...)
+	return names
 }
 
 // recordedProviderBodies are the files under testdata/live/providers/<name>,
@@ -193,11 +221,13 @@ func keyEnvNames() []string {
 // refused.json is its 400 to the System One wire, which the SDK no longer
 // sends it.
 var recordedProviderBodies = map[string][]string{
-	"typesafe":      {"models.json", "questions.json", "typed-response.json", "wrong-key.json"},
-	"codiv":         {"models.json", "questions.json", "typed-response.json", "wrong-key.json"},
-	"perplexity":    {"questions.json", "typed-response.json", "wrong-key.json"},
-	"decisions-api": {"questions.json", "typed-response.json", "wrong-key.json"},
-	"openai":        {"dialect-request.json", "dialect-response.json", "refused.json", "wrong-key.json"},
+	"typesafe":             {"models.json", "questions.json", "typed-response.json", "wrong-key.json"},
+	"codiv":                {"models.json", "questions.json", "typed-response.json", "wrong-key.json"},
+	"perplexity":           {"questions.json", "typed-response.json", "wrong-key.json"},
+	"decisions-api":        {"questions.json", "typed-response.json", "wrong-key.json"},
+	"openai":               {"dialect-request.json", "dialect-response.json", "refused.json", "wrong-key.json"},
+	"openrouter":           {"questions.json", "typed-response.json", "wrong-key.json"},
+	"openrouter-decisions": {"questions.json", "typed-response.json", "wrong-key.json"},
 }
 
 // recordsProviderBody reports whether TestLiveProviders records the body

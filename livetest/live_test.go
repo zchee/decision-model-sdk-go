@@ -273,7 +273,7 @@ func TestLiveQuestions(t *testing.T) {
 		t.Fatalf("SystemOne() error = %v", err)
 	}
 	recordBody(t, liveDir, "questions.json", resp.Meta().RawBody(), env.apiKey)
-	checkLiveAnswers(t, resp)
+	checkLiveAnswers(t, resp, true)
 }
 
 // liveQuestionSet is the question set of upstream's test_live_questions: a
@@ -303,9 +303,10 @@ func liveQuestionSet(tb testing.TB) *decision.Prepared {
 }
 
 // checkLiveAnswers checks the response to liveQuestionSet as upstream's
-// test_live_questions does: a model and a request id, answers in range,
-// probabilities summing to 1 within 0.1, and the score's legend as sent.
-func checkLiveAnswers(t *testing.T, resp *decision.SystemOneResponse) {
+// test_live_questions does: a model and, when wantRequestID, a request id,
+// answers in range, probabilities summing to 1 within 0.1, and the score's
+// legend as sent.
+func checkLiveAnswers(t *testing.T, resp *decision.SystemOneResponse, wantRequestID bool) {
 	t.Helper()
 	if resp.Model() == "" {
 		t.Error("Model() is empty")
@@ -313,7 +314,7 @@ func checkLiveAnswers(t *testing.T, resp *decision.SystemOneResponse) {
 	if in, ok := resp.Usage().InputTokens(); ok && in == 0 {
 		t.Error("InputTokens() = 0, want absent or positive")
 	}
-	if id, ok := resp.Meta().RequestID(); !ok || id == "" {
+	if id, ok := resp.Meta().RequestID(); wantRequestID && (!ok || id == "") {
 		t.Error("the response carries no request id")
 	}
 	answers := resp.Answers()

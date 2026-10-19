@@ -15,17 +15,30 @@ All notable changes to decision-model-sdk-go are recorded here. The format follo
   `DECISION_MODEL_BASE_URL` and `DECISION_MODEL_DEFAULT_MODEL` are not
   read; `WithAPIKey` and `WithModel` still win; `WithBaseURL` beside a
   provider is accepted only with `WithAPIKey`.
-- The `provider` package holds five presets, each reading its key from
+- The `provider` package holds seven presets, each reading its key from
   the vendor's own variable: `provider.TypeSafe()` (`TYPESAFE_API_KEY`),
-  `provider.Codiv()` (`CODIV_API_KEY`) and `provider.Perplexity()`
-  (`PERPLEXITY_API_KEY`, `POST /v1/decisions`), which speak System One,
+  `provider.Codiv()` (`CODIV_API_KEY`), `provider.Perplexity()`
+  (`PERPLEXITY_API_KEY`, `POST /v1/decisions`) and OpenRouter's two
+  endpoints, `provider.OpenRouter()` (`POST /api/v1/systemone`) and
+  `provider.OpenRouterDecisions()` (`POST /api/alpha/decisions`, no
+  `/v1`: `/api/v1/alpha/decisions` and `/api/v1/api/alpha/decisions`
+  answer 404), which share `OPENROUTER_API_KEY`, all of which speak System One,
   and `provider.DecisionsAPI()` (`DECISIONS_API_KEY`) and
   `provider.OpenAI()` (`OPENAI_API_KEY`, `POST /v1/decisions`, default
   model `gpt-6-luna`), which carry a dialect: Decisions API's unwraps the
   `data.result` of its envelope, and OpenAI's rewrites the request and
   the answers between System One's wire and OpenAI's. The Perplexity,
-  Decisions API and OpenAI presets have no model-listing path, so `List`
-  on their clients fails before sending.
+  OpenRouter, Decisions API and OpenAI presets have no model-listing
+  path, so `List` on their clients fails before sending.
+- The OpenRouter presets send the System One request unchanged. Their
+  answers carry the members `id`, `provider` and `usage.cost` besides,
+  which the decoder ignores. OpenRouter sends no `x-request-id`; a
+  success carries `x-generation-id` (equal to the body's `id`) and
+  `x-provider-name` instead, which are not read, so `RequestID` reports
+  none on its responses. It refuses, with status 400, a yes/no question
+  that describes `Yes` without `No`. Its models are named with their
+  vendor, such as
+  `typesafe/jev-1.13`.
 - `Models.List`, and so `Client.WarmUp`, on the client of a provider
   without a listing fail with a `*ConfigError` naming the provider before
   anything is sent.
@@ -52,11 +65,14 @@ All notable changes to decision-model-sdk-go are recorded here. The format follo
   402).
 - The live tests gain `TestLiveProviders`, which calls the providers that
   `DECISION_MODEL_LIVE_PROVIDERS` names (`typesafe`, `codiv`,
-  `perplexity`, `decisions-api`, `openai`), each with its own key
+  `perplexity`, `decisions-api`, `openai`, `openrouter`,
+  `openrouter-decisions`), each with its own key
   variable and `DECISION_MODEL_LIVE_MODEL_<NAME>`, and records what each
   returns under `testdata/live/providers/<name>` with `-args -record`.
-  The recorder also refuses a body holding a token with the key prefixes
-  `apikey_`, `sk-`, `sk_` or `pplx-`, or a masked echo of a key it holds.
+  The recorder also refuses a body holding a member named `user_id`
+  (the account identifier OpenRouter's 400 bodies carry), a token with
+  the key prefixes `apikey_`, `sk-`, `sk_` or `pplx-`, or a masked echo
+  of a key it holds.
 
 ### Changed
 

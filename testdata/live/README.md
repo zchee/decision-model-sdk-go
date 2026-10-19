@@ -53,19 +53,24 @@ the other live tests need the generic variables:
 
 ```sh
 DECISION_MODEL_LIVE_TESTS=1 \
-	DECISION_MODEL_LIVE_PROVIDERS=typesafe,codiv,perplexity,decisions-api,openai \
+	DECISION_MODEL_LIVE_PROVIDERS=typesafe,codiv,perplexity,decisions-api,openai,openrouter,openrouter-decisions \
 	DECISION_MODEL_LIVE_MODEL_TYPESAFE=... DECISION_MODEL_LIVE_MODEL_CODIV=... \
 	DECISION_MODEL_LIVE_MODEL_PERPLEXITY=... DECISION_MODEL_LIVE_MODEL_DECISIONS_API=... \
+	DECISION_MODEL_LIVE_MODEL_OPENROUTER=typesafe/jev-1.13 \
+	DECISION_MODEL_LIVE_MODEL_OPENROUTER_DECISIONS=typesafe/jev-1.13 \
 	go test -tags live -count=1 -v -run '^TestLiveProviders$' ./livetest/ -args -record
 ```
 
 Each provider's client reads its key from the provider's own variable
 (`TYPESAFE_API_KEY`, `CODIV_API_KEY`, `PERPLEXITY_API_KEY`,
-`DECISIONS_API_KEY`, `OPENAI_API_KEY`); OpenAI's model defaults to
-`gpt-6-luna`. Before a body is written the recorder replaces the value of
+`DECISIONS_API_KEY`, `OPENAI_API_KEY`, and `OPENROUTER_API_KEY` for both
+OpenRouter endpoints); OpenAI's model defaults to `gpt-6-luna`, and
+OpenRouter's models are named with their vendor, `typesafe/jev-1.13`.
+Before a body is written the recorder replaces the value of
 every key variable the environment sets, and of the wrong key, with `***`.
-It also refuses a body that holds a token starting with `apikey_`, `sk-`,
-`sk_` or `pplx-` (Perplexity's model ids `pplx-decider-v1.1-27b` and
+It also refuses a body that holds a member named `user_id`, the account
+identifier OpenRouter's 400 bodies carry, or a token starting with `apikey_`, `sk-`
+(which OpenRouter's `sk-or-v1-` keys start with too), `sk_` or `pplx-` (Perplexity's model ids `pplx-decider-v1.1-27b` and
 `pplx-decider-v1-27b` excepted), or a masked echo of a key it holds: the
 key's first 7 characters and its last 4 inside one JSON string, any number
 of characters apart. OpenAI echoes a key it refuses as the key's first 8
@@ -78,6 +83,7 @@ whose masked echo a recording may keep.
 | `typesafe`, `codiv` | `models.json`, `questions.json`, `typed-response.json`, `wrong-key.json` | the listing (200); the answers to the questions of `TestLiveQuestions` and to `Ask[liveTicket]` (200); the refusal of a wrong key on the listing (401) |
 | `perplexity` | `questions.json`, `typed-response.json`, `wrong-key.json` | as above, with no listing: the wrong key is sent on `POST /v1/decisions` (401) |
 | `decisions-api` | `questions.json`, `typed-response.json`, `wrong-key.json` | the 200 envelope around the answers, which the preset's dialect unwraps (`data.result`); the wrong key on `POST /v1/systemone` (401). Decisions API validates a noul's criteria more strictly than TypeSafe AI and refuses criteria without both the `true` and the `false` key (400), so `questions.json` answers `liveTicket`'s three questions, whose noul has no criteria, instead of `TestLiveQuestions`' |
+| `openrouter`, `openrouter-decisions` | `questions.json`, `typed-response.json`, `wrong-key.json` | OpenRouter's two System One endpoints, `POST /api/v1/systemone` and `POST /api/alpha/decisions` (no `/v1`; the vendor marks it alpha), recorded 2026-10-11 03:04 JST: the answers (200) to `liveTicket`'s three questions, in the System One shape with the members `id`, `provider` and `usage.cost` besides, which the decoder ignores; the wrong key on the same path (401, `{"error":{"message","code"}}`). OpenRouter refuses a noul whose criteria name `true` without `false` (400), so, as for Decisions API, `questions.json` answers `liveTicket`'s noul without criteria. No listing is recorded (`GET /api/v1/models` lists OpenRouter's whole chat catalogue in another shape), and no response carries a request id the SDK reads: OpenRouter sends `x-generation-id` (equal to the body's `id`) and `x-provider-name` instead |
 | `openai` | `dialect-request.json`, `dialect-response.json`, `refused.json`, `wrong-key.json` | the request the preset's dialect writes for `liveTicket`'s questions and a state of the ticket, and OpenAI's 200 answer to it, both kept from the discovery run (2026-10-10) the dialect was written from, and not recorded again: `TestLiveProviders` checks OpenAI's answers without recording them; the 400 refusal of the System One request, which the SDK no longer sends OpenAI; the answer to the wrong key on `POST /v1/decisions` (401) |
 
 OpenAI's answers are checked live and never recorded: its

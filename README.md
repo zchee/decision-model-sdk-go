@@ -384,21 +384,36 @@ the cause's place.
 `WithProvider` builds a client for one vendor without `WithBaseURL` and
 the `DECISION_MODEL_` variables: a `decision.Provider` names the vendor's
 base URL, its paths, the variable its key is read from and, optionally, a
-default model and a dialect. The `provider` package holds five presets,
-each reading its key from the vendor's own variable and from no other:
+default model and a dialect. The `provider` package holds seven presets,
+each reading its key from the vendor's own variable and from no other (the
+two OpenRouter presets share one):
 
 | Preset | Base URL and System One path | Key variable | Listing path | Default model | Wire |
 | --- | --- | --- | --- | --- | --- |
 | `provider.TypeSafe()` | `https://api.typesafe.ai/v1/systemone` | `TYPESAFE_API_KEY` | `GET /v1/models` | none | System One |
 | `provider.Codiv()` | `https://api.codiv.ai/v1/systemone` | `CODIV_API_KEY` | `GET /v1/models` | none | System One |
 | `provider.Perplexity()` | `https://api.perplexity.ai/v1/decisions` | `PERPLEXITY_API_KEY` | none | none | System One |
+| `provider.OpenRouter()` | `https://openrouter.ai/api/v1/systemone` | `OPENROUTER_API_KEY`, shared with the next row | none | none | System One |
+| `provider.OpenRouterDecisions()` | `https://openrouter.ai/api/alpha/decisions` | `OPENROUTER_API_KEY`, shared with the row above | none | none | System One; the vendor's alpha endpoint, whose path has no `/v1` (`/api/v1/alpha/decisions` and `/api/v1/api/alpha/decisions` answer 404) |
 | `provider.DecisionsAPI()` | `https://decisions-api.dev/v1/systemone` | `DECISIONS_API_KEY` | none | none | dialect: the answers come wrapped in a `{"code", "data": {"result"}}` envelope, which the dialect unwraps |
 | `provider.OpenAI()` | `https://api.openai.com/v1/decisions` | `OPENAI_API_KEY` | none | `gpt-6-luna` | dialect: the request and the answers are rewritten both ways |
 
 A preset without a listing path has none because the vendor serves no
-listing in the System One shape (Perplexity's and OpenAI's `GET /v1/models`
-list other models in another shape); on its client, `Models().List` and
-`WarmUp` fail with a `*ConfigError` before anything is sent.
+listing in the System One shape (the model listings of Perplexity, OpenAI
+and OpenRouter list other models in another shape); on its client,
+`Models().List` and `WarmUp` fail with a `*ConfigError` before anything is
+sent.
+
+Both OpenRouter presets send the System One request unchanged and read
+its answers, which carry the members `id`, `provider` and `usage.cost`
+besides; the decoder ignores them. OpenRouter names a model with its
+vendor, `typesafe/jev-1.13`, and answers to the bare `jev-1.13` as well.
+Its responses carry no `x-request-id`; a success carries an
+`x-generation-id` (equal to the body's `id`) and an `x-provider-name`
+instead, which the SDK does not read, so `RequestID()` reports none on them; its error body is
+`{"error": {"message", "code"}}`, so `ErrorType` stays empty. It ignores an
+`ExtraBody` member it does not know, and refuses, with status 400, a yes/no
+question that describes its `Yes` outcome without its `No` outcome.
 
 With a provider, `DECISION_MODEL_API_KEY`, `DECISION_MODEL_BASE_URL` and
 `DECISION_MODEL_DEFAULT_MODEL` are not read; `WithAPIKey` and `WithModel`
@@ -520,9 +535,10 @@ is sent, with a `*DialectError`:
 For OpenAI, a choice's option descriptions and a score's levels must be
 plain text; the other presets take JSON content there too. Its default
 model is `gpt-6-luna`, the only model its decisions endpoint
-was checked with. Decisions API refuses, with status 400, a yes/no question
-that describes its `Yes` outcome without its `No` outcome; its message asks
-for both.
+was checked with. Decisions API and the two OpenRouter presets refuse, with
+status 400, a yes/no question that describes its `Yes` outcome without its
+`No` outcome; Decisions API's message asks for both, OpenRouter's names the
+missing `criteria.false`.
 
 A `Provider` literal can carry a dialect of its own: see the `Dialect`
 documentation and its example, `ExampleDialect`. A nil or empty body

@@ -15,6 +15,7 @@
 package decision_test
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -105,5 +106,104 @@ func TestCodivPresetReadsOnlyItsVariable(t *testing.T) {
 	}
 	if !slices.Equal(read, []string{"CODIV_API_KEY"}) {
 		t.Errorf("variables read = %q, want only CODIV_API_KEY", read)
+	}
+}
+
+// TestOpenRouterPresetsReadOnlyTheirVariable builds a client of each
+// OpenRouter preset, pointed at a stand-in by replacing its BaseURL alone,
+// with a getenv that fails the test on any name other than
+// OPENROUTER_API_KEY, although every generic variable is set too. The System
+// One call reaches the stand-in under the preset's path with
+// OPENROUTER_API_KEY's value as the bearer token; the listing, which neither
+// preset has, fails with a *ConfigError before anything is sent; and
+// OPENROUTER_API_KEY is the one variable read.
+func TestOpenRouterPresetsReadOnlyTheirVariable(t *testing.T) {
+	tests := map[string]struct {
+		preset   decision.Provider
+		dir      string
+		wantPath string
+	}{
+		"success: OpenRouter": {
+			preset:   provider.OpenRouter(),
+			dir:      "openrouter",
+			wantPath: "/api/v1/systemone",
+		},
+		"success: OpenRouter Decisions": {
+			preset:   provider.OpenRouterDecisions(),
+			dir:      "openrouter-decisions",
+			wantPath: "/api/alpha/decisions",
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			const key = "sk-or-test-key-0123456789"
+			env := map[string]string{
+				"OPENROUTER_API_KEY":     key,
+				decision.APIKeyEnv:       "generic-key-not-for-openrouter",
+				decision.BaseURLEnv:      "https://generic.example.test",
+				decision.DefaultModelEnv: "generic-model",
+			}
+			var (
+				mu   sync.Mutex
+				read []string
+			)
+			getenv := func(name string) string {
+				mu.Lock()
+				read = append(read, name)
+				mu.Unlock()
+				if name != "OPENROUTER_API_KEY" {
+					t.Errorf("the client read the environment variable %s; it may read only OPENROUTER_API_KEY", name)
+				}
+				return env[name]
+			}
+
+			result := testsupport.Fixture(t, "live/providers/"+tt.dir+"/typed-response.json")
+			type seen struct{ Method, Path, Authorization string }
+			var got []seen
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mu.Lock()
+				got = append(got, seen{Method: r.Method, Path: r.URL.Path, Authorization: r.Header.Get("Authorization")})
+				mu.Unlock()
+				if r.Method != http.MethodPost || r.URL.Path != tt.wantPath {
+					http.NotFound(w, r)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write(result)
+			}))
+			t.Cleanup(srv.Close)
+
+			p := tt.preset
+			p.BaseURL = srv.URL
+			c, err := decision.NewClientWithEnv(getenv, decision.WithProvider(p), decision.WithModel("typesafe/jev-1.13"), decision.WithRetry(decision.NoRetry()))
+			if err != nil {
+				t.Fatalf("NewClientWithEnv: %v", err)
+			}
+			t.Cleanup(func() { _ = c.Close() })
+			qs, err := decision.NewQuestions().Noul("q", decision.Noul{Instructions: decision.Text("?")}).Prepare()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := c.SystemOne(t.Context(), "hello", qs); err != nil {
+				t.Fatalf("SystemOne: %v", err)
+			}
+			if _, err := c.Models().List(t.Context()); err == nil {
+				t.Error("List succeeded, want a *ConfigError: the preset has no listing")
+			} else if _, isConfig := errors.AsType[*decision.ConfigError](err); !isConfig {
+				t.Errorf("List error = %T %v, want a *ConfigError", err, err)
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+			want := []seen{
+				{Method: http.MethodPost, Path: tt.wantPath, Authorization: "Bearer " + key},
+			}
+			if diff := gocmp.Diff(want, got); diff != "" {
+				t.Errorf("what the stand-in received (-want +got):\n%s", diff)
+			}
+			if !slices.Equal(read, []string{"OPENROUTER_API_KEY"}) {
+				t.Errorf("variables read = %q, want only OPENROUTER_API_KEY", read)
+			}
+		})
 	}
 }

@@ -16,12 +16,14 @@ package livetest
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	decision "github.com/zchee/decision-model-sdk-go"
@@ -81,15 +83,24 @@ func liveEnvFrom(getenv func(string) string) (liveEnv, error) {
 // redactedCredential replaces a credential that scrub removes.
 const redactedCredential = "***"
 
+// headerMemberName is the credential-header rule of credentialShapes
+// and memberNameShapes: the six header names internal/engine's
+// secretHeaderNames lists, and a header-style name (letters, digits and
+// hyphens) that holds "token" or "secret".
+const headerMemberName = `(?:(?:proxy-)?authorization|(?:x-)?api-key|(?:set-)?cookie|[a-z0-9-]*(?:token|secret)[a-z0-9-]*)`
+
 // shapeTail is what follows a key prefix in a credential shape: 8 or more
 // characters of the bearer token's class, matched without regard to case.
 const shapeTail = `[0-9a-z._~+/=-]{8,}`
 
 // credentialShapes are what no recorded body may hold once scrub has run: a
 // token that starts with a prefix the vendors' API keys start with (ts_;
-// apikey_ for TypeSafe AI; sk- for Codiv and OpenAI; sk_ for Decisions API;
+// apikey_ for TypeSafe AI; sk- for Codiv and OpenAI, and sk-or-v1- for
+// OpenRouter, which the sk- shape finds; sk_ for Decisions API;
 // pplx- for Perplexity), a credential header written as a JSON member (a
-// server that echoed request headers), and a bearer credential. The header
+// server that echoed request headers), a member named user_id, which
+// OpenRouter's 400 bodies carry with the caller's account identifier, and a
+// bearer credential. The header
 // names are the ones internal/engine treats as credentials: the six its
 // secretHeaderNames lists, and a name that holds "token" or "secret". That
 // last rule matches only a header-style member name (letters, digits and
@@ -104,8 +115,22 @@ var credentialShapes = []struct {
 	{"a token with the API key prefix sk-", regexp.MustCompile(`(?i)\bsk-` + shapeTail)},
 	{"a token with the API key prefix sk_", regexp.MustCompile(`(?i)\bsk_` + shapeTail)},
 	{"a token with the API key prefix pplx-", regexp.MustCompile(`(?i)\bpplx-` + shapeTail)},
-	{"a credential header as a member", regexp.MustCompile(`(?i)"(?:(?:proxy-)?authorization|(?:x-)?api-key|(?:set-)?cookie|[a-z0-9-]*(?:token|secret)[a-z0-9-]*)"\s*:`)},
+	{"a credential header as a member", regexp.MustCompile(`(?i)"` + headerMemberName + `"\s*:`)},
+	{"an account identifier as a user_id member", regexp.MustCompile(`(?i)"user_id"\s*:`)},
 	{"a bearer credential", regexp.MustCompile(`(?i)\bbearer\s+[0-9a-z._~+/=-]{8,}`)},
+}
+
+// memberNameShapes are the two member-name rows of credentialShapes, matched
+// against a decoded member name as a whole: a name that JSON spells with
+// escapes, such as "\u0075ser_id", is found as its literal spelling is, and
+// a name that only holds a shape's text, such as input_tokens, is not. Each
+// finding is named as its row in credentialShapes is.
+var memberNameShapes = []struct {
+	name string
+	re   *regexp.Regexp
+}{
+	{"a credential header as a member", regexp.MustCompile(`(?i)^` + headerMemberName + `$`)},
+	{"an account identifier as a user_id member", regexp.MustCompile(`(?i)^user_id$`)},
 }
 
 // allowedTokens matches the tokens that have a credential's shape and are
@@ -152,7 +177,12 @@ func maskedEcho(secret string) *regexp.Regexp {
 
 // credentialFindings returns one line per credential in b: each secret that
 // occurs in it, each secret whose masked echo occurs in it, and each
-// credential shape it matches once allowedTokens are set aside.
+// credential shape it matches once allowedTokens are set aside. The shapes
+// are matched on the raw bytes and, for member names, on the decoded names
+// too, so an escaped spelling does not slip through. A shape is reported at
+// most once. The decoded pass stops at the first syntax error, past which
+// only the raw bytes are matched, so a body that is not JSON is matched on
+// its raw bytes alone.
 func credentialFindings(b []byte, secrets ...string) []string {
 	var out []string
 	for i, s := range secrets {
@@ -170,6 +200,43 @@ func credentialFindings(b []byte, secrets ...string) []string {
 	for _, shape := range credentialShapes {
 		if shape.re.Match(shaped) {
 			out = append(out, shape.name)
+		}
+	}
+	// The decoded pass keeps, for each object or array still open, whether
+	// it is an object and how many names and values it has read: a string
+	// read in an object after an even count is a member name. encoding/json
+	// unescapes the name, keeps a duplicate name and replaces invalid UTF-8,
+	// so none of those ends the pass before a later name.
+	type level struct {
+		object bool
+		n      int
+	}
+	var open []level
+	dec := json.NewDecoder(bytes.NewReader(b))
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			break
+		}
+		switch tok {
+		case json.Delim('{'), json.Delim('['):
+			open = append(open, level{object: tok == json.Delim('{')})
+			continue
+		case json.Delim('}'), json.Delim(']'):
+			open = open[:max(len(open)-1, 0)]
+		default:
+			if name, ok := tok.(string); ok && len(open) > 0 && open[len(open)-1].object && open[len(open)-1].n%2 == 0 {
+				for _, shape := range memberNameShapes {
+					if shape.re.MatchString(name) && !slices.Contains(out, shape.name) {
+						out = append(out, shape.name)
+					}
+				}
+			}
+		}
+		// The token, or the object or array it closed, is a name or a value
+		// of the object it was read in.
+		if len(open) > 0 && open[len(open)-1].object {
+			open[len(open)-1].n++
 		}
 	}
 	return out

@@ -650,7 +650,7 @@ provider the `DECISION_MODEL_` variables are not read. The program asks one
 question of Codiv, a System One vendor whose preset names no model, and of
 OpenAI, whose preset carries a dialect and the default model `gpt-6-luna`;
 it needs `CODIV_API_KEY` and `OPENAI_API_KEY`. The README's
-[Providers](../README.md#providers) section lists the five presets and what
+[Providers](../README.md#providers) section lists the seven presets and what
 a dialect changes.
 
 <!-- example: providers/main.go -->

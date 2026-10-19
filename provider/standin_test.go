@@ -235,3 +235,168 @@ func TestDialectStandIn(t *testing.T) {
 		})
 	}
 }
+
+// TestOpenRouterStandIn replays OpenRouter's recorded exchanges through each
+// of its two presets, which speak System One and carry no dialect. The
+// stand-in answers as the vendor did: a 200 that names the call in
+// x-generation-id and sends no x-request-id, and, to any key but testKey, the
+// recorded 401. Both presets read the one OPENROUTER_API_KEY.
+func TestOpenRouterStandIn(t *testing.T) {
+	tests := map[string]struct {
+		preset  decision.Provider
+		dir     string
+		wantURL string
+		want    ticketView
+	}{
+		"success: OpenRouter": {
+			preset: provider.OpenRouter(), dir: "openrouter", wantURL: "https://openrouter.ai/api/v1/systemone",
+			want: ticketView{
+				Billing: 0.99, Tone: "frustrated", ToneConfidence: 0.86,
+				ToneProbabilities: map[string]float64{"calm": 0, "frustrated": 0.91, "angry": 0.09},
+				Urgency:           1.92, UrgencyConfidence: 0.88,
+				Legend:       map[uint32]string{0: "can wait", 1: "this week", 2: "today"},
+				UrgencyProbs: map[uint32]float64{0: 0, 1: 0.08, 2: 0.92},
+			},
+		},
+		"success: OpenRouter Decisions": {
+			preset: provider.OpenRouterDecisions(), dir: "openrouter-decisions", wantURL: "https://openrouter.ai/api/alpha/decisions",
+			want: ticketView{
+				Billing: 0.99, Tone: "frustrated", ToneConfidence: 0.86,
+				ToneProbabilities: map[string]float64{"calm": 0, "frustrated": 0.91, "angry": 0.09},
+				Urgency:           1.93, UrgencyConfidence: 0.9,
+				Legend:       map[uint32]string{0: "can wait", 1: "this week", 2: "today"},
+				UrgencyProbs: map[uint32]float64{0: 0, 1: 0.07, 2: 0.93},
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			ok := fixture(t, tt.dir, "typed-response.json")
+			wrongKey := fixture(t, tt.dir, "wrong-key.json")
+			setEnv(t, map[string]string{"OPENROUTER_API_KEY": testKey})
+			rec := &testsupport.Recorder{Respond: func(r testsupport.RecordedRequest) testsupport.Reply {
+				if r.Header.Get("Authorization") != "Bearer "+testKey {
+					return testsupport.JSON(http.StatusUnauthorized, wrongKey)
+				}
+				reply := testsupport.JSON(http.StatusOK, ok)
+				reply.Header.Set("X-Generation-Id", "gen-dec-1791655465-stand-in")
+				reply.Header.Set("X-Provider-Name", "TypeSafe")
+				return reply
+			}}
+			c, err := decision.NewClient(decision.WithProvider(tt.preset), decision.WithModel("typesafe/jev-1.13"), decision.WithRoundTripper(rec), decision.WithRetry(decision.NoRetry()))
+			if err != nil {
+				t.Fatalf("NewClient: %v", err)
+			}
+			t.Cleanup(func() { _ = c.Close() })
+			lastRequest := func() testsupport.RecordedRequest {
+				reqs := rec.Requests()
+				if len(reqs) == 0 {
+					t.Fatal("the stand-in saw no request")
+				}
+				return reqs[len(reqs)-1]
+			}
+
+			t.Run("ask", func(t *testing.T) {
+				tk, err := decision.Ask[liveTicket](t.Context(), c, recordedState)
+				if err != nil {
+					t.Fatalf("Ask: %v", err)
+				}
+				if diff := gocmp.Diff(tt.want, viewTicket(tk)); diff != "" {
+					t.Errorf("answers (-want +got):\n%s", diff)
+				}
+			})
+
+			t.Run("request", func(t *testing.T) {
+				if _, err := c.SystemOne(t.Context(), recordedState, ticketPrepared(t)); err != nil {
+					t.Fatalf("SystemOne: %v", err)
+				}
+				got := lastRequest()
+				if got.Method != http.MethodPost || got.URL != tt.wantURL {
+					t.Errorf("request = %s %s, want POST %s", got.Method, got.URL, tt.wantURL)
+				}
+				if auth := got.Header.Get("Authorization"); auth != "Bearer "+testKey {
+					t.Errorf("Authorization = %q, want the key of OPENROUTER_API_KEY as a bearer credential", auth)
+				}
+				for _, want := range []string{`"model":"typesafe/jev-1.13"`, `"state":{"subject"`, `"questions":{"billing":{"type":"noul"`} {
+					if !bytes.Contains(got.Body, []byte(want)) {
+						t.Errorf("the request body lacks %s: %s", want, got.Body)
+					}
+				}
+			})
+
+			t.Run("response", func(t *testing.T) {
+				resp, err := c.SystemOne(t.Context(), recordedState, ticketPrepared(t))
+				if err != nil {
+					t.Fatalf("SystemOne: %v", err)
+				}
+				if got, want := resp.Model(), "typesafe/jev-1.13-20260917"; got != want {
+					t.Errorf("Model() = %q, want %q", got, want)
+				}
+				if in, hasIn := resp.Usage().InputTokens(); !hasIn || in != 389 {
+					t.Errorf("InputTokens() = %d, %t; want 389, true", in, hasIn)
+				}
+				if out, hasOut := resp.Usage().OutputTokens(); !hasOut || out != 75 {
+					t.Errorf("OutputTokens() = %d, %t; want 75, true", out, hasOut)
+				}
+				if !bytes.Equal(resp.Meta().RawBody(), ok) {
+					t.Errorf("RawBody() = %s, want the vendor's body as it arrived", resp.Meta().RawBody())
+				}
+				tk, err := decision.DecodeAs[liveTicket](resp)
+				if err != nil {
+					t.Fatalf("DecodeAs: %v", err)
+				}
+				if diff := gocmp.Diff(tt.want, viewTicket(tk)); diff != "" {
+					t.Errorf("DecodeAs answers (-want +got):\n%s", diff)
+				}
+				// The vendor names the call in x-generation-id; the SDK reads
+				// x-typesafe-request-id and x-request-id, so it reports none.
+				if resp.Meta().Header().Get("X-Generation-Id") == "" {
+					t.Error("the stand-in sent no x-generation-id")
+				}
+				if id, has := resp.Meta().RequestID(); has {
+					t.Errorf("RequestID() = %q, true; want none: OpenRouter sends no x-request-id", id)
+				}
+			})
+
+			t.Run("wrong key", func(t *testing.T) {
+				wrong, err := decision.NewClient(decision.WithProvider(tt.preset), decision.WithModel("typesafe/jev-1.13"), decision.WithAPIKey("sk-not-issued-0123456789"), decision.WithRoundTripper(rec), decision.WithRetry(decision.NoRetry()))
+				if err != nil {
+					t.Fatalf("NewClient: %v", err)
+				}
+				defer wrong.Close()
+				_, err = wrong.SystemOne(t.Context(), recordedState, ticketPrepared(t))
+				apiErr := apiErrorOf(t, err)
+				if apiErr.StatusCode != http.StatusUnauthorized || !apiErr.IsAuthentication() {
+					t.Errorf("StatusCode %d, IsAuthentication %t; want 401, true", apiErr.StatusCode, apiErr.IsAuthentication())
+				}
+				if want := "Missing Authentication header"; apiErr.Message != want {
+					t.Errorf("Message = %q, want the vendor's %q", apiErr.Message, want)
+				}
+				if apiErr.ErrorType != "" {
+					t.Errorf("ErrorType = %q, want none: OpenRouter's error body names no type", apiErr.ErrorType)
+				}
+				if id, has := apiErr.RequestID(); has {
+					t.Errorf("RequestID() = %q, true; want none on a 401", id)
+				}
+			})
+
+			t.Run("no listing", func(t *testing.T) {
+				before := len(rec.Requests())
+				resp, err := c.Models().List(t.Context())
+				if resp != nil {
+					t.Error("List returned a response with its error")
+				}
+				if _, isConfig := errors.AsType[*decision.ConfigError](err); !isConfig {
+					t.Errorf("List error = %T %v, want a *ConfigError", err, err)
+				}
+				warmErr := c.WarmUp(t.Context())
+				if _, isConfig := errors.AsType[*decision.ConfigError](warmErr); !isConfig {
+					t.Errorf("WarmUp error = %T %v, want a *ConfigError", warmErr, warmErr)
+				}
+				if after := len(rec.Requests()); after != before {
+					t.Errorf("List and WarmUp sent %d requests, want none", after-before)
+				}
+			})
+		})
+	}
+}
