@@ -1,4 +1,50 @@
-# Release checklist for v0.1.0
+# Release checklist
+
+## v0.2.0
+
+v0.2.0 is the first release since v0.1.0. It adds `decision.Provider` and
+`decision.WithProvider`, the `provider` package with seven presets, the
+two dialects behind `decision.Dialect` (Decisions API's envelope and
+OpenAI's wire), the live tests of the providers and the recorder's guard
+against credentials in a recorded body; [CHANGELOG.md](../CHANGELOG.md)
+lists each change. Of v0.1.0's 22 lines, the 12 below apply again. The
+other ten were v0.1.0's one-time evidence (the port's phase gates, its
+performance measurements, a defect closure and the spike purge) and do
+not recur; the Go support window that one of them checked is unchanged.
+Each line names the v0.1.0 line it repeats.
+
+The local rows were taken on the tree of the release commit, the commit
+that adds this section, on `main` after 5549eee. Times are those that the
+command which took the evidence printed with `date`, or a tool's own
+timestamp. The rows for CI, CodSpeed and Codecov come from the push of the
+release commit, so their run ids and status lines are in the landing
+record. The tag is the owner's act.
+
+| # | Line | Evidence | When | Result |
+| --- | --- | --- | --- | --- |
+| 1 | `main`'s CI green at the release commit, first attempt (v0.1.0 line 3) | Landing record: the lead fills the run ids and the status lines from the push of this commit | after the push | STOP (lead, then owner) |
+| 2 | CodSpeed AC-P7 gate (v0.1.0 line 4) | Landing record: the lead fills the run ids and the status lines from the push of this commit | after the push | STOP (lead, then owner) |
+| 3 | Codecov gate (v0.1.0 line 5) | Landing record: the lead fills the run ids and the status lines from the push of this commit | after the push | STOP (lead, then owner) |
+| 4 | `govulncheck` clean (v0.1.0 line 6) | govulncheck v1.9.0 (`go run golang.org/x/vuln/cmd/govulncheck@v1.9.0`), database https://vuln.go.dev updated 2026-10-08 22:31:09 UTC, go1.27.2, 19 root packages and 6 modules with the standard library: "No vulnerabilities found.", 0 findings, exit status 0 | 2026-10-20 05:32:35 to 05:32:38 JST | PASS |
+| 5 | The README's deviations against Appendix B (v0.1.0 line 7) | `port-test-matrix.py --upstream <checkout> --deviations docs/deviations.md --as-built docs/as-built.md`, CI's form (the script now requires `--upstream` and has no `--no-planned`), the checkout being typesafe-sdk-python at the pinned 0ffd094c72ed outside the repository: 129 upstream tests (94 ported, 35 deviation); 47 Appendix B rows, 27 of them bold (11 reach matrix rows, 16 have no upstream test); 67 keys (45 from Appendix B, 22 from rulings only); 294 rulings; 234 Go names; exit status 0 | 2026-10-20 05:32:38 JST | PASS |
+| 6 | The newest dependencies (v0.1.0 line 8) | `go list -m -u all`: `github.com/bytedance/sonic` v1.15.4, `github.com/google/go-cmp` v0.7.0 and `golang.org/x/net` v0.61.0, the three direct requirements, none with a newer version | 2026-10-20 05:32:39 JST | PASS |
+| 7 | The lint chain and the gate of the release commit (v0.1.0 line 15) | On darwin/arm64 with go1.27.2, each exit status 0: `go build ./...`; `go vet ./...` and `go vet -tags live ./...`; `go test -count=1 ./...` (11 packages ok, the 8 examples without tests); `go test -count=1 -race` on the root, `provider` and `livetest`; `golangci-lint run` (0 issues); `go mod tidy -diff` (empty); `gofmt -l` and `gofumpt -l -extra` on `version.go` (empty); `docs-snippets.py` (13 Go blocks, each equal to its example source); part 1 of `spikes-citations.py` (137 citations well-formed, 0 failures); `git diff --check` (empty). No live test ran (no `DECISION_MODEL_LIVE*` variable set) | 2026-10-20 05:32:40 to 05:33:41 JST | PASS |
+| 8 | `Version` 0.2.0 and the API golden (v0.1.0 line 16) | `decision.Version` is `0.2.0`, and `testdata/api/public-api.txt` was rewritten by `-update` in the same commit, one line (`const Version untyped string = "0.1.0"` to `"0.2.0"`); the client options golden is unchanged; `TestPublicAPISurface`, `TestClientOptionsSurface` and `TestSDKIdentifier` pass | `-update` 2026-10-20 05:07:34 JST; the three tests 05:33:36 to 05:33:40 JST | PASS |
+| 9 | The changelog (v0.1.0 line 17) | [`CHANGELOG.md`](../CHANGELOG.md), `[0.2.0] - 2026-10-19` (the UTC date), an empty `[Unreleased]` above it, and the link references `[Unreleased]` (compare `v0.2.0...HEAD`) and `[0.2.0]` | 2026-10-20 05:08:15 JST (2026-10-19 20:08:15Z) | PASS |
+| 10 | The module zip (v0.1.0 line 18) | 431 files and 1 722 675 B, 5 321 038 B uncompressed (golang.org/x/mod/zip v0.42.0, `CreateFromDir` on a copy of the files this commit tracks, as the proxy builds its zip from the tagged tree; `adapter/` is left out as another module); no entry under `.omc/` and no `.envrc` | 2026-10-20 05:34:10 JST | PASS |
+| 11 | The tag (v0.1.0 line 20) | The owner's act after the lines above are green at this commit: every ci.yaml job green on its first attempt; bench.yaml's job with its AC-P7 step green on its first attempt, a failure of that step by noise judged by one re-run with both host lines quoted; `codecov/project` naming a percentage and the target, beside Codecov's API totals. CodSpeed's own check and every absolute time are report-only | after the landing | STOP (the owner's) |
+| 12 | No package named in the plural (v0.1.0 line 22) | `go list ./...` with and without `-tags live`: the same 19 packages, 11 named (alloctest, benchmark, codec, decision, engine, h2gate, livetest, naive, provider, testsupport, wire) and 8 programs named main; none is named in the plural | 2026-10-20 05:32:40 JST | PASS |
+
+### After the tag (the owner's)
+
+| # | Check | How |
+| --- | --- | --- |
+| T1 | The Go proxy serves the version | `GOPROXY=https://proxy.golang.org go list -m github.com/zchee/decision-model-sdk-go@v0.2.0` prints `github.com/zchee/decision-model-sdk-go v0.2.0` |
+| T2 | pkg.go.dev shows it | open `https://pkg.go.dev/github.com/zchee/decision-model-sdk-go@v0.2.0`; a first visit asks the site to fetch it |
+| T3 | A user can build against it | in an empty directory, `go mod init example.com/try && go get github.com/zchee/decision-model-sdk-go@v0.2.0`, then build the README's quick start |
+| T4 | The proxy's zip is the one measured | `curl -sSfO https://proxy.golang.org/github.com/zchee/decision-model-sdk-go/@v/v0.2.0.zip`, then `unzip -l v0.2.0.zip`: 431 files and 5 321 038 B in all, the count and total of line 10, and no entry under `.omc/` and no `.envrc` |
+
+## v0.1.0
 
 The module was renamed on 2026-10-03 (see [CHANGELOG.md](../CHANGELOG.md)) and
 its version restarted at v0.1.0. The commands and outputs below name the
@@ -61,7 +107,7 @@ R119 and its last R111 are in the landing record, not here.
 | 21 | The runs at W7's head 6578016 | ci.yaml 36318010974 (dispatch, attempt 1, 5 of 5 jobs success) and bench.yaml 36318012829 (dispatch, attempt 1, success): "AC-P7 verdict: pass BenchmarkCall/sdk mean 6079 ns / BenchmarkCall/naive mean 8221 ns = 0.739454 < 1.0" on Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz; `codecov/project` "98.0% (target 85.0%)", Codecov's API 98.03 %, 4 589 lines, 4 499 hits, 90 misses, 3 sessions. CodSpeed's own check "Performance Analysis" read "Performance Regression: -46.8%" against a baseline from another CPU model, an AMD EPYC 9V45; report-only (K37, D-gate-red-run-a1). W7 landed on `main` at 6578016 at 21:40:53 JST (fast-forward); `main`'s push runs CI 36319798404 and Benchmarks 36319798401 had not ended at this commit | 2026-09-27 12:08:44Z to 12:20:17Z; the landing 21:40:53 JST | PASS |
 | 22 | G16: no package named in the plural | `go list` with and without `-tags live`: 17 packages (alloctest, benchmark, codec, decision, engine, h2gate, livetest, naive, testsupport, wire and 7 programs named main). At 8fb16ea: `go test -tags live -list '.*' ./livetest/` lists the 12 names that `./livetests/` listed at 6578016; `go vet` with and without `-tags live` passes; the guard test `TestLiveTestsFailWithoutEnv` passes; the API goldens do not change; no live test ran (both variables unset in every command). Not renamed, each for its reason: the [as-built](as-built.md) row G16 | 2026-09-27 21:21 to 21:26 JST | PASS |
 
-## After the tag (the owner's)
+### After the tag (the owner's)
 
 | # | Check | How |
 | --- | --- | --- |

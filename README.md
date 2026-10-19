@@ -12,9 +12,8 @@ default one. The SDK is a port of TypeSafe AI's Python SDK,
 JSON) and returns typed answers: a probability (noul), a choice among
 options, or a score on a scale.
 
-**Status: v0.1.0**, the first release under this module path
-(`decision.Version` is `0.1.0`). Before v1.0.0 a minor release may change
-the API, as
+**Status: v0.2.0** (`decision.Version` is `0.2.0`). Before v1.0.0 a
+minor release may change the API, as
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) allows.
 
 ## Install

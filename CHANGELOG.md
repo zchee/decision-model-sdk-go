@@ -6,6 +6,8 @@ All notable changes to decision-model-sdk-go are recorded here. The format follo
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-19
+
 ### Added
 
 - `decision.Provider` and `decision.WithProvider` build a client for one
@@ -332,7 +334,8 @@ ones:
   was rewritten on 2026-09-27 to remove them, so the module and a clone
   carry none of them.
 
-[Unreleased]: https://github.com/zchee/decision-model-sdk-go/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/zchee/decision-model-sdk-go/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/zchee/decision-model-sdk-go/releases/tag/v0.2.0
 [0.1.0]: https://github.com/zchee/decision-model-sdk-go/releases/tag/v0.1.0
 [typesafe-sdk-go 0.1.1]: https://github.com/zchee/decision-model-sdk-go/compare/6e5bed2bb6e0065cf4f3cf5f06b9ca809315be86...4d8e724309e782417fbd0b38b52b743946e5c779
 [typesafe-sdk-go 0.1.0]: https://github.com/zchee/decision-model-sdk-go/tree/6e5bed2bb6e0065cf4f3cf5f06b9ca809315be86
