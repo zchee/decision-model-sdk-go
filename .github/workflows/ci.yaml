@@ -166,53 +166,12 @@ jobs:
           go-version-file: go.mod
           check-latest: true
 
-      # -coverpkg=./... instruments every package in every test binary, so a
-      # block counts as covered when any test of the module runs it: code
-      # that one package's tests drive through another's API is credited
-      # where it lives.
-      #
-      # `go tool -n covdata` builds the covdata tool into the build cache
-      # before the tests, in this step's environment (the cache entry
-      # depends on it) and without `|| true`. Otherwise go test's covdata
-      # processes for the packages without tests (the examples) each build
-      # it into the same cache entry, in place, and one can exec the file
-      # while another writes it: "fork/exec .../covdata: text file busy" on
-      # Linux although every package is ok. On Linux the step lists the
-      # files named covdata in GOCACHE (inode, size, mtime) after the warm-up
-      # and after the test command, and fails when the first list lacks the
-      # path the warm-up printed or the two lists differ: either means the
-      # test command's processes may still build the tool.
+      # The script holds the go test flags (-coverpkg=./... among them) and,
+      # on Linux, the guard that keeps go test from building the covdata
+      # tool while another process runs it; its header explains both. A
+      # local run uses the same script, so its profile is made the same way.
       - name: go test -race with coverage
-        run: |
-          tool="$(go tool -n covdata)"
-          echo "go tool -n covdata: $tool"
-          # Each file named covdata in GOCACHE with its inode, size and
-          # mtime; -printf is GNU find's, hence Linux only.
-          covdata_files() {
-            find "$(go env GOCACHE)" -type f -name covdata -printf '%i %s %TY-%Tm-%Td %TT %p\n' | sort
-          }
-          if [ "$RUNNER_OS" = Linux ]; then
-            before="$(covdata_files)"
-            printf 'files named covdata in GOCACHE after the warm-up:\n%s\n' "$before"
-            if ! grep -qF -- " $tool" <<<"$before"; then
-              echo "::error::the path the warm-up printed, $tool, is not among the files named covdata in GOCACHE"
-              exit 1
-            fi
-          fi
-          # The test command's status is kept until the second list is out.
-          set +e
-          go test -race -count=1 -coverpkg=./... -coverprofile=coverage.out -covermode=atomic ./...
-          status=$?
-          set -e
-          if [ "$RUNNER_OS" = Linux ]; then
-            after="$(covdata_files)"
-            printf 'files named covdata in GOCACHE after the test command:\n%s\n' "$after"
-            if [ "$after" != "$before" ]; then
-              echo "::error::the test command changed the files named covdata in GOCACHE: the warm-up did not reach the entry it uses"
-              exit 1
-            fi
-          fi
-          exit "$status"
+        run: bash .github/scripts/race-coverage.sh profile coverage.out
 
       # Allocation counts need a normal build: under -race sync.Pool.Put drops
       # one value in four, so the codec allocation tests skip themselves there.
@@ -357,10 +316,12 @@ jobs:
       # docs/uncovered-lines.md, and no row outlives its block. It runs after
       # the upload, so a failure here still leaves Codecov its report, and on
       # one image: the document describes the ubuntu -race profile, and a
-      # block that timing covers only sometimes has a range row there.
+      # block that timing covers only sometimes has a range row there. The
+      # script runs .github/scripts/uncovered-lines.py; run without a
+      # mode, it makes the profile and checks it in one command.
       - name: Every uncovered block has a reason (AC-Q2)
         if: matrix.os == 'ubuntu-26.04'
-        run: uv run --script .github/scripts/uncovered-lines.py --profile coverage.out --doc docs/uncovered-lines.md
+        run: bash .github/scripts/race-coverage.sh check coverage.out
 
   # Every fuzz target for 60 s, in turn, one package per go test -fuzz
   # invocation; the job fails when any target finds an input that fails

@@ -671,6 +671,9 @@ preset's own variable and never from the generic ones; run it alone, as
   its patch status are informational), and every block the SDK's
   tests leave unrun has a reason in
   [`docs/uncovered-lines.md`](docs/uncovered-lines.md).
+  [`.github/scripts/race-coverage.sh`](.github/scripts/race-coverage.sh)
+  makes CI's `-race` coverage profile and checks that document against
+  it, in CI as two steps and locally, run without arguments, in one.
 - [CodSpeed](https://codspeed.io/zchee/decision-model-sdk-go) runs every
   benchmark in walltime mode on `ubuntu-26.04`. The job fails when a whole
   call is not faster than a naive sonic client's in the same run (the step

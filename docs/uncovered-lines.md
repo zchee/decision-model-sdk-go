@@ -9,6 +9,11 @@ without a row, on a row whose block is covered now or whose code is gone,
 and on a count that differs, so the table cannot fall behind the code. The
 measurements behind it are in [`perf/ledger.md`](perf/ledger.md) `## W6.3`
 and `## W6.5`.
+[`../.github/scripts/race-coverage.sh`](../.github/scripts/race-coverage.sh)
+holds the command of CI's `-race` coverage step and runs the check: CI
+runs it as two steps, and run without arguments it does both on a
+workstation. A profile made on another platform can differ where code is
+built per platform or where timing decides whether a block runs.
 
 The scope is the module's tests over each package: `-coverpkg=./...`
 instruments every package in every test binary, so a block is covered when

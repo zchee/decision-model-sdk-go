@@ -113,8 +113,9 @@ jobs:
       # packages without tests each build the covdata tool into one cache
       # entry, and on Linux one can exec it while another writes it ("text
       # file busy"). Build it once first, as the root does, and keep the
-      # root's before/after listing of GOCACHE on Linux; the step is the
-      # root's, with this module's paths.
+      # root's before/after listing of GOCACHE on Linux; the step copies the
+      # root's guard, which lives in .github/scripts/race-coverage.sh, with
+      # this module's paths.
       - name: go test -race with coverage
         run: |
           tool="$(go tool -n covdata)"
