@@ -76,7 +76,7 @@ jobs:
 
       # setup-uv publishes no floating major tag (only vX.Y.Z tags since v8), so
       # the major-only pin rule cannot apply; Dependabot bumps this full version.
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: astral-sh/setup-uv@v10.3.0
 
       # Ruff, mypy, pytest and the packages each --with adds are pinned to
       # exact versions in the four steps below, so a new release of one of
@@ -337,7 +337,7 @@ jobs:
           fail_ci_if_error: true
 
       - if: matrix.os == 'ubuntu-26.04'
-        uses: astral-sh/setup-uv@v10.2.0
+        uses: astral-sh/setup-uv@v10.3.0
 
       # Every block that the -race step's profile leaves at zero,
       # outside the paths .codecov.yaml ignores, has a row with a reason in
