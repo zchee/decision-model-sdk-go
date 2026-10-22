@@ -78,8 +78,36 @@ jobs:
       # the major-only pin rule cannot apply; Dependabot bumps this full version.
       - uses: astral-sh/setup-uv@v10.2.0
 
+      # Ruff, mypy, pytest and the packages each --with adds are pinned to
+      # exact versions in the four steps below, so a new release of one of
+      # them cannot change a check without a commit that bumps its pin: a
+      # new release can format code differently or report errors the
+      # previous one did not, and an unpinned run would then fail on a tree
+      # that no commit touched. The pins do not lock the packages those
+      # depend on (uvx resolves pytest's pluggy and packaging and mypy's
+      # pathspec anew within the ranges they declare) or the Python uvx
+      # runs the tools on, so a new release of one of those can still
+      # change a run. The pytest that mypy reads types from is the pytest
+      # that runs the tests, so bump the two together. mypy checks against
+      # Python 3.12, the scripts' requires-python floor, whatever Python uvx
+      # runs it on. Dependabot does not update these pins (none of its
+      # ecosystems reads the uvx arguments of a run: line). To update one,
+      # bump its version string here, run the four commands from the
+      # repository root, and when the new Ruff reformats a file, commit its
+      # `ruff format .github/scripts` output with the bump. The three static
+      # checks take seconds and print short errors that name the file and
+      # line, so they run before the slower pytest step.
+      - name: ruff format --check
+        run: uvx ruff@0.17.1 format --check .github/scripts
+
+      - name: ruff check
+        run: uvx ruff@0.17.1 check .github/scripts
+
+      - name: mypy --strict
+        run: uvx --with pytest==9.1.1 --with types-PyYAML==6.0.12.20260906 mypy@2.4.0 --strict --python-version 3.12 .github/scripts
+
       - name: Test the checker scripts
-        run: uvx --with pyyaml pytest -q -p no:cacheprovider .github/scripts
+        run: uvx --with pyyaml==6.0.3 pytest@9.1.1 -q -p no:cacheprovider .github/scripts
 
       - name: Check the port test matrix against the upstream tests
         run: uv run --script .github/scripts/port-test-matrix.py --upstream upstream --deviations docs/deviations.md --as-built docs/as-built.md

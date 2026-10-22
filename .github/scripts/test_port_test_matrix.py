@@ -704,7 +704,11 @@ class TestCheckRows:
         # The root package is named decision, but its import path ends in
         # /decision-model-sdk-go, so only the unqualified name can match it.
         listed = {
-            "github.com/zchee/decision-model-sdk-go": {"TestRoot", "TestOne", "TestThree"}
+            "github.com/zchee/decision-model-sdk-go": {
+                "TestRoot",
+                "TestOne",
+                "TestThree",
+            }
         }
         text = _full((PORTED_A[0], f"| A2 | `test_two` | {cell} | ported |"), PORTED_B)
         assert ptm.check_rows(_rows(text), UPSTREAM, listed) == want
