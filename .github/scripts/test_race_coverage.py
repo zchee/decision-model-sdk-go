@@ -290,3 +290,298 @@ def test_profile_then_check_as_ci_runs_them(tmp_path: Path) -> None:
     assert checked.returncode == 0
     assert checked.stdout.startswith("uncovered-lines: OK, ")
     assert GUARD_LINE not in checked.stdout
+
+
+def test_a_file_that_begins_with_a_dash_is_given_as_dot_slash(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    script = _fixture_script(repo)
+    # rm, go test's -coverprofile= and the checker's --profile all take
+    # ./-C for the file it names.
+    made = _run(script, "profile", "./-C", cwd=tmp_path)
+    assert made.returncode == 0
+    assert len(_blocks(repo / "-C")) == 3
+    checked = _run(script, "check", "./-C", cwd=tmp_path)
+    assert checked.returncode == 0
+    assert checked.stdout.startswith("uncovered-lines: OK, ")
+    assert not list(tmp_path.rglob("coverage.out"))
+
+
+MODULE_SOURCE = """\
+package sub
+
+// Abs is -x for a negative x and x otherwise.
+func Abs(x int) int {
+\tif x < 0 {
+\t\treturn -x
+\t}
+\treturn x
+}
+"""
+
+MODULE_TEST_SOURCE = """\
+package sub
+
+import "testing"
+
+func TestAbs(t *testing.T) {
+\tif got := Abs(2); got != 2 {
+\t\tt.Fatalf("Abs(2) = %d, want 2", got)
+\t}
+}
+"""
+
+
+def _module(repo: Path, name: str = "sub") -> Path:
+    """Write a module nested in the fixture at ``name``, as adapter/ is."""
+    sub = repo / name
+    sub.mkdir()
+    (sub / "go.mod").write_text("module example.com/sub\n\ngo 1.22\n", encoding="utf-8")
+    (sub / "s.go").write_text(MODULE_SOURCE, encoding="utf-8")
+    (sub / "s_test.go").write_text(MODULE_TEST_SOURCE, encoding="utf-8")
+    return sub
+
+
+def _blocks(profile: Path) -> list[str]:
+    """The block lines of a profile, after its mode line."""
+    lines = profile.read_text(encoding="utf-8").splitlines()
+    assert lines[0] == "mode: atomic"
+    return lines[1:]
+
+
+@pytest.mark.parametrize(
+    ("absolute", "file_args"),
+    [
+        pytest.param(False, ["coverage.out"], id="relative DIR"),
+        pytest.param(True, ["coverage.out"], id="absolute DIR"),
+        pytest.param(False, [], id="default FILE"),
+    ],
+)
+def test_profile_in_a_module_dir_writes_its_profile_there(
+    absolute: bool, file_args: list[str], tmp_path: Path
+) -> None:
+    repo = _repo(tmp_path)
+    sub = _module(repo)
+    dir_arg = str(sub) if absolute else "sub"
+    # cwd is tmp_path, not the repository: a relative DIR is taken from its
+    # root, and FILE from DIR.
+    proc = _run(
+        _fixture_script(repo), "-C", dir_arg, "profile", *file_args, cwd=tmp_path
+    )
+    assert proc.returncode == 0
+    assert any(
+        line.startswith("ok  \texample.com/sub\t") for line in proc.stdout.splitlines()
+    )
+    assert "example.com/m" not in proc.stdout
+    # Abs's three blocks, the one of `return -x` with no count; none of the
+    # root module's.
+    blocks = _blocks(sub / "coverage.out")
+    assert len(blocks) == 3
+    assert all(line.startswith("example.com/sub/s.go:") for line in blocks)
+    assert sum(line.endswith(" 0") for line in blocks) == 1
+    assert not (repo / "coverage.out").exists()
+    assert not (tmp_path / "coverage.out").exists()
+    assert not _checker_ran(proc)
+    assert "race-coverage:" not in proc.stdout + proc.stderr
+    _assert_guard(proc.stdout)
+
+
+def test_profile_in_a_module_dir_named_dash_stays_there(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    dash = _module(repo, "-")
+    (repo / "coverage.out").write_text(STALE, encoding="utf-8")
+    # The caller's directory is the repository root, which the script's own
+    # cd to the root leaves in $OLDPWD: a cd that took - for $OLDPWD would
+    # print the root and profile the root module over its coverage.out.
+    proc = _run(_fixture_script(repo), "-C", "-", "profile", "coverage.out", cwd=repo)
+    assert proc.returncode == 0
+    assert proc.stdout.startswith("go tool -n covdata: ")
+    assert any(
+        line.startswith("ok  \texample.com/sub\t") for line in proc.stdout.splitlines()
+    )
+    assert "example.com/m" not in proc.stdout
+    blocks = _blocks(dash / "coverage.out")
+    assert len(blocks) == 3
+    assert all(line.startswith("example.com/sub/s.go:") for line in blocks)
+    assert (repo / "coverage.out").read_text(encoding="utf-8") == STALE
+    assert "race-coverage:" not in proc.stdout + proc.stderr
+    _assert_guard(proc.stdout)
+
+
+def test_profile_without_a_module_dir_stays_in_the_root_module(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    sub = _module(repo)
+    proc = _run(_fixture_script(repo), "profile", "coverage.out", cwd=tmp_path)
+    assert proc.returncode == 0
+    assert "example.com/sub" not in proc.stdout
+    blocks = _blocks(repo / "coverage.out")
+    assert len(blocks) == 3
+    assert all(line.startswith("example.com/m/m.go:") for line in blocks)
+    assert not (sub / "coverage.out").exists()
+    assert "race-coverage:" not in proc.stdout + proc.stderr
+    _assert_guard(proc.stdout)
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        pytest.param(["-C", "sub"], id="all by default"),
+        pytest.param(["-C", "sub", "all"], id="all"),
+        pytest.param(["-C", "sub", "check", "coverage.out"], id="check"),
+        pytest.param(["-C"], id="no DIR"),
+        pytest.param(["-C", "", "profile"], id="empty DIR"),
+        pytest.param(["profile", "-C", "sub"], id="after the mode"),
+        pytest.param(["-C", "sub", "-C", "sub", "profile"], id="twice"),
+    ],
+)
+def test_module_dir_usage_error_exits_2(args: list[str], tmp_path: Path) -> None:
+    # On the fixture, not the repository's script: a broken check here runs
+    # the fixture's tiny module, not the repository's tests.
+    repo = _repo(tmp_path)
+    sub = _module(repo)
+    proc = _run(_fixture_script(repo), *args, cwd=repo)
+    assert proc.returncode == 2
+    assert proc.stdout == ""
+    assert proc.stderr.startswith("usage: ")
+    assert not _checker_ran(proc)
+    assert not (repo / "coverage.out").exists()
+    assert not (sub / "coverage.out").exists()
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        pytest.param(["profile", "-C"], id="-C as FILE"),
+        pytest.param(["-C", "sub", "profile", "-C"], id="-C as FILE with -C sub"),
+        pytest.param(["profile", "--help"], id="--help as FILE"),
+        pytest.param(["check", "-C"], id="-C as FILE of check"),
+        pytest.param(["-C", "sub", "profile", "-"], id="- as FILE"),
+    ],
+)
+def test_file_that_begins_with_a_dash_is_a_usage_error(
+    args: list[str], tmp_path: Path
+) -> None:
+    repo = _repo(tmp_path)
+    sub = _module(repo)
+    script = _fixture_script(repo)
+    # A file of that name in both modules: taken for FILE, profile would
+    # remove it and go test would write it again.
+    name = args[-1]
+    for module in (repo, sub):
+        (module / name).write_text(STALE, encoding="utf-8")
+    proc = _run(script, *args, cwd=repo)
+    assert proc.returncode == 2
+    assert proc.stdout == ""
+    # The script's own usage text: the checker's argparse also prints a
+    # line that begins with "usage: " when --profile is given an option.
+    assert proc.stderr == _run(script, "--help", cwd=repo).stdout
+    assert not _checker_ran(proc)
+    for module in (repo, sub):
+        assert (module / name).read_text(encoding="utf-8") == STALE
+    assert not list(tmp_path.rglob("coverage.out"))
+
+
+@pytest.mark.parametrize(
+    ("dir_arg", "reason", "github_actions"),
+    [
+        pytest.param(
+            "nope",
+            "no such directory (a relative DIR is taken from the repository "
+            "root, {root})",
+            False,
+            id="missing DIR",
+        ),
+        pytest.param(
+            "nope",
+            "no such directory (a relative DIR is taken from the repository "
+            "root, {root})",
+            True,
+            id="missing DIR under GitHub Actions",
+        ),
+        pytest.param(
+            "m.go",
+            "no such directory (a relative DIR is taken from the repository "
+            "root, {root})",
+            False,
+            id="DIR is a file",
+        ),
+        pytest.param(
+            "plain",
+            "the directory holds no go.mod, so it is not a module's root",
+            False,
+            id="DIR without go.mod",
+        ),
+    ],
+)
+def test_module_dir_runs_nothing_when_it_is_not_a_module(
+    dir_arg: str, reason: str, github_actions: bool, tmp_path: Path
+) -> None:
+    repo = _repo(tmp_path)
+    plain = repo / "plain"
+    plain.mkdir()
+    (plain / "p.go").write_text("package plain\n", encoding="utf-8")
+    proc = _run(
+        _fixture_script(repo),
+        "-C",
+        dir_arg,
+        "profile",
+        "coverage.out",
+        cwd=tmp_path,
+        github_actions=github_actions,
+    )
+    assert proc.returncode == 1
+    message = f"-C {dir_arg}: " + reason.replace("{root}", str(repo))
+    # profile's first line, the warm-up's path, comes before go test.
+    if github_actions:
+        assert proc.stdout.splitlines() == [f"::error::{message}"]
+        assert proc.stderr == ""
+    else:
+        assert proc.stdout == ""
+        assert proc.stderr.splitlines() == [f"race-coverage: error: {message}"]
+    assert not list(tmp_path.rglob("coverage.out"))
+
+
+def test_profile_in_a_module_dir_removes_its_old_profile(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    sub = _module(repo)
+    # go test stops on go.mod before it opens the profile, so the stale file
+    # is gone only if the script removed it.
+    (sub / "go.mod").write_text("module\n", encoding="utf-8")
+    (sub / "coverage.out").write_text(STALE, encoding="utf-8")
+    (repo / "coverage.out").write_text(STALE, encoding="utf-8")
+    proc = _run(
+        _fixture_script(repo), "-C", "sub", "profile", "coverage.out", cwd=tmp_path
+    )
+    assert proc.returncode == 1
+    assert proc.stdout.startswith("go tool -n covdata: ")
+    assert "race-coverage: error: go test failed with exit status 1" in (
+        proc.stderr.splitlines()
+    )
+    assert not (sub / "coverage.out").exists()
+    # The root module's profile is not the one -C sub replaces.
+    assert (repo / "coverage.out").read_text(encoding="utf-8") == STALE
+
+
+def test_profile_in_a_module_dir_stops_when_its_old_profile_stays(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    sub = _module(repo)
+    # rm -f refuses a directory for every user, root included.
+    stale_dir = sub / "coverage.out"
+    stale_dir.mkdir()
+    (stale_dir / "stale.out").write_text(STALE, encoding="utf-8")
+    proc = _run(
+        _fixture_script(repo), "-C", "sub", "profile", "coverage.out", cwd=tmp_path
+    )
+    assert proc.returncode == 1
+    assert proc.stdout == ""
+    err = proc.stderr.splitlines()
+    assert len(err) == 1
+    prefix = (
+        "race-coverage: error: cannot remove coverage.out, left by an earlier "
+        "run, before go test writes it: "
+    )
+    assert err[0].startswith(prefix)
+    assert "coverage.out" in err[0].removeprefix(prefix)
+    assert (stale_dir / "stale.out").read_text(encoding="utf-8") == STALE
+    assert not (repo / "coverage.out").exists()

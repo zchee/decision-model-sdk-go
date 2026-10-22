@@ -4,7 +4,8 @@
 # runs both through this script, as the steps "go test -race with coverage"
 # and "Every uncovered block has a reason (AC-Q2)", and a local run uses the
 # same script, so the go test flags live here alone and the profile checked
-# on a workstation is made by the command CI runs.
+# on a workstation is made by the command CI runs. adapter.yaml makes the
+# profile of the nested adapter module with the same script, through -C.
 #
 # Usage, from any directory (FILE is relative to the repository root and
 # defaults to coverage.out, which .gitignore keeps out of git status):
@@ -12,6 +13,17 @@
 #   .github/scripts/race-coverage.sh [all [FILE]]  # profile, then check
 #   .github/scripts/race-coverage.sh profile [FILE]
 #   .github/scripts/race-coverage.sh check [FILE]
+#   .github/scripts/race-coverage.sh -C DIR profile [FILE]
+#
+# -C DIR, which comes first as in `go -C`, runs profile in the module whose
+# go.mod is in DIR instead of the root module; a relative DIR is taken from
+# the repository root, and FILE is then relative to DIR. Only profile takes
+# it: check and all read docs/uncovered-lines.md, which lists the root
+# module's blocks alone. go test runs with the caller's environment, so a
+# caller that needs GOWORK=off for the module sets it.
+#
+# A FILE that begins with - is a usage error, so that an option given after
+# the mode is not taken for a file name; ./-FILE names such a file.
 #
 # CI runs profile and check as two steps with the Codecov upload between
 # them, so a failed check still leaves Codecov its report. all runs the
@@ -21,8 +33,9 @@
 #
 # Exit status: 0 when every part that ran passed; non-zero when go test or
 # the check failed, with an error line naming which, and when a FILE left by
-# an earlier run cannot be removed, in which case nothing runs; 2 for a
-# usage error.
+# an earlier run cannot be removed or DIR is not a directory holding a
+# go.mod, in which case nothing runs; 2 for a usage error, -C with all or
+# check and a FILE that begins with - among them.
 #
 # docs/uncovered-lines.md describes the profile of CI's ubuntu-26.04 image;
 # CI runs the check on that image alone. A profile made on another platform
@@ -47,17 +60,23 @@
 
 set -euo pipefail
 
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# An empty CDPATH keeps cd from finding a relative script path's directory
+# through a caller's exported CDPATH and printing it into script_dir.
+script_dir="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 script="$script_dir/$(basename "${BASH_SOURCE[0]}")"
 root="$(cd "$script_dir/../.." && pwd)"
 doc=docs/uncovered-lines.md
 
 usage() {
   printf 'usage: %s [all|profile|check [FILE]]\n' "$0"
+  printf '       %s -C DIR profile [FILE]\n' "$0"
   printf '  all      profile, then check (the default)\n'
   printf '  profile  write FILE with the -race coverage flags of CI\n'
   printf '  check    check that every zero-count block of FILE has a reason in %s\n' "$doc"
-  printf 'FILE is relative to the repository root; default coverage.out.\n'
+  printf '  -C DIR   run profile in the module in DIR instead of the root module\n'
+  printf 'DIR is relative to the repository root; FILE is relative to DIR with -C\n'
+  printf 'and to the repository root otherwise; default coverage.out. A FILE that\n'
+  printf 'begins with - is given as ./FILE.\n'
 }
 
 # fail MESSAGE prints MESSAGE as an error annotation under GitHub Actions
@@ -166,6 +185,15 @@ all() {
   fi
 }
 
+module_dir=
+if [ "$#" -gt 0 ] && [ "$1" = -C ]; then
+  if [ "$#" -lt 2 ] || [ -z "$2" ]; then
+    usage >&2
+    exit 2
+  fi
+  module_dir=$2
+  shift 2
+fi
 mode=all
 file=coverage.out
 if [ "$#" -gt 0 ]; then
@@ -183,6 +211,15 @@ if [ "$#" -gt 0 ]; then
   shift
 fi
 if [ "$#" -gt 0 ]; then
+  # An option given after the mode, such as -C or --help, is not a file
+  # name: profile would write it and check would hand it to the checker as
+  # an option. ./-FILE names a file whose name begins with -.
+  case "$1" in
+    -*)
+      usage >&2
+      exit 2
+      ;;
+  esac
   file=$1
   shift
 fi
@@ -190,6 +227,28 @@ if [ "$#" -gt 0 ] || [ -z "$file" ]; then
   usage >&2
   exit 2
 fi
+if [ -n "$module_dir" ] && [ "$mode" != profile ]; then
+  usage >&2
+  exit 2
+fi
 
 cd "$root"
+if [ -n "$module_dir" ]; then
+  # cd gets an absolute path: it takes the operand - for $OLDPWD even after
+  # --, and looks a relative name up in CDPATH first, where another
+  # directory of the same name could be found and printed.
+  case "$module_dir" in
+    /*) module_path=$module_dir ;;
+    *) module_path=$root/$module_dir ;;
+  esac
+  if [ ! -d "$module_path" ]; then
+    fail "-C $module_dir: no such directory (a relative DIR is taken from the repository root, $root)"
+    exit 1
+  fi
+  if [ ! -f "$module_path/go.mod" ]; then
+    fail "-C $module_dir: the directory holds no go.mod, so it is not a module's root"
+    exit 1
+  fi
+  CDPATH='' cd -- "$module_path"
+fi
 "$mode" "$file"
