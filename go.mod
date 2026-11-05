@@ -5,7 +5,7 @@ go 1.27
 require (
 	github.com/bytedance/sonic v1.15.4
 	github.com/google/go-cmp v0.7.0
-	golang.org/x/net v0.61.0
+	golang.org/x/net v0.62.0
 )
 
 require (
