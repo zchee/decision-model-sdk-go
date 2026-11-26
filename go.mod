@@ -5,7 +5,7 @@ go 1.27
 require (
 	github.com/bytedance/sonic v1.15.4
 	github.com/google/go-cmp v0.7.0
-	golang.org/x/net v0.61.0
+	golang.org/x/net v0.63.0
 )
 
 require (
@@ -16,6 +16,6 @@ require (
 	github.com/stretchr/testify v1.12.1 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	golang.org/x/arch v0.32.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
-	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 )
